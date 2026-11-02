@@ -315,6 +315,7 @@ impl Hub {
         }
         // A review box runs each agent message as its own prompt behind the review (`inbox.rs`).
         if head.agent.is_none()
+            || crate::prompt_provenance::is_trigger(head.provenance.as_ref())
             || super::forum::slash_command(&head.blocks).is_some()
             || crate::prompt_uploads::any(&head.blocks)
             || super::inbox::review_box(session)
@@ -331,11 +332,13 @@ impl Hub {
             let mut i = 0;
             while i < queue.len() {
                 let q = &queue[i];
-                if q.held {
+                // Held, or waiting for the owner (`queue_approve.rs`): never sent with this turn.
+                if q.aside() {
                     i += 1;
                     continue;
                 }
                 let joins = q.run.agent.is_some()
+                    && !crate::prompt_provenance::is_trigger(q.run.provenance.as_ref())
                     && super::forum::slash_command(&q.run.blocks).is_none()
                     && !crate::prompt_uploads::any(&q.run.blocks)
                     && !unclaimed.iter().any(|(id, _)| *id == q.prompt_id)
@@ -686,6 +689,9 @@ mod tests {
             resume: false,
             steer: false,
             held: false,
+            awaiting_owner: false,
+            revision: 0,
+            declined: Default::default(),
             sent_now: false,
             joined: Arc::new(StdMutex::new(None)),
             requeued: false,
@@ -722,6 +728,9 @@ mod tests {
             joined: Arc::new(StdMutex::new(None)),
             requeued: false,
             retries: 0,
+            awaiting_owner: false,
+            revision: 0,
+            declined: Default::default(),
         }
     }
 

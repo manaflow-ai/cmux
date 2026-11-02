@@ -175,6 +175,23 @@ export async function sessionLogin(
   await open({ kind: "terminal", text: command, ...(cwd ? { cwd } : {}), run: true });
 }
 
+/// What `/login` runs (Lawrence, via Leo: "in gui, having /resume would be nice, maybe /login as
+/// well"): acpmux's own sign-in for a chat it found signed out (its command keeps the route's
+/// account home); else, for a chat acpmux says is on this Mac (`host: null`, never a missing or
+/// unknown host) with no route, the harness's declared login (`catalog[].auth.login`), so a
+/// signed-in chat can sign in again or switch accounts. A route may name its own account home and
+/// another host signs in there, so neither gets the default login.
+export function slashLogin(
+  auth: SessionAuth | undefined,
+  declared: string | undefined,
+): { kind: "session" } | { kind: "terminal"; command: string } | undefined {
+  if (canSessionLogin(auth)) return { kind: "session" };
+  const command = declared?.trim();
+  if (!command || !auth || auth.host !== null || auth.routeId || auth.login?.kind === "route" || auth.login?.host)
+    return undefined;
+  return { kind: "terminal", command };
+}
+
 export type SessionAuthQuery = { sessionId: string } | { target: { harness: string; host?: string; routeId?: string } };
 export type ReadSessionAuth = (query: SessionAuthQuery, refresh?: boolean) => Promise<unknown>;
 

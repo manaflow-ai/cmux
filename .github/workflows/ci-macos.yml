@@ -162,6 +162,7 @@ jobs:
     timeout-minutes: 3
     permissions:
       contents: read
+      actions: read
     outputs:
       runner: ${{ steps.place.outputs.runner }}
       placement: ${{ steps.place.outputs.placement }}
@@ -188,7 +189,6 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
           # On a re-run, the jobs of the attempt before (admission_placement.failed_members()).
-          permission-actions: read
       # All or nothing: without the org permission granted, the repository one alone.
       - name: Mint the routing token without the org permission
         id: route-token-repo
@@ -200,13 +200,13 @@ jobs:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
-          permission-actions: read
       - name: Place compile admission
         id: place
         continue-on-error: true
         timeout-minutes: 1
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          GITHUB_TOKEN: ${{ github.token }}
           ROOT_RUNNER: ${{ inputs.pr_root_runner }}
           ADMISSION_WARM: ${{ inputs.pr_admission_warm }}
         run: python3 scripts/ci/admission_placement.py
@@ -1387,6 +1387,7 @@ jobs:
     timeout-minutes: 3
     permissions:
       contents: read
+      actions: read
     outputs:
       # Only jobs the rescue watch can find move: a marker that failed to
       # upload leaves every job where the picker put it.
@@ -1417,7 +1418,6 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
           # The gui and Blacksmith backlogs: the jobs of in-flight CI runs (late_placement.gui_backlog()).
-          permission-actions: read
       # All or nothing: without the org permission granted, the repository one alone.
       - name: Mint the routing token without the org permission
         id: route-token-repo
@@ -1429,13 +1429,13 @@ jobs:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
-          permission-actions: read
       - name: Place the jobs after admission
         id: place
         continue-on-error: true
         timeout-minutes: 1
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          GITHUB_TOKEN: ${{ github.token }}
           MACOS: ${{ inputs.macos }}
           FULL_SUITE: ${{ inputs.full_suite }}
           OWNED_JOBS: ${{ inputs.pr_owned_jobs }}
@@ -2246,7 +2246,7 @@ jobs:
       - swift-package-tests
       - macos-compile-admission
     if: ${{ !cancelled() && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && inputs.release_build == 'true' && inputs.full_suite == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 20
     steps:
       - name: Wait for routed Linux preflight
@@ -2733,7 +2733,7 @@ jobs:
     # A cancelled run already has its terminal outcome; avoid spending a
     # Blacksmith runner on the status rollup.
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       # Compile-avoidance shadow (RFC #15391, Work 3). The package lane

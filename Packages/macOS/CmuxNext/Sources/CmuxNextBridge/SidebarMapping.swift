@@ -196,10 +196,13 @@ public struct SidebarMapping {
                 let title = Self.shortenedPath(tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle), of: tab, shorten: shorten)
                 // The hover card's tab rows show each tab's own folder and status; a New Tab page shows neither.
                 var listed = SidebarTab(id: TabID(tab.id), title: title,
-                                        kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
-                                        brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon,
-                                        folder: isNewTabPage ? nil : tab.cwd.flatMap { $0.isEmpty ? nil : shorten($0) },
-                                        state: isNewTabPage ? .idle : state)
+                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
+                                  brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon,
+                                  folder: isNewTabPage ? nil : tab.cwd.flatMap { $0.isEmpty ? nil : shorten($0) },
+                                  state: isNewTabPage ? .idle : state,
+                                  host: isNewTabPage || tab.kind != .browser ? nil : Self.pageHost(tab.url),
+                                  branch: tab.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
+                                  lastActivity: lastActivity([tab]))
                 // Its chat's running subagents and commands, which the tab row counts.
                 (listed.subagentsRunning, listed.commandsRunning) = Self.running(tab)
                 return listed
@@ -467,6 +470,12 @@ public struct SidebarMapping {
         guard !title.isEmpty else { return nil }
         if let cwd = tab.cwd, title == cwd || title == abbreviate(cwd) { return nil }
         return title
+    }
+
+    /// A page's host for the hover card's tab rows ("github.com"); nil for a blank or local page.
+    static func pageHost(_ url: String?) -> String? {
+        guard let url, let host = URL(string: url)?.host(), !host.isEmpty else { return nil }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
     /// The newest agent update or notification of the tabs; nil without one.

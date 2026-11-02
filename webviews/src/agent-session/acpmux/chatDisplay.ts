@@ -83,6 +83,13 @@ export const TRANSCRIPT_VIEWS: readonly TranscriptView[] = ["normal", "thinking"
 export const isTranscriptView = (value: unknown): value is TranscriptView =>
   value === "normal" || value === "thinking" || value === "verbose";
 
+/// Settings > Agent Chat > Presentation (conversation/presentation.ts): whether a chat shows the
+/// complete transcript or the Messages-style bubble view with tool rows hidden.
+export const PRESENTATION_KEY = "agentPane.display.presentation";
+export type Presentation = "transcript" | "messages";
+export const PRESENTATIONS: readonly Presentation[] = ["transcript", "messages"];
+export const isPresentation = (value: unknown): value is Presentation => value === "transcript" || value === "messages";
+
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
 export const CHAT_DISPLAY = {
@@ -245,6 +252,7 @@ let raw: Values = {};
 let minimapOn = false;
 let threadMinimapArm: ThreadMinimapArm | null = null;
 let transcriptView: TranscriptView = "normal";
+let presentation: Presentation = "transcript";
 let featureTipsOn = true;
 const listeners = new Set<() => void>();
 
@@ -264,6 +272,8 @@ export function setChatDisplay(value: unknown): void {
   const threadMinimap = resolveThreadMinimapArm(raw);
   const stored = raw[TRANSCRIPT_VIEW_KEY];
   const view = isTranscriptView(stored) ? stored : "normal";
+  const storedPresentation = raw[PRESENTATION_KEY];
+  const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
   const tips = raw[FEATURE_TIPS_KEY] !== false;
   const same = JSON.stringify(next) === JSON.stringify(current);
   if (
@@ -271,12 +281,14 @@ export function setChatDisplay(value: unknown): void {
     minimap === minimapOn &&
     threadMinimap === threadMinimapArm &&
     view === transcriptView &&
+    nextPresentation === presentation &&
     tips === featureTipsOn
   )
     return;
   minimapOn = minimap;
   threadMinimapArm = threadMinimap;
   transcriptView = view;
+  presentation = nextPresentation;
   featureTipsOn = tips;
   if (same) {
     for (const listener of listeners) listener();
@@ -338,10 +350,15 @@ const snapshot = () => current;
 const minimapSnapshot = () => minimapOn;
 const threadMinimapSnapshot = () => threadMinimapArm;
 const transcriptViewSnapshot = () => transcriptView;
+const presentationSnapshot = () => presentation;
 /// The Transcript View setting: the view of a chat without its own (conversation/transcriptView.ts).
 export const defaultTranscriptView = (): TranscriptView => transcriptView;
 export const useDefaultTranscriptView = (): TranscriptView =>
   useSyncExternalStore(subscribe, transcriptViewSnapshot, transcriptViewSnapshot);
+/// The presentation setting for a chat without its own (conversation/presentation.ts).
+export const defaultPresentation = (): Presentation => presentation;
+export const useDefaultPresentation = (): Presentation =>
+  useSyncExternalStore(subscribe, presentationSnapshot, presentationSnapshot);
 const featureTipsSnapshot = () => featureTipsOn;
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);

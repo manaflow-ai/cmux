@@ -11,7 +11,12 @@ import { renderId } from "../src/agent-session/acpmux/conversation/renderCall";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import { outputArtifacts, outputLinks } from "../src/agent-session/acpmux/session-info/OutputsSection";
+import {
+  OUTPUTS_SHOWN,
+  OutputsSection,
+  outputArtifacts,
+  outputLinks,
+} from "../src/agent-session/acpmux/session-info/OutputsSection";
 import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
 import type { SessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
@@ -197,4 +202,35 @@ test("SummaryBody does not re-add checkpoint files outside the project", async (
     );
   });
   expect(container.textContent).not.toContain("m1076.txt");
+});
+
+// Leo (ask-fd0730a919): show more / show less per thing, Changes, Outputs, subagents, the whole row
+// clickable with no pill, as Claude Code desktop's.
+test("five Outputs show, then a whole-row Show more opens the rest and Show less folds them again", async () => {
+  const container = installDom();
+  const links = Array.from({ length: 8 }, (_, index) => ({
+    url: `https://example.com/${index}`,
+    label: `example.com/${index}`,
+  }));
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<OutputsSection files={[]} links={links} artifacts={0} />);
+  });
+  const shown = () => container.querySelectorAll('ul[data-section="outputs"] > li').length;
+  const fold = () => container.querySelector<HTMLButtonElement>("button.acpmux-session-info-fold");
+  expect(shown()).toBe(OUTPUTS_SHOWN);
+  expect(fold()?.textContent).toBe(translate("sessionInfo.outputs.showMore"));
+  expect(fold()?.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => fold()!.click());
+  expect(shown()).toBe(8);
+  expect(fold()?.textContent).toBe(translate("sessionInfo.outputs.showLess"));
+  await act(async () => fold()!.click());
+  expect(shown()).toBe(OUTPUTS_SHOWN);
+
+  // Five or fewer: no fold at all.
+  await act(async () =>
+    root!.render(<OutputsSection files={[]} links={links.slice(0, OUTPUTS_SHOWN)} artifacts={0} />),
+  );
+  expect(shown()).toBe(OUTPUTS_SHOWN);
+  expect(fold()).toBeNull();
 });

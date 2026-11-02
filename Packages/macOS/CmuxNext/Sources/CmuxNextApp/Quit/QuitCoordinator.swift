@@ -196,16 +196,23 @@ final class QuitCoordinator {
                 }
             },
             prepareWindows: { [steps] in
+                let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: services.cache.browserTabs.isIncognitoTab)
                 await QuitSaveSteps(
                     remoteSnapshots: { await services.remoteTerminals.saveSnapshots() },
-                    agentComposers: { await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates()) },
-                    agentImages: { await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages()) },
+                    agentComposers: { await services.agentTabs.relaunchWake.save(AgentQuitFiles.composers(services.agentTabs, isIncognito: incognito.contains)) },
+                    agentImages: { await services.agentTabs.launchImages.save(AgentQuitFiles.images(services.agentTabs, isIncognito: incognito.contains)) },
                     terminalFrames: {
                         await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
                             .save(services.cache.terminals.mapValues(\.session))
                     },
                     browserRecords: { await services.cache.browserTabs.flushRecords() },
-                    windows: { await services.windows.prepareForTermination() },
+                    windows: {
+                        // Incognito windows' chats are purged before their spaces go (IncognitoChats), and
+                        // the step waits for them: every quit, Keep included, waits for a step past its limit.
+                        services.incognitoChats.closingForQuit(services)
+                        await services.windows.prepareForTermination()
+                        await services.incognitoChats.drain()
+                    },
                     stopSavingWindows: { services.windows.stopSavingForTermination() },
                     sidebar: { await services.sidebarSnapshots.flush() },
                     homeCache: { await services.home.flushCacheForQuit() },
@@ -215,6 +222,8 @@ final class QuitCoordinator {
             endLocalSessions: { await services.daemon.endSessionsAndStop(choice) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
             endLocalAgents: { [attempts = QuitAttempts()] in
+                // The incognito chats' purges reach acpmux before its agents end.
+                await services.incognitoChats.drain()
                 // The Chief home's host ends with the sessions (home-state-ownership.md section 3),
                 // and Home does not start it again.
                 await services.home.brain.stop()

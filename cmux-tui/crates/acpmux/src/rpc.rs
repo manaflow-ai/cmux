@@ -60,11 +60,10 @@ impl RpcError {
     }
 }
 
-/// The most one JSON-RPC message takes on any acpmux transport: under the 16 MiB WebSocket frame
-/// every acpmux build reads with, with room for a daemon that relays it to add its peer's name. A
-/// larger frame resets the whole connection on the side that reads it, with every chat on it: a
-/// 32.8 MB history reply did that to a peer link at 2026-10-21 06:23Z.
-pub const MAX_MESSAGE_BYTES: usize = 15 << 20;
+/// The most one JSON-RPC message takes on any acpmux transport. The app accepts 32 MiB frames and
+/// the daemon accepts 64 MiB WebSocket frames, so 31 MiB leaves room for the envelope and a peer
+/// relay's metadata without falling back to a connection-reset failure.
+pub const MAX_MESSAGE_BYTES: usize = 31 << 20;
 
 impl RpcError {
     /// A message over [`MAX_MESSAGE_BYTES`]: it fails alone, the connection stays.
@@ -318,6 +317,11 @@ pub mod method {
     pub const SESSION_DELETE: &str = "session/delete";
     pub const SESSION_PROMPT: &str = "session/prompt";
     pub const SESSION_CANCEL: &str = "session/cancel";
+    /// Dedicated, scoped Cloud trigger chat operations. These never fall
+    /// through to the ordinary session/new, session/prompt or info paths.
+    pub const TRIGGER_CHAT_ENSURE: &str = "trigger/chat.ensure";
+    pub const TRIGGER_CHAT_SEND: &str = "trigger/chat.send";
+    pub const TRIGGER_CHAT_STATUS: &str = "trigger/chat.status";
     pub const SESSION_SET_MODE: &str = "session/set_mode";
     pub const SESSION_SET_MODEL: &str = "session/set_model";
     pub const SESSION_SET_CONFIG_OPTION: &str = "session/set_config_option";
@@ -380,10 +384,20 @@ pub mod method {
     pub const MUX_APP_REPLY: &str = "_acpmux/app_reply";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
+    /// The owner lets a person's prompt that waits for them run, `{sessionId, promptId}`
+    /// (`hub/queue_approve.rs`): `{sessionId, promptId, turnId, revision, approved}`.
+    pub const MUX_QUEUE_APPROVE: &str = "_acpmux/queue_approve";
+    /// The owner drops a person's prompt that waits for them, `{sessionId, promptId}`: its
+    /// `session/prompt` answers `queue.declined`. `{sessionId, promptId, declined}`.
+    pub const MUX_QUEUE_DECLINE: &str = "_acpmux/queue_decline";
     /// One queued prompt's whole text and blocks, `{sessionId, promptId}` →
     /// `{sessionId, promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`
     /// (`hub/queue_text.rs`); the queue list carries a 200-character preview only.
     pub const MUX_QUEUE_TEXT: &str = "_acpmux/queue_text";
+    /// The owner reads a queued prompt whole before answering it, `{sessionId, promptId}`
+    /// (`hub/queue_approve.rs`): `{promptId, turnId, revision, text, prompt, inlineParts, author,
+    /// provenance, awaitingOwner}`.
+    pub const MUX_QUEUE_GET: &str = "_acpmux/queue_get";
     /// To the agent adapter, `{sessionId}`: stop the agent's current step so it reads the steers
     /// that wait for it, and keep the turn (Send now on a steer, `hub/queue_edit.rs`). Answers
     /// `{interrupted}`, false when no steer waits; an agent without it answers an error.
@@ -499,6 +513,9 @@ pub mod method {
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
     pub const MUX_STATS: &str = "_acpmux/stats";
+    /// Stop and delete every chat of one cmux workspace, an incognito one when its window
+    /// closes (`server/chats/workspace_purge.rs`); the local unix socket only.
+    pub const MUX_WORKSPACE_PURGE: &str = "_acpmux/workspace_purge";
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";

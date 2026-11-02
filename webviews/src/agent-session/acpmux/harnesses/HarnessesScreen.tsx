@@ -391,7 +391,7 @@ export function HarnessesScreen({
                 doing && (doing.kind !== "waiting" || row.status === "signIn") ? doing.kind : row.status
               }
             >
-              <AgentMark agent={row.mark} size={18} reserve />
+              <AgentMark agent={row.mark} size={20} reserve />
               <span className="acpmux-harness-text">
                 <span className="acpmux-harness-name">{row.name}</span>
                 <span

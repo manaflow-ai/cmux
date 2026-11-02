@@ -109,21 +109,21 @@ final class ChatsOpenCoordinator {
     /// terminal running it (the lookup `cmux://agent` links use). False when no tab shows it.
     private func revealRunning(_ key: String) -> Bool {
         guard let services else { return false }
-        let chat = services.chatsFeed?.chat(id: key)
+        // The key is acpmux's `<harness>:<session id>`, all a running chat is found by.
         let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
         // The index names Claude Code `claude-code`; tabs and terminals name it `claude`.
-        guard let harness = TerminalChatRoute.harness(of: chat?.harness ?? parts.first),
-              let session = chat?.sessionID ?? (parts.count == 2 ? parts[1] : nil) else { return false }
+        guard let harness = TerminalChatRoute.harness(of: parts.first),
+              let session = parts.count == 2 ? parts[1] : nil else { return false }
         return services.revealAgentSession(harness: harness, session: session)
     }
 
     private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, environment: AcpmuxEnvironment, inTerminal: Bool = false,
                           watch: Bool = false, replacing page: String? = nil) async {
         guard let services else { return }
-        let chat = services.chatsFeed?.chat(id: key)
+        // acpmux answers the chat with its plan (`_acpmux/chat_open`); an older daemon's plan has
+        // none, and the key still names its harness and session id (`harness:sessionId`).
+        let chat = plan.chat
         let title = chat?.title
-        // A chat past the feed's window (the New Tab list pages the whole index) still names its
-        // harness and session id in its key (`harness:sessionId`).
         let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
         let subject = ChatOpenSubject(title: title, harness: chat?.harness ?? parts.first,
                                       sessionID: chat?.sessionID ?? (parts.count == 2 ? parts[1] : nil), cwd: chat?.cwd, key: key)

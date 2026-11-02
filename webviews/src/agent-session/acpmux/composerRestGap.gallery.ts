@@ -38,7 +38,10 @@ const gapIs =
       part.classList.contains("acpmux-composer") ? [...part.children] : [part],
     );
     const top = Math.min(
-      ...parts.map((part) => part.getBoundingClientRect()).filter((rect) => rect.height > 0).map((rect) => rect.top),
+      ...parts
+        .map((part) => part.getBoundingClientRect())
+        .filter((rect) => rect.height > 0)
+        .map((rect) => rect.top),
     );
     const gap = top - (last.getBoundingClientRect().bottom - 16);
     if (Math.abs(gap - want) > 1) throw new Error(`The rest gap is ${gap.toFixed(1)}px, not ${want}px`);
