@@ -294,11 +294,13 @@ def animation_budgets():
     """`animations` rows of scripts/perf-bench/budgets.json (budget.py animation_budgets), as
     {row name: spec}; none when the file has no such key."""
     try:
+        if PERF_BENCH not in sys.path:  # budget.py imports its siblings (spinners) by name
+            sys.path.insert(0, PERF_BENCH)
         spec = importlib.util.spec_from_file_location("perf_bench_budget", os.path.join(PERF_BENCH, "budget.py"))
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         entries = mod.animation_budgets()
-    except (OSError, SystemExit, AttributeError):
+    except (OSError, SystemExit, AttributeError, ImportError):
         return {}
     return {f"anim.{e['anim']}.{e['metric']}": {"p95": e["limit"], "unit": "frames" if e["metric"] == "dropped" else "ms",
                                                 "floor": 1.0, "what": f"animation {e['anim']}: {e['metric']}",
