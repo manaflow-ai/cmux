@@ -14,7 +14,7 @@ import Observation
 import os
 import CmuxNextWakeups
 
-/// Cloud orchestration: sign-in state, the machine list from `/api/vm`, and
+/// Cloud orchestration: sign-in state, the configured machine list, and
 /// one `CloudMachineSession` per live machine in `MachineRegistry`. The
 /// list is fetched when the session restores or signs in, after every
 /// machine mutation, and when the app becomes active (at most every 30 s);
@@ -24,8 +24,8 @@ final class CloudService {
     let configuration: CloudConfiguration
     let auth: CloudAuth
     @ObservationIgnored let api: CloudAPIClient
-    /// A machine's exec and file routes: ``api`` on the legacy link, the cmux API Worker's on the
-    /// app server link, whose machines have no `/api/vm` row (cmux-platform#89).
+    /// A machine's exec and file routes: ``api`` on the legacy link, and the
+    /// configured cmux API Worker on the app-server link.
     @ObservationIgnored let machineAPI: CloudAPIClient
     /// Same person and team as the machine API, at the configured platform preview origin.
     var previewAPI: CloudAPIClient? {
@@ -112,6 +112,7 @@ final class CloudService {
     /// The person's confirmation of a create (set by AppServices: a sheet in the active window, or the
     /// sidebar card for an agent's or a script's request while that sidebar shows); none answers false.
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
+    @ObservationIgnored let approvalHolds = CloudApprovalHolds()  // the holds the person's feed shows answered
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
     @ObservationIgnored let changes = CloudMachineChanges()
@@ -233,8 +234,24 @@ final class CloudService {
             signedIn: { [auth] in await MainActor.run { auth.isSignedIn } },
             allowedOps: { await CloudCredentialRelay.bundledServedOps() })
         credentialProvider = CloudCredentialProvider(relay: relay)
-        let launcher = configuration.linkSource == .appServer
-            ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build, relay: relay) : nil
+        // The app server link: this Mac's `cmux link`, or with `CMUX_NEXT_CLOUD_NATIVE_LINK=1` the Native
+        // device route (#28947) with `cmux link` as its fallback when Native does not start.
+        let linkBuild = LaunchIdentity.current().build
+        let cmuxLink = CloudLinkLauncher.forApp(build: linkBuild, relay: relay)
+        let launcher: (any CloudLinkLaunching)?
+        if configuration.linkSource != .appServer {
+            launcher = nil
+        } else if CloudNativeFirstLauncher.choice() == .link {
+            launcher = cmuxLink
+        } else if let native = CloudNativeRouteHolder.forApp(identity: identity, auth: auth, paths: paths,
+                                                             build: linkBuild, deviceName: Self.deviceName) {
+            let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
+            launcher = CloudNativeFirstLauncher(native: native, link: cmuxLink) { error in
+                logger.error("cloud.link native route failed, using cmux link: \(String(describing: error), privacy: .public)")
+            }
+        } else {
+            launcher = cmuxLink
+        }
         link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
@@ -254,6 +271,7 @@ final class CloudService {
     }
 
     static var deviceName: String { MacName().linkDeviceName() }
+
     /// This Mac's install id for a synchronous caller (``CloudDeviceID/loadNow()``): read once, on the files
     /// lane when Cloud starts; async callers use ``installID()``.
     func localDeviceID() throws -> String { try deviceID.loadNow() }
@@ -322,15 +340,18 @@ final class CloudService {
         observers.append(Task { [weak self] in
             guard let self else { return }
             await auth.awaitRestored()
-            // The account, not only signed-in: Switch Account stays signed in.
-            for await account in ObservationStream({ self.auth.isSignedIn ? (self.auth.user?.id ?? "") : nil }) {
-                if account != nil {
+            // The account and selected team: a team switch stays signed in but
+            // must fence the old Native mesh and link before reconnecting.
+            for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
+                if accountScope != nil {
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
-                    // Another account's machines and connections end first.
-                    if await self.link.sessionBegan(user: self.auth.user?.id) { self.dropAllMachines() }
-                    // The install first: the app server path's first list goes
-                    // through the credential relay, which sends the install token.
+                    // Another account's machines, connections and share install end first (its next share binds this one).
+                    if await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID) {
+                        self.dropAllMachines()
+                        if self.shareInstallIdentity !== self.installIdentity { await self.shareInstallIdentity.unbind() }
+                    }
+                    // The install first: the app server path's first list sends its token through the credential relay.
                     await self.installSignedIn()
                     self.hands.start()
                     await self.ensureLink()
@@ -714,7 +735,9 @@ final class CloudService {
     /// idle pause, joining this Mac's list, connecting): its throw (the account that asked is no
     /// longer signed in) leaves it out.
     func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil,
-                       request: CloudMachineRequest = CloudMachineRequest(), proceed: () throws -> Void = {}) async throws -> CloudMachineSession {
+                       request: CloudMachineRequest = CloudMachineRequest(),
+                       onAppServerSent: (@MainActor @Sendable (String) async throws -> Void)? = nil,
+                       proceed: () throws -> Void = {}) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
         var name = name ?? request.name
@@ -750,7 +773,7 @@ final class CloudService {
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
         let idlePause = request.persistent ? 0 : nil
         var machine = configuration.linkSource == .appServer
-            ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent)
+            ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent)
             : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"),
                                                       // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
                                                       gate: { [weak self, weak creation] in creation?.request.wasSent == true ? .allowed : self?.createGate ?? .allowed },
@@ -876,9 +899,7 @@ final class CloudService {
         if let stackUser = auth.user?.id {
             let auth = auth
             await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
-            if shareInstallIdentity !== installIdentity {
-                await shareInstallIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
-            }
+            if shareInstallIdentity !== installIdentity { await shareInstallIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access }) }
         }
         // An ensure that slipped in during the revoke: stop that link too.
         await link.stopLink()

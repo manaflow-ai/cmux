@@ -118,6 +118,18 @@ test("a failed chunk cancels once, preserving the native error", async () => {
   expect(native.calls.at(-1)?.[0]).toBe("chat.upload.cancel");
 });
 
+test("keeps completed paths when a later file fails to begin", async () => {
+  const native = host();
+  const result = await uploadToMachine(
+    [new File(["one"], "one.txt"), new File(["two"], "two.txt")],
+    async (method, params) => {
+      if (method === "chat.upload.begin" && params.name === "two.txt") throw new Error("Disconnected");
+      return native.call(method, params);
+    },
+  );
+  expect(result).toEqual({ paths: ["/session/0/one.txt", ""], error: "Disconnected" });
+});
+
 test("only an unavailable staging method chooses legacy upload", async () => {
   const calls: string[] = [];
   const result = await uploadToMachine([new File(["hello"], "notes.txt")], async (method) => {

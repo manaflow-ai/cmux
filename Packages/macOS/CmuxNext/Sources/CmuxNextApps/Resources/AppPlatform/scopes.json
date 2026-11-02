@@ -2020,6 +2020,8 @@
     "home.settings.set",
     "host.enroll",
     "host.network.bind",
+    "host.network.policy",
+    "host.network.target",
     "host.remove",
     "host.replica.purge",
     "install.list",

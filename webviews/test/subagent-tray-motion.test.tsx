@@ -216,6 +216,23 @@ describe("subagent tray motion", () => {
     await act(async () => root.unmount());
   });
 
+  test("steady counts: a count ticking over swaps in place; new words still tick", async () => {
+    // Leo, 2026-10-31: "I hate how this keeps jolting every time there's a new subagent or command".
+    motion(true);
+    const { element, root } = mount();
+    const tick = (text: string) => createElement(Tick, { text, steadyCounts: true });
+    await act(async () => root.render(tick("Running in background · 9 subagents · 13 commands")));
+    await act(async () => root.render(tick("Running in background · 10 subagents · 14 commands")));
+    expect(element.querySelector(".acpmux-tick__out, .acpmux-tick__in")).toBeNull();
+    expect(element.textContent).toBe("Running in background · 10 subagents · 14 commands");
+    await act(async () => root.render(tick("10 subagents running · 14 commands")));
+    expect(element.querySelector(".acpmux-tick__out")!.textContent).toBe(
+      "Running in background · 10 subagents · 14 commands",
+    );
+    await act(async () => root.unmount());
+    motion(false);
+  });
+
   test("with no motion the tray neither marks an entrance nor leaves a copy", async () => {
     motion(false);
     const shown = { current: "chat-a" as string | undefined };

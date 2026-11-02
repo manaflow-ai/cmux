@@ -287,7 +287,12 @@ extension AgentPaneView {
         let chatMenu = target == nil && selection == nil ? model.chatMenuItems?() ?? [] : []
         AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: DevTools.isEnabled, chatMenu: chatMenu,
                                      scope: themeScope.fullStrength, actions: .init(
-            copy: { [weak self] text in self?.copyText(text) },
+            copy: { [weak self] text in
+                guard let self else { return }
+                AgentPanePersonInput.record(self.model.transport.gestures, sources: self.eventSources)
+                guard self.model.transport.gestures.consume() else { return }
+                self.copyText(text)
+            },
             fork: { [weak self] seq in self?.fork(through: seq) },
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
