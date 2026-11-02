@@ -56,8 +56,8 @@ LABEL_PREFIX_NAMES = ("ROOT_PREFIX", "SIDE_PREFIX", "GUI_PREFIX", "RUNNER_LABEL_
 # on feat-cmux-next: the trusted promote mini, the daemon tests' slot and the
 # cmux-tui-pin-* pushes' daemon pool).
 EXTRA_OWNED_VARIABLES = frozenset({"CI_NEXT_PROMOTE_POOL", "CI_NEXT_DAEMON_POOL", "CI_PIN_DAEMON_POOL"})
-# Held to a label shape by the policy, but never owned: runner_pools.py refuses any member that isn't an
-# ephemeral Blacksmith label, so a job reading it can't land on a reused machine.
+# Held to a label shape by the policy, but no owned Mac: runner_pools.py admits only ephemeral Blacksmith
+# labels and a pool's declared GitHub-hosted ones, so the rescue has nothing to move for a job reading it.
 BLACKSMITH_ONLY_VARIABLES = frozenset({"RUNNER_POOLS"})
 # (caller, reusable workflow) calls whose picker never places the call on an
 # owned pool, so the caller does not inherit the reusable workflow's owned job.
