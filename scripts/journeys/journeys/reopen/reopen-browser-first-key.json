@@ -1,8 +1,8 @@
 {
  "id": "reopen-browser-first-key",
  "priority": "P0",
- "title": "After Cmd-Q (Keep) and reopen with a browser page focused, a person's real keys reach the page's address bar (Cmd-L, a typed marker), and Cmd-N then Ctrl-` make a new workspace and terminal; 3 cycles",
- "why": "reopen-f4 for the lead (STATUS 5612/5646): REOPEN-F4 fixed the terminal case; this is the browser-focused case. Real HID keys after the reopen (CuaDriver), the app's focus model (debug.focus) and the frame.",
+ "title": "After Cmd-Q (Keep) and reopen with a browser page focused, a person's real keys reach the page's address bar (Cmd-L, a typed marker), and Cmd-N then Ctrl-` make a new workspace and terminal; 3 cycles. Cycle 4: the page has a focused text field and the first keys after the reopen are plain keys only; they reach the restored page, in order",
+ "why": "reopen-f4 for the lead (STATUS 5612/5646): REOPEN-F4 fixed the terminal case; this is the browser-focused case. Real HID keys after the reopen (CuaDriver), the app's focus model (debug.focus) and the frame. Cycle 4 (lead, STATUS 6493, review of #32207): on the dogfood line a plain key (no Cmd/Ctrl) went to the focused view before the window key hold, so only chords were held; cycles 1-3 start with Cmd-L and could not see it.",
  "source": "REOPEN-F4 (reopen-f4, a02ba201c73876f53)",
  "budget_seconds": 255,
  "steps": [
@@ -496,6 +496,123 @@
     },
     {
      "frame_text": "documentation examples"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "page4",
+   "title": "cycle 4 set-up: the browser tab goes to a page with a focused text field; the page shows every key it gets, in reverse order"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 4 set-up: the address bar takes the keys",
+   "since": "page4",
+   "timeout": 10,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "addressBar"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "data:text/html,<p%20id=r></p><input%20autofocus><p%20id=o></p><script>r.textContent='pg'+'ok'+(6*7);var%20s='';addEventListener('keydown',function(e){if(e.key.length==1){s+=e.key;o.textContent='seen'+s.split('').reverse().join('')}},true)</script>",
+   "mark": "url4"
+  },
+  {
+   "do": "key",
+   "key": "return",
+   "modifiers": [],
+   "mark": "loaded4"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 4 set-up: the page ran its script and has the keyboard",
+   "since": "loaded4",
+   "timeout": 20,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    },
+    {
+     "frame_text": "pgok42"
+    }
+   ]
+  },
+  {
+   "do": "hid_key",
+   "key": "a",
+   "modifiers": [],
+   "mark": "su4a"
+  },
+  {
+   "do": "hid_key",
+   "key": "b",
+   "modifiers": [],
+   "mark": "su4b"
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [],
+   "mark": "su4c"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 4 set-up: real plain keys reach the page and its field (the page shows them reversed)",
+   "since": "su4a",
+   "timeout": 10,
+   "all": [
+    {
+     "frame_text": "seencba"
+    },
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "reopen_browser_keys",
+   "text": "plainkeysc4",
+   "cmd_l": false,
+   "mark": "reopened4",
+   "title": "cycle 4: a real Cmd-Q (Keep), reopen, and as soon as the main window is listed ONLY plain keys (a marker word, no Cmd-L, no modifier)"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 4: the restored page got every plain key in order (it shows them reversed), its field shows the marker, and the page has the keyboard",
+   "since": "reopened4",
+   "timeout": 10,
+   "all": [
+    {
+     "frame_text": "seen4csyeknialp"
+    },
+    {
+     "frame_text": "plainkeysc4"
+    },
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
     }
    ]
   }

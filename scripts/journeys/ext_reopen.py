@@ -1261,8 +1261,10 @@ def step_hid_key(j, step):
 def step_reopen_browser_keys(j, step):
     """A real Cmd-Q (Keep), the reopen through LaunchServices as reopen_video does (no socket read while the app
     launches), and AS SOON AS the reopened app's main window is listed: a real Cmd-L, then the marker TEXT with real
-    keys (desktop scope, front-app checked). Only then the socket: the app settles and is identified again. Records
-    the key times from the new process's main() (kernel start + the app's main_start mark)."""
+    keys (desktop scope, front-app checked). With `cmd_l: false` no Cmd-L: the marker TEXT only, plain keys with no
+    modifier, so they must reach the restored view that had the keyboard (a page's text field). Only then the socket:
+    the app settles and is identified again. Records the first key's time from the new process's main() (kernel
+    start + the app's main_start mark)."""
     text = j.sub(step["text"])
     if not re.fullmatch(r"[a-z0-9]+", text):
         raise D.StepError(f"reopen_browser_keys: marker must be lowercase letters and digits, not {text!r}")
@@ -1286,8 +1288,12 @@ def step_reopen_browser_keys(j, step):
         record["window_listed_wall"] = time.time()
         if front_pid() != pid:
             raise D.StepError("reopen_browser_keys: the app lost the front before the keys")
-        record["cmdl_wall"] = _desktop_key(keys, "l", ["cmd"])
+        cmd_l = step.get("cmd_l", True)
+        record["cmd_l"] = bool(cmd_l)
+        if cmd_l:
+            record["cmdl_wall"] = _desktop_key(keys, "l", ["cmd"])
         record["marker_wall"] = [_desktop_key(keys, ch) for ch in text]
+        record["first_key_wall"] = record["cmdl_wall"] if cmd_l else record["marker_wall"][0]
     finally:
         keys.close()
         cua.close()
@@ -1300,7 +1306,7 @@ def step_reopen_browser_keys(j, step):
     main_wall = (record["process_start_wall"] + marks["main_start"] / 1000.0
                  if record.get("process_start_wall") and isinstance(marks.get("main_start"), (int, float)) else None)
     if main_wall:
-        record["cmdl_ms_from_main_provisional"] = round((record["cmdl_wall"][0] - main_wall) * 1000, 1)
+        record["first_key_ms_from_main_provisional"] = round((record["first_key_wall"][0] - main_wall) * 1000, 1)
         record["window_ms"] = round(marks.get("first_window_frame_committed", 0) - marks["main_start"], 1)
         record["window_listed_ms_from_main_provisional"] = round((record["window_listed_wall"] - main_wall) * 1000, 1)
     # The named terminals: look them up again in the restored topology (the driver's relaunch does the same).
@@ -1315,8 +1321,8 @@ def step_reopen_browser_keys(j, step):
         j.marks[step["mark"]] = D.now()
     if not record["pid_matches"]:
         raise D.StepError(f"reopen_browser_keys: the app that answers is not the reopened process: {record.get('new_pid')} vs {j.app.pid}")
-    return {k: record.get(k) for k in ("new_pid", "settled", "window_ms", "window_listed_ms_from_main_provisional",
-                                       "cmdl_ms_from_main_provisional", "dialog")}
+    return {k: record.get(k) for k in ("new_pid", "settled", "cmd_l", "window_ms", "window_listed_ms_from_main_provisional",
+                                       "first_key_ms_from_main_provisional", "dialog")}
 
 
 def cond_key_window_focus(j, want, cache):
