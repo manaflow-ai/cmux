@@ -484,11 +484,9 @@ fn the_built_in_policy_parses() {
     let v: Value = serde_json::from_str(&text).unwrap();
     let p = policy();
     assert!(!p.requests.is_empty() && p.maximum_frame_bytes > 0, "policy() fell back to deny-all");
-    assert_eq!(
-        p.reply_shapes.len(),
-        v["reply_shapes"].as_object().unwrap().len(),
-        "every reply shape parsed"
-    );
+    // Whether each shape parsed is every_reply_shape_parses's question (a
+    // shape that does not parse is kept as an empty filter).
+    assert_eq!(p.reply_shapes.len(), v["reply_shapes"].as_object().unwrap().len());
     assert_eq!(p.requests.len(), v["requests"].as_array().unwrap().len());
 }
 
