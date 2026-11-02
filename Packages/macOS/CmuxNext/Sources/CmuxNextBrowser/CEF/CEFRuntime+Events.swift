@@ -341,6 +341,9 @@ extension CEFRuntime {
         var sequence = CEFShutdownSequence(liveBrowsers: tabsByBrowser.count + pendingWindows.count, windows: Int(shim.windowCount()))
         sequence.begin()
         shutdownSequence = sequence
+        // The stopping engine answers no DevTools call (a page picture among them): each waiter ends now with
+        // `closed`, not after the browsers close or the timeout, and a late answer is dropped.
+        devToolsCalls.failAll(where: { _ in true }, with: BrowserTabError.closed)
         shim.closeAll()
         pump?.pumpNow()
         shutdownProgressed()
