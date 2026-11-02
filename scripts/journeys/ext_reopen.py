@@ -154,18 +154,6 @@ JSON.stringify(list.filter(w => w.kCGWindowLayer === 0).map((w, i) => ({order: i
   w: w.kCGWindowBounds.Width, h: w.kCGWindowBounds.Height})));
 """
 
-ObjC.import('Foundation');
-function run(argv) {
-  const pid = parseInt(argv[0]);
-  const target = $.NSAppleEventDescriptor.descriptorWithProcessIdentifier(pid);
-  const ev = $.NSAppleEventDescriptor.appleEventWithEventClassEventIDTargetDescriptorReturnIDTransactionID(
-    0x61657674, 0x71756974, target, -1, 0);
-  ev.setAttributeDescriptorForKeyword($.NSAppleEventDescriptor.descriptorWithEnumCode(0x726c676f), 0x7768793f);
-  const err = Ref();
-  const reply = ev.sendEventWithOptionsTimeoutError(0x00000001, 10, err);
-  return (err[0] && !err[0].isNil()) ? ('error ' + err[0].code + ' ' + err[0].localizedDescription.js) : 'sent';
-}
-"""
 
 
 def _jxa(script, *args, timeout=30):
