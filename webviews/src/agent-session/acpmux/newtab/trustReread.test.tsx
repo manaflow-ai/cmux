@@ -40,9 +40,14 @@ afterEach(() => {
 test("a kept New Tab adoption reads the folder's trust again", async () => {
   let refuse = true;
   let reads = 0;
+  // Each read settles this promise (refused or answered): the test waits for the read, not for a time.
+  let settled: () => void = () => {};
+  let readDone = new Promise<void>((resolve) => (settled = resolve));
+  const nextRead = () => (readDone = new Promise<void>((resolve) => (settled = resolve)));
   const source: TrustSource = {
     get: async (cwd: string) => {
       reads += 1;
+      queueMicrotask(() => settled());
       if (refuse) throw new Error("path outside roots");
       return { cwd, level: "unknown" };
     },
@@ -64,13 +69,14 @@ test("a kept New Tab adoption reads the folder's trust again", async () => {
     return null;
   }
   await act(async () => root!.render(<Probe />));
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  await act(async () => readDone);
   expect(view.ask).toBeUndefined();
   const before = reads;
   // Cmd-T adopted the page: the tab's roots now allow the read.
   refuse = false;
+  void nextRead();
   await act(async () => view.adopt!());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  await act(async () => readDone);
   expect(reads).toBeGreaterThan(before);
   expect((view.ask as { state?: string } | undefined)?.state).toBe("ask");
 });
