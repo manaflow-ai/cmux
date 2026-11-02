@@ -9,7 +9,11 @@ import Testing
 /// its stream must ask the runtime nothing, and still skip an equal value.
 @MainActor
 @Suite struct ObservationStreamEqualityTests {
-    struct Count: Equatable, Sendable { var value: Int }
+    /// `nonisolated`: under the module's default main-actor isolation (InferIsolatedConformances) a type's own
+    /// `Equatable` conformance is main-actor isolated, and an isolated conformance cannot meet `Element: Equatable`
+    /// on a `Sendable` element; such a stream keeps the run-time lookup. Standard library values (Bool, Int,
+    /// String, their optionals and collections) and nonisolated types take the known `==`.
+    nonisolated struct Count: Equatable, Sendable { var value: Int }
     struct Opaque: Sendable { var value: Int }
 
     @MainActor @Observable final class Box {

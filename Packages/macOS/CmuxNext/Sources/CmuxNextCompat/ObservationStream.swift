@@ -329,7 +329,10 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
 /// whether its element is `Equatable` (a conformance lookup that scans the binary's conformance records
 /// the first time per type: most of 26-31 ms on the main thread after a reopen's first window, REOPEN-F7).
 /// The unconstrained ones are `@_disfavoredOverload`, so Swift picks these for every call site whose element is
-/// `Equatable` (the plain ranking picked the unconstrained ones).
+/// `Equatable` with a nonisolated conformance (the plain ranking picked the unconstrained ones): the standard
+/// library's values and `nonisolated` types. A main-actor type's own conformance (the app modules' default
+/// isolation with InferIsolatedConformances) cannot meet `Element: Equatable` on a `Sendable` element: its
+/// stream keeps the run-time lookup.
 extension ObservationStream where Element: Equatable {
     /// Makes a sequence of the values of `emit`, as the unconstrained initializer does; an equal
     /// re-evaluation wakes no consumer.
