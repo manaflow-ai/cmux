@@ -365,7 +365,7 @@ pub(super) fn name_taken(e: &anyhow::Error) -> bool {
 
 /// The sidebar workspace key for session `id`: the same on every run, so
 /// the app keeps one row for it (a lowercase UUID, as `agent open` takes).
-fn workspace_key(id: &str) -> String {
+pub(crate) fn workspace_key(id: &str) -> String {
     let h = crate::sha256::sha256_hex(format!("acpmux-launch:{id}").as_bytes());
     format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32])
 }

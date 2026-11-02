@@ -522,6 +522,9 @@ jobs:
           # alone too stays red.
           CMUX_WEB_TEST_RETRY_BUDGET: "1920"
           CMUX_WEB_TEST_RETRY_DEADLINE: "1920"
+          # Keep jsdom and browser workers below the 16-vCPU saturation point. The Session Info
+          # test set grew enough that twelve plain workers starved each other and timed out.
+          CMUX_WEB_TEST_JOBS: "8"
         run: |
           # Replay uses this exact runner and result parser, with the base's tests and bun.
           # Different deadline policies can otherwise turn an old named failure into a new timeout.
