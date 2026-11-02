@@ -19,9 +19,14 @@ import ScreenCaptureKit
 ///   `codec` (`hevc`, the default, or `prores`: ProRes 4444), `mbps` (the HEVC bit rate, default 300),
 ///   `seconds` (default 30, at most 120: the recording ends by itself then), `rows` and `columns` (device-pixel
 ///   rows and columns of the frame kept exact for every frame; default a quarter, half and three quarters of the
-///   window)}. Replies at once; the capture starts on the next turns: `read` says `capturing` once it runs, or
-///   `error`. The frame is the window's screen in device pixels with the window drawn 1:1 from its top-left
-///   corner, transparent past it, so a window resize is never scaled. Child windows are included.
+///   window), `filter` (`display`, the default, or `window`)}. Replies at once; the capture starts on the next
+///   turns: `read` says `capturing` once it runs, or `error`. The frame starts at the window's top-left corner and
+///   runs to its screen's right and bottom edges, in device pixels, 1:1 (a window resize is never scaled).
+///   `display`: the window's screen showing only this app's windows (`SCContentFilter(display:including:)` with
+///   the app's on-screen windows, cropped by `sourceRect`): every composited change of those windows makes a frame.
+///   `window`: `SCContentFilter(desktopIndependentWindow:)`, transparent past the window. On the minis (macOS 26/27,
+///   2026-11-02, probe rounds on cmux24 and cmux22) a window filter on cmux's main window gave frames only when a
+///   page child window changed, none for terminal output, a split or a workspace switch.
 /// - `stop`: ends the capture; the files are written on the recording's queue: `read` says `written` once they are.
 ///   Beside the movie: `PATH.frames.json` (every frame ScreenCaptureKit gave as `[t, status, in movie]`: `t` its
 ///   display time in host seconds, CACurrentMediaTime's clock; `status` ScreenCaptureKit's frame status, `idle`
@@ -59,9 +64,15 @@ final class MotionScreenRecord {
             return ["error": "path is required"]
         }
         let scale = window.backingScaleFactor
-        let screen = (window.screen ?? NSScreen.main)?.frame.size ?? window.frame.size
-        let width = Int((max(screen.width, window.frame.width) * scale).rounded()) / 2 * 2
-        let height = Int((max(screen.height, window.frame.height) * scale).rounded()) / 2 * 2
+        let screenFrame = (window.screen ?? NSScreen.main)?.frame ?? window.frame
+        // The window's top-left corner on its screen, in points from the screen's top-left: the frame's origin.
+        let left = max(0, window.frame.minX - screenFrame.minX), top = max(0, screenFrame.maxY - window.frame.maxY)
+        let source = CGRect(x: left, y: top, width: max(window.frame.width, screenFrame.width - left),
+                            height: max(window.frame.height, screenFrame.height - top))
+        let width = Int((source.width * scale).rounded()) / 2 * 2
+        let height = Int((source.height * scale).rounded()) / 2 * 2
+        let display = (window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+        let useDisplay = (params["filter"] as? String ?? "display") == "display"
         let windowWidth = Int((window.frame.width * scale).rounded()), windowHeight = Int((window.frame.height * scale).rounded())
         func lines(_ key: String, _ extent: Int, _ limit: Int) -> [Int] {
             let asked = (params[key] as? [Any])?.compactMap { ($0 as? NSNumber)?.intValue }
@@ -71,7 +82,8 @@ final class MotionScreenRecord {
             url: URL(fileURLWithPath: path), width: width, height: height, prores: params["codec"] as? String == "prores",
             bitsPerSecond: Int(((params["mbps"] as? NSNumber)?.doubleValue ?? 300) * 1_000_000),
             rows: lines("rows", windowHeight, height), columns: lines("columns", windowWidth, width),
-            seconds: min(120, max(0.5, (params["seconds"] as? NSNumber)?.doubleValue ?? 30)), scale: Double(scale))
+            seconds: min(120, max(0.5, (params["seconds"] as? NSNumber)?.doubleValue ?? 30)), scale: Double(scale),
+            display: useDisplay ? display.map { CGDirectDisplayID($0) } : nil, sourceRect: source)
         let recording: ScreenRecording
         do {
             try FileManager.checked.createDirectory(at: options.url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -95,7 +107,9 @@ final class MotionScreenRecord {
             }
         }
         return ["starting": true, "path": path, "width": width, "height": height, "scale": Double(scale),
-                "window": window.windowNumber, "rows": options.rows, "columns": options.columns]
+                "window": window.windowNumber, "rows": options.rows, "columns": options.columns,
+                "filter": useDisplay ? "display" : "window", "display": display.map { Int($0) } ?? -1,
+                "source_rect": [source.minX, source.minY, source.width, source.height]]
     }
 }
 
@@ -115,6 +129,10 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         let seconds: Double
         /// The window's backing scale (device pixels per point).
         let scale: Double
+        /// The display filter's screen (nil: a window filter).
+        let display: CGDirectDisplayID?
+        /// The part of the screen recorded, in points from its top-left (the window's top-left onward).
+        let sourceRect: CGRect
     }
 
     nonisolated struct Failure: Error, CustomStringConvertible {
@@ -141,25 +159,9 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         var written = false
         var movieStatus = ""
         var stoppedBy: String?
-        /// Sample callbacks of any kind (the first proves the stream delivers), and the variant that delivered.
+        /// Sample callbacks of any kind (any at all proves the stream delivers).
         var callbacks = 0
-        var variant = ""
-        var tries: [String] = []
     }
-
-    /// The stream set-ups tried in order until one delivers a frame within ``firstFrameLimit``: the screen-size
-    /// frame with child windows first (a window resize is never scaled and page windows show), then without child
-    /// windows, then the window's own size as the animation pixel harness captures it.
-    nonisolated struct Variant: Sendable {
-        let name: String
-        let childWindows: Bool
-        let screenSize: Bool
-    }
-
-    static let variants = [Variant(name: "screen+children", childWindows: true, screenSize: true),
-                           Variant(name: "screen", childWindows: false, screenSize: true),
-                           Variant(name: "window", childWindows: false, screenSize: false)]
-    static let firstFrameLimit: Duration = .milliseconds(1500)
 
     /// Seconds any one ScreenCaptureKit call may take (a disconnected replayd never answers; the animation pixel
     /// harness hung 180 s on one).
@@ -177,8 +179,6 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
     // appends a value and never waits on I/O, a call out or an await.
     private let state = Mutex(State())
     private let limit = DemandTimer(owner: "debug.motion.record.limit")
-    // concurrency-allow: held only to take or set the first-frame callback; it is called after the unlock.
-    private let firstFrame = Mutex<(@Sendable (Result<Bool, any Error>) -> Void)?>(nil)
     @MainActor private var stream: SCStream?
     @MainActor private var finishing = false
 
@@ -207,30 +207,21 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         guard let target = content.value.windows.first(where: { $0.windowID == windowNumber }) else {
             throw Failure(description: "ScreenCaptureKit lists no window \(windowNumber) of this process")
         }
-        var started: SCStream?
-        for variant in Self.variants {
-            let stream = SCStream(filter: SCContentFilter(desktopIndependentWindow: target),
-                                  configuration: configuration(variant, target: target), delegate: self)
-            try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
-            state.withLock { $0.tries.append(variant.name) }
-            let _: Bool = try await deadline("start the capture") { done in
-                stream.startCapture { error in done(error.map { .failure($0) } ?? .success(true)) }
+        let filter: SCContentFilter
+        if let displayID = options.display {
+            guard let display = content.value.displays.first(where: { $0.displayID == displayID }) else {
+                throw Failure(description: "ScreenCaptureKit lists no display \(displayID) for this process (\(content.value.displays.count) listed)")
             }
-            // A stream that starts but never calls back (the first harness round on cmux24, 2026-11-02 01:12Z) is
-            // stopped, and the next set-up is tried.
-            let delivered: Bool? = try? await deadline("give a first frame", limit: Self.firstFrameLimit) { done in
-                if state.withLock({ $0.callbacks > 0 }) { done(.success(true)) } else { firstFrame.withLock { $0 = done } }
-            }
-            firstFrame.withLock { $0 = nil }
-            if delivered == true {
-                state.withLock { $0.variant = variant.name }
-                started = stream
-                break
-            }
-            _ = try? await deadline("stop the capture") { done in stream.stopCapture { error in done(error.map { .failure($0) } ?? .success(true)) } }
+            // Every on-screen window of this app on that display: page child windows and panels show as on screen.
+            let own = content.value.windows.filter { $0.isOnScreen && $0.frame.intersects(display.frame) }
+            filter = SCContentFilter(display: display, including: own.isEmpty ? [target] : own)
+        } else {
+            filter = SCContentFilter(desktopIndependentWindow: target)
         }
-        guard let stream = started else {
-            throw Failure(description: "ScreenCaptureKit gave no frame with any set-up (\(Self.variants.map(\.name)))")
+        let stream = SCStream(filter: filter, configuration: configuration(), delegate: self)
+        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
+        let _: Bool = try await deadline("start the capture") { done in
+            stream.startCapture { error in done(error.map { .failure($0) } ?? .success(true)) }
         }
         guard !finishing else {
             _ = try? await deadline("stop the capture") { done in stream.stopCapture { error in done(error.map { .failure($0) } ?? .success(true)) } }
@@ -242,11 +233,11 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
     }
 
     @MainActor
-    private func configuration(_ variant: Variant, target: SCWindow) -> SCStreamConfiguration {
+    private func configuration() -> SCStreamConfiguration {
         let configuration = SCStreamConfiguration()
-        let scale = options.scale
-        configuration.width = variant.screenSize ? options.width : max(2, Int((target.frame.width * scale).rounded()))
-        configuration.height = variant.screenSize ? options.height : max(2, Int((target.frame.height * scale).rounded()))
+        configuration.width = options.width
+        configuration.height = options.height
+        if options.display != nil { configuration.sourceRect = options.sourceRect }
         // Faster than any display: ScreenCaptureKit then gives every composited frame.
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 240)
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
@@ -257,7 +248,7 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         configuration.scalesToFit = false
         configuration.backgroundColor = CGColor.clear
         configuration.ignoreShadowsSingleWindow = true
-        if #available(macOS 14.2, *) { configuration.includeChildWindows = variant.childWindows }
+        if #available(macOS 14.2, *) { configuration.includeChildWindows = true }
         return configuration
     }
 
@@ -308,15 +299,11 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
                 "path": options.url.path, "frames": state.frames.count, "complete": state.complete, "idle": state.idle,
                 "encoder_not_ready": state.notReady, "first_t": state.frames.first?.time ?? 0,
                 "last_t": state.frames.last?.time ?? 0, "stopped_by": state.stoppedBy ?? "", "callbacks": state.callbacks,
-                "variant": state.variant, "tries": state.tries]
+                "filter": options.display == nil ? "window" : "display"]
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         state.withLock { $0.callbacks += 1 }
-        if let first = firstFrame.withLock({ slot -> (@Sendable (Result<Bool, any Error>) -> Void)? in
-            defer { slot = nil }
-            return slot
-        }) { first(.success(true)) }
         guard type == .screen,
               let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
               let info = attachments.first, let raw = info[.status] as? Int, let status = SCFrameStatus(rawValue: raw) else { return }
