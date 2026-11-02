@@ -69,6 +69,7 @@ public nonisolated struct LinkHintSession: Equatable, Sendable {
     /// there is nothing to label, else what the keys typed so far mean.
     /// `editing`: a text field of the page has the keyboard (the page's own answer).
     public mutating func show(_ targets: [LinkHintTarget], editing: Bool = false) -> Outcome {
+        guard !editing else { return .passThrough }
         let usable = mode == .newSplit ? targets.filter { $0.href != nil } : targets
         let labels = LinkHintSession.labels(count: usable.count)
         hints = Array(zip(labels, usable)).map { (label: $0.0, target: $0.1) }
