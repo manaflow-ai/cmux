@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 547,
+  "count": 548,
   "sections": [
     {
       "id": "general",
@@ -5489,6 +5489,14 @@
           "key": "notifications.attention.moveToTop",
           "title": "Move the Workspace to the Top",
           "help": "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Attention Ring"
+        },
+        {
+          "key": "notifications.attention.moveToTopOnAgentFinish",
+          "title": "Move the Workspace to the Top When Its Agent Finishes",
+          "help": "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
           "kind": "toggle",
           "default": false,
           "group": "Attention Ring"

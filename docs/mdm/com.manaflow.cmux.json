@@ -3112,6 +3112,12 @@
       "title" : "Move the Workspace to the Top",
       "type" : "boolean"
     },
+    "notifications.attention.moveToTopOnAgentFinish" : {
+      "default" : false,
+      "description" : "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
+      "title" : "Move the Workspace to the Top When Its Agent Finishes",
+      "type" : "boolean"
+    },
     "notifications.attention.persist" : {
       "default" : true,
       "description" : "notifications.attention.persist",
