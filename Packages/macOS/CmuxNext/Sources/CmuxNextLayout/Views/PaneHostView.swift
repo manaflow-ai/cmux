@@ -84,10 +84,18 @@ final class PaneHostView: NSView, RestingPlacement {
                 // A keyboard resize holds every pane's content at its START size, growing or shrinking (RESIZE KEYS K3):
                 // no content layout in the key's turn or in any spring frame; it lays out once after the landing.
                 if (superview as? ScreenContentView)?.holdsContentForKeyResize == true {
-                    holdsUntilAfterLanding = true
-                    heldContentSize = content.frame.size
+                    // A hold still waiting for its release keeps its size and edge (a press during the last one's tail).
+                    if !holdsUntilAfterLanding {
+                        holdsUntilAfterLanding = true
+                        heldContentSize = content.frame.size
+                        heldPin = nil
+                    }
                     return
                 }
+                // Any other spring (a split, a close, a zoom) resizes as it always did: a key hold waiting for its
+                // release ends here.
+                holdsUntilAfterLanding = false
+                heldPin = nil
                 guard holdsContentInMotion() else {
                     heldContentSize = nil
                     return
@@ -104,7 +112,7 @@ final class PaneHostView: NSView, RestingPlacement {
                 // The landing frame shows the panes at rest with the content still held; the one layout runs after that
                 // frame's commit, when nothing moves. A new spring before then keeps the hold.
                 context.afterCommit { [weak self] in
-                    guard let self, !self.isOnLayoutSpring else { return }
+                    guard let self, !self.isOnLayoutSpring, self.holdsUntilAfterLanding else { return }
                     self.releaseHeldContent()
                 }
             } else {
@@ -116,6 +124,7 @@ final class PaneHostView: NSView, RestingPlacement {
     /// The one layout at the size the spring landed at, before the content hears it landed.
     private func releaseHeldContent() {
         holdsUntilAfterLanding = false
+        heldPin = nil
         heldContentSize = nil
         heldAnchor = nil
         layoutClip()
@@ -126,6 +135,9 @@ final class PaneHostView: NSView, RestingPlacement {
     /// A keyboard resize's hold (``ScreenContentView/holdsContentForKeyResize``): the content keeps its start size,
     /// clipped where the pane is smaller and beside the pane background where it is larger, until after the landing.
     private var holdsUntilAfterLanding = false
+    /// The edges a key-resize hold rides, chosen while the pane moves and kept until the release: at rest (the landing
+    /// frame) the rest offset no longer says which edge moved, and a new pick would jump the content by the press step.
+    private var heldPin: (trailing: Bool, bottom: Bool)?
 
     /// The host's size at rest (its spring rect's target), set with ``restOffset`` on every
     /// presented frame; nil before the screen first places it.
@@ -144,10 +156,14 @@ final class PaneHostView: NSView, RestingPlacement {
     /// A host at its rest place and size holds nothing, whatever its spring flag says.
     private func contentFrame(in clip: CGRect) -> CGRect {
         if holdsUntilAfterLanding, let held = heldContentSize {
-            // Pinned at the edge nearer its rest, as below; at rest (the landing frame) at the clip's leading corner.
-            let trailing = restSize.map { abs(restOffset.dx + $0.width - frame.width) < abs(restOffset.dx) - 0.5 } ?? false
-            let bottom = heldAnchor.map { $0 == .bottom } ?? (restSize.map { abs(restOffset.dy + $0.height - frame.height) < abs(restOffset.dy) - 0.5 } ?? false)
-            return CGRect(x: trailing ? clip.maxX - held.width : clip.minX, y: bottom == isFlipped ? clip.maxY - held.height : clip.minY,
+            // Pinned at the edge nearer its rest, as below, picked while the pane moves and kept to the release.
+            if let restSize, restOffset != .zero || frame.size != restSize {
+                let trailing = abs(restOffset.dx + restSize.width - frame.width) < abs(restOffset.dx) - 0.5
+                let bottom = heldAnchor.map { $0 == .bottom } ?? (abs(restOffset.dy + restSize.height - frame.height) < abs(restOffset.dy) - 0.5)
+                heldPin = (trailing, bottom)
+            }
+            let pin = heldPin ?? (trailing: false, bottom: false)
+            return CGRect(x: pin.trailing ? clip.maxX - held.width : clip.minX, y: pin.bottom == isFlipped ? clip.maxY - held.height : clip.minY,
                           width: held.width, height: held.height)
         }
         guard let held = heldContentSize, let restSize, restOffset != .zero || frame.size != restSize else { return clip }

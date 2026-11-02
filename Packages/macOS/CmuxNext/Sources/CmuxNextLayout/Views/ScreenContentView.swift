@@ -165,6 +165,8 @@ final class ScreenContentView: NSView {
     /// A pane spring left mid-flight could park its pane off screen. Column and row camera
     /// springs may resume when the workspace shows (Lucas 2026-10-19).
     func settleMotion() {
+        // Landed at once (window out of sight, Reduce Motion turned on): the key-resize hold ends with the motion.
+        defer { holdsContentForKeyResize = false }
         defer { if resizeGesture == .landing { finishResizeGesture() } }
         defer { context.releaseRetired(of: screenID) }
         guard hasMotion else { return }
@@ -209,6 +211,9 @@ final class ScreenContentView: NSView {
         #if DEBUG
         if let shapeBefore { columnWidths.noteChange(from: shapeBefore, to: restColumns, viewportWidth: bounds.width) }
         #endif
+        // The key-resize hold is the press's own: a structural change (a split, a close, a zoom) takes the screen over,
+        // and a press that did not spring (Reduce Motion, pane animations off, a snap) ends it now.
+        if structural || !moving { holdsContentForKeyResize = false }
         return moving || canvasState.camera.isMoving
     }
 
