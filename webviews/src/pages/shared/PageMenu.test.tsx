@@ -142,3 +142,67 @@ test("a native host cannot activate a disabled page action", async () => {
   expect(closed).toBe(1);
   expect(ran).toEqual([]);
 });
+
+test("a native reply after this menu unmounts cannot run a stale row action", async () => {
+  let reply: (value: unknown) => void = () => {};
+  const ran: string[] = [];
+  let closed = 0;
+  installNativeMenu(() => new Promise<unknown>((resolve) => (reply = resolve)));
+  root = createRoot(installDom());
+  await act(async () => {
+    root!.render(
+      <PageMenu
+        x={12}
+        y={34}
+        items={[{ id: "remove", label: "Remove", run: () => ran.push("remove") }]}
+        onClose={() => closed++}
+      />,
+    );
+  });
+  await act(async () => {
+    root!.unmount();
+  });
+  root = undefined;
+  await act(async () => {
+    reply({ picked: "remove" });
+    await Promise.resolve();
+  });
+  expect(ran).toEqual([]);
+  expect(closed).toBe(0);
+});
+
+test("a newer keyed menu keeps its actions when an older native reply finishes later", async () => {
+  const pending: Array<(value: unknown) => void> = [];
+  const ran: string[] = [];
+  let closed = 0;
+  installNativeMenu(() => new Promise<unknown>((resolve) => pending.push(resolve)));
+  root = createRoot(installDom());
+  const renderSession = (session: string) => (
+    <PageMenu
+      key={session}
+      x={session === "old" ? 12 : 50}
+      y={34}
+      items={[{ id: session, label: session, run: () => ran.push(session) }]}
+      onClose={() => closed++}
+    />
+  );
+  await act(async () => {
+    root!.render(renderSession("old"));
+  });
+  await act(async () => {
+    root!.render(renderSession("new"));
+  });
+  expect(pending).toHaveLength(2);
+  await act(async () => {
+    pending[0]!({ picked: "old" });
+    await Promise.resolve();
+  });
+  expect(ran).toEqual([]);
+  expect(closed).toBe(0);
+  await act(async () => {
+    pending[1]!({ picked: "new" });
+    await Promise.resolve();
+  });
+  expect(ran).toEqual(["new"]);
+  expect(closed).toBe(1);
+});
