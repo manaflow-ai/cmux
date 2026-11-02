@@ -120,13 +120,4 @@ await requireBrowserLane("thread-rail-one-column.test.ts", async () => {
     expect(own.from).toBeNull();
     await page.close();
   });
-    await page.mouse.move(box.x, box.y);
-    await page.waitForSelector('[data-tick="7"][data-tone="active"]');
-    await page.waitForSelector(".acpmux-minimap__card[data-incoming] .acpmux-minimap__from");
-    const from = await page.evaluate(
-      () => document.querySelector(".acpmux-minimap__card .acpmux-minimap__from")?.textContent,
-    );
-    expect(from).toContain("review-router");
-    await page.close();
-  });
 });
