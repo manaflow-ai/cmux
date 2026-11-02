@@ -17,12 +17,17 @@ import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { measureComposerAlignment, type Center, type ComposerAlignment } from "./support/composerAlignment";
+import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 
 await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
   /** Half a pixel: the subpixel rounding a centered 28 px control and its 16 px glyph can show. */
   const TOLERANCE = 0.5;
   /** The placeholder starts one lead gap (--acpmux-composer-lead-gap, 8 px) after the + button's box. */
   const TEXT_GAP = 8;
+  /** The one-line box's height, read from the grid's token (schemas/layout-grid/layout-grid.json,
+   *  `composer-box` = 2 x `composer-block-inset` + `composer-control`): 10 + 28 + 10 = 48 since #29887
+   *  (Leo 2026-11-01: "there's not enough of a space at the bottom"); it was 8 + 28 + 8 = 44. */
+  const BOX_HEIGHT = gridLength("composer-box");
   setDefaultTimeout(180_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -71,10 +76,11 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
     const out: string[] = [];
     const off = (a: number, b: number) => Math.abs(a - b) > TOLERANCE;
     const f = (n: number) => n.toFixed(2);
-    // design/grid.md 5.1: a one-line box is 44 px with a 12 px radius, the text's optical center
-    // (baseline less half the cap height) is the + glyph's. (The text's start on the 44 px line is the
-    // placeholder-gap check below.)
-    if (off(m.box.bottom - m.box.top, 44)) out.push(`box height ${f(m.box.bottom - m.box.top)} is not 44`);
+    // design/grid.md 5.1: a one-line box is the grid's composer-box tall (48 since #29887) with a 12 px
+    // radius, the text's optical center (baseline less half the cap height) is the + glyph's. (The
+    // text's start on the 44 px line is the placeholder-gap check below.)
+    if (off(m.box.bottom - m.box.top, BOX_HEIGHT))
+      out.push(`box height ${f(m.box.bottom - m.box.top)} is not ${BOX_HEIGHT}`);
     if (off(parseFloat(m.dom.boxRadius), 12)) out.push(`box radius ${m.dom.boxRadius} is not 12px`);
     if (m.placeholderOptical && m.plusGlyph && off(m.placeholderOptical.cy, m.plusGlyph.cy))
       out.push(`optical text center ${f(m.placeholderOptical.cy)} differs from + center ${f(m.plusGlyph.cy)}`);

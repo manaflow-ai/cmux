@@ -23,9 +23,13 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 
 await requireBrowserLane("composer-model-quiet.test.ts", async () => {
   setDefaultTimeout(240_000);
+  /** The composer is the frame less the transcript column's edge on each side: --cv-edge is the
+   *  grid's icon box (16) since #27580 (design/grid.md 5.5, the minimum edge is 16; it was 18). */
+  const SIDES = 2 * gridLength("icon-box");
   try {
     await (await chromium.launch({ headless: true })).close();
   } catch {
@@ -69,7 +73,7 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
           (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
         ),
     );
-  /** The stage `variant` at `width` px (the composer is 36 px narrower), settled, nothing focused. */
+  /** The stage `variant` at `width` px (the composer is SIDES, 32 px, narrower), settled, nothing focused. */
   const open = async (variant: string, width = 760): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width, height: 600 } });
     for (;;) {
@@ -300,16 +304,16 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
       };
     });
 
-  // Frame widths: the composer is 36 px narrower (484, 410 and 264 px; 204 and 164 px). Since #24938
+  // Frame widths: the composer is SIDES (32 px) narrower (488, 414 and 268 px; 208 and 168 px). Since #24938
   // took the harness label out of the row it holds only the mode, the model button and the ring, so
   // every whole label still fits a 264 px composer and the row has run out by 204 px; the widths
   // between sit near that boundary, where the fonts decide it, and are left out.
   for (const width of [520, 446, 300])
-    test(`a ${width - 36} px composer keeps "Opus 5.5  Medium" and the mode's name: the row has room`, async () => {
+    test(`a ${width - SIDES} px composer keeps "Opus 5.5  Medium" and the mode's name: the row has room`, async () => {
       const page = await open("quiet-chips", width);
       const shown = await row(page);
       await page.close();
-      expect(shown.composer).toBe(width - 36);
+      expect(shown.composer).toBe(width - SIDES);
       expect({ model: shown.model, effort: shown.effort, steps: shown.steps }).toEqual({
         model: "Opus 5.5",
         effort: "Medium",
@@ -321,7 +325,7 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
     });
 
   for (const width of [240, 200])
-    test(`a ${width - 36} px composer shortens whole units, only as the row runs out, and nothing overlaps`, async () => {
+    test(`a ${width - SIDES} px composer shortens whole units, only as the row runs out, and nothing overlaps`, async () => {
       const page = await open("quiet-chips", width);
       const shown = await row(page);
       await page.close();
