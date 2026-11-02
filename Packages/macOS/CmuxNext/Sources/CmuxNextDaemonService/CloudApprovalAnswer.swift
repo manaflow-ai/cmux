@@ -10,6 +10,9 @@ import os
 ///    `system:cloud:<team>` for that op, with the same digest;
 /// 3. then `feed.answer {decision: allow, scope: once}`, origin `user`.
 ///
+/// When no open item carries it but that team's closed item does, the person
+/// answered it elsewhere (``Failure/answered(request:)``, cmux#32354).
+///
 /// Any mismatch refuses and answers nothing. The backend accepts an
 /// integration approval only from a session (domains/feed.ts), so an
 /// install, an app or an agent can never answer one. Called only by
@@ -33,7 +36,7 @@ public nonisolated struct CloudApprovalAnswer: Sendable {
     let call: Call
 
     public init(call: @escaping Call) { self.call = call }
-    /// The mismatch reason when no open feed item carries the request (closed, or another team's).
+    /// The mismatch reason when no feed item of the create's team carries the request (another team's, or none).
     public static let closedItem = "feed item or team"
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.approval")
 

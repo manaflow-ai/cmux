@@ -73,7 +73,9 @@ import Testing
 
         /// The Mac's next watch check, which never comes in these tests; it ends only when cancelled.
         func nextWatchCheck() async throws {
-            for await _ in AsyncStream<Void>({ watchChecks.append($0) }) {}
+            let (checks, check) = AsyncStream<Void>.makeStream()
+            watchChecks.append(check)
+            for await _ in checks {}
             throw CancellationError()
         }
 
