@@ -78,6 +78,7 @@ final class FocusEffectApplier: FocusEffectApplying {
                 content?.layoutModel.focus(LayoutPaneID(pane), notify: false)
             case .moveResponder(let resolved):
                 moveResponder(resolved, state: state)
+                publish(state.context) // the new target's own facts (a web view, the address bar): see `publish`
             case .publishContext(let context):
                 publish(context)
             case .browserFocusMode(let tab, let active):
@@ -399,16 +400,13 @@ final class FocusEffectApplier: FocusEffectApplying {
         return nil
     }
 
-    /// Only the active window publishes into the (app-wide) registry.
+    /// Only the active window publishes into the (app-wide) registry: at each machine context change and responder move
+    /// (a page shown after its pane took the focus kept `webViewFocused` off before; BROWSER VIDEO 2026-11-02).
     private func publish(_ context: FocusState.Context) {
-        let services = controller.services
+        let services = controller.services, registry = services.registry
         guard services.windows.active === controller else { return }
-        let registry = services.registry
-        if context.agent, case .agentPage(_, let tab) = controller.focus.state.underlying {
-            services.agentTabs.setCheckpointFocus(tab)
-        } else {
-            services.agentTabs.setCheckpointFocus(nil)
-        }
+        let agentTab: String? = if context.agent, case .agentPage(_, let tab) = controller.focus.state.underlying { tab } else { nil }
+        services.agentTabs.setCheckpointFocus(agentTab)
         var next = registry.context
         next.subtract(ActionContext.focusBits)
         if context.terminal { next.insert(.terminalFocused) }
