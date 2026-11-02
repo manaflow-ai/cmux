@@ -36,6 +36,8 @@ struct SidebarFirstItemInItsWindowTests {
         /// Cmd-1 as the journey sends it (`debug.key` with `window` B) in an app that is not active: no
         /// window is key before or after the key, and the key has no event origin.
         case debugKeyInactiveApp
+        /// Go to Home (`home.show`) from the palette or the menu, with window B active.
+        case homeShowAction
 
         var testDescription: String { rawValue }
     }
@@ -112,6 +114,10 @@ struct SidebarFirstItemInItsWindowTests {
             case .selectNumberAction:
                 services.keyWindowSource = { [weak windowB] in windowB?.window }
                 #expect(services.registry.perform("selectWorkspaceByNumber", argument: "1"))
+                services.keyWindowSource = { [weak windowA] in windowA?.window }
+            case .homeShowAction:
+                services.keyWindowSource = { [weak windowB] in windowB?.window }
+                #expect(services.registry.perform("home.show", invocation: ActionInvocation(origin: .user)))
                 services.keyWindowSource = { [weak windowA] in windowA?.window }
             case .debugKeyInactiveApp:
                 services.keyWindowSource = { nil }

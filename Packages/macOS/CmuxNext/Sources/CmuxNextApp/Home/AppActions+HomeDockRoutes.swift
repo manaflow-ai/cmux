@@ -40,9 +40,8 @@ extension AppActions {
             shown?(own)
             return true
         }
-        let state = active.state
-        services.registry.track(Task { @MainActor in
-            guard let made = await services.windowHomes.show(in: state.id) else { return ActionWorkFailure(RefusalStrings.homeNotReady) }
+        services.registry.track(Task { @MainActor [window = active.state.id] in
+            guard let made = await services.windowHomes.show(in: window) else { return ActionWorkFailure(RefusalStrings.homeNotReady) }
             shown?(made)
             return nil
         })
