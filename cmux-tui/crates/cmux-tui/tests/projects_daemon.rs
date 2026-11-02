@@ -20,13 +20,27 @@ struct Daemon {
 
 impl Daemon {
     fn start(name: &str) -> Self {
+        Self::start_in(Self::dir(name), None)
+    }
+
+    fn dir(name: &str) -> PathBuf {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = PathBuf::from("/tmp")
             .join(format!("cmux-projects-{name}-{}-{stamp}", std::process::id()));
         // The Codex home exists at start, so the daemon watches it.
         fs::create_dir_all(dir.join("home/.codex")).unwrap();
+        dir
+    }
+
+    /// A daemon in `dir`, whose acpmux is the one at `acpmux` when given.
+    fn start_in(dir: PathBuf, acpmux: Option<&Path>) -> Self {
         let socket = dir.join("mux.sock");
-        let child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        match acpmux {
+            Some(acpmux) => command.env("ACPMUX_SOCKET", acpmux),
+            None => command.env_remove("ACPMUX_SOCKET"),
+        };
+        let child = command
             .args(["--headless", "--socket"])
             .arg(&socket)
             .arg("--state")
@@ -662,4 +676,177 @@ fn projects_daemon_a_source_turned_off_leaves_and_is_ignored_until_turned_on() {
         Some("t-8"),
     );
     assert_eq!(refused.unwrap_err()["code"], "validation.invalid");
+}
+
+/// A stand-in for this machine's acpmux: it answers the daemon's watches and
+/// serves `_acpmux/chat_projects` from `answer`, and pushes an index change
+/// to every `_acpmux/chats_watch` connection on `changed`.
+struct FakeAcpmux {
+    answer: std::sync::Arc<std::sync::Mutex<Value>>,
+    watchers: std::sync::Arc<std::sync::Mutex<Vec<std::os::unix::net::UnixStream>>>,
+    reads: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl FakeAcpmux {
+    fn listen(socket: &Path, answer: Value) -> Self {
+        use std::sync::{Arc, Mutex, atomic::AtomicUsize};
+        let listener = std::os::unix::net::UnixListener::bind(socket).unwrap();
+        let fake = Self {
+            answer: Arc::new(Mutex::new(answer)),
+            watchers: Arc::new(Mutex::new(Vec::new())),
+            reads: Arc::new(AtomicUsize::new(0)),
+        };
+        let (answer, watchers, reads) =
+            (fake.answer.clone(), fake.watchers.clone(), fake.reads.clone());
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { return };
+                let (answer, watchers, reads) = (answer.clone(), watchers.clone(), reads.clone());
+                std::thread::spawn(move || serve(stream, &answer, &watchers, &reads));
+            }
+        });
+        fake
+    }
+
+    fn set(&self, answer: Value) {
+        *self.answer.lock().unwrap() = answer;
+    }
+
+    /// The `_acpmux/chat_projects` reads served so far.
+    fn reads(&self) -> usize {
+        self.reads.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn changed(&self, kind: &str) {
+        let push = json!({"jsonrpc": "2.0", "method": "_acpmux/chat_changed",
+            "params": {"kind": kind, "seq": 1, "key": "claude-code:k"}});
+        for watcher in self.watchers.lock().unwrap().iter_mut() {
+            let _ = writeln!(watcher, "{push}");
+        }
+    }
+}
+
+fn serve(
+    stream: std::os::unix::net::UnixStream,
+    answer: &std::sync::Mutex<Value>,
+    watchers: &std::sync::Mutex<Vec<std::os::unix::net::UnixStream>>,
+    reads: &std::sync::atomic::AtomicUsize,
+) {
+    let mut writer = stream.try_clone().unwrap();
+    for line in BufReader::new(stream).lines() {
+        let Ok(line) = line else { return };
+        let Ok(request) = serde_json::from_str::<Value>(&line) else { continue };
+        let result = match request["method"].as_str() {
+            Some("initialize") => json!({"protocolVersion": 1}),
+            Some("_acpmux/watch") => json!({"sessions": [], "nextCursor": null}),
+            Some("_acpmux/chats_watch") => {
+                watchers.lock().unwrap().push(writer.try_clone().unwrap());
+                json!({"ready": true, "enabled": true, "chats": [], "nextCursor": null, "seq": 0})
+            }
+            Some("_acpmux/chat_projects") => {
+                let answer = answer.lock().unwrap().clone();
+                reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                answer
+            }
+            _ => {
+                let error = json!({"jsonrpc": "2.0", "id": request["id"],
+                    "error": {"code": -32601, "message": "Method not found"}});
+                let _ = writeln!(writer, "{error}");
+                continue;
+            }
+        };
+        let reply = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
+        let _ = writeln!(writer, "{reply}");
+    }
+}
+
+#[test]
+fn projects_daemon_project_chats_imports_the_acpmux_chat_index_itself() {
+    let dir = Daemon::dir("chats");
+    let acpmux_socket = dir.join("acpmux.sock");
+    let root = "/srv/cx-a14-chats";
+    let row = |harness: &str, path: &str, used: i64| json!({"harness": harness, "path": format!("{root}/{path}"), "lastUsedMs": used});
+    let answer =
+        |projects: Vec<Value>| json!({"ready": true, "enabled": true, "projects": projects});
+    // acpmux listens before the daemon starts, as when the app already runs a chat.
+    let acpmux = FakeAcpmux::listen(
+        &acpmux_socket,
+        answer(vec![
+            row("claude-code", "app/", 10),
+            row("codex", "app", 20),
+            row("codex", "lib", 5),
+            // acpmux reports every absolute chat folder; the store refuses this one.
+            json!({"harness": "codex", "path": "/", "lastUsedMs": 5}),
+        ]),
+    );
+    let daemon = Daemon::start_in(dir, Some(&acpmux_socket));
+    let wait_for = |what: &str, done: &dyn Fn(&[Value]) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let projects = daemon.list(json!({"include_hidden": true}));
+            if done(&projects) {
+                return projects;
+            }
+            assert!(Instant::now() < deadline, "{what}: {projects:?}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+    let app = format!("{root}/app");
+    let lib = format!("{root}/lib");
+
+    // With no app connected, the daemon reads the grouped index and imports
+    // each harness: one row per folder however a harness spelled it.
+    let projects = wait_for("the chat folders are imported", &|projects| {
+        projects.iter().any(|project| project["path"] == lib.as_str())
+    });
+    assert_eq!(projects.iter().filter(|project| project["path"] == app.as_str()).count(), 1);
+    let merged = find(&projects, &app);
+    assert_eq!(merged["sources"]["claude-code"]["last_used_ms"], "10", "{merged}");
+    assert_eq!(merged["sources"]["codex"]["last_used_ms"], "20", "{merged}");
+    assert_eq!(projects.len(), 2, "{projects:?}");
+
+    // The user's edit stays through every later import.
+    daemon.mutate("project.update", json!({"path": app, "rename": "Mine"}), "c-1");
+
+    // An activity push changes no folder: no read. An index change reads the
+    // list again: codex dropped lib, claude-code has no folder left.
+    let before = acpmux.reads();
+    acpmux.set(answer(vec![row("codex", "app", 30)]));
+    acpmux.changed("activity");
+    acpmux.changed("upsert");
+    let projects = wait_for("the next list is imported", &|projects| {
+        find(projects, &app)["sources"]["codex"]["last_used_ms"] == "30"
+    });
+    let app_row = find(&projects, &app);
+    assert_eq!(app_row["name"], "Mine");
+    assert!(app_row["sources"]["claude-code"].is_null(), "{app_row}");
+    assert!(
+        projects
+            .iter()
+            .filter(|project| project["path"] == lib.as_str())
+            .all(|project| project["sources"]["codex"].is_null()),
+        "{projects:?}"
+    );
+    assert_eq!(acpmux.reads(), before + 1, "the activity push read nothing");
+
+    // While the index restarts or chats are off, nothing is imported: an
+    // empty list there is not every harness losing its folders.
+    for idle in [
+        json!({"ready": false, "enabled": true, "projects": []}),
+        json!({"ready": true, "enabled": false, "projects": []}),
+    ] {
+        let before = acpmux.reads();
+        acpmux.set(idle.clone());
+        acpmux.changed("removed");
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while acpmux.reads() == before {
+            assert!(Instant::now() < deadline, "no read after {idle}");
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        // The read is answered before the import would commit; one list
+        // after it shows what that read left.
+        std::thread::sleep(Duration::from_millis(200));
+        let projects = daemon.list(json!({"include_hidden": true}));
+        assert_eq!(find(&projects, &app)["sources"]["codex"]["last_used_ms"], "30", "{idle}");
+    }
 }

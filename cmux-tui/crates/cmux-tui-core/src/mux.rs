@@ -212,6 +212,8 @@ mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
 mod pinned_columns;
+#[cfg(unix)]
+mod project_chats;
 mod pty_reclaim;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
