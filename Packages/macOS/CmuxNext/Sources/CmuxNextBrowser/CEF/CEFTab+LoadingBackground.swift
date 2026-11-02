@@ -41,21 +41,29 @@ extension CEFTab {
         return PageBackground.themeARGB(in: container)
     }
 
-    /// The committed document painted content (`CEFFirstPaintBridge`). The paint signal comes before that frame is
-    /// on screen, so the base must change only to a color the page itself has: the document's own background is
-    /// read first (`pageBackdropScript`) and the document settles on it, white only for a page with no background
-    /// (BROWSER VIDEO F4: settling on white at once showed the whole page area white for 3 frames before a dark
-    /// page's first frame). A failed read, or the pageBackdrop tunable off, settles as before; a navigation in
-    /// between leaves the next document to its own paint.
+    /// The committed document painted content (`CEFFirstPaintBridge`), or its load ended (`.loadEnd`). Neither moment
+    /// is the painted frame being on screen, so the base must change only to a color the page itself has: the
+    /// document's own background is read first (`pageBackdropScript`) and the document settles on it, white only for a
+    /// page with no background (BROWSER VIDEO F4: settling on white at once showed the whole page area white for up to
+    /// 3 frames before a dark page's first frame). One read per document: the first of paint and load end starts it,
+    /// and its answer applies even if something else settled the document meanwhile (a stopped load, a renderer
+    /// exit). A failed read, or the pageBackdrop tunable off, settles at once as before; a navigation in between leaves
+    /// the next document to its own events.
     func documentDidPaint() {
         guard pastFirstRealPage, !documentSettled else { return }
         guard BrowserResizeTunables.pageBackdrop.value, browserID != nil, !isClosed else { return documentDidSettle() }
         let document = pageBackdropDocument
+        guard pageBackdropReading != document else { return }
+        pageBackdropReading = document
         Task { [weak self] in
             let value = try? await self?.evaluate(Self.pageBackdropScript, world: .page, gesture: .cmux)
             guard let self, document == self.pageBackdropDocument, !self.isClosed else { return }
             if let value, let argb = Self.backdropARGB(from: value) { self.pageBackdropARGB = argb }
-            self.documentDidSettle()
+            if self.documentSettled {
+                self.applyPageBackground()
+            } else {
+                self.documentDidSettle()
+            }
         }
     }
 

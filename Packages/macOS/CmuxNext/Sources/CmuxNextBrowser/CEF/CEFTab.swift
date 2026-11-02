@@ -108,6 +108,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The document's own background, 0xAARRGGBB, once read (nil: Chromium's
     /// white); counts for resize gaps (`CEFTab+ResizeBackdrop`).
     @ObservationIgnored var pageBackdropARGB: UInt32?
+    /// The document (`pageBackdropDocument`) whose background read is in flight from its paint or load end
+    /// (`documentDidPaint`), so the second of the two events starts no second read.
+    @ObservationIgnored var pageBackdropReading: Int?
     /// Bumped on each committed document, so a read of the previous one is dropped.
     @ObservationIgnored var pageBackdropDocument = 0
     /// The committed document's load settled, so the page area is its own.

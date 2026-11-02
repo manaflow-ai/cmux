@@ -27,6 +27,37 @@ import Testing
         #expect(!ShimLog.backgrounds.contains(Self.white), "and never passes through white")
     }
 
+    /// Review FIX at ce21bcf3454: load end arriving before the paint read answers settled white, and the read's navy
+    /// was then never applied. One read serves both events and its answer applies even after the document settled.
+    @Test func loadEndBeforeTheReadAnswersStillEndsOnTheDocumentsColor() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.committedTab()
+        CEFFirstPaintBridge(tab: tab).painted()
+        await rig.until { ShimLog.evaluates > 0 }
+        rig.runtime.handle(.loadEnd(browser: Rig.browser, httpStatus: 200))
+        for _ in 0..<10 { await Task.yield() }
+        #expect(ShimLog.evaluates == 1, "load end starts no second read")
+        #expect(!ShimLog.backgrounds.contains(Self.white), "no white base while the read is pending")
+        rig.answerEvaluate(#"{"result":{"type":"object","value":[11,42,74]}}"#)
+        await rig.until { ShimLog.backgrounds.last == Self.navy }
+        #expect(ShimLog.backgrounds.last == Self.navy)
+        #expect(!ShimLog.backgrounds.contains(Self.white))
+    }
+
+    /// Load end with no first paint (a small page can end its load first): the same read-then-settle, never white first.
+    @Test func loadEndFirstAlsoReadsBeforeSettling() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        _ = try rig.committedTab()
+        rig.runtime.handle(.loadEnd(browser: Rig.browser, httpStatus: 200))
+        await rig.until { ShimLog.evaluates > 0 }
+        #expect(!ShimLog.backgrounds.contains(Self.white))
+        rig.answerEvaluate(#"{"result":{"type":"object","value":[11,42,74]}}"#)
+        await rig.until { ShimLog.backgrounds.last == Self.navy }
+        #expect(ShimLog.backgrounds.last == Self.navy)
+    }
+
     /// A page with no background of its own is white, the web default.
     @Test func aPageWithNoBackgroundSettlesWhite() async throws {
         let rig = try Rig()
