@@ -893,14 +893,25 @@ class L5(Profile):
 
 
 def run_l6(a):
-    """L1..L5 at the same time, one child process each; LOAD-READY L6 once every child is ready."""
+    """L1..L5 at the same time, one child process each; LOAD-READY L6 once every child is ready.
+    --storm-after-ready: the L1 storm starts only once L2..L5 are ready (or have ended), so their set-up (L3's
+    browser tab, L5's 40 workspaces and 200 tabs) is not starved by the storm; the storm is the load during the typing,
+    not during the set-up. At 120 calls/s from the start, L3's browser identify timed out (2 s) and L5 stopped at 38 of
+    40 workspaces on both builds (cmux20 2026-11-02 17:4xZ), so L6 was never ready."""
     folder = os.path.join(a.out, "L6")
     os.makedirs(folder, exist_ok=True)
     children = {}
-    for name in PROFILES[:5]:
+    later = ("L1",) if getattr(a, "storm_after_ready", False) else ()
+
+    def start(name):
         argv = [sys.executable, os.path.abspath(__file__), "run", name, "--out", folder] + passthrough(a)
         children[name] = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True)
-    manifest = {"profile": "L6", "seed": a.seed, "duration": a.duration, "children": {}, "started_wall": time.time()}
+
+    for name in PROFILES[:5]:
+        if name not in later:
+            start(name)
+    manifest = {"profile": "L6", "seed": a.seed, "duration": a.duration, "children": {}, "started_wall": time.time(),
+                "storm_after_ready": bool(later)}
     ready, done_lines, lock = {}, {}, threading.Lock()
 
     def follow(name, proc):
@@ -916,24 +927,41 @@ def run_l6(a):
     threads = [threading.Thread(target=follow, args=item, daemon=True) for item in children.items()]
     for t in threads:
         t.start()
+    stopping = []
 
     def forward(signum, _frame):
-        for proc in children.values():
+        stopping.append(signum)
+        for proc in list(children.values()):
             if proc.poll() is None:
                 proc.send_signal(signal.SIGTERM)
 
     signal.signal(signal.SIGTERM, forward)
     signal.signal(signal.SIGINT, forward)
     announced = False
-    while any(p.poll() is None for p in children.values()):
+    while later or any(p.poll() is None for p in children.values()):
         with lock:
-            if not announced and len(ready) == len(children):
+            settled = all(name in ready or children[name].poll() is not None for name in children)
+        if later and (settled or stopping):
+            if not stopping:
+                for name in later:
+                    start(name)
+                    manifest["storm_started_wall"] = time.time()
+                    t = threading.Thread(target=follow, args=(name, children[name]), daemon=True)
+                    t.start()
+                    threads.append(t)
+            later = ()
+        with lock:
+            if not announced and not later and len(ready) == len(children) == 5:
                 announced = True
                 print("LOAD-READY L6 t_mono=%.6f t_wall=%.6f" % (time.monotonic(), time.time()), flush=True)
         time.sleep(0.1)
     for t in threads:
         t.join(5)
     codes = {name: p.returncode for name, p in children.items()}
+    for name in PROFILES[:5]:
+        if name not in children:  # a stop before the storm's turn: it never ran
+            manifest["children"][name] = {"exit": None, "dir": os.path.join(folder, name), "ready": None,
+                                          "done": None, "not_started": True}
     for name in children:
         manifest["children"][name] = {"exit": codes[name], "dir": os.path.join(folder, name), "ready": ready.get(name),
                                       "done": done_lines.get(name)}
@@ -1126,6 +1154,8 @@ def main(argv=None):
     p.add_argument("--out", help="folder (default $TMPDIR/tk-load-SEED)")
     p.add_argument("--rate", type=int, default=100, help="L1: CLI and socket calls a second in total")
     p.add_argument("--workers", type=int, default=L1.WORKERS, help="L1: storm workers (each waits for its call)")
+    p.add_argument("--storm-after-ready", action="store_true",
+                   help="L6: start the L1 storm only once L2..L5 are ready (their set-up is not starved by the storm)")
     p.add_argument("--daemon-stats", action="store_true",
                    help="L1: record the daemon's server-stats (locks) at LOAD-READY and at the stop (records only)")
     p.add_argument("--agent-cps", type=int, default=400, help="L4: characters a second each agent streams")

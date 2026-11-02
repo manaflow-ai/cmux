@@ -595,6 +595,22 @@ class AllL6(Base):
         self.assert_no_focus_verbs()
         self.assert_torn_down(app)
 
+    def test_storm_after_ready_starts_l1_once_l2_to_l5_are_ready(self):
+        done, out, app = self.run_tool("L6", "--duration", "3", "--keep", "pane_keep", "--rate", "40",
+                                       "--heavy-shape", "4,12,4", "--storm-after-ready", timeout=300)
+        self.assertEqual(done.returncode, 0, done.stdout[-3000:] + done.stderr[-2000:])
+        lines = done.stdout.splitlines()
+        at = {name: next(i for i, l in enumerate(lines) if l.startswith("LOAD-READY %s " % name))
+              for name in ("L1", "L2", "L3", "L4", "L5", "L6")}
+        self.assertGreater(at["L1"], max(at[n] for n in ("L2", "L3", "L4", "L5")))  # the storm starts last
+        self.assertGreater(at["L6"], at["L1"])  # L6 is ready only with the storm running
+        with open(os.path.join(out, "L6", "manifest.json")) as f:
+            m = json.load(f)
+        self.assertTrue(m["all_ready"] and m["storm_after_ready"])
+        self.assertGreaterEqual(m["storm_started_wall"], m["started_wall"])
+        self.assertEqual({k: v["exit"] for k, v in m["children"].items()}, {k: 0 for k in ("L1", "L2", "L3", "L4", "L5")})
+        self.assert_torn_down(app)
+
 
 class WorkersOption(unittest.TestCase):
     """--workers reaches L1 (default 8) and the L6 children get it through passthrough."""
