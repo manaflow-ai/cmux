@@ -76,6 +76,16 @@ struct CloudLivePreviewTests {
         #expect(configuration.platformPreviewAPIBaseURL(environment: [:]) == nil)
     }
 
+    @Test func artifactsOriginFollowsCloudEnvironmentAndDebugOverrides() {
+        let production = CloudConfiguration.resolve(bundleID: nil, bundled: [:], process: [:], isDebugBuild: false)
+        #expect(production.artifactsAPIBaseURL(environment: [:])?.absoluteString == "https://cmux-platform.debussy.workers.dev")
+        #expect(production.artifactsAPIBaseURL(environment: ["CMUX_NEXT_ARTIFACTS_API_URL": "https://evil.invalid"])?.absoluteString == "https://cmux-platform.debussy.workers.dev")
+
+        let development = CloudConfiguration.resolve(bundleID: nil, bundled: [:], process: [:], isDebugBuild: true)
+        #expect(development.artifactsAPIBaseURL(environment: [:])?.absoluteString == "https://cmux-platform-development.debussy.workers.dev")
+        #expect(development.artifactsAPIBaseURL(environment: ["CMUX_NEXT_ARTIFACTS_API_URL": "https://cmux-platform-staging.debussy.workers.dev"])?.absoluteString == "https://cmux-platform-staging.debussy.workers.dev")
+    }
+
     @Test func refreshNeverAddsAPreviewToTheClassicAPI() async {
         let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://classic.standin.invalid"],
                                                        process: [:], isDebugBuild: true)

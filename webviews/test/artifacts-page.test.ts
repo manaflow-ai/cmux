@@ -11,19 +11,35 @@ import { ArtifactsOps, type ArtifactsTree } from "../src/pages/artifacts/types";
 /** A host whose answers come from `answer`; every call is recorded. */
 class Host implements PageClient {
   calls: { op: string; params: Record<string, unknown> }[] = [];
+  authEvent?: () => void;
   constructor(private readonly answer: (op: string, params: Record<string, unknown>) => unknown) {}
   async call<R>(op: string, params: unknown): Promise<R> {
     const p = (params ?? {}) as Record<string, unknown>;
     this.calls.push({ op, params: p });
     return (await this.answer(op, p)) as R;
   }
-  async subscribe(): Promise<() => void> {
-    return () => {};
+  async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
+    if (stream === "cmux.cloud.auth.watch") this.authEvent = () => onEvent({} as E, 1);
+    return () => {
+      this.authEvent = undefined;
+    };
   }
   handle(_op: string, _handler: PageHandler): () => void {
     return () => {};
   }
 }
+
+test("an auth change clears the old account's selected file immediately", async () => {
+  const mock = new MockArtifactsProvider();
+  const host = new Host((op, params) => mock.call(op, params));
+  const store = new ArtifactsStore(host);
+  await store.start();
+  expect(store.getSnapshot().file).toBeDefined();
+
+  host.authEvent?.();
+  expect(store.getSnapshot()).toMatchObject({ status: "loading", paths: [], selected: undefined, file: undefined });
+  await store.start();
+});
 
 test("the tree is read one folder per call and flattened to sorted file paths", async () => {
   const mock = new MockArtifactsProvider();

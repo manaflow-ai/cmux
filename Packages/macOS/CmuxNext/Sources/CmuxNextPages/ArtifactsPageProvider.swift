@@ -57,10 +57,11 @@ public final class ArtifactsPageProvider: PageProvider {
         self.fetch = fetch
     }
 
-    /// The Artifacts tab's page: this provider on the platform API (``apiBaseURL(environment:)``),
-    /// each read made with `token`'s access token (nil when signed out).
-    public static func page(token: @escaping @Sendable () async throws -> String?) -> PageWebView? {
-        let provider = ArtifactsPageProvider(fetch: platformFetch(base: apiBaseURL(), token: token))
+    /// The Artifacts tab's page: this provider on the app-selected platform API, each read made
+    /// with `token`'s access token (nil when signed out). The host supplies the base so release
+    /// builds use their production Cloud configuration and debug builds can use a preview.
+    public static func page(baseURL: URL?, token: @escaping @Sendable () async throws -> String?) -> PageWebView? {
+        let provider = ArtifactsPageProvider(fetch: platformFetch(base: baseURL, token: token))
         return PageWebView(descriptor: .artifacts, routes: [PageRoute(prefix: "cmux.artifacts.", provider: provider)])
     }
 

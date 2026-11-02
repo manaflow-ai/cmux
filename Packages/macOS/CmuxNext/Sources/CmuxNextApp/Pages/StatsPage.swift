@@ -33,8 +33,9 @@ enum StatsPageTab {
         })
         // The Artifacts page (``ArtifactsPageProvider``): on for everyone; signed out, every read answers sign in.
         services.pages.register(WebPageTab(.artifacts, symbol: "shippingbox", title: ArtifactsPageProvider.title) { [weak services] in
+            let baseURL = services?.cloud.configuration.artifactsAPIBaseURL()
             let auth = services?.cloud.auth
-            return ArtifactsPageProvider.page { @MainActor in
+            return ArtifactsPageProvider.page(baseURL: baseURL) { @MainActor in
                 guard let auth, auth.isSignedIn else { return nil }
                 return try await auth.tokens().access
             }

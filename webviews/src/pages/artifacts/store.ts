@@ -7,6 +7,7 @@ import { ArtifactsOps, type ArtifactFile, type ArtifactsTree } from "./types";
 export const MAX_FOLDERS = 200;
 /** Folder reads in flight at once. */
 const FOLDER_READS = 4;
+const AUTH_WATCH = "cmux.cloud.auth.watch";
 
 /** What went wrong, by the app's error code; the page words it. */
 export interface ArtifactsFailure {
@@ -36,6 +37,8 @@ export class ArtifactsStore {
   private listeners = new Set<() => void>();
   private treeRequest = 0;
   private fileRequest = 0;
+  private watchingAuth = false;
+  private unwatchAuth?: () => void;
   /** The head the chosen file was last read at; a refresh at another head reads it again. */
   private fileHead?: string;
 
@@ -54,6 +57,7 @@ export class ArtifactsStore {
    */
   async start(): Promise<void> {
     if (!this.client) return this.set({ ...INITIAL, status: "unavailable" });
+    await this.watchAuth();
     const request = ++this.treeRequest;
     // A refresh keeps the tree on screen until the new one arrives.
     if (this.snapshot.status !== "ready") this.set({ status: "loading", failure: undefined });
@@ -73,6 +77,36 @@ export class ArtifactsStore {
       const keep = !["cmux.artifacts.not_found", "cmux.artifacts.signed_out"].includes(failure.code);
       if (this.snapshot.status === "ready" && keep) return;
       this.set({ status: failure.code === "cmux.artifacts.not_found" ? "empty" : "failed", failure, paths: [] });
+    }
+  }
+
+  /** Drop the old account's tree and preview as soon as the host reports an auth change. */
+  private async watchAuth(): Promise<void> {
+    if (!this.client || this.unwatchAuth || this.watchingAuth) return;
+    this.watchingAuth = true;
+    try {
+      const unwatch = await this.client.subscribe(AUTH_WATCH, () => {
+        this.treeRequest += 1;
+        this.fileRequest += 1;
+        this.fileHead = undefined;
+        this.set({
+          status: "loading",
+          failure: undefined,
+          paths: [],
+          truncated: false,
+          headSha: undefined,
+          selected: undefined,
+          file: undefined,
+          fileLoading: false,
+          fileFailure: undefined,
+        });
+        void this.start();
+      });
+      this.unwatchAuth = unwatch;
+    } catch {
+      // Older hosts have no auth stream; visibility refresh still remains available.
+    } finally {
+      this.watchingAuth = false;
     }
   }
 
