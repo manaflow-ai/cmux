@@ -35,10 +35,10 @@ public nonisolated struct CloudApprovalAnswer: Sendable {
 
     let call: Call
     /// Whether the person's feed already shows `request` answered (the feed owner's push of its closed
-    /// item, cmux#32354); such a request is not looked up or answered again.
-    let answered: @Sendable (_ request: String) async -> Bool
+    /// item, cmux#32354); such a request is not looked up or answered again. Nil: none is known.
+    let answered: (@Sendable (_ request: String) async -> Bool)?
 
-    public init(call: @escaping Call, answered: @escaping @Sendable (_ request: String) async -> Bool = { _ in false }) {
+    public init(call: @escaping Call, answered: (@Sendable (_ request: String) async -> Bool)? = nil) {
         (self.call, self.answered) = (call, answered)
     }
     /// The mismatch reason when no feed item of the create's team carries the request (another team's, or none).
@@ -60,7 +60,7 @@ public nonisolated struct CloudApprovalAnswer: Sendable {
     }
 
     private func checkedApprove(request: String, op: String, params: Data, team: String) async throws {
-        if await answered(request) { throw Failure.answered(request: request) }
+        if let answered, await answered(request) { throw Failure.answered(request: request) }
         let read = try await post("v1/read", ["op": "integration.approval.get", "params": ["request": request]])
         let held = read["value"] as? [String: Any] ?? [:]
         guard held["op"] as? String == op else { throw Failure.mismatch(request: request, reason: "op") }
