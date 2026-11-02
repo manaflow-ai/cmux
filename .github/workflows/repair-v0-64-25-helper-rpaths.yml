@@ -15,6 +15,9 @@ concurrency:
   group: stable-appcast-publication
   cancel-in-progress: false
 
+env:
+  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+
 jobs:
   # No environment and no secrets: the one check that runs bundle code (the
   # diff sidecar handshake) runs on the shipped app here. Re-signing changes

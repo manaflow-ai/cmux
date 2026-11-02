@@ -26,6 +26,7 @@ permissions:
 # `fail` to make it block again. The crash ratchet, the defaults snapshot
 # freshness, the guard self-tests and the menu check still fail.
 env:
+  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
   CMUX_NEXT_STYLE_GUARDS: warn
 
 concurrency:

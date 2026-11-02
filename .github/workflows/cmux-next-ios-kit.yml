@@ -75,6 +75,9 @@ concurrency:
   # A new push to a pull request cancels its previous run; feat-cmux-next pushes never cancel.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+
 jobs:
   # Pick an idle owned Mac with an iOS simulator, then fall back to Blacksmith
   # on retries. Keeping this picker ahead of the test job lets the rescue

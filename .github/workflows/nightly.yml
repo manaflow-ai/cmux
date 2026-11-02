@@ -156,6 +156,7 @@ concurrency:
 permissions: {}
 
 env:
+  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
   # Main's promote guard reads this exact line (promote-nightly-next.mjs G5); see resolve-tree-pending.sh.
   NIGHTLY_NEXT_TREE_AT_INSTALL: v1
   CREATE_DMG_VERSION: 8.0.0

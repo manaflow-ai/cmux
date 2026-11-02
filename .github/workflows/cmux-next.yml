@@ -632,6 +632,7 @@ permissions:
   contents: read
 
 env:
+  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
   # HQ's public cache edge serves read-only restores from every runner; writes
   # use the controller-owned R2 credentials in the seed steps below.
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}

@@ -75,6 +75,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+
 jobs:
   resolve-ref:
     uses: ./.github/workflows/resolve-dispatch-ref.yml

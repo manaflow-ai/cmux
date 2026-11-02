@@ -34,6 +34,7 @@ permissions:
 # r2-cache.sh restores through the public URL and refuses to save without it,
 # so without this env every restore missed and every save wrote nothing.
 env:
+  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
 
 

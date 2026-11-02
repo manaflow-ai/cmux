@@ -68,6 +68,9 @@ on:
 
 permissions: {}
 
+env:
+  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+
 jobs:
   drive:
     name: nightly-next train

@@ -289,6 +289,8 @@ job's own expression resolves exactly as before.
 from __future__ import annotations
 
 import argparse
+import base64
+import gzip
 import dataclasses
 import datetime as dt
 import hashlib
@@ -304,6 +306,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import github_spend  # noqa: E402 - per-token request counts, reported when the step exits
@@ -2201,6 +2204,70 @@ def _absolute_deadline(deadline: float | None):
                 signal.setitimer(signal.ITIMER_REAL, restored, previous_timer[1])
 
 
+
+# Repository variables arrive through trusted workflow context, without a token or
+# a request per picker. The publisher lives in HQ's fleet observation tools.
+RUNNER_STATE_SCHEMA = "runner-state/v1"
+RUNNER_STATE_MAX_AGE_SECONDS = 5 * 60
+RUNNER_STATE_MAX_BYTES = 2 * 1024 * 1024
+
+
+def runner_state(repository: str, *, raw: str | None = None,
+                 now: dt.datetime | None = None) -> Mapping[str, Any] | None:
+    """A complete, fresh registration census, or None to retain the live API path.
+
+    The variable contains gzip/base64 JSON. Never accept desired manifest labels,
+    arbitrary scopes, partial pages or a timestamp refreshed after a source error.
+    A workflow's input is not a document source: callers use repository context.
+    """
+    raw = os.environ.get("CI_RUNNER_STATE", "") if raw is None else raw
+    if not raw or len(raw) > 48 * 1024 or repository != "manaflow-ai/cmux":
+        return None
+    try:
+        compressed = base64.b64decode(raw, validate=True)
+        with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as source:
+            body = source.read(RUNNER_STATE_MAX_BYTES + 1)
+        if len(body) > RUNNER_STATE_MAX_BYTES:
+            return None
+        doc = json.loads(body)
+        if (not isinstance(doc, dict) or doc.get("schema") != RUNNER_STATE_SCHEMA
+                or doc.get("repository") != repository or doc.get("complete") is not True):
+            return None
+        generated = parse_time(str(doc.get("generated_at") or ""))
+        clock = now or dt.datetime.now(dt.timezone.utc)
+        if (generated is None or generated.tzinfo is None
+                or not 0 <= (clock - generated).total_seconds() <= RUNNER_STATE_MAX_AGE_SECONDS):
+            return None
+        groups = doc.get("runner_groups")
+        if (not isinstance(groups, dict) or RUNNER_GROUP not in groups
+                or any(name not in APPROVED_RUNNER_GROUPS for name in groups)):
+            return None
+        lists = [doc.get("repository_runners"), *groups.values()]
+        ids: set[int] = set()
+        for runners in lists:
+            if not isinstance(runners, list) or len(runners) > 2000:
+                return None
+            for runner in runners:
+                if (not isinstance(runner, dict) or type(runner.get("id")) is not int
+                        or runner["id"] <= 0 or not isinstance(runner.get("name"), str)
+                        or not runner["name"] or runner.get("status") not in ("online", "offline")
+                        or type(runner.get("busy")) is not bool
+                        or not isinstance(runner.get("labels"), list)
+                        or not all(isinstance(label, dict) and isinstance(label.get("name"), str)
+                                   and label["name"] for label in runner["labels"])):
+                    return None
+                if runner["id"] in ids:
+                    return None
+                ids.add(runner["id"])
+        counts = doc.get("scale_sets", {})
+        if (not isinstance(counts, dict) or any(not isinstance(label, str)
+                or type(count) is not int or count < 0 for label, count in counts.items())):
+            return None
+        return doc
+    except (ValueError, TypeError, OSError, EOFError, OverflowError, zlib.error):
+        return None
+
+
 class GitHub:
     def __init__(self, token: str, repo: str, *, retry_cap: float = 0.0,
                  retries: RetryBudget | None = None,
@@ -2380,6 +2447,11 @@ class GitHub:
         callers fall back to a snapshot instead of treating an incomplete
         listing as idle.
         """
+        document = runner_state(self.repo)
+        if document is not None:
+            print("Runner state: trusted repository document (no runner API requests)", file=sys.stderr)
+            return [*document["repository_runners"],
+                    *(runner for runners in document["runner_groups"].values() for runner in runners)]
         found = {runner.get("id"): runner for runner in self._runner_pages(f"/repos/{self.repo}/actions/runners")}
         owner, _, name = self.repo.partition("/")
         try:

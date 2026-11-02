@@ -59,6 +59,7 @@ concurrency:
   cancel-in-progress: ${{ inputs.suites == 'golden' || inputs.suites == 'instant' || inputs.suites == 'perf' }}
 
 env:
+  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
   SUITES: ${{ inputs.suites || 'fling,golden' }}
 
 jobs:

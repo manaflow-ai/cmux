@@ -17,6 +17,7 @@ run-name: >-
 permissions: {}
 
 env:
+  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
   # Keep the source workflow pinned in the receipt and resolver checks.
   SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next.yml
 

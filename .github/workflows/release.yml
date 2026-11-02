@@ -13,6 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
   CREATE_DMG_VERSION: 8.0.0
 
 jobs:
