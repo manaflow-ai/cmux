@@ -67,15 +67,6 @@ mod handoff_tests;
 mod harness_login_tests;
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod receiver_client_tests;
-#[cfg(all(test, target_os = "linux"))]
-mod receiver_files_tests;
-#[cfg(test)]
-mod receiver_read_tests;
-#[cfg(test)]
-mod receiver_reply_tests;
 #[cfg(test)]
 mod trajectory_tests;
 

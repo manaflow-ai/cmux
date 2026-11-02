@@ -149,22 +149,6 @@ export class UserDO extends OwnerDO<UserState> {
     this.closeRetryAt = failed ? now + CLOSE_RETRY_MS : null
   }
 
-  /** Stamp accepted install sockets at the shared Worker/self-hosted admission seam. */
-  override acceptSubscriber(server: WebSocket, entity: string, principal: Principal): void {
-    if (principal.kind !== "install") return super.acceptSubscriber(server, entity, principal)
-    const state = this.bind(entity).currentState, grant = liveInstallGrant(state, principal, Date.now())
-    if (!grant || !principal.install) {
-      // The self-hosted caller may have awaited between mayAccept and this
-      // synchronous seam. Close the accepted socket without a welcome frame.
-      this.ctx.acceptWebSocket(server)
-      server.close(4401, "install authority changed")
-      return
-    }
-    const expires_at = Math.min(principal.expires_at ?? Infinity, grant.expires_at ?? Infinity)
-    super.acceptSubscriber(server, entity, { ...principal, install_authority: installAuthorityVersion(state, principal.install),
-      ...(Number.isFinite(expires_at) ? { expires_at } : {}) })
-  }
-
   /**
    * RPC from an owner that accepted a socket of one of this user's installs (socket-gate.ts).
    * False when the install (with this grant) is not active: the owner closes the socket at once,
@@ -198,28 +182,6 @@ export class UserDO extends OwnerDO<UserState> {
       }
     }
     if (failure !== undefined) throw failure
-  }
-
-  /** Consume our authority notices durably and schedule socket fanout; payloads never carry authority. */
-  override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
-    const notices = items.filter((item) => item.op === INSTALL_AUTHORITY_CHANGED)
-    for (const item of notices) {
-      const install = (item.params as { install?: unknown } | null)?.install
-      if (source !== `user:${entity}` || typeof install !== "string" || !install || install.length > 200) continue
-      this.bind(entity)
-      // Reuse the durable registry's existing close-and-retry queue. Repeated
-      // notices coalesce naturally, and no authority value crosses the RPC.
-      markInstallClosing(this.ctx.storage.sql, install, Date.now())
-      this.scheduleAlarm()
-    }
-    const rest = items.filter((item) => item.op !== INSTALL_AUTHORITY_CHANGED)
-    return { done: [...notices.map((item) => item.id), ...(rest.length ? (await super.systemDeliver(entity, source, rest)).done : [])] }
-  }
-
-  async recheckInstallAuthority(entity: string, _user: string, install: string): Promise<void> {
-    if (!this.isBound(entity)) return
-    markInstallClosing(this.ctx.storage.sql, install, Date.now())
-    await this.flushCloses(Date.now())
   }
 
   /** Home push decides from each delivered `inbox.bump` in the same storage batch (home-push-drain.ts decideHomePush). */

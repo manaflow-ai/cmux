@@ -70,7 +70,6 @@ export const reduceMemberProvision = (state: TeamState, params: unknown, ctx: Re
     outbox: [
       { kind: "membership.upsert", entity: `${state.team.id}:${v.user}`, payload: { team: state.team.id, ...member } },
       teamIndexItem(state.team, v.user, member.role, ctx.tx),
-      memberAuthorityNotice(state.team.id, v.user, ctx.tx),
       a.outbox,
       ...owners.outbox
     ]

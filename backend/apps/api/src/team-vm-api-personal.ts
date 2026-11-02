@@ -66,7 +66,7 @@ const ensureOnce = async (deps: PersonalTenantDeps, why: NotReady): Promise<Ensu
     const marker: PersonalTenantMarker = { version: 1, project, team, user: owner, stack_user: stackUser, nonce: crypto.randomUUID() }
     intent = store.reserve(marker, now)
   }
-  const current = intent
+  let current = intent
   const finish = async (receipt: PersonalTenantReceipt): Promise<EnsurePersonalTenantReply> => {
     if (!validTenantId(receipt.id) || !samePersonalMarker(receipt.marker, current.marker)) return no("unavailable", "Stack team's marker does not match")
     const members = await stack.members(receipt.id)

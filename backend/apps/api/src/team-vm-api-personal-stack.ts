@@ -21,7 +21,6 @@ const knownError = (response: Response): string | undefined => {
   const code = response.headers.get("x-stack-known-error")
   return code && /^[A-Z0-9_]{1,80}$/.test(code) ? code : undefined
 }
-/** Server metadata key that marks a Stack team as a cmux personal VM tenant. */
 export const PERSONAL_TENANT_METADATA_KEY = "cmuxVmPersonalTenant"
 const KEY = PERSONAL_TENANT_METADATA_KEY
 const API = "https://api.stack-auth.com/api/v1"

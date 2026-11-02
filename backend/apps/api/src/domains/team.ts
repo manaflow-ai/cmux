@@ -149,7 +149,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
           state: a?.state ?? removed,
           writes: [{ table: TABLE_MEMBER, op: "delete", key: user }, ...memberAuthorityWrites(user, ctx)],
           value: { user, removed: true, ...(member.role === "owner" ? { demoted_owner: true } : {}) },
-          ...(state.team && a ? { outbox: [...memberLeftItems(state.team, user, ctx.tx, ctx.now), memberAuthorityNotice(state.team.id, user, ctx.tx), teamAuthorityNotice(state.team.id, ctx.tx), ...a.outbox] } : {})
+          ...(state.team && a ? { outbox: [...memberLeftItems(state.team, user, ctx.tx, ctx.now), ...a.outbox] } : {})
         }
       }
       case "team.stack_mirror":
@@ -202,7 +202,6 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
             { kind: "team.upsert", entity: team.id, payload: team },
             { kind: "membership.upsert", entity: `${team.id}:${p.user}`, payload: { team: team.id, ...member } },
             teamIndexItem(team, p.user, member.role, ctx.tx)
-            , memberAuthorityNotice(team.id, p.user, ctx.tx)
           ]
         }
       }
