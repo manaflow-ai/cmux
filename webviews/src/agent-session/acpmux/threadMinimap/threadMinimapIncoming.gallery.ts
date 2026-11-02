@@ -3,8 +3,9 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import { incomingPrompt } from "../conversation/incomingMessage";
 
-// Messages from other sessions on the compact rail: each keeps its row, but its tick is set in from
-// the edge, and its card names the sender above the words. Synthetic prompts only.
+// Messages from other sessions on the compact rail: each keeps its row and the person's tick (one
+// column at rest, Leo 2026-11-02: "WTF ARE THESE" about #31681's set-in ticks), and its card names the
+// sender above the words. Synthetic prompts only.
 // Leo 2026-10-27: "Messages sent from other sessions, like do they really need to be forming a part
 // of the side area? Like shouldn't they be designated as like a special sort of thing?"
 const SENDERS = ["review-router", "hq-mirror", "fleet-mesh"];
@@ -40,7 +41,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap"],
   variants: {
     states: {
-      note: "At rest mid-thread: every third prompt is another session's message, its tick set in from the rail's edge and shorter; the person's prompts keep the full tick.",
+      note: "At rest mid-thread: every third prompt is another session's message; every tick shares one column, one x and one width.",
       snapshot: chat(rows, { title: "Messages from other sessions at rest" }),
       play: async (ctx) => {
         if (!ctx.document.querySelector('[data-tick="8"]')) return;
