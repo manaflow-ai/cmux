@@ -5670,6 +5670,8 @@ jobs:
           FRESH_LABEL: ${{ vars.CI_DEV_COMPILE_RUNNER || 'glaeda-dev-std-xcode-26.6' }}
           # With no owned runner idle the compile overflows to the Blacksmith macOS label whose queue moves
           # (dev_landing_place.blacksmith_overflow(), the nightly signer's pick), not the busy DEV slot.
+          # The owner and fork branches only satisfy tests/test_ci_fork_runner_routing.py (this job runs only in
+          # manaflow-ai on dispatch); blacksmith_overflow() drops 'macos-26' and keeps the Blacksmith labels.
           BLACKSMITH_CANDIDATE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 }}
           GAP_REPO: ${{ runner.temp }}/dev-compile-history
           GAP_REMOTE: ${{ github.server_url }}/${{ github.repository }}
