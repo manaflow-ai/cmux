@@ -92,6 +92,28 @@ struct SidebarClaudeAccountRowTests {
         #expect(labels == ["work"])
     }
 
+    /// A `set_status` caller may use the same key. The row reflects the pane, so it replaces that
+    /// entry instead of showing a second "claude_account" row.
+    @Test
+    func theAccountRowReplacesAStatusEntryWithTheSameKey() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panel = try #require(workspace.focusedTerminalPanel)
+        panel.claudeAccountEnvironment = ClaudeAccountPaneEnvironment(
+            overrides: ["CLAUDE_CONFIG_DIR": "/Users/cmux-test/.claude-work"],
+            removedKeys: []
+        )
+        workspace.statusEntries["claude_account"] = SidebarStatusEntry(key: "claude_account", value: "from a script")
+        workspace.statusEntries["build"] = SidebarStatusEntry(key: "build", value: "passing")
+
+        let entries = factory(for: workspace).makeSnapshot().metadataEntries
+
+        let accountRows = entries.filter { $0.key == "claude_account" }
+        #expect(accountRows.count == 1)
+        #expect(accountRows.first?.value == expectedRow("work"))
+        #expect(entries.contains { $0.key == "build" })
+    }
+
     @Test
     func claudeConfigDirProducesBasenameLabel() {
         let labels = SidebarWorkspaceSnapshotFactory.claudeAccountLabels(
