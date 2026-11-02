@@ -24,6 +24,7 @@ await requireBrowserLane("edit-diff-loading.browser.test.ts", async () => {
     base = `http://127.0.0.1:${(server.httpServer!.address() as { port: number }).port}`;
     browser = await chromium.launch({ headless: true });
     await warmGalleryFrame(server, "agent-pane.inline-diff-loading", { browser, params: { variant: "loaded" } });
+    await warmGalleryFrame(server, "agent-pane.transcript", { browser, params: { variant: "edit-long-line-code" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -98,4 +99,55 @@ await requireBrowserLane("edit-diff-loading.browser.test.ts", async () => {
       await page.close();
     }
   });
+  // Opened in a chat that fit, the edit's placeholder makes the transcript overflow while its fold
+  // plays: the chat must open where the reader is, the rows above the clicked card held, not jump a
+  // frame to the latest row before the hold puts them back (gallery health, #27650: rows -19 px).
+  test.each(["edit-long-line-code", "edit-long-line-prose"])(
+    "transcript#%s: opening the edit moves no row above it",
+    async (variant) => {
+      const page = await browser.newPage({ viewport: { width: 760, height: 560 } });
+      // The renderer's chunk is held until the stage is ready, so the placeholder is what the fold
+      // opens (as on a cold page) however fast this server answers.
+      let release = () => {};
+      const held = new Promise<void>((resolve) => (release = resolve));
+      await page.route(/EditDiffHunks/, async (route) => {
+        await held;
+        await route.continue();
+      });
+      try {
+        await page.goto(
+          `${base}${galleryFrame("agent-pane.transcript", {
+            variant,
+            theme: "Apple System Colors",
+            colorScheme: "dark",
+            width: 760,
+            height: 560,
+          })}`,
+        );
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined, null, {
+          timeout: 60_000,
+        });
+        const userTop = () =>
+          page.evaluate(() => document.querySelector("[data-row-id$='-user']")!.getBoundingClientRect().top);
+        const opened = await userTop();
+        const moves = await page.evaluate(
+          () =>
+            (
+              window as unknown as { cmuxGalleryPlayReport?: { steps: { boxMoves: unknown[] }[] } }
+            ).cmuxGalleryPlayReport?.steps.flatMap((step) => step.boxMoves) ?? null,
+        );
+        release();
+        await page.locator("diffs-container [data-line]").first().waitFor();
+        await page.waitForSelector(".cv-edit-diff__stack[data-painted]");
+        await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+        const painted = await userTop();
+        console.log({ variant, moves, opened, painted });
+        expect(moves).toEqual([]);
+        // Still where it was drawn once the rendered lines replaced the placeholder.
+        expect(painted).toBe(opened);
+      } finally {
+        await page.close();
+      }
+    },
+  );
 });
