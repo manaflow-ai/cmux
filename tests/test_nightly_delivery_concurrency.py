@@ -192,15 +192,21 @@ def test_next_feed_writers_take_the_r2_lease() -> None:
             uses = str(steps[i].get("uses", ""))
             assert not any(word in step_name for word in FEED_STEP_WORDS) or "checkout" in uses or "token" in step_name, (
                 f"{name}: {step_name!r} runs before the lease")
-        # The release is the job's last step and runs whatever happened, once the lease was taken.
+        # The release is the job's last step and runs whatever happened once the lock step ran:
+        # a lease PUT can land while its response is lost, and unlock checks the owner.
         assert unlock == len(steps) - 1, name
-        assert steps[unlock]["if"] == "always() && steps.lease.outcome == 'success'", name
+        assert steps[unlock]["if"] == "always() && steps.lease.outcome != 'skipped'", name
         assert steps[unlock]["env"] == steps[lock]["env"], name
-        # A waiter judges expiry with its own TTL, so it outlives the job's whole timeout; the
-        # timeout leaves room for the whole wait.
-        ttl, wait = int(steps[lock]["env"]["LEASE_TTL"]), int(steps[lock]["env"]["LEASE_WAIT"])
+        # A short TTL kept alive by a heartbeat: a dead holder blocks the feed at most one TTL,
+        # inside the 30-minute freshness bound, while a live one renews several times per TTL.
+        env = steps[lock]["env"]
+        ttl, wait = int(env["LEASE_TTL"]), int(env["LEASE_WAIT"])
+        renew, max_hold = int(env["LEASE_RENEW"]), int(env["LEASE_MAX_HOLD"])
         timeout = int(jobs[name]["timeout-minutes"]) * 60
-        assert ttl >= timeout, f"{name}: the lease ({ttl}s) can expire before the job's timeout ({timeout}s)"
+        assert ttl <= 15 * 60, f"{name}: a dead holder's lease ({ttl}s) blocks the feed past 15 minutes"
+        assert renew * 10 <= ttl, f"{name}: renewing every {renew}s leaves under ten tries per {ttl}s TTL"
+        assert max_hold <= 3 * 60 * 60 and max_hold >= timeout - wait, (
+            f"{name}: the heartbeat's max hold ({max_hold}s) does not match the job's timeout ({timeout}s)")
         assert timeout - wait >= 70 * 60, f"{name}: after the wait the job has under 70 minutes for its work"
     # Sharers of one key pass one TTL.
     by_key: dict[str, set[int]] = {}

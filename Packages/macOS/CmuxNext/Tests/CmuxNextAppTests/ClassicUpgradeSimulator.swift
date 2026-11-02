@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -152,8 +153,13 @@ final class ClassicUpgradeSimulator {
         let clock = ContinuousClock()
         let start = clock.now
         let launcher = self.launcher
-        services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+        // As the app connects (`DaemonService.localConfiguration`): `session.events` brings the sidebar document's
+        // changes (the echo of each adopt and move) and the personal rows, and the document path echoes
+        // `placement-shift-v1`. Without them the document never confirms a placement (#28425).
+        var configuration = DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true)
+        configuration.echoesPlacementShift = SidebarMirror.isLinked
+        services.daemon.start { [configuration] in
+            DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
         var result = Launch()
@@ -313,15 +319,36 @@ final class ClassicUpgradeSimulator {
         return made
     }
 
+    /// The names of the workspaces made from classic that the sidebar document does not place with an item the
+    /// daemon confirmed (its echo applied, not only this client's pending change), sorted.
+    func unplacedInDocument() -> [String] {
+        guard let document = services.sidebarDoc.store, document.isActive else { return ["(the sidebar document is not active)"] }
+        let store = services.daemon.store
+        return made().compactMap { id, made in
+            guard let workspace = store.workspace(id: id), let ref = SidebarDocSections.ref(of: workspace, session: store.registryID),
+                  let item = document.shown?.items[ref], document.records.items[item] != nil else { return made.name }
+            return nil
+        }.sorted()
+    }
+
     /// Group name to collapsed, for every personal group.
     func groups() -> [String: Bool] {
         Dictionary(services.daemon.store.personal.groups.map { ($0.name, $0.collapsed) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// Each window's sidebar containers (loose rows, then each group), workspace ids in the order shown.
+    /// Each window's sidebar containers (loose rows, then each group, then the Pinned band's workspaces), workspace ids
+    /// in the order shown, with the window's own top projection (`SidebarTopProjection.make`, as `SidebarBridge` draws):
+    /// on the sidebar document a pinned workspace lists in the Pinned band or pinned in its group, never in the legacy
+    /// Pinned list section.
     func windows() -> [[[String]]] {
-        services.windows.registry.value.windows.map { window in
-            SidebarBridge.sections(services.machines, doc: services.sidebarDoc, members: window.workspaceIDs, profile: .defaultProfile).flatMap { section in
+        let refs = WorkspaceLayoutRefs(machines: services.machines)
+        let pinned = services.sidebarDoc.store?.shown?.layout.sections.first { $0.id.rawValue == SidebarDocStore.pinnedSection }?
+            .items.compactMap { refs.workspaceID(for: $0.ref) } ?? []
+        let room = ProfileID.defaultProfile
+        let top = SidebarTopProjection.make(services.sidebarLayout, machines: services.machines, room: room.rawValue)
+        return services.windows.registry.value.windows.map { window in
+            let members = Set(window.workspaceIDs)
+            return SidebarBridge.sections(services.machines, doc: services.sidebarDoc, members: window.workspaceIDs, profile: room, top: top).flatMap { section in
                 var loose: [String] = []
                 var groups: [[String]] = []
                 for node in section.nodes {
@@ -332,7 +359,7 @@ final class ClassicUpgradeSimulator {
                     }
                 }
                 return [loose] + groups
-            }
+            } + [pinned.filter(members.contains)]
         }
     }
 

@@ -60,6 +60,8 @@ extension PaneController {
     /// the focus coordinator, which selects and focuses (`applySelection`).
     /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
+        // The record can list the tab a main-actor hop before this strip (the focus topology) does: else the select is dropped.
+        if stripIsStale { syncStripFromStore() }
         // Only a switch this action may show is timed (a refused one never ends its interval).
         if stripModel.selectedID != id, workspace != nil || ActionRunScope.viewChangeAllowed() { DebugTabSwitch.began(self) }
         // A user's tab switch may end link-tab opener relations (Chrome's rule).
