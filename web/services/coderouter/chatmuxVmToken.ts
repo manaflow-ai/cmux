@@ -5,9 +5,21 @@
 // row exists for these machines. A chatmux machine may use only accounts its
 // Hexclave team shares (visibility "team"), never anyone's private account.
 //
-// Off unless both CODEROUTER_CHATMUX_JWKS_URL and CODEROUTER_CHATMUX_ISSUERS
-// are set.
-import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify, type JWTVerifyGetKey } from "jose";
+// The same shape is signed by cmux's own Cloud API for its machines (issuer
+// `https://cmux-api/<environment>`, keys at that API's /.well-known/jwks.json),
+// so coderouter trusts several issuers, each only with its own key set:
+// - CODEROUTER_CHATMUX_JWKS_URL with CODEROUTER_CHATMUX_ISSUERS (one set), and
+// - CODEROUTER_CHATMUX_TRUST, a JSON array of {"jwks": url, "issuers": [..]}.
+// A token is checked only against the key set of the entry that lists its
+// issuer, so one issuer's key can never sign for another. Off when neither is
+// set.
+import {
+  createRemoteJWKSet,
+  decodeJwt,
+  decodeProtectedHeader,
+  jwtVerify,
+  type JWTVerifyGetKey,
+} from "jose";
 
 export const CHATMUX_VM_AUTHORIZATION_HEADER = "x-chatmux-vm-authorization";
 export const CHATMUX_VM_AUDIENCE = "coderouter";
@@ -25,21 +37,47 @@ export type ChatmuxVmClaims = {
   readonly iss: string;
 };
 
-type Config = { readonly keys: JWTVerifyGetKey; readonly issuers: ReadonlyArray<string> };
+/** One trusted signer: its key set and the issuers it may sign as. */
+export type ChatmuxTrust = { readonly keys: JWTVerifyGetKey; readonly issuers: ReadonlyArray<string> };
+type Config = { readonly trusts: ReadonlyArray<ChatmuxTrust> };
 
-let remote: { url: string; keys: JWTVerifyGetKey } | null = null;
+// jose caches each set, refetches on an unknown kid, and rate-limits refetches.
+const remote = new Map<string, JWTVerifyGetKey>();
 
-/** The configured key set and issuers, or null when chatmux tokens are off. */
+function remoteKeys(url: string): JWTVerifyGetKey {
+  let keys = remote.get(url);
+  if (!keys) {
+    keys = createRemoteJWKSet(new URL(url), { cooldownDuration: 60_000 });
+    remote.set(url, keys);
+  }
+  return keys;
+}
+
+function issuerList(value: unknown): string[] {
+  const items = typeof value === "string" ? value.split(",") : Array.isArray(value) ? value : [];
+  return items.filter((s): s is string => typeof s === "string").map((s) => s.trim()).filter(Boolean);
+}
+
+/** The (JWKS URL, issuers) pairs the environment names; malformed entries are dropped. */
+function trustedPairs(env: Record<string, string | undefined>): Array<{ url: string; issuers: string[] }> {
+  const pairs = [{ url: env.CODEROUTER_CHATMUX_JWKS_URL?.trim() ?? "", issuers: issuerList(env.CODEROUTER_CHATMUX_ISSUERS) }];
+  let extra: unknown = [];
+  try {
+    extra = JSON.parse(env.CODEROUTER_CHATMUX_TRUST?.trim() || "[]");
+  } catch {
+    extra = [];
+  }
+  for (const entry of Array.isArray(extra) ? extra : []) {
+    const { jwks, issuers } = (entry ?? {}) as { jwks?: unknown; issuers?: unknown };
+    pairs.push({ url: typeof jwks === "string" ? jwks.trim() : "", issuers: issuerList(issuers) });
+  }
+  return pairs.filter((p) => p.url.startsWith("https://") && p.issuers.length > 0);
+}
+
+/** The configured signers, or null when machine tokens are off. */
 export function chatmuxConfig(env: Record<string, string | undefined> = process.env): Config | null {
-  const url = env.CODEROUTER_CHATMUX_JWKS_URL?.trim();
-  const issuers = (env.CODEROUTER_CHATMUX_ISSUERS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (!url || !issuers.length || !url.startsWith("https://")) return null;
-  // jose caches the set, refetches on an unknown kid, and rate-limits refetches.
-  if (remote?.url !== url) remote = { url, keys: createRemoteJWKSet(new URL(url), { cooldownDuration: 60_000 }) };
-  return { keys: remote.keys, issuers };
+  const trusts = trustedPairs(env).map(({ url, issuers }) => ({ keys: remoteKeys(url), issuers }));
+  return trusts.length ? { trusts } : null;
 }
 
 function identifier(value: unknown): value is string {
@@ -82,9 +120,25 @@ export async function verifyChatmuxVmToken(
     if (token.length > 4096 || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)) return null;
     const header = decodeProtectedHeader(token);
     if (header.alg !== "ES256" || typeof header.kid !== "string" || !/^[\w.-]{1,128}$/.test(header.kid)) return null;
-    const { payload } = await jwtVerify(token, config.keys, {
+    // The unverified issuer only picks which key set to verify against;
+    // jwtVerify then checks it against that entry's issuers.
+    const iss = decodeJwt(token).iss;
+    for (const trust of config.trusts) {
+      if (typeof iss !== "string" || !trust.issuers.includes(iss)) continue;
+      const claims = await verifyWith(token, trust, now);
+      if (claims) return claims;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function verifyWith(token: string, trust: ChatmuxTrust, now: Date): Promise<ChatmuxVmClaims | null> {
+  try {
+    const { payload } = await jwtVerify(token, trust.keys, {
       algorithms: ["ES256"],
-      issuer: [...config.issuers],
+      issuer: [...trust.issuers],
       audience: CHATMUX_VM_AUDIENCE,
       requiredClaims: ["sub", "jti", "team_id", "owner_id", "role", "iat", "exp"],
       maxTokenAge: CHATMUX_VM_TOKEN_MAX_LIFETIME_SECONDS,

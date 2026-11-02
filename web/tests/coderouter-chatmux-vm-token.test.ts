@@ -24,7 +24,13 @@ const at = new Date(now * 1000);
 const signing = await generateKeyPair("ES256");
 const other = await generateKeyPair("ES256");
 const publicJwk = { ...(await exportJWK(signing.publicKey)), kid: "hsm-1", alg: "ES256", use: "sig" };
-const config = { keys: createLocalJWKSet({ keys: [publicJwk] }), issuers: [ISSUER] };
+const keys = createLocalJWKSet({ keys: [publicJwk] });
+const config = { trusts: [{ keys, issuers: [ISSUER] }] };
+/** cmux's Cloud API, a second signer with its own key and issuer. */
+const CLOUD_ISSUER = "https://cmux-api/staging";
+const cloudJwk = { ...(await exportJWK(other.publicKey)), kid: "staging-1", alg: "ES256", use: "sig" };
+const cloudKeys = createLocalJWKSet({ keys: [cloudJwk] });
+const both = { trusts: [{ keys, issuers: [ISSUER] }, { keys: cloudKeys, issuers: [CLOUD_ISSUER] }] };
 
 const claims = { sub: "vm:vm-123", jti: "tok-1", team_id: "team-a", owner_id: "user-1", role: "dev" };
 async function token(
@@ -69,8 +75,42 @@ describe("chatmux VM tokens", () => {
       chatmuxConfig({
         CODEROUTER_CHATMUX_JWKS_URL: "https://chatmux.dev/.well-known/chatmux-vm-jwks.json",
         CODEROUTER_CHATMUX_ISSUERS: `${ISSUER}, https://preview.example`,
-      })?.issuers,
-    ).toEqual([ISSUER, "https://preview.example"]);
+      })?.trusts.map((t) => t.issuers),
+    ).toEqual([[ISSUER, "https://preview.example"]]);
+  });
+
+  test("CODEROUTER_CHATMUX_TRUST adds key sets beside the single-set variables", () => {
+    const trust = JSON.stringify([
+      { jwks: "https://cloud-api-staging.example/.well-known/jwks.json", issuers: [CLOUD_ISSUER] },
+      { jwks: "https://dev.example/.well-known/jwks.json", issuers: "https://cmux-api/development, " },
+      { jwks: "http://insecure.example/jwks", issuers: ["https://x"] },
+      { jwks: "https://no-issuers.example/jwks", issuers: [] },
+      null,
+    ]);
+    expect(
+      chatmuxConfig({
+        CODEROUTER_CHATMUX_JWKS_URL: "https://chatmux.dev/.well-known/chatmux-vm-jwks.json",
+        CODEROUTER_CHATMUX_ISSUERS: ISSUER,
+        CODEROUTER_CHATMUX_TRUST: trust,
+      })?.trusts.map((t) => t.issuers),
+    ).toEqual([[ISSUER], [CLOUD_ISSUER], ["https://cmux-api/development"]]);
+    expect(chatmuxConfig({ CODEROUTER_CHATMUX_TRUST: trust })?.trusts.length).toBe(2);
+    expect(chatmuxConfig({ CODEROUTER_CHATMUX_TRUST: "not json" })).toBe(null);
+    expect(chatmuxConfig({ CODEROUTER_CHATMUX_TRUST: "{}" })).toBe(null);
+  });
+
+  test("each issuer verifies only with its own key set", async () => {
+    const cloud = (over: Record<string, unknown> = {}, key = other.privateKey) =>
+      token({ iss: CLOUD_ISSUER, ...over }, { kid: "staging-1" }, key);
+    expect(await verifyChatmuxVmToken(await token(), both, at)).toEqual({ ...claims, iss: ISSUER } as never);
+    expect(await verifyChatmuxVmToken(await cloud(), both, at)).toEqual({ ...claims, iss: CLOUD_ISSUER } as never);
+    // The Cloud key signing as chatmux, or chatmux's key as the Cloud issuer: refused.
+    expect(await verifyChatmuxVmToken(await token({}, { kid: "staging-1" }, other.privateKey), both, at)).toBe(null);
+    expect(await verifyChatmuxVmToken(await cloud({}, signing.privateKey), both, at)).toBe(null);
+    expect(await verifyChatmuxVmToken(await cloud({ iss: "https://cmux-api/production" }), both, at)).toBe(null);
+    expect(await verifyChatmuxVmToken(await cloud({ aud: "api" }), both, at)).toBe(null);
+    // Without the second entry the Cloud token is not trusted at all.
+    expect(await verifyChatmuxVmToken(await cloud(), config, at)).toBe(null);
   });
 });
 
