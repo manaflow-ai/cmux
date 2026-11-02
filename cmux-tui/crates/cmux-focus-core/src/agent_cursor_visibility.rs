@@ -8,7 +8,9 @@
 //!
 //! Rects are points in one window's content view, flipped (origin top-left,
 //! y down). They follow `CGRect`'s rules: a negative size is standardized,
-//! and every output rect is standardized. Shared vectors:
+//! and every output rect is standardized. A non-finite number (a converted
+//! `CGRect.null` has infinite x and y) travels as the string "inf", "-inf"
+//! or "nan" both ways, as JSON has no such numbers. Shared vectors:
 //! schemas/agent-cursor-visibility/vectors.json.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -17,12 +19,82 @@ use std::collections::HashMap;
 /// Thickness of an edge anchor (column edge, window edge), in points.
 pub const EDGE_THICKNESS: f64 = 4.0;
 
+/// Non-finite numbers on the wire: "inf", "-inf" and "nan" (the Swift
+/// side's JSONEncoder and JSONDecoder `convertToString` / `convertFromString`
+/// strategies with these names); finite numbers stay numbers.
+mod non_finite {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    pub(super) enum Wire {
+        Number(f64),
+        Text(String),
+    }
+
+    impl Wire {
+        fn value<E: serde::de::Error>(self) -> Result<f64, E> {
+            match self {
+                Wire::Number(value) => Ok(value),
+                Wire::Text(text) => match text.as_str() {
+                    "inf" => Ok(f64::INFINITY),
+                    "-inf" => Ok(f64::NEG_INFINITY),
+                    "nan" => Ok(f64::NAN),
+                    _ => Err(E::custom(format!("not a number: {text}"))),
+                },
+            }
+        }
+    }
+
+    pub fn serialize<S: Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
+        let value = *value;
+        if value.is_finite() {
+            serializer.serialize_f64(value)
+        } else if value.is_nan() {
+            serializer.serialize_str("nan")
+        } else if value > 0.0 {
+            serializer.serialize_str("inf")
+        } else {
+            serializer.serialize_str("-inf")
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
+        Wire::deserialize(deserializer)?.value()
+    }
+
+    pub mod option {
+        use super::Wire;
+        use serde::{Deserialize, Deserializer, Serializer};
+
+        pub fn serialize<S: Serializer>(
+            value: &Option<f64>,
+            serializer: S,
+        ) -> Result<S::Ok, S::Error> {
+            match value {
+                Some(value) => super::serialize(value, serializer),
+                None => serializer.serialize_none(),
+            }
+        }
+
+        pub fn deserialize<'de, D: Deserializer<'de>>(
+            deserializer: D,
+        ) -> Result<Option<f64>, D::Error> {
+            Option::<Wire>::deserialize(deserializer)?.map(Wire::value::<D::Error>).transpose()
+        }
+    }
+}
+
 /// A rect in one window's content-view coordinates, flipped.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Rect {
+    #[serde(with = "non_finite")]
     pub x: f64,
+    #[serde(with = "non_finite")]
     pub y: f64,
+    #[serde(with = "non_finite")]
     pub w: f64,
+    #[serde(with = "non_finite")]
     pub h: f64,
 }
 
@@ -137,9 +209,10 @@ pub struct Page {
     /// The page's own viewport: the page area minus docked DevTools.
     pub viewport: Rect,
     /// The tab's page zoom.
+    #[serde(with = "non_finite")]
     pub zoom: f64,
     /// Points per CSS px of the page at zoom 1 (an emulation's scale); none is 1.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "non_finite::option")]
     pub scale: Option<f64>,
 }
 
@@ -243,8 +316,9 @@ pub enum Visibility {
         window: String,
         viewport: Rect,
         clip: Rect,
+        #[serde(with = "non_finite")]
         zoom: f64,
-        #[serde(default = "one")]
+        #[serde(default = "one", with = "non_finite")]
         scale: f64,
     },
     /// The target is in `window` but not shown: an indicator in the session
