@@ -24,7 +24,7 @@ public final class SidebarDocument {
     public var docMachines: SidebarDocMachines { SidebarDocMachines(document: { [weak self] in self?.store }, stores: stores, machine: machine) }
     /// The space a window on `profile` filters its pins and groups by: nil on a home daemon without spaces
     /// (`profiles-v1`), whose windows draw everything.
-    public func room(_ profile: String?) -> String? { profile }
+    public func room(_ profile: String?) -> String? { stores().first?.supportsProfiles == true ? profile : nil }
     /// The drag half for a window on space `room`: what it lists follows the window's space and the spaces that exist.
     public func drag(room: String?) -> SidebarDocDrag? {
         var drag = docMachines.drag()
