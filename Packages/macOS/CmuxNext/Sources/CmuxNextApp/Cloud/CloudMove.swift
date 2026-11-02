@@ -294,8 +294,10 @@ struct CloudMove {
             if session.machine.status == .paused { session.attach(origin: CloudHandlers.connectOrigin(for: invocation)) } else { session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
         }
         let daemon = session.daemon
-        // A failed resume ends the wait at once, with its reason.
-        guard await CloudWait.holds(within: .seconds(180), until: {
+        // A failed resume ends the wait at once, with its reason. An app link that ended is dialed again every 30 s within it.
+        guard await CloudWait.holds(tries: 6, each: .seconds(30), redial: {
+            if session.appLink != nil, session.linkEnded != nil, session.machine.status == .running { session.retryNow() }
+        }, until: {
             session.resumeFailure != nil || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         }) else {
             throw Failure(message: CloudMoveStrings.notConnected(session.machine.title), retry: .move(machineID: session.machineID))

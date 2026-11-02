@@ -112,6 +112,7 @@ final class CloudService {
     /// The person's confirmation of a create (set by AppServices: a sheet in the active window, or the
     /// sidebar card for an agent's or a script's request while that sidebar shows); none answers false.
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
+    @ObservationIgnored let approvalHolds = CloudApprovalHolds()  // the holds the person's feed shows answered
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
     @ObservationIgnored let changes = CloudMachineChanges()
@@ -283,7 +284,7 @@ final class CloudService {
     /// harness login goes only to such a machine (``CloudCredentialTransfer``).
     func callerOwnsVM(_ machineID: String) async throws -> Bool {
         guard configuration.linkSource == .appServer else {
-            return try await api.pinningTeam(auth.teamID).attachEndpoint(machineID).vmKind == "owner"
+            return try await api.pinningTeam(auth.teamID).attachEndpoint(machineID).callerOwnsVM
         }
         guard let link = machines.session(machineID)?.appLink else { return false }
         return await link.ownerLink != nil
