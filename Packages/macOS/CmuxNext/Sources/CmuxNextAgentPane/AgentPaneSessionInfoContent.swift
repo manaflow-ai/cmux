@@ -103,7 +103,7 @@ extension AgentPaneSessionInfoModel {
                 items.append(.line(SessionInfoLine(
                     id: section.id, kind: .header, symbol: section.symbol, title: section.title, trailing: section.meta,
                     trailingTone: section.metaTone, unfolded: section.foldable ? section.open : nil, meter: section.meter, segments: section.segments,
-                    reorderable: section.reorderable == true, reorderLabel: section.reorderLabel,
+                    reorderLabel: section.reorderLabel, reorderable: section.reorderable == true,
                     action: section.foldable ? "fold:\(section.id):\(section.open ? 0 : 1)" : nil)))
             }
             guard section.open || bare else { continue }
@@ -113,7 +113,7 @@ extension AgentPaneSessionInfoModel {
                     spins: row.tone == .running, title: row.title,
                     titleInk: row.tone == .failed ? .danger : .primary, detail: row.detail, subtitle: row.subtitle,
                     trailing: row.trailing, trailingTone: row.tone, meter: row.meter, segments: row.segments, buttons: row.buttons ?? [],
-                    menu: row.menu ?? [], menuLabel: row.menuLabel, toggle: row.toggle, marks: row.marks, reorderable: section.bare == true && index == 0 && section.reorderable == true, reorderLabel: section.reorderLabel,
+                    menu: row.menu ?? [], menuLabel: row.menuLabel, reorderLabel: section.reorderLabel, toggle: row.toggle, marks: row.marks, reorderable: section.bare == true && index == 0 && section.reorderable == true,
                     hover: row.hover, indent: min(3, max(0, row.indent ?? 0)), action: row.action, help: row.help)))
             }
             if let more = section.more {
