@@ -214,9 +214,7 @@ pub(crate) fn owned_cloud_link(
 
 /// A machine state as the phone sees it: the app's status word, or `unknown`.
 fn cloud_status(status: &str) -> &str {
-    if !status.is_empty()
-        && status.len() <= 32
-        && status.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+    if !status.is_empty() && status.len() <= 32 && status.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
     {
         status
     } else {

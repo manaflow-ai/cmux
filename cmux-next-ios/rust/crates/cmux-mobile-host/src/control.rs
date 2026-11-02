@@ -392,7 +392,7 @@ pub fn spawn_stdin_reader() -> Supplied {
                 }
                 Some(Inbound::PhoneCredentials { credentials }) => set_phone_credentials(credentials),
                 Some(Inbound::CloudLinks { request, paid, links }) => {
-                    resolve_cloud_links(request, paid, links)
+                    resolve_cloud_links(request, paid, links);
                 }
                 Some(Inbound::DropPhone { phone_device_id }) => {
                     let _ =
