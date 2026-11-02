@@ -709,6 +709,18 @@ Object.assign(variants, {
     allThemes: true,
     steps: [click("[data-theme-picker]"), input(".theme-popover input", "solarized"), wait("[data-theme-option]")],
   }),
+  "theme-picker-starred": variant("theme", {
+    allThemes: true,
+    options: {
+      values: {
+        "appearance.theme": "Rose Pine",
+        "appearance.favoriteThemes": ["Rose Pine", "Catppuccin Mocha", "Tokyo Night"],
+        "appearance.rotateFavoriteThemes": "daily",
+      },
+    },
+    steps: [click("[data-theme-picker]"), wait(".theme-popover [data-starred-row]")],
+    note: "Starred themes first under Starred, then All Themes; each starred row's star is lit. Rotate Starred Themes shows in the card.",
+  }),
   "theme-picker-empty": variant("theme", {
     allThemes: true,
     steps: [click("[data-theme-picker]"), input(".theme-popover input", "no-such-theme")],
