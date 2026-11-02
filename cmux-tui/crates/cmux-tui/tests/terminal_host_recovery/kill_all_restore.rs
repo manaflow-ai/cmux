@@ -511,3 +511,54 @@ fn kill_all_right_after_a_host_reconnect_restores_the_output_of_the_gap() {
         "the output written while the daemon had no tap is not restored: {restored}"
     );
 }
+
+/// Measurement, not a check (ignored: `cargo test --test terminal_host_recovery
+/// kill_all_restore_time_of_12_terminals -- --ignored --nocapture`): the time
+/// from the new daemon's spawn to each respawned terminal's restored text,
+/// for 12 terminals killed at once, each with about 600 KB of output in its
+/// tail (a restore rebuilds snapshot plus tail per terminal). Prints
+/// `kill-all-restore-time: {...}` (ms per terminal, sorted).
+#[test]
+#[ignore = "measurement: run it with --ignored"]
+fn kill_all_restore_time_of_12_terminals() {
+    const TERMINALS: usize = 12;
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("kill-all-restore-time");
+    let home = harness.dir.clone();
+    let mut terminals = Vec::new();
+    for index in 0..TERMINALS {
+        let (terminal_id, incarnation, surface) =
+            start_shell_in(&harness, &format!("time{index}"), &home);
+        terminals.push((terminal_id, incarnation, surface));
+    }
+    // The first snapshot of each (a new generation) is written first; the
+    // output after it is in the tail.
+    std::thread::sleep(Duration::from_secs(1));
+    for (index, (_, _, surface)) in terminals.iter().enumerate() {
+        send_line(&harness.socket, *surface, &format!("seq -f 't{index}-%g' 1 90000"));
+    }
+    for (index, (_, _, surface)) in terminals.iter().enumerate() {
+        wait_for_screen(&harness.socket, *surface, &format!("t{index}-90000\n"));
+    }
+    std::thread::sleep(Duration::from_secs(1));
+    let records = wait_for_host_records(&harness.host_root(), TERMINALS);
+    harness.signal_daemon(libc::SIGSTOP);
+    for (record_path, record) in &records {
+        kill_shell_then_host(record_path, record);
+    }
+    harness.sigkill();
+    let spawned = Instant::now();
+    harness.restart();
+    let mut restored_ms = Vec::new();
+    for (index, (terminal_id, incarnation, _)) in terminals.iter().enumerate() {
+        let surface = respawned_surface(&harness, terminal_id, incarnation);
+        let screen = wait_for_screen(&harness.socket, surface, RESPAWN_MARKER);
+        assert!(screen.contains(&format!("t{index}-90000")), "terminal {index} lost its text");
+        restored_ms.push(spawned.elapsed().as_millis());
+    }
+    restored_ms.sort_unstable();
+    eprintln!(
+        "kill-all-restore-time: {}",
+        serde_json::json!({"terminals": TERMINALS, "restored_ms": restored_ms})
+    );
+}
