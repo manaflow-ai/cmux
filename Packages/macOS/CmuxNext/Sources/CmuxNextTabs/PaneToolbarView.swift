@@ -38,6 +38,10 @@ public final class PaneToolbarView: NSView {
     /// Runs a pinned button's action (its catalog id).
     public var onPerform: ((String) -> Void)?
     public var onNativeTool: ((String, String?) -> Void)?
+    /// Owner-checked URL selection, paired with the tab-row event publication.
+    public var onNativeToolURL: ((String, String?, URL) -> Void)?
+    /// Opens a validated native menu URL. Injectable for tests; production uses AppKit's workspace.
+    public var openURL: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
     /// The tab bar's frame in the superview: hovering it reveals the controls too.
     public var stripFrame: (() -> NSRect?)?
 
@@ -137,7 +141,7 @@ public final class PaneToolbarView: NSView {
     private func setNativeButtons(_ items: [PaneTabRowTool]) {
         nativeButtons.forEach { reveal.remove($0); $0.removeFromSuperview() }
         nativeButtons = items.enumerated().map { index, item in
-            let button = TitlebarBandButton(symbol: item.symbol)
+            let button = TitlebarBandButton(symbol: item.symbol, text: item.text)
             button.tag = index
             button.setAccessibilityLabel(item.label)
             button.setAccessibilityIdentifier("cmux.pane.native-toolbar.\(item.id)")
@@ -168,8 +172,9 @@ public final class PaneToolbarView: NSView {
     private func menu(for tool: PaneTabRowTool) -> NSMenu? {
         let menu = NSMenu(title: tool.label)
         let invoke = onNativeTool
+        let invokeURL = onNativeToolURL
         menu.autoenablesItems = false
-        for item in tool.menu { menu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke)) }
+        for item in tool.menu { menu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke, invokeURL: invokeURL)) }
         return menu
     }
 
@@ -178,9 +183,10 @@ public final class PaneToolbarView: NSView {
     /// The same invoker path keeps the page event identical to a direct press.
     public func nativeOverflowItems() -> [NSMenuItem] {
         let invoke = onNativeTool
+        let invokeURL = onNativeToolURL
         layoutSubtreeIfNeeded()
         return zip(nativeItems, nativeButtons).compactMap { tool, button in button.isHidden ? tool : nil }.map { tool in
-            let row = NSMenuItem(title: tool.label, action: nil, keyEquivalent: "")
+            let row = NSMenuItem(title: tool.text ?? tool.label, action: nil, keyEquivalent: "")
             row.isEnabled = tool.enabled
             row.state = tool.toggled ? .on : .off
             let invoker = NativeMenuInvoker(enabled: { [weak self] in
@@ -195,7 +201,7 @@ public final class PaneToolbarView: NSView {
             if !tool.menu.isEmpty {
                 let submenu = NSMenu(title: tool.label)
                 submenu.autoenablesItems = false
-                tool.menu.forEach { submenu.addItem(menuItem($0, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke)) }
+                tool.menu.forEach { submenu.addItem(menuItem($0, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke, invokeURL: invokeURL)) }
                 row.submenu = submenu
             }
             return row
@@ -203,7 +209,7 @@ public final class PaneToolbarView: NSView {
     }
 
     private func menuItem(_ item: PaneTabRowMenuItem, tool: PaneTabRowTool, ancestorsEnabled: Bool,
-                          invoke: ((String, String?) -> Void)?) -> NSMenuItem {
+                          invoke: ((String, String?) -> Void)?, invokeURL: ((String, String?, URL) -> Void)?) -> NSMenuItem {
         let row = NSMenuItem(title: item.label, action: #selector(NativeMenuInvoker.run), keyEquivalent: "")
         let enabled = ancestorsEnabled && item.enabled
         row.isEnabled = enabled
@@ -212,14 +218,18 @@ public final class PaneToolbarView: NSView {
             enabled && self?.nativeItems.contains(tool) == true
         }) {
             guard item.children.isEmpty else { return }
-            invoke?(tool.id, item.id)
+            if let rawURL = item.url, let url = URL(string: rawURL) {
+                invokeURL?(tool.id, item.id, url)
+            } else {
+                invoke?(tool.id, item.id)
+            }
         }
         row.target = invoker
         row.representedObject = invoker
         if !item.children.isEmpty {
             let submenu = NSMenu(title: item.label)
             submenu.autoenablesItems = false
-            item.children.forEach { submenu.addItem(self.menuItem($0, tool: tool, ancestorsEnabled: enabled, invoke: invoke)) }
+            item.children.forEach { submenu.addItem(self.menuItem($0, tool: tool, ancestorsEnabled: enabled, invoke: invoke, invokeURL: invokeURL)) }
             row.submenu = submenu
         }
         return row
@@ -227,11 +237,15 @@ public final class PaneToolbarView: NSView {
 
     /// Nothing to offer: no width, so the strip keeps the whole bar.
     override public var intrinsicContentSize: NSSize {
+        let allButtons = buttons + nativeButtons
         let count = max(shownCount, reservedCount)
         guard count > 0 else { return NSSize(width: 0, height: NSView.noIntrinsicMetric) }
-        let side = TitlebarBandButton.side
         let inset = Self.edgeInset(height: PaneChromeMetrics.current.resolvedStripHeight(scale: 2))
-        return NSSize(width: CGFloat(count) * side + CGFloat(count - 1) * Metrics.space1 / 2 + inset, height: NSView.noIntrinsicMetric)
+        let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
+        let reservedWidth = CGFloat(max(0, count - allButtons.count)) * TitlebarBandButton.side
+        let gaps = CGFloat(max(count - 1, 0)) * Metrics.space1 / 2
+        return NSSize(width: buttonWidth + reservedWidth + gaps + inset,
+                      height: NSView.noIntrinsicMetric)
     }
 
     private var shownCount: Int { buttons.count + nativeButtons.count + (hasMore ? 1 : 0) }
@@ -243,20 +257,29 @@ public final class PaneToolbarView: NSView {
         // in order, so Search Tabs keeps its place whichever tab is selected and fewer pins leave room
         // only at the leading end.
         let y = Self.edgeInset(height: bounds.height)
-        func slotX(_ fromTrailing: Int) -> CGFloat { bounds.width - y - side - CGFloat(fromTrailing) * (side + gap) }
         moreButton.frame = moreFrame()
         let allButtons = buttons + nativeButtons
         let trailingSlot = hasMore || reservedCount > allButtons.count ? 1 : 0
+        let widths = allButtons.map(\.preferredWidth)
         // Creation actions remain in the + menu. Fold their buttons away together when the
         // pane caps this toolbar's width, keeping pins in their trailing slots. Pins that also
         // cannot fit return to the more menu instead of overlapping the remaining controls.
-        let creationFits = items.indices.filter { items[$0].alwaysVisible }.allSatisfy {
-            slotX(allButtons.count - $0 - 1 + trailingSlot) >= 0
-        }
-        for (index, button) in allButtons.enumerated() {
-            let x = slotX(allButtons.count - index - 1 + trailingSlot)
-            button.isHidden = x < 0 || (index < items.count && items[index].alwaysVisible && !creationFits)
-            button.frame = NSRect(x: max(0, x), y: y, width: side, height: side)
+        let requiredWidth = y + widths.reduce(0, +) + CGFloat(max(0, allButtons.count - 1)) * gap
+            + CGFloat(trailingSlot) * (side + gap)
+        let creationFits = requiredWidth <= bounds.width
+        var cursor = bounds.width - y - CGFloat(trailingSlot) * (side + gap)
+        for index in allButtons.indices.reversed() {
+            let button = allButtons[index]
+            let available = max(0, cursor)
+            // A button needs its complete icon slot to stay reachable. If only a
+            // partial slot remains, hide it so nativeOverflowItems() can expose it
+            // under the trailing menu instead of drawing over the neighbor.
+            let fits = available >= side
+            let width = fits ? min(widths[index], available) : 0
+            let x = cursor - width
+            button.isHidden = !fits || x < 0 || (index < items.count && items[index].alwaysVisible && !creationFits)
+            button.frame = NSRect(x: max(0, x), y: y, width: max(side, width), height: side)
+            cursor = x - gap
         }
         applyTint()
     }

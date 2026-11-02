@@ -80,6 +80,12 @@ impl CloudTurnClient {
         let machine = machine.into();
         valid_component("workspace", &workspace)?;
         valid_component("machine", &machine)?;
+        // reqwest's rustls backend requires a process-wide CryptoProvider. Most
+        // daemon paths install it before constructing an HTTP client, but this
+        // client is also used directly by Cloud turn tests and startup paths.
+        // Installing the ring provider is idempotent when another path won the
+        // race, and prevents rustls' "no crypto provider configured" panic.
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(5))

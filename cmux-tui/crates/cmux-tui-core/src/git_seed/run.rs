@@ -9,6 +9,7 @@ use std::sync::Arc;
 use super::git::{Credential, Failure, Git};
 use super::job::{Failed, Job, Phase};
 use super::params::StartParams;
+use super::snapshot::Snapshot;
 use super::{SeedRefusal, place, worktree};
 use crate::fs_ops::Roots;
 
@@ -266,9 +267,10 @@ impl Seed {
             .map_err(|failures| classify(&failures, "seed.clone_failed"))
     }
 
-    /// A delta seed builds on this folder's last seed: same remote, its WORK
+    /// A delta seed builds on this folder's last seed or last export
+    /// ([`super::export`], which the Mac merged back): same remote, its WORK
     /// is `since`, and nothing changed on the machine since (HEAD, the index
-    /// and the working tree with untracked files are still that seed's).
+    /// and the working tree with untracked files are still that record's).
     fn check_delta(&self, since: &str) -> Result<(), Failed> {
         self.recheck()?;
         let mismatch = |error: &str| failed("seed.since_mismatch", error);
@@ -284,11 +286,14 @@ impl Seed {
                 .ok()
                 .map(|out| String::from_utf8_lossy(&out).trim().to_owned())
         };
-        if read("refs/cmux-seed/work^{commit}").as_deref() != Some(since) {
+        let Some(record) = super::export::RECORDS
+            .into_iter()
+            .find(|record| read(&format!("{record}/work^{{commit}}")).as_deref() == Some(since))
+        else {
             return Err(mismatch("the folder's last seed is not `since`"));
-        }
+        };
         let (Some(head), Some(index)) =
-            (read("refs/cmux-seed/head^{commit}"), read("refs/cmux-seed/index^{tree}"))
+            (read(&format!("{record}/head^{{commit}}")), read(&format!("{record}/index^{{tree}}")))
         else {
             return Err(mismatch("the folder's last seed is incomplete"));
         };
@@ -634,53 +639,6 @@ fn diff_entries(listing: &[u8]) -> impl Iterator<Item = (&str, &[u8])> {
 /// True when a `diff-tree -z` listing changes a submodule or `.gitmodules`.
 fn touches_submodules(listing: &[u8]) -> bool {
     diff_entries(listing).any(|(status, path)| status == "S" || path == b".gitmodules".as_slice())
-}
-
-/// What the folder holds now, as trees: its index, and its working tree
-/// with untracked files that are not ignored (built in a copy of the index,
-/// so the real one is not touched).
-struct Snapshot {
-    index: String,
-    work: String,
-}
-
-impl Snapshot {
-    fn take(git: &Git, credential: &Credential, folder: &Path) -> Result<Self, Failure> {
-        let git_dir = String::from_utf8_lossy(&git.quiet(
-            Some(folder),
-            credential,
-            &["rev-parse", "--absolute-git-dir"],
-        )?)
-        .trim()
-        .to_owned();
-        let real = Path::new(&git_dir).join("index");
-        let copy = Path::new(&git_dir).join(format!("cmux-seed-index-{}", std::process::id()));
-        let result = (|| -> Result<Self, Failure> {
-            std::fs::copy(&real, &copy).map_err(|error| Failure::of(format!("fatal: {error}")))?;
-            let tree = |git: &Git| -> Result<String, Failure> {
-                let out = git.run_in(
-                    Some(folder),
-                    credential,
-                    &["write-tree"],
-                    Some(copy.as_path()),
-                    &mut |_| {},
-                )?;
-                Ok(String::from_utf8_lossy(&out).trim().to_owned())
-            };
-            let index = tree(git)?;
-            git.run_in(
-                Some(folder),
-                credential,
-                &["add", "-A", "--sparse"],
-                Some(copy.as_path()),
-                &mut |_| {},
-            )?;
-            let work = tree(git)?;
-            Ok(Self { index, work })
-        })();
-        let _ = std::fs::remove_file(&copy);
-        result
-    }
 }
 
 fn failed(code: &'static str, error: impl Into<String>) -> Failed {

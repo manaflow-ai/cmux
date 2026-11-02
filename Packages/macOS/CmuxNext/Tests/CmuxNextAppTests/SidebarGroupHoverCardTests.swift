@@ -56,8 +56,9 @@ import CmuxNextWakeupsTestSupport
 
     private static func tearDown(_ list: SidebarListView, _ window: NSWindow, _ coordinator: HoverCardCoordinator) {
         coordinator.dismiss(.action)
+        coordinator.cardWindow?.closeAfterTest()
         window.contentView = nil
-        window.close()
+        window.closeAfterTest()
     }
 
     @Test func restingOnAGroupHeaderShowsItsSummaryCard() async throws {
