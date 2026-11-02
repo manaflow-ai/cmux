@@ -23,9 +23,6 @@ public final class DebugCloseReadHold {
     /// How many close reads wait for the release now (a test waits for its read to be held before it releases).
     public var held: Int { waiting.count }
 
-    /// Whether a hold is armed: a close then reads the terminals at the key, even one whose answer was read before.
-    public var isArmed: Bool { armed }
-
     /// Waits for the release when a hold is armed; returns at once otherwise.
     func readStarts() async {
         guard armed else { return }
@@ -76,16 +73,6 @@ public final class DebugCloseReadHold {
 #endif
 
 extension DaemonService {
-    /// Whether a test holds the close warning's read (`debug.close.hold`): every close then reads at the key
-    /// (TabCloseGuard), so what the test types lands inside that read. False in other builds.
-    @MainActor public var closeReadIsHeld: Bool {
-        #if DEBUG || CMUX_BENCH_HOOKS
-        return closeReadHold.isArmed
-        #else
-        return false
-        #endif
-    }
-
     /// A close warning's read of the terminals starts: in DEBUG and bench builds a test may hold it there
     /// (`debug.close.hold`, ``DebugCloseReadHold``); in other builds it goes on at once.
     @MainActor public func closeReadStarts() async {

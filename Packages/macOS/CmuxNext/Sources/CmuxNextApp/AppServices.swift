@@ -357,8 +357,6 @@ final class AppServices {
     let paneFullWidthTabs = PaneFullWidthTabs()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
     let paneMounts = PaneMounts()
-    /// What the focused terminal runs, read before its Cmd-W (`TabCloseGuard`).
-    let terminalReadAhead = TerminalProcessReadAhead()
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
     let newTabChoices = NewTabChoiceMemory()
     /// The New Tab weather widget's last reading and its refresh (`tabs.newTabWidgets.weather`).

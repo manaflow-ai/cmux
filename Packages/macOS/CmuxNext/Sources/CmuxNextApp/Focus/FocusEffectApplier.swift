@@ -84,10 +84,6 @@ final class FocusEffectApplier: FocusEffectApplying {
                 controller.services.cache.existingBrowser(tab)?.chrome.showsFocusModeIndicator = active
             }
         }
-        // The active window's focused terminal is read now, so its Cmd-W decides the close in the key's turn (TabCloseGuard).
-        guard controller.services.windows.active === controller else { return }
-        guard case .terminal(let key, let id) = state.resolved, let pane = content?.paneController(key: key) else { return controller.services.terminalReadAhead.focus(nil, on: nil) }
-        controller.services.terminalReadAhead.focus(pane.tab(StripTabID(id)), on: pane.daemon)
     }
 
     // MARK: Responder

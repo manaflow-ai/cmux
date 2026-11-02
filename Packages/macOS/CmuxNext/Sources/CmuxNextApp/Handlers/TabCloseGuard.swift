@@ -19,42 +19,42 @@ enum TabCloseGuard {
     /// Runs `close` at once, or after the person confirms the question.
     /// `close` gets what the question asked the terminals, so the close's undo
     /// toast decision does not ask them again (one daemon read per Cmd-W, not two).
+    /// `parts`: the panes the tabs leave. When each keeps a tab, the tabs leave them in this turn while their terminals
+    /// stay alive (`HiddenTabClose`); `close` gets that hide to lift as it closes (in its own turn: no flash).
     static func close(_ tabs: [TabModel], on daemon: DaemonService, services: AppServices, window: NSWindow?,
-                      close: @escaping @MainActor (_ asked: RunningPrograms) -> Void) {
-        guard CloseUndoToasts.isUserClose, window != nil, asks(tabs, services: services) else { return close([:]) }
+                      leaving parts: [(pane: PaneController, ids: [StripTabID])] = [],
+                      close: @escaping @MainActor (_ asked: RunningPrograms, _ hidden: HiddenTabClose?) -> Void) {
+        guard CloseUndoToasts.isUserClose, window != nil, asks(tabs, services: services) else { return close([:], nil) }
         // A second close of tabs this close is already asking about (a double click on a close button) is the same close.
         guard tabs.contains(where: { !asking.contains($0.id) }) else { return }
-        // Answers read before the key (TerminalProcessReadAhead) decide a close that asks nothing in this turn (SL-3).
-        if !daemon.closeReadIsHeld, let asked = known(closing: tabs, services: services), asked.question == nil {
-            return close(asked.programs)
-        }
         let ids = Set(tabs.map(\.id))
         asking.formUnion(ids)
         reading.formUnion(ids)
         // Keys typed during the read are the close's, never the closing terminal's; a question parks them for its answer.
         let coordinator = services.keyRouter.creationInputCoordinator, keys = coordinator.beginClose(of: tabs, in: window)
+        // The tabs leave now, their terminals alive: only the daemon's read below ends a process (SL-3; lead, #31875).
+        let hidden = parts.isEmpty || !parts.allSatisfy({ $0.pane.daemon === daemon && !empties($0.pane, closing: $0.ids) }) ? nil
+            : HiddenTabClose.hide(parts.flatMap { part in part.ids.compactMap { part.pane.tab($0)?.surface } }, in: daemon.store, panes: parts.map { part in
+                let pane = part.pane, selected = pane.stripModel.selectedID
+                return { restored in pane.apply(pane.snapshot()); if restored, let selected { pane.select(selected) } }
+            })
         Task { @MainActor in
             let (prompt, asked) = await promptAndAnswers(closing: tabs, on: daemon, services: services)
             reading.subtract(ids)
             guard let prompt else {
                 asking.subtract(ids)
-                close(asked)
+                close(asked, hidden)
                 return coordinator.endClose(keys, in: window)
             }
+            // A program runs: its tab comes back in place, selected, before the question.
+            hidden?.restore()
             let parked = coordinator.parkClose(keys, in: window)
             DestructiveConfirmation.present(prompt, in: window, settings: services.settings) {
                 asking.subtract(ids)
-                if $0 { close(asked) }
+                if $0 { close(asked, nil) }
                 coordinator.endClose(nil, parked: parked, stays: !$0, in: window)
             }
         }
-    }
-
-    /// The close question from answers read before the key; nil when a closing terminal has none for its shell state.
-    static func known(closing tabs: [TabModel], services: AppServices) -> (question: DestructiveConfirmation.Prompt?, programs: RunningPrograms)? {
-        guard let reads = reads(tabs, services: services) else { return (nil, [:]) }
-        guard let asked = reads.warnTab ? services.terminalReadAhead.fresh(reads.others) : [:] else { return nil }
-        return (question(tabs, reads, asked), asked)
     }
 
     /// The tabs whose close is still asking (the daemon's read, then the question): they
