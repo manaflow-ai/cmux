@@ -40,13 +40,13 @@ struct AgentTabContent {
             // A quote from the file's viewer comes back to this chat (viewer-comments-DESIGN.md).
             pane.services.chatQuoteOpeners.noteOpened(url, byAgentTab: key)
             if target == .tab { return pane.services.linkOpener.openFile(url, from: pane) }
-            return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey)
+            return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey, machineID: pane.daemon.machineID)
         }
         view.model.onOpenPreview = { [weak pane] url in
             guard let pane else { return false }
             // A clicked link's tab, the hover card's Open: as a link clicked in the chat (LinkOpener.openWeb).
             if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.openWeb(url, from: pane, background: false, reusesTab: true) }
-            return pane.services.registry.openAgentPreview(url, pane: pane.paneKey)
+            return pane.services.registry.openAgentPreview(url, pane: pane.paneKey, machineID: pane.daemon.machineID)
         }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         if view.model.newTab != nil { AgentPaneNewTabFrame.shared.capture(view, in: pane.view.contentHost) }
@@ -68,10 +68,7 @@ struct AgentTabContent {
         // A New Tab page with no saved image of its own draws the last New Tab frame (cx-ec99), unless
         // it shows in Chromium: that page draws over the frame as it comes in, both seen at once.
         let newTabFrame = { view?.model.newTab == nil || view?.pageDrawsOverCovers == true ? nil : AgentPaneNewTabFrame.shared.image(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) }
-        // A saved picture with no alpha over a page that is clear now (an older version's Chromium JPEG of a
-        // see-through page) is black where the page is clear: the pane shows its loading state instead.
-        let saved = { images.take(key, size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView))
-            .flatMap { image in AgentPaneView.savedPictureCovers(image, newTab: newTab, in: paneView) ? image : nil } }
+        let saved = { images.takeCovering(key, newTab: newTab, size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView), in: paneView) }
         let image = { saved() ?? newTabFrame() }
         if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) }
         guard let imageView = paneView.launchImageView, let view else { return }

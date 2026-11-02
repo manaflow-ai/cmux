@@ -142,6 +142,13 @@ final class SidebarListView: NSView {
     /// Whether a dragged document item is removed when dropped beside the sidebar, and its removal (`holdsDragOut`).
     var removesOnDragOut: ((String) -> Bool)?
     var onDragOutRemove: ((String) -> Void)?
+    /// The tab the row under the pointer stands for (its workspace's focused tab), nil off every
+    /// workspace row: the app forwards it so that chat is read before the click
+    /// (`SidebarListView+HoverPrefetch`). Called only when the hovered row changes.
+    var onHoverTab: ((TabID?) -> Void)?
+    /// The tab the pointer's row was last reported as, so a reload that changes that row's focused
+    /// tab in place reports it again (`refreshHoverTab`).
+    var hoverTabSent: TabID?
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
     /// Clock for the spring-load delay; tests inject a manual clock.
@@ -231,6 +238,10 @@ final class SidebarListView: NSView {
     private var focusObservers: [any NSObjectProtocol] = []
     /// The app's left presses and releases while this list is in a window (`observePointerEnds`).
     private var pointerMonitor: Any?
+    var onPointerKeyDown: ((NSEvent) -> Void)?
+    /// Each left press and release the monitor sees, and each focus loss: the Priority view ends its own gesture.
+    var onPointerEvent: ((NSEvent) -> Void)?
+    var onPointerFocusLost: (() -> Void)?
     /// Whether the left button is held now (`pointerWindowLostKey`). Tests inject an answer.
     var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
     override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -303,9 +314,10 @@ final class SidebarListView: NSView {
     override func mouseMoved(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseEntered(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseExited(with event: NSEvent) {
-        releaseHeldModelChange()
         setHovered(nil)
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+        // Onto the row's hover card: rows hold still until the pointer leaves the card too.
+        releaseHeldModelChangeIfPointerLeft()
     }
     /// Hover after a pointer event (`windowPoint`), or after rows moved or
     /// scrolled under a possibly still pointer (no point: the coordinator's
@@ -341,6 +353,7 @@ final class SidebarListView: NSView {
         if let hoveredKey, let view = rowViews[hoveredKey] { setHover(false, on: view) }
         hoveredKey = key
         if let key, let view = rowViews[key] { setHover(true, on: view) }
+        forwardHover(key)
     }
     private func setHover(_ hovered: Bool, on view: SidebarRowView) {
         view.isHovered = hovered

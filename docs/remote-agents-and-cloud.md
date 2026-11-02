@@ -331,7 +331,7 @@ general help when passed `--help`, so inspect the catalog as well:
 cmux action list --category cloud --json
 cmux action describe cloudPauseMachine --json
 cmux machine list
-cmux cloud new-machine
+cmux machine new
 ```
 
 Use an ID from the machine list to select the machine explicitly:

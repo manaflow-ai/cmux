@@ -154,6 +154,13 @@ final class DropHighlightView: NSView {
         return true
     }
 
+    /// Lands the overlay's springs at their targets now (the window went out of sight).
+    func settle() {
+        targetSpring.snap()
+        regionSpring.snap()
+        apply()
+    }
+
     func step(_ dt: Double) -> Bool {
         let token: MotionSpring = renderer.style == .morph ? .settle : DropOverlayTunables.spring.value
         let parameters = Motion.panes.spring(token)

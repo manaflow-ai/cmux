@@ -161,6 +161,17 @@ closed at or after that time, --before-ms only those closed before it, and
 --keep-newest every group but the newest n (retention by age and by count).
 ";
 
+pub(super) const SPACE_HELP: &str = "\
+USAGE
+  cmux space list [--json]
+  cmux space new <name> [--json]
+  cmux space switch <name> [--json]
+  cmux space rename <old-name> <new-name> [--json]
+  cmux space move workspace <workspace> <space> [--json]
+  cmux space move tab <tab> <space> [--json]
+  cmux space close <name> [--json]
+";
+
 pub(super) const GIT_HELP: &str = "\
 USAGE
   cmux git status [TARGET]

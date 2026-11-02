@@ -112,6 +112,14 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
         self.focusRequested = focusRequested
     }
 
+    /// This run scoped to the machine that owns its target (nil: unscoped). A forked or SSH machine
+    /// keeps this Mac's tab ids, so the id alone can name two tabs.
+    public func onMachine(_ machineID: String?) -> ActionInvocation {
+        var scoped = self
+        scoped.targetMachineID = machineID
+        return scoped
+    }
+
     /// Whether the run may change this client's focus, selection, shown
     /// workspace or key window.
     public var allowsViewChange: Bool {
@@ -152,5 +160,15 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
         case .bool(let flag): return String(flag)
         case .target(let ref): return ref.id
         }
+    }
+}
+
+public extension ActionInvocation {
+    /// Whether this is a person's own run in this app (palette, menu, keyboard, click): the only run
+    /// that gets what automation must not (raw screen pixels, a read of a folder macOS guards). A run
+    /// the control socket carries is automation even when it claims the `user` origin, and so is a
+    /// run that names a caller (an app, an agent chat or a terminal), even during the person's gesture in it.
+    var isPersonsOwnRun: Bool {
+        origin == .user && !viaControlSocket && callerApp == nil && callerAgentSession == nil && callerTerminal == nil
     }
 }

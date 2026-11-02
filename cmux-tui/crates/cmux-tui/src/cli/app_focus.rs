@@ -129,11 +129,23 @@ impl AppWorkspaces {
     }
 }
 
-/// What the app's windows show (`snapshot.get`).
+/// What the app's windows show (`snapshot.get`), from the app's last
+/// published snapshot. Which workspace a window shows is the app's own
+/// state, and no daemon write of this caller changes it (focus goes through
+/// the app's focus actions, which answer after the window moved), so this
+/// read takes no `after: "sync"` barrier: that barrier waits for a daemon
+/// round trip and for the app's main actor to publish past it, and under
+/// load it made each `workspace list` wait up to two 2 s app deadlines
+/// (CLI-1). `after: 0` answers from any loaded snapshot, off the main actor.
 pub(super) fn app_workspaces(stream: &mut UnixStream) -> Option<AppWorkspaces> {
-    let reply = super::app::request(stream, "snapshot.get", json!({}), super::app::READ_TIMEOUT)
-        .ok()?
-        .ok()?;
+    let reply = super::app::request(
+        stream,
+        "snapshot.get",
+        json!({ "after": 0 }),
+        super::app::READ_TIMEOUT,
+    )
+    .ok()?
+    .ok()?;
     let shown = reply.pointer("/topology/focus/workspace").and_then(Value::as_str)?.to_owned();
     let known = reply
         .pointer("/topology/workspaces")

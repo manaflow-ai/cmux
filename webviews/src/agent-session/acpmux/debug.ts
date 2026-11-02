@@ -18,6 +18,7 @@ import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
 import { queuedRowsState } from "./queuedRowsState";
+import { composerAttachmentsState } from "./composerAttachmentsState";
 import { cloudSignedInForDebug } from "./cloudMachines";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
@@ -55,6 +56,8 @@ export type AcpmuxDebug = {
   sendPrompt(text: string): Promise<Record<string, unknown>>;
   newChat(harness?: string, cwd?: string): Promise<Record<string, unknown>>;
   pickFolder(cwd: string): Record<string, unknown>;
+  composeSend(text: string): Promise<Record<string, unknown>>;
+  runMode(mode?: string): Record<string, unknown>;
   selectSession(sessionId: string): Record<string, unknown>;
   answerPermission(options?: {
     optionId?: string;
@@ -327,6 +330,8 @@ export function createAcpmuxDebug(
             subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
             // The composer's chips as drawn (model, effort, access), keyed by their menu label.
             composer: composerChips(),
+            // The composer's attachment tiles as drawn: loading (with its upload's percent), failed (why) or staged.
+            attachments: composerAttachmentsState(),
             // The Cloud auth state consumed by EnvironmentPicker; undefined is the fresh-home
             // absent/unknown state that still offers the sign-in action.
             cloudSignedIn: cloudSignedInForDebug(),
@@ -342,6 +347,12 @@ export function createAcpmuxDebug(
     },
     pickFolder(cwd) {
       return host.automation ? automation.pickFolder(host.automation, String(cwd ?? "")) : NO_AUTOMATION;
+    },
+    async composeSend(text) {
+      return host.automation ? automation.composeSend(host.automation, String(text ?? "")) : NO_AUTOMATION;
+    },
+    runMode(mode) {
+      return host.automation ? automation.runMode(host.automation, mode || undefined) : NO_AUTOMATION;
     },
     selectSession(sessionId) {
       return host.automation ? automation.selectSession(host.automation, String(sessionId ?? "")) : NO_AUTOMATION;

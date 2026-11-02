@@ -88,6 +88,12 @@ UNGATED_BLACKSMITH_ALLOWED = {
         "(stricter than the owner check); the seed job reading it has the same gate"
     ),
 }
+# Release publication controls are trusted release-environment jobs. They must
+# stay on the trusted Blacksmith fallback for forks too; a hosted runner cannot
+# receive release credentials.
+RELEASE_PUBLICATION_JOBS = {
+    "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names",
+}
 # (workflow, dispatch input) -> why its Blacksmith default and choices may be
 # read before the fork branch.
 UNTRANSLATED_DISPATCH_INPUTS: dict[tuple[str, str], str] = {}
@@ -748,6 +754,8 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
             continue
         if job in owner_only_jobs or (name, stripped) in UNGATED_BLACKSMITH_ALLOWED:
             continue
+        if name == "nightly.yml" and job in RELEASE_PUBLICATION_JOBS:
+            continue
         if matrix_branch and re.search(r'"hosted_runner":\s*"macos-[^"]+"', raw):
             continue
         label = BLACKSMITH_LABEL.search(raw).group(0)
@@ -1050,11 +1058,21 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                     or (matrix_hosted and FORK_MACOS_MATRIX_BRANCH in line)
                 )
 
+                # A mixed macOS/Linux selector (cmux-next.yml's fast tier, whose
+                # fleet-client fallback runs on vars.LINUX_RUNNER) is fork-safe when
+                # its first clause is a hosted fork branch: a fork's own repository
+                # stops there and never reads the Linux label, and a fork PR into
+                # manaflow-ai still has to pass the macOS checks below.
+                fork_short_circuits = any(
+                    re.search(r"runs-on:\s*\$\{\{\s*" + re.escape(branch) + r"\s*\|\|", line)
+                    for branch in FORK_BRANCHES
+                )
+
                 with self.subTest(workflow=path.name, line=number):
                     if "vars.LINUX_RUNNER" in line:
                         saw_linux += 1
                         self.assertTrue(
-                            hosted_linux,
+                            hosted_linux or (fork_short_circuits and hosted_macos),
                             f"{path.name}:{number} has no GitHub-hosted Linux fork branch",
                         )
                     if "vars.MACOS_RUNNER" in line:

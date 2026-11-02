@@ -106,6 +106,8 @@ final class ClassicUpgradeSimulator {
     /// Workspaces the launch made before the migration (its empty New Tab page).
     private(set) var launchMade: Set<String> = []
     private var watcher: Task<Void, Never>?
+    /// When the launch's migration run started (``launch(deadline:)``); ``wait(for:upTo:)`` samples from it too.
+    private var migrationStart: ContinuousClock.Instant?
 
     /// - Parameters:
     ///   - ssh: the daemon for an SSH destination (default: none connects).
@@ -126,7 +128,7 @@ final class ClassicUpgradeSimulator {
             let layout = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: services),
                                               onRefused: { [weak services] message in services?.registry.refuse(message) })
             layout.start()
-            SidebarDocWiring.start(services, layout: layout, wrapping: documentRemote)
+            services.sidebarDoc.start(services, layout: layout, wrapping: documentRemote)
             services.sidebarLayout = layout
         }
         AppActions.bind(services)
@@ -167,6 +169,7 @@ final class ClassicUpgradeSimulator {
         }
         let migrating = clock.now
         launchMade = Set(made().keys)
+        migrationStart = migrating
         watch(from: migrating)
         final class Box { var result: Result<ClassicMigrationOutcome, any Error>? }
         let box = Box()
@@ -211,6 +214,12 @@ final class ClassicUpgradeSimulator {
         let waiter = Task { @MainActor in box.result = await run.result }
         let clock = ContinuousClock()
         let start = clock.now
+        // The run's turns keep being sampled past the launch's deadline (``perWorkspaceReport()``).
+        if let migrationStart { watch(from: migrationStart) }
+        defer {
+            watcher?.cancel()
+            if let migrationStart { sample(from: migrationStart) }
+        }
         var lastReport = clock.now
         while box.result == nil, clock.now - start < budget {
             try? await Task.sleep(for: .milliseconds(100))
@@ -250,6 +259,20 @@ final class ClassicUpgradeSimulator {
             await connection.close()
             _ = try? await connection.shutdownDaemon(endTerminals: true)
         }
+    }
+
+    /// Each classic workspace's turn: the time from its key's first entry in the ledger to the
+    /// next one's, sampled every 50 ms (``watch(from:)``). p50, p95, the mean of the first and
+    /// last 64 turns, and first entry to last.
+    func perWorkspaceReport() -> String {
+        let starts = ledgered.values.sorted()
+        let turns = zip(starts, starts.dropFirst()).map { ($1 - $0) * 1000 }
+        guard !turns.isEmpty else { return "per_workspace n=0" }
+        let sorted = turns.sorted()
+        let at = { (share: Double) in sorted[min(sorted.count - 1, Int((share * Double(sorted.count)).rounded(.up)) - 1)] }
+        let mean = { (slice: ArraySlice<Double>) in slice.reduce(0, +) / Double(max(slice.count, 1)) }
+        return String(format: "per_workspace n=%d p50=%.0fms p95=%.0fms first64=%.0fms last64=%.0fms span=%.1fs",
+                      turns.count, at(0.5), at(0.95), mean(turns.prefix(64)), mean(turns.suffix(64)), (starts.last ?? 0) - (starts.first ?? 0))
     }
 
     /// Records when each workspace first shows, and when each classic key first shows in the
@@ -298,7 +321,7 @@ final class ClassicUpgradeSimulator {
     /// Each window's sidebar containers (loose rows, then each group), workspace ids in the order shown.
     func windows() -> [[[String]]] {
         services.windows.registry.value.windows.map { window in
-            SidebarBridge.sections(services.machines, members: window.workspaceIDs, profile: .defaultProfile).flatMap { section in
+            SidebarBridge.sections(services.machines, doc: services.sidebarDoc, members: window.workspaceIDs, profile: .defaultProfile).flatMap { section in
                 var loose: [String] = []
                 var groups: [[String]] = []
                 for node in section.nodes {
@@ -333,9 +356,9 @@ final class ClassicUpgradeSimulator {
     /// - Parameter source: the classic file the run read (default: the session file).
     ///   - ignoring: cmux-next workspaces that are not classic's (one the person made before).
     ///   - excusing: classic keys whose workspace is allowed not to have opened (a declared known limit).
-    ///   - orderIsKnownIssue: classic's order is a declared known issue (a resumed run makes its workspaces last).
+    ///   - orderKnownIssue: why classic's order is a declared, intermittent known issue for this run (nil: it is checked).
     func verify(_ profile: ClassicUpgradeProfile, classicBefore: [String: String], source: URL? = nil, ignoring: Set<String> = [],
-                excusing: Set<String> = [], orderIsKnownIssue: Bool = false, sourceLocation: SourceLocation = #_sourceLocation) throws {
+                excusing: Set<String> = [], orderKnownIssue: Comment? = nil, sourceLocation: SourceLocation = #_sourceLocation) throws {
         let label = profile.name
         // The file on disk: panel ids (and so older snapshots' keys) are made when it is written.
         let file = source ?? mac.session()
@@ -397,8 +420,8 @@ final class ClassicUpgradeSimulator {
                     #expect(shown == classic, "\(label): order differs: \(shown.compactMap { made[$0]?.name.prefix(20) }) for \(classic.compactMap { made[$0]?.name.prefix(20) })",
                             sourceLocation: sourceLocation)
                 }
-                if orderIsKnownIssue {
-                    withKnownIssue("a resumed run makes its workspaces last in the sidebar", isIntermittent: true, sourceLocation: sourceLocation, check)
+                if let orderKnownIssue {
+                    withKnownIssue(orderKnownIssue, isIntermittent: true, sourceLocation: sourceLocation, check)
                 } else {
                     check()
                 }

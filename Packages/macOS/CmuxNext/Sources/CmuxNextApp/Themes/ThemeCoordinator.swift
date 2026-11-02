@@ -34,7 +34,7 @@ final class ThemeCoordinator {
     var pending: [ThemePreview.Target: String?] = [:]
     /// Which room, workspace or terminal a theme action acts on, resolved
     /// like its handler (`ThemeHandlers`), for picker previews.
-    var previewTarget: (@MainActor (ActionID, ActionTargetRef?) -> ThemePreview.Target?)?
+    var previewTarget: (@MainActor (ActionID, ActionTargetRef?, _ machineID: String?) -> ThemePreview.Target?)?
     private var observation: Task<Void, Never>?
     /// Each workspace's own background (`ThemeCoordinator+Backgrounds`).
     let workspaceBackgrounds: WorkspaceBackgroundStore
@@ -131,9 +131,7 @@ final class ThemeCoordinator {
 
     func start() {
         let registry = services.registry
-        registry.choicePreview = { [weak self] action, _, value, target in
-            self?.pickerPreview(action, value: value, target: target)
-        }
+        registry.choicePreview = { [weak self] action, _, value, target, machineID in self?.pickerPreview(action, value: value, target: target, machineID: machineID) }
         // Other owners (Team Picker) keep the current values they installed.
         let otherState = registry.choiceState
         registry.choiceState = { [weak self] action, target in self?.currentChoice(action, target: target) ?? otherState?(action, target) }
@@ -290,9 +288,9 @@ final class ThemeCoordinator {
 
     /// A picker (palette argument page, context submenu) highlighted
     /// `value` of a theme action's `theme` argument; nil ends the preview.
-    func pickerPreview(_ action: ActionID, value: String?, target: ActionTargetRef?) {
+    func pickerPreview(_ action: ActionID, value: String?, target: ActionTargetRef?, machineID: String? = nil) {
         guard let value else { return endPreview() }
-        guard let resolved = previewTarget?(action, target) else { return }
+        guard let resolved = previewTarget?(action, target, machineID) else { return }
         beginPreview(resolved, spec: value == ActionArgument.themeConfigValue ? nil : value)
     }
 
@@ -310,7 +308,7 @@ final class ThemeCoordinator {
             guard let pane = paneForChoice(target) else { return nil }
             return action == "pane.setBackground" ? ownValue(.background, of: .pane(pane)) ?? "inherit" : ownValue(.tint, of: .pane(pane)) ?? "none"
         }
-        guard let resolved = previewTarget?(action, target) else { return nil }
+        guard let resolved = previewTarget?(action, target, nil) else { return nil }
         let current: String? = switch resolved {
         case .room(let room): roomTheme(room)
         case .workspace(let id): workspaceTheme(id)

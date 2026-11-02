@@ -33,7 +33,9 @@ import WebKit
 /// the chat automation verbs (webviews automation.ts; each runs the page
 /// action a click or key runs, so a no-activate window can be driven end to
 /// end): `chat_state`, `send_prompt` (`text`), `new_chat` (`harness`, `cwd`),
-/// `select_session` (`session`), `pick_folder` (`cwd`: the folder chip's pick), `answer_permission` (`option`, `allow`,
+/// `select_session` (`session`), `pick_folder` (`cwd`: the folder chip's pick), `compose_send` (`text`: the
+/// composer's own Return, so a new chat with Cloud picked starts on a Cloud machine), `run_mode` (`mode`:
+/// `persistent`, `sandboxed` or `cloud`, the run row's pick; omitted reads it), `answer_permission` (`option`, `allow`,
 /// `decision`), `open_changes` (the latest turn's changes view), `set_files` (`paths`, `selector` default
 /// `.acpmux-attach-input`: the composer's file input gets those files as a pick in Chromium's open panel),
 /// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`; layoutWatch.ts),
@@ -47,6 +49,8 @@ import WebKit
 /// omitted toggles it and returns `inspector_open`). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
 /// be measured behind the user's windows.
+/// `session_info_action` (`id`) sends a page-owned native Session Info action through the same
+/// bridge as a native row click (DEBUG capture tours only).
 @MainActor
 enum DebugAgentPane {
     /// Long enough for a 5000-turn load seed and a waited fling of up to ~25 s.
@@ -59,6 +63,7 @@ enum DebugAgentPane {
         "chat_state": "chatState", "send_prompt": "sendPrompt", "new_chat": "newChat",
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
         "set_model": "setModel", "models": "models", "stream": "stream", "pick_folder": "pickFolder",
+        "compose_send": "composeSend", "run_mode": "runMode",
         "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch",
     ]
 
@@ -66,7 +71,7 @@ enum DebugAgentPane {
     /// `click` delivers a real click): the relay then treats a folder the verb names, a send, a
     /// pick or an answer as the user's, and automation reaches what a person sees (the trust
     /// question, not `transport.path_outside_roots`; cx-nn3e P0b). Measuring verbs record none.
-    static let userVerbs: Set<String> = ["new_chat", "send_prompt", "select_session", "answer_permission", "pick_folder"]
+    static let userVerbs: Set<String> = ["new_chat", "send_prompt", "select_session", "answer_permission", "pick_folder", "compose_send", "run_mode"]
 
     static func actAsUser(_ action: String, gestures: AgentPaneUserGestures) {
         if userVerbs.contains(action) { gestures.record() }
@@ -216,13 +221,20 @@ enum DebugAgentPane {
         if action == "inspector" {
             return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
         }
+        if action == "session_info_action" {
+            guard let id = params["id"]?.stringValue else {
+                return .object(["pane": .string(pane), "error": .string("pass id")])
+            }
+            let sent = view.debugSessionInfoAction(id)
+            return .object(["pane": .string(pane), "id": .string(id), "sent": .bool(sent)])
+        }
         if action == "open_subagent" {
             return await DebugAgentPaneSubagent.open(params, pane: pane, model: view.model) {
                 (try? await view.callPageScript(DebugAgentPaneSubagent.pageSessionScript)) as? String
             }
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state, session_info_action or inspector")])
         }
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": arguments(action, params)])
@@ -340,8 +352,10 @@ enum DebugAgentPane {
             return [params["label"]?.stringValue ?? ""]
         case "acp_log":
             return [params["limit"]?.intValue.map { ["limit": $0] as [String: Any] } ?? [:]]
-        case "send_prompt":
+        case "send_prompt", "compose_send":
             return [params["text"]?.stringValue ?? ""]
+        case "run_mode":
+            return [params["mode"]?.stringValue ?? NSNull()]
         case "new_chat":
             return [params["harness"]?.stringValue ?? NSNull(), params["cwd"]?.stringValue ?? NSNull()]
         case "set_model":

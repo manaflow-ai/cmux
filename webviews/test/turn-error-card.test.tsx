@@ -677,7 +677,16 @@ test("Cloud recovery reserves its prompt before login and retries once with that
   };
   const isCurrent = () => current;
   const getClient = () => client;
-  const recover = cloudCredentialRecovery(true, "provider-vm-1", "chat-1", "claude", call, isCurrent, getClient)!;
+  const recover = cloudCredentialRecovery(
+    true,
+    "provider-vm-1",
+    "chat-1",
+    "claude",
+    call,
+    isCurrent,
+    getClient,
+    new Set(),
+  )!;
   const pending = recover("row-1", "retry text");
   // Duplicate clicks while native confirmation is open cannot reserve another prompt.
   await recover("row-1", "retry text");
@@ -700,9 +709,15 @@ test("Cloud recovery reserves its prompt before login and retries once with that
   const count = calls.length;
   await recover("row-1", "retry text");
   expect(calls).toHaveLength(count);
-  expect(cloudCredentialRecovery(true, undefined, "chat-1", "claude", call, isCurrent, getClient)).toBeUndefined();
-  expect(cloudCredentialRecovery(false, "vm", "chat-1", "claude", call, isCurrent, getClient)).toBeUndefined();
-  expect(cloudCredentialRecovery(true, "vm", "chat-1", "opencode", call, isCurrent, getClient)).toBeUndefined();
+  expect(
+    cloudCredentialRecovery(true, undefined, "chat-1", "claude", call, isCurrent, getClient, new Set()),
+  ).toBeUndefined();
+  expect(
+    cloudCredentialRecovery(false, "vm", "chat-1", "claude", call, isCurrent, getClient, new Set()),
+  ).toBeUndefined();
+  expect(
+    cloudCredentialRecovery(true, "vm", "chat-1", "opencode", call, isCurrent, getClient, new Set()),
+  ).toBeUndefined();
 });
 
 test("Cloud recovery maps named harness profiles to the provider sent to native", async () => {
@@ -734,6 +749,7 @@ test("Cloud recovery maps named harness profiles to the provider sent to native"
       call,
       () => true,
       () => client,
+      new Set(),
     );
     expect(recover).toBeDefined();
     await recover!("row-1", "retry");
@@ -749,6 +765,7 @@ test("Cloud recovery maps named harness profiles to the provider sent to native"
         call,
         () => true,
         () => client,
+        new Set(),
       ),
     ).toBeUndefined();
   }

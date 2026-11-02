@@ -11,7 +11,7 @@
    pass under it (conversation.css). The stack never takes the transcript's last
    --acpmux-transcript-min under the header; in a pane shorter still, the dock and the queue give up
    their height, down to one row, and scroll inside it. Elsewhere (a new chat's hero, a handoff
-   review, the diff, the inspector) the stack is in the pane's flow under the stage. */
+   review, the diff, Session Info) the stack is in the pane's flow under the stage. */
 /* The stage holds the header (44px, styles.css) over the transcript. */
 .acpmux-main > .acpmux-stage {
   min-height: calc(44px + var(--acpmux-transcript-min, 96px));
@@ -45,14 +45,67 @@
    scrolls itself (the pull request dock, the question card in a short pane) keeps its wheel and its
    scrollbar. The composer passes the pointer through around its card and queue, which take it, so
    the wheel beside the card reaches the transcript itself. */
+/* The `/` and `@` lists' layer (backdropLayer.tsx) lies over the card: it passes the pointer to the
+   card, and only its list takes it (styles.css). */
 .acpmux-main[data-dock="float"] > .acpmux-dock > :not(.acpmux-composer),
-.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > * {
+.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > :not(.acpmux-composer-list-layer) {
   pointer-events: auto;
 }
 /* The tray of running subagents and background commands (subagents/SubagentTray.tsx), aligned
    with the composer card; in a short pane it gives up its height like the parts below. */
+/* Match the composer's 8px outset below 298px of content width (#28587). */
 .acpmux-dock > .acpmux-running-tray {
-  margin: 0 var(--cv-inset-end, var(--cv-inset)) 0 var(--cv-inset);
+  --acpmux-tray-outset: clamp(0px, calc((297.5px - (100% - var(--cv-inset) - var(--cv-inset-end, var(--cv-inset)))) * 1000), 8px);
+  margin: 0 calc(var(--cv-inset-end, var(--cv-inset)) - var(--acpmux-tray-outset)) 0 calc(var(--cv-inset) - var(--acpmux-tray-outset));
+}
+/* The cards over the composer: the running tray (Leo, 2026-10-30: "the stupid fucking gap at the
+   bottom plus the stupid right indent misalignemnt"). It takes the composer card's two edges
+   (--cv-inset, and --cv-inset-end where the pane sets it) and stands --acpmux-stack-gap over the
+   composer. The selected look is one glass stack: no gap, and where the tray meets the composer
+   neither rounds and only the lower one draws the hairline, as the queue meets the card
+   (composerLocation.css), so the tray and the composer read as one surface with one rim and no
+   notch between rounded corners. A tray that draws a card ([data-card]: something runs, or a settled
+   headed tray with its own surface, subagents.css) joins it the same way, with no gap between them
+   (Leo, 2026-11-01: "why did you still not fix the stupid gap"); a lone ended line draws no card
+   and joins nothing: the composer keeps its own rounded top. The gallery's `cards` look
+   (bottomStackStyles.gallery.ts, data-bottom-stack) keeps separate cards one 4px step apart.
+   test/agent-pane-bottom-stack-edges.test.ts measures the edges and gaps. */
+.acpmux-dock {
+  --acpmux-stack-gap: 0px;
+  --acpmux-stack-radius: 10px;
+}
+:root[data-bottom-stack="cards"] .acpmux-dock {
+  --acpmux-stack-gap: var(--ds-space-1, 4px);
+}
+.acpmux-dock > .acpmux-running-tray:has(+ .acpmux-composer) {
+  margin-bottom: var(--acpmux-stack-gap);
+}
+:root:not([data-bottom-stack="cards"])
+  .acpmux-dock
+  > .acpmux-running-tray[data-card]:has(+ .acpmux-composer) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  /* The sides and the top only: the part under it draws the hairline where they meet. */
+  box-shadow:
+    inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent),
+    inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
+    inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent);
+}
+/* The composer's first part (the queue, else the card) squares its top under the stack. */
+:root:not([data-bottom-stack="cards"])
+  .acpmux-dock
+  > .acpmux-running-tray[data-card]
+  + .acpmux-composer
+  > :is(.acpmux-composer-queue, .acpmux-composer-box:not(.acpmux-composer-queue ~ *)) {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+:root:not([data-bottom-stack="cards"])
+  .acpmux-dock
+  > .acpmux-running-tray[data-card]
+  + .acpmux-composer
+  > .acpmux-composer-box:not(.acpmux-composer-queue ~ *)::before {
+  border-radius: inherit;
 }
 .acpmux-dock > .acpmux-composer {
   display: flex;
@@ -89,57 +142,6 @@
   :is(.acpmux-md-field, .acpmux-shell-field) {
   align-self: stretch;
 }
-/* Codex keeps its own non-grid bar, but its draft still yields to the fixed footer and 24px
-   dots row in a short pane. Shrink only the scrolling field; the actions and footer stay reachable. */
-.acpmux-main[data-dock="float"]
-  > .acpmux-dock
-  > .acpmux-composer[data-composer-look="codex"]
-  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner)) {
-  display: flex;
-  flex: 0 1 auto;
-  flex-direction: column;
-  min-height: calc(var(--text-title--line-height) + (var(--ds-control-row) + var(--ds-space-5) + var(--ds-space-4)) * var(--cmux-interface-scale, 1));
-}
-.acpmux-main[data-dock="float"]
-  > .acpmux-dock
-  > .acpmux-composer[data-composer-look="codex"]
-  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
-  > .acpmux-composer-field-menu {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-height: 0;
-}
-.acpmux-main[data-dock="float"]
-  > .acpmux-dock
-  > .acpmux-composer[data-composer-look="codex"]
-  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
-  > .acpmux-composer-field-menu
-  > .acpmux-md-field {
-  flex: 1 1 auto;
-  min-height: 0;
-}
-.acpmux-main[data-dock="float"]
-  > .acpmux-dock
-  > .acpmux-composer[data-composer-look="codex"]
-  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
-  > .acpmux-composer-field-menu
-  > .acpmux-shell-prompt {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-height: 0;
-}
-.acpmux-main[data-dock="float"]
-  > .acpmux-dock
-  > .acpmux-composer[data-composer-look="codex"]
-  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
-  > .acpmux-composer-field-menu
-  > .acpmux-shell-prompt
-  > .acpmux-shell-field {
-  flex: 1 1 auto;
-  min-height: 0;
-}
 /* A permission card's numbered options can outgrow a short pane: it scrolls inside the height it
    keeps, so the composer card stays in view. */
 .acpmux-dock > .acpmux-composer > .acpmux-composer-queue,
@@ -151,38 +153,16 @@
   /* The stack is a no-scroll zone (wheelPassThrough.ts): reaching a part's end scrolls nothing else. */
   overscroll-behavior: contain;
 }
-/* The tray never scrolls as a whole: its header and View all stay pinned and only its list scrolls
+/* The tray never scrolls as a whole: its header stays pinned and only its list scrolls
    (subagents.css). As the stack's own scroller it scrolled its header out of view in a short pane.
-   In a short pane its list gives up its height to nothing first; the tray keeps room for both pinned
-   rows, the header and View all, whole. Clip, not hidden: a hidden box still scrolls when focus or a
-   script moves into it. */
+   In a short pane its list gives up its height to nothing first; the header never does. Clip, not
+   hidden: a hidden box still scrolls when focus or a script moves into it. */
 .acpmux-dock > .acpmux-running-tray {
   overflow: clip;
   /* Its one row is its header (or one line), not the stack's 34px row: the taller floor left a strip
      of tray glass under the header that read as a second box (Leo, 2026-10-29: "unnecessary,
      stupid-ass fucking padding"). */
   min-height: var(--ui-row-height, var(--ds-control-row, 28px));
-}
-@media (min-height: 360px) {
-  /* Not while the fold plays (conversation/fold.ts clips it then and marks it data-fold-clip): the
-   fold's own height carries the tray, so open and close never jump by the reservation. Never a
-   [style] selector inside :has(): Chromium then restyles the whole page on any inline style write. */
-  .acpmux-dock
-    > .acpmux-running-tray:has(
-      > .acpmux-running-tray__fold:not([data-fold-clip]) > .acpmux-running-tray__finished
-    ) {
-    /* View all needs one row in addition to the header's one, narrow too: the header's time follows
-       its counts on its one line (subagents.css), so it never takes a second. */
-    min-height: calc(2 * var(--ui-row-height, var(--ds-control-row, 28px)) + var(--ds-space-1) / 2 + 2 * var(--cmux-hairline));
-  }
-}
-/* A pane too short for both pinned rows and the composer (a webview under 360px) keeps the composer
-   first: the tray keeps the stack's one-row minimum and scrolls as a whole again, as it did before,
-   so View all is never cut out of reach (a wheel or keyboard focus scrolls it into view). */
-@media (max-height: 359.98px) {
-  .acpmux-dock > .acpmux-running-tray {
-    overflow-y: auto;
-  }
 }
 
 /* What joins the bottom stack enters from the composer as it appears (Leo 2026-10-20): a question,

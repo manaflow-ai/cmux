@@ -62,7 +62,7 @@ caller's. A script or step that starts an app on its own can run under the same 
     python3 scripts/cmux-next/bench_launch.py finder-exec -- python3 scripts/cmux-next/my-bench.py ...
     python3 scripts/cmux-next/bench_launch.py limits     # launchd's soft limits and this shell's, one JSON line
 """
-import argparse, atexit, contextlib, glob, json, os, platform, pwd, re, resource, select, shutil, signal, socket, subprocess, sys, tempfile, time
+import argparse, atexit, contextlib, glob, json, os, platform, plistlib, pwd, re, resource, select, shutil, signal, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -710,6 +710,20 @@ class BenchApp:
 
     @property
     def binary(self):
+        """The bundle's main executable: Info.plist's CFBundleExecutable. A bench (Release) build's is not `cmux DEV`
+        (close-flash job 12728f0a2b37 started a `cmux DEV` that was not there), and the first file in Contents/MacOS
+        can be another executable; only a bundle with no Info.plist falls back to those guesses."""
+        try:
+            with open(os.path.join(self.app, "Contents/Info.plist"), "rb") as f:
+                info = plistlib.load(f)
+        except Exception:  # noqa: BLE001  any unreadable plist (OSError, a truncated XML's ExpatError, ...): no name
+            info = None
+        named = info.get("CFBundleExecutable") if isinstance(info, dict) else None
+        if named:
+            main = os.path.join(self.app, "Contents/MacOS", named)
+            if not os.path.exists(main):
+                raise SystemExit(f"bench-launch: {self.app} names CFBundleExecutable {named!r}, which is not in Contents/MacOS")
+            return main
         main = os.path.join(self.app, "Contents/MacOS/cmux DEV")
         if os.path.exists(main):
             return main
@@ -777,6 +791,12 @@ class BenchApp:
         if os.path.lexists(prev):
             shutil.rmtree(prev, ignore_errors=True)
         os.rename(root, prev)
+        # The build's Debug Settings file lives beside the saved session (DebugSettingsService.fileURL): keep it, so an
+        # override a harness set for this run (cef-layer-ab.py's layerHosting) still applies.
+        tunables = os.path.join(prev, "debug-tunables.json")
+        if os.path.isfile(tunables):
+            os.makedirs(root, exist_ok=True)
+            shutil.copy2(tunables, os.path.join(root, "debug-tunables.json"))
         note(f"bench-launch: {self.tag} starts from an empty saved session (earlier state moved to {prev})")
 
     def launch(self, timeout=180, ready="debug.windows", on_start=None):

@@ -101,6 +101,11 @@ pub(super) struct AttachedSurface {
     pub(super) geometry_lease: Option<String>,
     /// Leases of `terminal.attach read_only` views: they watch and never size.
     pub(super) read_only_leases: HashSet<String>,
+    /// The terminal this client's keys go to, kept from its first key (`cmd_terminal_io::input_surface`): no session
+    /// lock on the typing path. Kept with the route generation of its id at the lookup (`route_table`): a respawn,
+    /// close, move or other change of that id's route makes the next key look it up again. Goes with this record at
+    /// the last detach and at disconnect.
+    pub(super) input: (Weak<crate::Surface>, u64),
 }
 
 pub(super) struct DetachedSurface {
@@ -342,6 +347,8 @@ pub(crate) struct ClientRegistry {
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
     pub(super) state: Mutex<ClientRegistryState>,
+    /// Who created each live incognito workspace (incognito_orphans.rs).
+    pub(super) incognito_creators: super::incognito_orphans::IncognitoCreators,
 }
 
 /// `browser-runtime-v1` is negotiable only where the daemon has runtimes.
@@ -409,6 +416,7 @@ impl ClientRegistry {
                 RESOURCE_WAITS_SERVER_CAPACITY,
             ),
             state: Mutex::new(ClientRegistryState::default()),
+            incognito_creators: Default::default(),
         }
     }
 
@@ -441,6 +449,7 @@ impl ClientRegistry {
             client,
             ClientRecord {
                 transport,
+                native_vm_kind: None,
                 connected_at: Instant::now(),
                 name: None,
                 kind: None,

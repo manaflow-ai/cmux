@@ -5,7 +5,7 @@ use std::net::{IpAddr, SocketAddr};
 
 use cmux_link::overlay_addr::overlay_address;
 use cmux_link::stamp::LinkPeer;
-use cmux_link::token::{DenyAllTokens, Expected, TokenRefused, TokenVerifier};
+use cmux_link::token::{DenyAllTokens, Expected, TokenRefused, TokenVerifier, VerifiedToken};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 use super::*;
@@ -14,11 +14,27 @@ use super::*;
 struct GoodToken;
 
 impl TokenVerifier for GoodToken {
-    fn verify(&self, token: &str, expected: &Expected<'_>) -> Result<LinkPeer, TokenRefused> {
+    fn begin_handshake(
+        &self,
+        _host: &str,
+        _epoch: u64,
+        _peer_key: &[u8; 32],
+    ) -> Result<StreamLease, TokenRefused> {
+        Ok(StreamLease::fixed_until(std::time::Instant::now() + std::time::Duration::from_secs(30)))
+    }
+
+    fn verify(&self, token: &str, expected: &Expected<'_>) -> Result<VerifiedToken, TokenRefused> {
         if token != "good" || expected.host != "host_vm1" || expected.epoch != 4 {
             return Err(TokenRefused::Invalid);
         }
-        Ok(LinkPeer { install: "inst_mac".into(), user: "42".into(), team: "team_a".into() })
+        Ok(VerifiedToken {
+            vm_kind: Some(cmux_link::token::VmKind::Team),
+            peer: LinkPeer { install: "inst_mac".into(), user: "42".into(), team: "team_a".into() },
+            issued_at_ms: 1_700_000_000_000,
+            lease: Some(StreamLease::fixed_until(
+                std::time::Instant::now() + std::time::Duration::from_secs(30),
+            )),
+        })
     }
 }
 
@@ -138,7 +154,7 @@ async fn a_valid_ssh_hello_reaches_the_loopback_sshd() {
 }
 
 #[tokio::test]
-async fn a_valid_daemon_hello_reaches_the_remote_entry_stamped_as_the_token_install() {
+async fn token_issue_time_valid_daemon_hello_reaches_the_entry_as_the_token_install() {
     let host = host().await;
     let entry_path = cmux_link::entry_path::remote_entry_socket_path(&host.session);
     std::fs::create_dir_all(entry_path.parent().unwrap()).unwrap();
@@ -162,7 +178,7 @@ async fn a_valid_daemon_hello_reaches_the_remote_entry_stamped_as_the_token_inst
         lines.read_line(&mut stamp).await.unwrap();
         assert_eq!(
             stamp,
-            "{\"link_peer\":{\"install\":\"inst_mac\",\"user\":\"42\",\"team\":\"team_a\"},\"check\":\"link_token\"}\n",
+            "{\"link_peer\":{\"install\":\"inst_mac\",\"user\":\"42\",\"team\":\"team_a\"},\"check\":\"native_link_token\",\"check_issued_at_ms\":1700000000000,\"native_vm_kind\":\"team\"}\n",
             "the accepted token is stamped as the stream's control-plane check"
         );
         drop(peer);

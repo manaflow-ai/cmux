@@ -12,7 +12,7 @@ import ImageIO
 enum ChiefSidebarPicture {
     private static var loaded: [URL: SidebarFavicon] = [:]
 
-    /// `picture` (`AppServices.characterPicture(of:)`): a worn upload comes with its first frame
+    /// `picture` (`AppServices.chosenPicture(of:)`): a worn upload comes with its first frame
     /// `image`, decoded off the main actor by ``ChiefAvatarUploads``; else the picture of the
     /// character `mascot` names (an unknown or nil id: orb), a small file in the app read once. Nil
     /// when that cannot be read, and the item keeps its plain glyph. An upload's file name is new per

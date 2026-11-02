@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
-import { nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
+import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
 import { useEscapingPopup } from "./popupHost";
 import { usePopupHost } from "./UiProvider";
 
@@ -67,16 +67,6 @@ function nativeRows(items: readonly ContextMenuItem[]): NativeMenuRow[] | null {
   }
   return rows;
 }
-
-/** Inline, as the placement is: the agent pane does not load ui.css. */
-const MENU_ICON = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: 16,
-  height: 16,
-  flex: "none",
-} as const;
 
 /**
  * A point-anchored context menu for surfaces that do not use the shared Menu trigger.
@@ -261,7 +251,7 @@ export function ContextMenu({
             // An older legacy bridge can acknowledge an unknown method with a successful null
             // value. That is not a native-menu dismissal (`{ picked: null }`); fall back to the
             // page menu so a right-click never disappears without an actionable surface.
-            if (!reply || typeof reply !== "object" || !("picked" in reply)) {
+            if (!hasNativeMenuPick(reply)) {
               setNativeOpen(false);
               setPoint(at);
               return;
@@ -328,12 +318,16 @@ export function ContextMenu({
                     >
                       {/* A text label truncates with its full text as a tooltip; a composed label
                           (text plus a shortcut) keeps its own flex layout. */}
+                      {/* A toggle's check sits on the menu's state column and an icon in the
+                          14 box at the leading (popupSurface.css, "EVERY MENU ON ONE GRID"), so
+                          checked, unchecked and plain rows start their text on one line. */}
                       {item.checked !== undefined ? (
-                        <span className="ui-menu-icon" aria-hidden="true" style={MENU_ICON}>
+                        <span className="ui-menu-check" aria-hidden="true">
                           {item.checked ? "✓" : null}
                         </span>
-                      ) : item.icon ? (
-                        <span className="ui-menu-icon" aria-hidden="true" style={MENU_ICON}>
+                      ) : null}
+                      {item.icon ? (
+                        <span className="ui-menu-icon" aria-hidden="true">
                           {item.icon}
                         </span>
                       ) : null}

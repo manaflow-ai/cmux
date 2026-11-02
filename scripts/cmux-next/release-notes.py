@@ -173,18 +173,31 @@ DANGLING = re.compile(r"\b(?:a|an|the|and|or|but|to|of|in|on|for|with|by|even|so
 
 def short_title(text, limit):
     """At most `limit` characters: the text when it fits, else its first clause when that fits, has
-    three words and does not end on a joining word, else None. Never a cut word or an ellipsis
-    (readableChange.ts shortTitle)."""
+    three words and does not end on a joining word, else None. Never a cut word, an ellipsis or a
+    cut inside parentheses (readableChange.ts shortTitle)."""
     text = " ".join(text.split()).rstrip(". ")
     if len(text) <= limit:
         return text
     for match in CLAUSE.finditer(text):
+        if open_parens(text[:match.start()]):
+            continue
         head = text[:match.start()].rstrip(" ,;:—-")
         if len(head) > limit:
             return None
         if len(head.split()) >= 3 and not DANGLING.search(head):
             return head
     return None
+
+
+def open_parens(text):
+    """How many "(" in `text` no ")" closes yet (readableChange.ts openParens)."""
+    depth = 0
+    for char in text:
+        if char == "(":
+            depth += 1
+        elif char == ")" and depth:
+            depth -= 1
+    return depth
 
 
 def title_tail(full, title):
@@ -599,7 +612,9 @@ def build(args):
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
     highlights = []
     deadline = time.monotonic() + PR_MEDIA_BUDGET
-    added = set(p for p in added if p.endswith(".md"))
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new"))
+    from digest import surviving_highlights
+    added = surviving_highlights(args.head, added)
     again = reannounced(args.since, args.head, added)
     for path in sorted(added | set(again)):
         highlight = parse_highlight(path, git("show", f"{args.head}:{path}"))
