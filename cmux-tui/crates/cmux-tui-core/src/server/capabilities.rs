@@ -321,6 +321,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_SEARCH_CAPABILITY,
         conversations::CONVERSATION_DRAFT_CAPABILITY,
         conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
+        super::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY,
         conversations::CONVERSATION_THREADS_CAPABILITY,
         conversations::CONVERSATION_THREAD_READ_CAPABILITY,
         conversations::CONVERSATION_TREE_CAPABILITY,

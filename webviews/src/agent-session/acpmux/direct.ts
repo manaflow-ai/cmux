@@ -100,6 +100,7 @@ import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage, startCancelled } from "./transportErrors";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
+import { isLostConnection, JOURNAL_PARAMS_BYTES, lostPrompt, type LostPrompt } from "./lostPrompt";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isPlumbingCall, showsNothing } from "./hiddenTools";
@@ -6893,6 +6894,11 @@ export class AcpmuxDirectClient {
       // a sender that holds its prompt (`accepted`) keeps every refused one: the prompt never
       // went, so it leaves no bubble, and the pane keeps it in (or puts it back in) the composer.
       const held = !released && accepted !== undefined;
+      // The connection went before acpmux took it, on a chat of this Mac's acpmux: the host's prompt
+      // journal sends it again, under its promptId, on the pane's next connection (lostPrompt.ts),
+      // so its sender waits for it to show there instead of saying "Not sent" at once.
+      if (!taken && isLostConnection(error) && this.journalsPrompts(blocks))
+        Object.assign(error as object, { lostPrompt: { sessionId, promptId } satisfies LostPrompt });
       // The folder's trust question (the one route); the pane's sender adds the re-send.
       if (here && trustCancellation === this.trustCancellation) this.routeTrustRefusal(error);
       if (held) {
@@ -6913,7 +6919,8 @@ export class AcpmuxDirectClient {
         // The prompt is still in the composer, so Enter sends it again (no Retry button). A refusal
         // for want of a real key or click (dictation's autoSend after a session ended by itself)
         // says just that, not the generic refusal's pick wording (cx-w2p8r).
-        if (held && !isTrustRefusal(error))
+        // A lost prompt the host sends again says nothing yet: its sender says it if it never shows.
+        if (held && !isTrustRefusal(error) && !lostPrompt(error))
           this.notice(
             code === "transport.gesture_required"
               ? translate("prompt.notSentAgain")
@@ -8507,6 +8514,17 @@ export class AcpmuxDirectClient {
         (event) => (event.kind === "user_message" || event.kind === "queued") && event.msg?.promptId === promptId,
       )
     );
+  }
+  /// Whether the host's prompt journal keeps a prompt of these blocks that this connection lost
+  /// (Swift `AgentPanePromptRelay`): only on a connection to this Mac's acpmux (a chat of another
+  /// Mac it relays included), and for a prompt within the journal's `maximumParamsBytes` (8 MiB).
+  private journalsPrompts(blocks: unknown): boolean {
+    if (!this.localOrigin) return false;
+    try {
+      return JSON.stringify(blocks).length < JOURNAL_PARAMS_BYTES;
+    } catch {
+      return false;
+    }
   }
   /// The `awaitResent` waits, with their chat: each settles false once this connection closes or
   /// the pane shows another chat.

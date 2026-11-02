@@ -671,6 +671,7 @@ import { designSelectionChips, designSelectionRemovals } from "./designSelection
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { DeliveryFailure, FailedSendsContext, type FailedSends } from "./conversation/PromptDelivery";
 import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
+import { clientWaiter, lostPrompt, resentAfterLoss } from "./lostPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { useSideSessions } from "./aside/sideSessions";
@@ -6065,6 +6066,9 @@ function AcpmuxPane() {
   const catalogClientId = useRef(0);
 
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  /// The pane's connected clients, one after another: a prompt a connection lost waits on the next
+  /// one for the host's journal to send it again there (lostPrompt.ts).
+  const [connectedClients] = useState(() => clientWaiter<AcpmuxDirectClient>());
   const [catalogSource, setCatalogSource] = useState<{ id: number; client: HarnessCatalogSource }>();
 
   /// A chat acpmux would not start because its folder harness needs the user's Enable or the
@@ -10516,6 +10520,7 @@ function AcpmuxPane() {
         }
         connectingClient = client;
         directClient.current = client;
+        connectedClients.connected(client);
         // connect() may have delivered its first snapshot before returning. Associate that
         // already-renderable snapshot only after the client binding exists (avoids a TDZ read).
         if (snapshotRef.current)
@@ -11635,6 +11640,7 @@ function AcpmuxPane() {
     // These are stable for the pane's life (state, provider client, a memoized bridge callback, and
     // the early New Tab flag, one object from a useState initializer).
   }, [
+    connectedClients,
     folderContinuation,
     harnessSwitch,
     newChatPrewarm,
@@ -13434,6 +13440,7 @@ function AcpmuxPane() {
                   return true;
                 }
                 const holder = composerHandle.current;
+                const sentOn = directClient.current;
                 callNative("chat.send", { text, attachments, steer }).then(
                   () => {
                     rememberStart();
@@ -13444,7 +13451,16 @@ function AcpmuxPane() {
                     if (keptInChat(error) || isTrustRefusal(error)) return;
                     // A prompt a harness switch handed back (harnessSwitch.ts) is in the composer already.
                     if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
-                    (composerHandle.current ?? holder)?.restore(text, attachments);
+                    const giveBack = () => (composerHandle.current ?? holder)?.restore(text, attachments);
+                    if (!lostPrompt(error)) return giveBack();
+                    // The connection went before acpmux took it (an acpmux restart or update): the host
+                    // sends it again on the next connection, where the chat shows it. Only one that never
+                    // shows comes back, saying why (lostPrompt.ts).
+                    void resentAfterLoss(error, connectedClients, sentOn).then((shown) => {
+                      if (shown) return promptLanded.current();
+                      giveBack();
+                      directClient.current?.notice(failedSendText(error, false, attachments));
+                    });
                   },
                 );
                 return true;
@@ -13500,15 +13516,22 @@ function AcpmuxPane() {
               // The composer that holds the prompt: a refusal that comes once it is gone (the pane
               // swaps it when the chat's session starts) puts the prompt in the one shown now.
               const holder = composerHandle.current;
+              const sentOn = directClient.current;
               // Start Agent's Return; ⌘Return (onOpenInWindow, right after this) opens a window instead.
               if (surfaceRef.current === "quick") startInBackground(text, taken);
               const turn = send();
               turn.then(() => promptLanded.current(), cancelOpenInWindow);
               // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
               // A prompt acpmux refused for the folder's trust that joined the hold (`holdRefused`)
-              // counts as taken: it waits in the queue now.
-              const held = Promise.race([taken, turn.then(() => true as const)]).catch((error: unknown) => {
+              // counts as taken: it waits in the queue now. One a dropped connection lost before acpmux
+              // took it is held until the host's resend shows on the next connection; only one that
+              // never shows says "Not sent" and comes back (lostPrompt.ts).
+              const held = Promise.race([taken, turn.then(() => true as const)]).catch(async (error: unknown) => {
                 if (heldRefusal(error)) return true as const;
+                if (lostPrompt(error)) {
+                  if (await resentAfterLoss(error, connectedClients, sentOn)) return true as const;
+                  directClient.current?.notice(failedSendText(error, false, attachments));
+                }
                 throw error;
               });
               if (queues) {
