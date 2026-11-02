@@ -23,11 +23,13 @@ impl Mux {
         // The registry connection stays pinned to the end, as before: the
         // journal writer takes only the connection, so without the pin a
         // writer commit could land between the reads below and this
-        // publish's commit (#32326 review).
-        let _connection = registry.connection.pin();
-        let current = {
+        // publish's commit (#32326 review). The second hold is taken under
+        // the session lock's own pin (re-entrant), after lock_state_pinned
+        // settled earlier answers, so it outlives the session lock only.
+        let (current, _connection) = {
             let state = self.lock_state_pinned(&registry).unwrap();
-            state.terminal_catalog.get(id).cloned()
+            let connection = registry.connection.pin();
+            (state.terminal_catalog.get(id).cloned(), connection)
         };
         let Some(current) = current else { return Ok(()) };
         if current.terminal_runtime_id() != source.terminal_runtime_id() {
