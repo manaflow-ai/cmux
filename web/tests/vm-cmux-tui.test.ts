@@ -122,7 +122,9 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain("timeout 5s");
     expect(command).toContain("sh -c");
     expect(command).toContain("kill -0");
-    expect(command).toContain("XDG_RUNTIME_DIR=\"/run/user/$(id -u)\"");
+    expect(command).toContain("status_rc=$?");
+    expect(command).toContain('[ "$status_rc" -ne 124 ] || exit 3');
+    expect(command).toContain('XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")"');
     expect(command).toContain("exit 3");
     const lines = command.split("\n");
     expect(lines).toContain(
