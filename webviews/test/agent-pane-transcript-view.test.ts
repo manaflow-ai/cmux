@@ -200,18 +200,31 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       const shells = page.locator(".cv-shell");
       await shells.nth(1).waitFor();
       await page.mouse.move(1, 1);
-      // The Wrap lines buttons a reader sees at rest: drawn, and not see-through.
+      // The Wrap lines buttons a reader sees: drawn, and not see-through.
       const countShown = () =>
         [...document.querySelectorAll<HTMLElement>('.cv-shell button[aria-label="Wrap lines"]')].filter((button) => {
           const box = button.getBoundingClientRect();
           return box.width > 0 && Number(getComputedStyle(button).opacity) > 0.01;
         }).length;
       const shownWraps = () => page.evaluate(countShown);
+      // The buttons fade on the shared hover tokens (conversation.css, --cv-actions-in/out and the
+      // in-delay), so each read waits for its fade to settle rather than taking the first frame.
+      const settle = (want: number) =>
+        page
+          .waitForFunction(
+            (shown) =>
+              [...document.querySelectorAll<HTMLElement>('.cv-shell button[aria-label="Wrap lines"]')].filter(
+                (button) => button.getBoundingClientRect().width > 0 && Number(getComputedStyle(button).opacity) > 0.01,
+              ).length === shown,
+            want,
+            { timeout: 2_000 },
+          )
+          .catch(() => undefined);
+      await settle(0);
       const atRest = { shells: (await shells.count()) >= 2, wraps: await shownWraps() };
-      // Hovering a block shows its own, once the shared hover fade's delay has passed
-      // (conversation.css, --cv-actions-in-delay): wait for it rather than read the first frame.
+      // Hovering a block shows its own.
       await shells.first().hover();
-      await page.waitForFunction(countShown, undefined, { timeout: 2_000 }).catch(() => undefined);
+      await settle(1);
       const hovered = await shownWraps();
       await page.mouse.move(1, 1);
       expect({ atRest, hovered }).toEqual({ atRest: { shells: true, wraps: 0 }, hovered: 1 });

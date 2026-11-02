@@ -15,6 +15,7 @@ import { acpmuxSend } from "../conversation/acpmuxSends";
 import type { Translate } from "../i18n";
 import { useEffect, useState } from "react";
 import type { SummaryBackgroundTask } from "../summary/sessionSummary";
+import { replayProcessUpdates } from "./processUpdateReplay";
 
 export type SessionInfoProcess = {
   /// acpmux's id, `<sessionId>/<task id>`: what `_acpmux/process/kill` takes.
@@ -97,10 +98,15 @@ export function useProcessRegistry(
     if (!source || !sessionId || !on) return;
     let current = true;
     // This subscription's updates: newer than the list's records.
-    let updates: readonly SessionInfoProcess[] = [];
+    // Retain only the latest update per process ID while the list is pending.
+    const pending = new Map<string, SessionInfoProcess>();
+    let awaitingList = true;
     setState((known) => (known.sessionId === sessionId ? known : { sessionId, processes: [], listed: false }));
     const stop = source.watchProcesses((value) => {
-      updates = mergeProcess(updates, value, sessionId);
+      if (awaitingList) {
+        const process = processOf(value, sessionId);
+        if (process) pending.set(process.id, process);
+      }
       setState((known) => {
         const processes = known.sessionId === sessionId ? known.processes : [];
         const listed = known.sessionId === sessionId && known.listed;
@@ -112,20 +118,26 @@ export function useProcessRegistry(
       (reply) => {
         if (!current) return;
         const listed = processesOf(reply, sessionId);
+        // Buffered updates win over the stale list snapshot.
+        const reconciled = replayProcessUpdates(listed, pending);
+        awaitingList = false;
+        pending.clear();
         setState({
           sessionId,
-          processes: updates.reduce<readonly SessionInfoProcess[]>(
-            (all, process) => mergeProcess(all, { ...process, sessionId }, sessionId),
-            listed,
-          ),
+          processes: reconciled,
           // A reply without its list (a daemon that does not keep one) lists nothing.
           listed: Array.isArray((reply as { processes?: unknown } | undefined)?.processes),
         });
       },
-      () => undefined,
+      () => {
+        awaitingList = false;
+        pending.clear();
+      },
     );
     return () => {
       current = false;
+      awaitingList = false;
+      pending.clear();
       stop();
     };
   }, [source, sessionId, on]);

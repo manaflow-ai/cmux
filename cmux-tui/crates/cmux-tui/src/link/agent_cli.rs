@@ -70,8 +70,9 @@
 //! pump copies its folder's last changes, `cmux link sync push LOCAL REMOTE`
 //! (Move to Cloud), `cmux link seed push --since-last LOCAL REMOTE` (Move to
 //! Cloud of a folder `cmux link seed push` put there: a delta bundle, or a
-//! re-push of its copy) or `cmux link sync pull LOCAL REMOTE` (Bring Back
-//! Local) over the machine link socket `LINK`. A chat moved mid-turn
+//! re-push of its copy) or `cmux link seed pull --or-copy LOCAL REMOTE` (Bring
+//! Back Local: a seeded folder's diff, else `cmux link sync pull`) over the
+//! machine link socket `LINK`. A chat moved mid-turn
 //! (`--interrupt`) made changes up to the freeze, after the caller's own sync; this takes
 //! them along, so the turn goes on there with them (acpmux queues its
 //! continuation, cmuxterm-hq#5846 item 1). A sync that fails, or a pull that
@@ -500,7 +501,8 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
         }
         Way::Pull => {}
     }
-    match sync_cli::pull_into(&sync.socket, &sync.local, &sync.remote) {
+    // A seeded folder comes back as the seed's diff, a copied one as the copy's pull.
+    match super::seed_cli::bring_back(&sync.socket, &sync.local, &sync.remote) {
         Back::Done(_) => Ok(()),
         Back::Conflict(conflicts, reasons) => {
             let mut error = format!(

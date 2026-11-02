@@ -3,6 +3,7 @@
 // so a session reads the same in the terminal and in the pane.
 import { type Translate, translate } from "./i18n";
 import { readRetry, type RetryState } from "./subagents/retryState";
+import { type SessionUsageStats, usageStatsOf } from "./usageStats";
 
 /** A session as the sidebar sees it, cut from acpmux's session summary. */
 export type AcpmuxSessionEntry = {
@@ -58,6 +59,11 @@ export type AcpmuxSessionEntry = {
   /** A sub-session: the chat whose agent started it with its `start_session` tool (acpmux
    *  `startedBy`, kept at any depth and after that chat closes). */
   startedBy?: string;
+  /** The chat it reports to (acpmux's tag `lane.reportsTo`, a bare id on its own machine): the
+   *  session that started it as a lane (leads.ts). */
+  reportsTo?: string;
+  /** Started by a Chief (its `mux.parent` tag, `optchat-chief:<home>`): the Chief manages it. */
+  chiefChild?: true;
   /** A sub-session's name among its parent's (acpmux `shortName`, "tests"). */
   shortName?: string;
   /** What it is doing (acpmux `lane.state`): working, waiting on the person, failed, lost or idle. */
@@ -99,6 +105,8 @@ export type AcpmuxSessionEntry = {
   /** Why its failed or lost turn failed, as acpmux's lane says it (`lane.error`, secrets masked):
    *  a retry acpmux refused before its turn started leaves it failed with this. */
   laneError?: string;
+  /** What it spends: context, 24h tokens and cost, subagents (acpmux `usageStats`, usageStats.ts). */
+  usageStats?: SessionUsageStats;
 };
 
 export type LifecycleReceipt = {
@@ -161,6 +169,27 @@ export const folded = (entry: AcpmuxSessionEntry, parents: ReadonlySet<string>) 
 function tagged(tags: unknown, tag: string): boolean {
   if (Array.isArray(tags)) return tags.includes(tag);
   return typeof tags === "object" && tags !== null && tag in tags;
+}
+
+/** A lane's tag naming the session it reports to (acpmux hub/lane_reports.rs `TAG`). */
+const REPORTS_TO_TAG = "lane.reportsTo";
+
+/** The string value of acpmux's tag `tag` (tags an object of key to value), else undefined. */
+function tagValue(tags: unknown, tag: string): string | undefined {
+  if (typeof tags !== "object" || tags === null || Array.isArray(tags)) return undefined;
+  const value = (tags as Record<string, unknown>)[tag];
+  return typeof value === "string" && value ? value : undefined;
+}
+
+/** The tag a Chief puts on every session it starts (cmux_chief::rules::PARENT_TAG), valued
+ *  `optchat-chief` or `optchat-chief:<home id>`. */
+const CHIEF_PARENT_TAG = "mux.parent";
+
+/** Whether acpmux's tags say a Chief started the session. */
+function chiefParent(tags: unknown): boolean {
+  if (typeof tags !== "object" || tags === null || Array.isArray(tags)) return false;
+  const value = (tags as Record<string, unknown>)[CHIEF_PARENT_TAG];
+  return typeof value === "string" && /^optchat-chief(?::|$)/.test(value);
 }
 
 /** The tag acpmux sets on a chat while a sub-session of it waits for a folder's trust (hub/trust_wait.rs). */
@@ -244,6 +273,8 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     parentId: text(session.parentId),
     spawnedBy: text(session.spawnedBy),
     startedBy: text(session.startedBy),
+    reportsTo: tagValue(session.tags, REPORTS_TO_TAG),
+    ...(chiefParent(session.tags) && { chiefChild: true as const }),
     shortName: text(session.shortName),
     lane: LANES.includes(session.lane?.state) ? session.lane.state : undefined,
     queued: Number(session.queued) > 0 ? Number(session.queued) : undefined,
@@ -269,6 +300,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     retry: readRetry(session.retry) ?? undefined,
     ...(session.retryDeciding === true && { retryDeciding: true as const }),
     laneError: text(session.lane?.error),
+    usageStats: usageStatsOf(session.usageStats),
   };
 }
 

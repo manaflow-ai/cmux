@@ -45,6 +45,30 @@ cmux_agent_own_login_allowed() {
   [ "$cmux_aa_kind" = owner ]
 }
 
+# 0 when the machine's creator's own Claude login was transferred here: the
+# app's credential transfer (cmux CloudCredentialInstaller, run only for the
+# machine's creator) records `own` as the choice and writes the login to
+# ~/.claude/settings.json's env as CLAUDE_CODE_OAUTH_TOKEN. A team machine
+# then runs Claude on that login instead of the shared team mode (Leo,
+# 2026-11-01: "team or no team the thing should just work ... it's your
+# machine"). A `/login` or `cr use own` alone never does this, and without a
+# transferred login a team machine stays in shared-machine mode.
+cmux_agent_creator_login() {
+  [ "$1" = claude ] || return 1
+  [ "$(cmux_agent_auth_choice claude)" = own ] || return 1
+  cmux_aa_settings="${HOME:-/root}/.claude/settings.json"
+  [ -f "$cmux_aa_settings" ] && [ ! -L "$cmux_aa_settings" ] || return 1
+  python3 -I -c '
+import json, sys
+try:
+    env = json.load(open(sys.argv[1])).get("env")
+except Exception:
+    sys.exit(1)
+token = env.get("CLAUDE_CODE_OAUTH_TOKEN") if isinstance(env, dict) else None
+sys.exit(0 if isinstance(token, str) and token.strip() else 1)
+' "$cmux_aa_settings" 2>/dev/null
+}
+
 # 0 when <agent> has its own sign-in on this machine.
 #   claude    a /login session in its credentials file, or a long-lived
 #             token from `claude setup-token`
@@ -154,6 +178,8 @@ print(code("claude"), code("codex"), code("opencode"))
 #   env             CMUX_<AGENT>_AUTH pins this launch
 #   chosen          `cr use` recorded the mode
 #   login           no choice; the agent has its own sign-in here
+#                   (on a team machine: the creator's transferred Claude
+#                   login, cmux_agent_creator_login)
 #   team-account    no choice or sign-in; the team has an account for it
 #   no-team-account no choice or sign-in; the team has none
 #   team-unreachable no choice or sign-in; CodeRouter cannot be reached from
@@ -166,6 +192,11 @@ print(code("claude"), code("codex"), code("opencode"))
 #                   so the long-standing default (team) applies
 cmux_agent_auth_resolve() {
   if ! cmux_agent_own_login_allowed; then
+    if cmux_agent_creator_login "$1"; then
+      cmux_agent_auth_mode=own
+      cmux_agent_auth_reason=login
+      return 0
+    fi
     cmux_agent_auth_mode=team
     cmux_agent_auth_reason=shared-machine
     return 0

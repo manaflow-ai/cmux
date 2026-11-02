@@ -34,6 +34,7 @@
     "browser.tab.set_profile",
     "browser.viewer.release",
     "browser.viewer.resize",
+    "chief.continue",
     "chief.engine.get",
     "chief.engine.set",
     "chief.profile.adopt",
@@ -46,6 +47,7 @@
     "chief.profile.list",
     "chief.profile.undo",
     "chief.profile.update",
+    "chief.retry",
     "chief.stop",
     "client.cell_pixels.set",
     "client.detach",
@@ -534,7 +536,8 @@
       "url-open-result",
       "terminal-clipboard-subscribe",
       "terminal-clipboard-reply",
-      "snapshot-request"
+      "snapshot-request",
+      "set-attach-visibility"
     ],
     "local-admin": [
       "server-stats",

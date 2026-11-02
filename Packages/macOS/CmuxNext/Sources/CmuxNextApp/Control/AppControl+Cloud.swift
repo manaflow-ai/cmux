@@ -118,6 +118,7 @@ extension AppControl {
             "api_status": .string(session.machine.status.rawValue),
             "stage": .string(session.stage.name),
             "stage_detail": session.stage.failure.map(JSONValue.string) ?? .null,
+            "link_ended_detail": session.linkEndedDetail.map(JSONValue.string) ?? .null,
             // Why a paused machine is paused (`idle` or `user`), and its idle auto-pause (0: Off).
             "pause_reason": session.machine.pauseReason.map { .string($0.rawValue) } ?? .null,
             "idle_pause_minutes": session.machine.idlePauseMinutes.map { .number(Double($0)) } ?? .null,
@@ -132,6 +133,7 @@ extension AppControl {
             "missing_required": .array((compat?.missingRequired ?? []).map(JSONValue.string)),
             "missing_features": .array((compat?.missingOptional ?? []).map(JSONValue.string)),
             "file_ops": fileOps.map(JSONValue.bool) ?? .null,
+            "harness_login": session.harnessLogin.map { .string($0.summary) } ?? .null,
             "workspaces": .array(store.workspaces.map { .object(["id": .string($0.id), "name": .string($0.displayName)]) }),
         ]
     }

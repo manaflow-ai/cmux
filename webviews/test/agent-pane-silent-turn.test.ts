@@ -125,14 +125,18 @@ const word: Step = [
 test("a turn whose model said nothing says so until acpmux hears the model", async () => {
   const daemon = fakeDaemon(record([["mux", "user_message", { text: "fix the build" }], started]));
   let snapshot: any;
+  let attached = false;
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (next: any) => (snapshot = next),
+    (next: any) => {
+      snapshot = next;
+      attached ||= next.connection === "connected";
+    },
     undefined,
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => attached, "the attach");
     expect(snapshot.isWorking).toBe(true);
     // A resumed session can expose an old prompt before its new turn_started event. The live clock
     // must use that event's timestamp, rather than the prompt's history timestamp.
@@ -164,14 +168,18 @@ test("a silence replayed from a turn that already ended is not drawn", async () 
     record([started, silent, ["mux", "turn_result", { status: "failed" }], ["mux", "turn_silent", { turnId: "t0" }]]),
   );
   let snapshot: any;
+  let attached = false;
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (next: any) => (snapshot = next),
+    (next: any) => {
+      snapshot = next;
+      attached ||= next.connection === "connected";
+    },
     undefined,
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => attached, "the attach");
     expect(snapshot.silentTurn).toBeUndefined();
   } finally {
     client.close();

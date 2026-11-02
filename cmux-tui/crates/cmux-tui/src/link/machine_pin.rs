@@ -43,7 +43,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         Err(error) => failed("machine_update_failed", &error),
     };
     println!("{line}");
-    i32::from(line["ok"] != json!(true))
+    i32::from(line.get("ok").and_then(Value::as_bool) != Some(true))
 }
 
 /// The one JSON line for a resolved (or unresolved) pin.

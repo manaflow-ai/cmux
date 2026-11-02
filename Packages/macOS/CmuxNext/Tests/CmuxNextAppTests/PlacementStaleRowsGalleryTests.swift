@@ -106,9 +106,6 @@ struct PlacementStaleRowsGalleryTests {
     private static func render(mixed: Bool, dark: Bool, out: URL) async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let savedDocument = SidebarDocStore.current
-        SidebarDocStore.current = nil // This fixture advertises personal order only, as the regression does.
-        defer { SidebarDocStore.current = savedDocument }
         let bridge = DaemonBridge.fakePython(["-c", daemonScript, mixed ? "1" : "0"])
         let connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-placement-gallery-\(UUID().uuidString).sock", bridge: bridge),
                                           configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))

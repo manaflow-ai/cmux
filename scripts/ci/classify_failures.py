@@ -256,6 +256,8 @@ def classify_jobs(jobs: Iterable[Mapping], texts: Mapping[int, tuple[str, list[s
         # A machine job's test failures are not evidence about the code (SIGNATURES).
         result["failures"] = extract_failures(*text, web_root=web_root(job.get("name"))) \
             if result["verdict"] != MACHINE else []
+        if result["verdict"] != MACHINE and is_base_check(job.get("name")):
+            base_check_verdict(result, text[0])
         step = next((s.get("name") for s in job.get("steps") or [] if s.get("conclusion") in RED), None)
         if result["verdict"] == UNKNOWN:
             result["why"] = ("timed out" if job.get("conclusion") == "timed_out" else "no known signature") + (
@@ -396,6 +398,43 @@ def extract_failures(text: str, annotations: Iterable[str] = (), web_root: str =
         found.append(failure("test", web_root + test["file"] if test["file"] else "", test=test["test"],
                              message=test["message"] or "failed"))
     return dedupe(found)[:MAX_FAILURES_PER_JOB]
+
+
+# The webview verdict (ci-web.yml's react-apps-base-check) replays the head's red files on the base
+# and then prints guards_new_reds.py's verdict. bun's `(fail)` lines in its log are the base
+# replay's: tests that fail on the base too, which the verdict already excuses as warnings. The
+# change's own reds are the verdict's `::error title=Webview test red on this change::NAME` lines,
+# which reach the log as `##[error]NAME`. #28611's report listed the two composer tests the base
+# also failed and named neither of the two tests that were its own.
+BASE_CHECK_JOB = re.compile(r"(?:^|/ )react-apps-base-check \(\d+\)$")
+BASE_CHECK_RED = re.compile(r"^##\[error\](?P<file>\S+\.(?:test|spec)\.[cm]?[jt]sx?)(?: > (?P<test>.+))?$")
+BASE_CHECK_ROOT = "webviews/"
+
+
+def is_base_check(job_name: object) -> bool:
+    return bool(BASE_CHECK_JOB.search(str(job_name or "")))
+
+
+def base_check_reds(text: str) -> list[dict]:
+    """The webview tests the verdict charged to the change (its `##[error]` file > test lines)."""
+    found = []
+    for raw in text.splitlines():
+        line = ANSI.sub("", TIMESTAMP.sub("", raw.lstrip("\ufeff"))).rstrip()
+        if match := BASE_CHECK_RED.match(line):
+            found.append(failure("test", BASE_CHECK_ROOT + match["file"], test=match["test"] or "",
+                                 message="red on this change, passed on the base"))
+    return dedupe(found)[:MAX_FAILURES_PER_JOB]
+
+
+def base_check_verdict(result: dict, text: str) -> None:
+    """A base-check job's failures and evidence from its verdict, never from the base replay's `(fail)` lines."""
+    reds = base_check_reds(text)
+    if reds:
+        first = reds[0]
+        result.update(verdict=CODE, signature="webview-verdict-new-red",
+                      why="a webview test red on this change, not on the base",
+                      evidence=f"{first['file']} > {first['test']}".removesuffix(" > ")[:MAX_EVIDENCE_CHARS])
+    result["failures"] = reds or [f for f in result.get("failures") or [] if f["kind"] != "test"]
 
 
 def dedupe(found: Iterable[dict]) -> list[dict]:

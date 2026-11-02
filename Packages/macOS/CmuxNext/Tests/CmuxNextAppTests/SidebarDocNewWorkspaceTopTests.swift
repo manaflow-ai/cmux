@@ -59,7 +59,7 @@ import Testing
 
     @Test func aLiveWorkspaceTheDocumentDoesNotPlaceYetListsFirstBelowHome() {
         let store = Self.store(fresh: ["ws-new"])
-        let sections = SidebarDocSections().sections(Self.projection(), session: Self.session, workspaces: store.workspaces)
+        let sections = SidebarDocSections(document: { nil }).sections(Self.projection(), session: Self.session, workspaces: store.workspaces)
         #expect(Self.order(sections) == ["ws-home", "ws-new", "ws-1", "ws-2", "ws-3"],
                 "the new row is not first: it jumps from here to the top when its item comes")
         // Loose above every group: the new row is in the first loose section, not a group.
@@ -71,7 +71,7 @@ import Testing
     /// above the rows that were there. The store lists them in creation order.
     @Test func rapidCreatesListNewestFirstAtTheTop() {
         let store = Self.store(fresh: ["ws-a", "ws-b", "ws-c"])
-        let sections = SidebarDocSections().sections(Self.projection(), session: Self.session, workspaces: store.workspaces)
+        let sections = SidebarDocSections(document: { nil }).sections(Self.projection(), session: Self.session, workspaces: store.workspaces)
         #expect(Self.order(sections) == ["ws-home", "ws-c", "ws-b", "ws-a", "ws-1", "ws-2", "ws-3"])
     }
 
@@ -92,7 +92,7 @@ import Testing
         store.apply(snapshot: DaemonTree(workspaces: ["ws-2", "ws-new"].enumerated().map { index, id in
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: nil, resourceID: ResourceID(rawValue: id), name: id)
         }))
-        let sections = SidebarDocSections().sections(SidebarDocProjection(rows: rows, records: records, revision: 1),
+        let sections = SidebarDocSections(document: { nil }).sections(SidebarDocProjection(rows: rows, records: records, revision: 1),
                                                      session: Self.session, workspaces: store.workspaces)
         #expect(Self.order(sections) == ["ws-new", "ws-2"])
         #expect(sections.first?.group == nil)

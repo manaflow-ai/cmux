@@ -47,4 +47,5 @@ extension PaneController {
             workspace.layoutModel.settlePaneClose(close)
         }
     }
+    func holdsRelease(of key: String, _ release: @escaping @MainActor () -> Void) -> Bool { workspace?.layoutView.afterClosing(layoutPaneID, id: key, release) == true } // a closing pane's release waits for its landing
 }

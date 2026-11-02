@@ -311,6 +311,7 @@ impl Hub {
         let mut goal_write = false;
         let mut mark_cleared = false;
         let mut breakdown_changed = false;
+        let background = kind == "agent_message_chunk" && self.background_message(session, update);
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             "agent_message_chunk" => {
@@ -324,7 +325,7 @@ impl Hub {
                     .filter(|_| !replayed)
                     // A turn the person did not start leaves the preview as it was
                     // (`background_turn.rs`).
-                    .filter(|_| !self.background_message(session, update))
+                    .filter(|_| !background)
                 {
                     // In place: the preview was copied whole on every streamed chunk.
                     let preview = m.preview.get_or_insert_with(String::new);
@@ -987,6 +988,7 @@ impl Hub {
                 },
             );
             self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
+            self.background_attention(session);
             self.set_status(session, SessionStatus::Waiting);
             (rx, prev, grouping, permission_id)
         };

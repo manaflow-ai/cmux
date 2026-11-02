@@ -10,6 +10,44 @@ pub(super) fn handle_command_with_cancellation(
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
 ) -> anyhow::Result<Value> {
+    // A move out of an incognito workspace can make another incognito
+    // workspace; its app owns it (incognito_orphans). Every move command
+    // takes part, so none commits outside the serialized moves.
+    let moves = matches!(
+        cmd,
+        Command::MoveTabToNewWorkspace { .. }
+            | Command::MoveTabGroupToNewWorkspace { .. }
+            | Command::MoveScreen { .. }
+            | Command::MoveScreenGroup { .. }
+            | Command::MoveTabToWorkspace { .. }
+            | Command::MoveTab { .. }
+            | Command::MoveTabToSplit { .. }
+            | Command::MoveTabGroup { .. }
+            | Command::MoveTabGroupToSplit { .. }
+            | Command::MoveTabGroupToColumn { .. }
+            | Command::MoveTerminal { .. }
+    );
+    let claim = if moves { incognito_orphans::begin_move(mux, false) } else { None };
+    let mut result = dispatch_command(mux, client, cmd, writer, cancellation);
+    // A remote device's lists leave incognito workspaces out (#31210).
+    if let Ok(reply) = &mut result {
+        incognito_remote::prune_reply(mux, client, reply);
+    }
+    if let Some(claim) = claim
+        && result.is_ok()
+    {
+        claim.finish(mux, client);
+    }
+    result
+}
+
+fn dispatch_command(
+    mux: &Arc<Mux>,
+    client: u64,
+    cmd: Command,
+    writer: &MessageWriter,
+    cancellation: Option<&ConnectionCancellation>,
+) -> anyhow::Result<Value> {
     // Who a durable legacy command acts as (P8): read once per command.
     let actor = origin_gate::connection_actor(mux, client);
     if let Some(remote) = remote_relay::intercept(mux, client, &cmd, writer) {
@@ -230,7 +268,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::CreateSurfaceWithReceipt(request) => {
             cmd_frontend::create_surface_with_receipt_command(mux, client, request)
         }
-        Command::SendKey { surface, keys } => cmd_terminal_io::send_key(mux, client, surface, keys),
+        Command::SendKey { surface, keys } => {
+            cmd_terminal_io::send_key(mux, client, writer, surface, keys)
+        }
         Command::Copy { surface, mode } => cmd_terminal_io::copy(mux, surface, mode),
         Command::Ids { kind } => cmd_frontend::ids(mux, kind),
         Command::Notify { title, body, level, surface, source } => {
@@ -891,6 +931,9 @@ pub(super) fn handle_command_with_cancellation(
         }
         Command::ClientFocus { client_id } => cmd_server::client_focus(mux, client_id),
         Command::SnapshotRequest(params) => cmd_terminal_io::snapshot_request(mux, client, params),
+        Command::SetAttachVisibility(params) => {
+            terminal_snapshot::set_visibility(mux, client, params)
+        }
         Command::TerminalHistory(params) => cmd_terminals::terminal_history(mux, params),
         Command::TerminalReadRange(params) => cmd_terminals::terminal_read_range(mux, params),
         Command::ScrollSurface { surface, delta } => {

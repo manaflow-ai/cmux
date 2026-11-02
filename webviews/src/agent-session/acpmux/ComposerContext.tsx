@@ -47,6 +47,7 @@ import { focusAfterEscape } from "../../ui/escapeFocus";
 import type { RunModeRows } from "./sandboxRun";
 import { machineLoadWarning, type MachineResources } from "./machineResources";
 import { useComposerSettings } from "./composerSettings";
+import { repickMachine, type RepickMachine } from "./cloudRepick";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
@@ -123,6 +124,7 @@ export function ComposerContext({
   onRefreshMachines: onRefreshPeers,
   folderNote,
   onComputer,
+  onRepick,
   cloudMachines,
   onCloudMachine = (machine) => void runCloudMachine(machine),
   runMode,
@@ -190,6 +192,12 @@ export function ComposerContext({
   /// A new chat's machine was picked (`local` for this Mac) where no folder of it is known; with a
   /// known folder the pick is `onProject(folder, peer)`.
   onComputer?(computer: string): void;
+  /// A Cloud chat whose first send has not run (it failed): a pick of another Cloud machine moves the
+  /// chat there and sends its first prompt again (`cloud.repickChat`), rather than starting a new empty
+  /// chat through the machine it is on. Resolves false when the app did not take it: the pick then
+  /// does what it does for any new chat. Leo, 2026-10-31: he "picked zesty-indigo-lemur in the
+  /// machine picker, but the chat stayed on sr2-tunnel-probe".
+  onRepick?(machine: RepickMachine): Promise<boolean>;
   /// The account's Cloud machines (cloudMachines.ts); by default the app's list, read again as the
   /// machine list opens. Only a new chat lists them.
   cloudMachines?: readonly CloudMachine[];
@@ -462,6 +470,19 @@ export function ComposerContext({
     (currentComputer?.kind === "local" ? t("composer.thisMac") : currentComputer?.label) ??
     t(CONTEXT_LABELS.chooseComputer);
   const pickEnvironment = (id: string) => {
+    const repick = onRepick && !readOnly ? repickMachine(computers, id, selectedComputer) : undefined;
+    if (onRepick && repick) {
+      void onRepick(repick).then(
+        (moved) => {
+          if (!moved) pickAnyEnvironment(id);
+        },
+        () => pickAnyEnvironment(id),
+      );
+      return;
+    }
+    pickAnyEnvironment(id);
+  };
+  const pickAnyEnvironment = (id: string) => {
     if (pickCloudMachine(id)) return;
     if (savedRows?.current !== undefined) savedRows.onClear();
     pickComputer(id);

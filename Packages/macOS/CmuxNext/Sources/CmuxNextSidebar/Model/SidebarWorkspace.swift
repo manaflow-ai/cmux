@@ -110,6 +110,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var agentBrand: String?
     /// A custom harness's own icon (user 12922), drawn instead of `agentBrand`'s mark when set.
     public var agentIcon: SidebarAgentIcon?
+    /// The Chief operating this chat, resolved from acpmux ownership tags.
+    public var chiefAvatar: SidebarChiefAvatar?
     /// That agent's name ("Claude Code", "Codex"): the hover card's agent line (cx-13w3).
     public var agentName: String?
     /// The last message of the workspace's agent chat: an expanded row's second line (cx-13w3.1).

@@ -20,9 +20,22 @@ WORKFLOW_ROOT = Path(os.environ.get("RUNNER_POOL_WORKFLOW_ROOT", Path(__file__).
 NOW = dt.datetime(2026, 11, 1, 12, tzinfo=dt.timezone.utc)
 SMALL = "blacksmith-4vcpu-ubuntu-2404"
 LARGE = "blacksmith-16vcpu-ubuntu-2404"
+LINUX_EPHEMERAL = {"blacksmith-8vcpu-ubuntu-2404", LARGE, SMALL}
+BACKEND_SECRET_JOBS = (
+    "vitess-development", "migrations-development", "preview", "deploy-staging",
+    "deploy-development", "promote-gates", "promote-production", "rollback-production",
+    "chief-off-production", "deploy-production", "preview-cleanup",
+)
 
 
 class SecretRouteBoundary(unittest.TestCase):
+    @staticmethod
+    def _job_block(text, job):
+        match = re.search(rf"\n  {re.escape(job)}:\n(?P<body>.*?)(?=\n  [A-Za-z0-9_-]+:\n|\Z)", text, re.S)
+        if match is None:
+            raise AssertionError(f"job {job!r} missing")
+        return match.group("body")
+
     def test_routing_keys_never_follow_the_secretless_pool(self):
         root = WORKFLOW_ROOT
         for name, job in (("ci.yml", "changes"), ("cmux-next-ios-kit.yml", "runner")):
@@ -36,6 +49,38 @@ class SecretRouteBoundary(unittest.TestCase):
                 self.assertIsNotNone(match)
                 self.assertEqual(set(json.loads(match[1])), {SMALL, LARGE, "blacksmith-8vcpu-ubuntu-2404"})
                 self.assertTrue(route.endswith("|| 'blacksmith-8vcpu-ubuntu-2404' }}"))
+
+    def test_backend_secret_jobs_use_only_the_ephemeral_linux_mirror(self):
+        path = WORKFLOW_ROOT / ".github/workflows/backend.yml"
+        self.assertTrue(path.is_file(), f"backend workflow missing from trusted checkout: {path}")
+        text = path.read_text()
+        jobs_text = text.split("\njobs:\n", 1)[1]
+        declared = re.findall(r"^  ([A-Za-z0-9_-]+):$", jobs_text, re.M)
+        credentialed = {job for job in declared
+                        if "secrets." in self._job_block("\n" + jobs_text, job)
+                        or re.search(r"^    environment:", self._job_block("\n" + jobs_text, job), re.M)}
+        self.assertEqual(credentialed, set(BACKEND_SECRET_JOBS))
+        for job in BACKEND_SECRET_JOBS:
+            with self.subTest(job=job):
+                block = self._job_block(text, job)
+                route = next(line.strip() for line in block.splitlines() if line.strip().startswith("runs-on:"))
+                self.assertIn("secrets.", block)
+                self.assertNotIn("RUNNER_POOLS", route)
+                self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", route)
+                match = re.search(
+                    r"contains\(fromJSON\('([^']+)'\), vars.LINUX_RUNNER\) && vars.LINUX_RUNNER",
+                    route,
+                )
+                self.assertIsNotNone(match)
+                self.assertEqual(set(json.loads(match[1])), LINUX_EPHEMERAL)
+                self.assertTrue(route.endswith("|| 'blacksmith-8vcpu-ubuntu-2404' }}"))
+
+    def test_backend_migration_push_guard_keeps_the_secretless_fleet_route(self):
+        path = WORKFLOW_ROOT / ".github/workflows/backend.yml"
+        text = path.read_text()
+        block = self._job_block(text, "migrations-push-guard")
+        route = next(line.strip() for line in block.splitlines() if line.strip().startswith("runs-on:"))
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", route)
 
 
 @unittest.skipUnless(POLICY_ROOT, "set RUNNER_POOL_POLICY_ROOT to main's checked-out policy")

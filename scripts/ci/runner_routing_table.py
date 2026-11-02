@@ -442,6 +442,27 @@ def referenced_secrets(value: Any) -> set[str]:
     return names
 
 
+FORK_PR_BLACKSMITH = re.compile(
+    r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != github\.repository"
+    r" && 'blacksmith-\d+vcpu-ubuntu-2404'")
+EPHEMERAL_MIRROR_TERM = re.compile(
+    r"contains\(fromJSON\('\[\"blacksmith-\d+vcpu-ubuntu-2404\"(?:,\"blacksmith-\d+vcpu-ubuntu-2404\")*\]'\), "
+    r"vars\.LINUX_RUNNER\) && vars\.LINUX_RUNNER")
+
+
+def _routing_environment(environment: object) -> bool:
+    """No environment, `ci-routing-agent`, or one expression whose only values are those two."""
+    if environment in (None, "", "ci-routing-agent"):
+        return True
+    if not isinstance(environment, str):
+        return False
+    expressions = EXPRESSION.findall(environment)
+    if len(expressions) != 1 or EXPRESSION.sub("", environment).strip():
+        return False
+    values = value_terms(expressions[0].strip())
+    return bool(values) and all(value in ("'ci-routing-agent'", "''") for value in values)
+
+
 def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> tuple[list[str], list[str]]:
     """Validate the central light-job exception and emit exact shell-guard lines.
 
@@ -456,7 +477,7 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
     problems, allowed, seen = [], [], set()
     fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
     hosted = "github.run_attempt == 1 && 'ubuntu-24.04'"
-    paid = {"'blacksmith-16vcpu-ubuntu-2404'", "'blacksmith-32vcpu-ubuntu-2404'"}
+    paid = {"'blacksmith-8vcpu-ubuntu-2404'", "'blacksmith-16vcpu-ubuntu-2404'", "'blacksmith-32vcpu-ubuntu-2404'"}
     sensitive = re.compile(r"secrets\.(?:APPLE|SIGN|CMUX_RELEASE|NOTARY)|codesign|notarytool|signing-keychain|gh release upload|softprops/action-gh-release", re.I)
     for path in sorted(workflows.glob("*.y*ml")):
         source = path.read_text()
@@ -472,7 +493,7 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 issue = "must declare a portable class and a reason"
             elif not isinstance(job, dict) or "uses" in job:
                 issue = "must name a runnable lightweight job"
-            elif (job.get("environment") not in (None, "ci-routing-agent")
+            elif (not _routing_environment(job.get("environment"))
                   or sensitive.search(json.dumps([workflow.get("env", {}), job]))):
                 issue = "cannot authorize release/signing credentials or operations"
             elif re.search(r"(?:^|[-_])(sign|signer|signing|publish|promote|release)(?:[-_]|$)", str(name)) or str(name) in {"route-visual-gate-nightly", "published-in"}:
@@ -505,6 +526,9 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             alternatives = [part.strip() for part in _split_top(expressions[0].strip(), "||")]
             if alternatives and alternatives[0] == fork:
                 alternatives = alternatives[1:]
+            # A fork pull request's Blacksmith branch is outside this exception, like the fork branch above.
+            if alternatives and FORK_PR_BLACKSMITH.fullmatch(alternatives[0]):
+                alternatives = alternatives[1:]
             if path.name == "nightly.yml" and alternatives and nightly_reservation(alternatives[0]):
                 alternatives = alternatives[1:]
             text = " || ".join(alternatives)
@@ -516,7 +540,8 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 continue
             track_hosted = "needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04'"
             hosted_terms = [part for part in alternatives if part in (hosted, track_hosted)]
-            if len(hosted_terms) != 1 or alternatives[-1] not in paid:
+            pool = "fromJSON(vars.RUNNER_POOLS).linux"
+            if len(hosted_terms) != 1 or alternatives[-1] not in paid and not (alternatives[-1] == pool and not used):
                 problems.append(f"hosted_light_jobs[{key!r}] must use hosted Ubuntu on attempt 1 then measured paid retries")
                 continue
             hosted_term = hosted_terms[0]
@@ -528,7 +553,17 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             position = alternatives.index(hosted_term)
             tail = alternatives[position + 1:]
             measured16 = "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404'"
-            if not (len(tail) == 1 and tail[0] in paid or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]):
+            # A retry may read the ephemeral LINUX_RUNNER mirror, bounded to Blacksmith labels
+            # (tests/test_ci_runner_pool_reconcile.py), then the overflow switch's failover
+            # (tests/test_ci_blacksmith_linux_failover.py), then the retry size.
+            if tail and EPHEMERAL_MIRROR_TERM.fullmatch(tail[0]):
+                tail = tail[1:]
+            switched = (len(tail) == 2 and tail[1] in paid and tail[0].startswith("vars.CI_CLOUD_OVERFLOW_SAVED && ")
+                        and tail[0].split(" && ", 1)[1] in paid)
+            # Or, for a job that holds no secret, the reconciled Linux pool's live member.
+            pooled = tail == [pool] and not used
+            if not (len(tail) == 1 and tail[0] in paid or switched or pooled
+                    or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]):
                 problems.append(f"hosted_light_jobs[{key!r}] contains an undeclared retry runner")
                 continue
             if any(not _picker_value_term(value) for part in alternatives[:position] for value in value_terms(part)):

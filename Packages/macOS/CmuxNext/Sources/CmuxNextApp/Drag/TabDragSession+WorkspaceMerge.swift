@@ -42,7 +42,7 @@ enum WorkspaceMerge {
         guard let id = ids.first, allowed(ids, group: group, into: window.content(atScreen: point)?.workspace, services: services),
               let proposal = layout.workspaceHitTest(screenPoint: point, workspaceID: id), outcome(proposal.kind) != nil else { return nil }
         // Multi-view: a screen edge dock band places the workspace beside the shown one, not in a new dock of it.
-        if SidebarTunables.multiView.value, case .newDock = proposal.kind {
+        if SidebarTunables.multiViewOn, case .newDock = proposal.kind {
             layout.dropExited()
             return nil
         }

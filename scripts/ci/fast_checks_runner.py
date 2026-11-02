@@ -65,19 +65,25 @@ def idle_runner(runners: Sequence[Mapping[str, Any]]) -> str:
     return ""
 
 
-def read_live(env: Mapping[str, str]) -> Sequence[Mapping[str, Any]] | None:
-    token = (env.get("ROUTE_TOKEN") or env.get("GITHUB_TOKEN") or "").strip()
+def read_live(env: Mapping[str, str], *, deadline: float | None = None,
+              use_state: bool = True) -> Sequence[Mapping[str, Any]] | None:
+    # GITHUB_TOKEN is the test job's repository credential, not authority to
+    # read the organization runner census. Missing routing authority must go
+    # straight to overflow instead of silently widening permissions.
+    token = (env.get("ROUTE_TOKEN") or "").strip()
     repo = (env.get("GITHUB_REPOSITORY") or "").strip()
     if not token or not repo:
         return None
     try:
-        client = pr_runner_pool.GitHub(token, repo)
-        runners = client.runners()
+        client = pr_runner_pool.GitHub(token, repo, deadline=deadline)
+        runners = client.runners(use_state=use_state)
         # When the workflow provides the janitor token, require its queue
         # snapshot to be fresh as well. A stale or missing snapshot is not
         # evidence that an idle runner can accept this control job.
-        if env.get("SNAPSHOT_TOKEN"):
-            snapshot = client.snapshot(now=dt.datetime.now(dt.timezone.utc))
+        snapshot_token = (env.get("SNAPSHOT_TOKEN") or "").strip()
+        if snapshot_token:
+            snapshot_client = pr_runner_pool.GitHub(snapshot_token, repo, deadline=deadline)
+            snapshot = snapshot_client.snapshot(now=dt.datetime.now(dt.timezone.utc))
             if not fresh_snapshot(snapshot):
                 return None
         return runners
@@ -86,17 +92,20 @@ def read_live(env: Mapping[str, str]) -> Sequence[Mapping[str, Any]] | None:
         return None
 
 
-def choose(env: Mapping[str, str], read=read_live, sleep=time.sleep, clock=time.monotonic) -> str:
+def choose(env: Mapping[str, str], read=None, sleep=time.sleep, clock=time.monotonic) -> str:
     requested = (env.get("REQUESTED_RUNNER") or "").strip()
     if requested in ALLOWED and requested != FLEET:
         return requested
     # A missing token or repository cannot become readable during this job;
     # skip the bounded poll and use the measured overflow immediately.
-    if not (env.get("ROUTE_TOKEN") or env.get("GITHUB_TOKEN") or "").strip() or not (env.get("GITHUB_REPOSITORY") or "").strip():
+    if not (env.get("ROUTE_TOKEN") or "").strip() or not (env.get("GITHUB_REPOSITORY") or "").strip():
         return fallback(env)
     deadline = clock() + WAIT_SECONDS
+    first_look = True
     while True:
-        runners = read(env)
+        runners = (read(env, deadline=deadline) if read is not None else
+                   read_live(env, deadline=deadline, use_state=first_look))
+        first_look = False
         if runners is not None:
             selected = idle_runner(runners)
             if selected:
