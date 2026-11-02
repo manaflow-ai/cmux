@@ -61,6 +61,9 @@ struct CodexResumePermissionPolicyTests {
 
     @Test("A table without a network key still recovers recorded networking", arguments: [
         "{}", "{writable_roots=['/tmp/network_access']}",
+        "{\"writable\\U0000005Froots\"=[]}",
+        "{\"writable\\u005Froots\"=[]}",
+        "{\"writable\\x5Froots\"=[]}",
         "{writable_roots=[\"/tmp/a,b=network_access\"]}",
         "{writable_roots=[], other={network_access=false}}"
     ])
