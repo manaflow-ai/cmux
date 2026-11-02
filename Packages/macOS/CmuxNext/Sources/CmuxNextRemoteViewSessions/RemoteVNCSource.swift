@@ -87,13 +87,36 @@ public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
             for await frame in client.frames {
                 let decoded = RemoteDecodedFrame(pixelBuffer: frame.pixelBuffer, frame: UInt32(truncatingIfNeeded: frame.sequence),
                                                  tCaptureMicros: 0, decodedAtNanos: DispatchTime.now().uptimeNanoseconds)
-                // A late frame of an older session never reaches the pane's stream.
-                _ = self?.state.withLock { $0.generation == generation ? $0.frames : nil }?.yield(decoded)
+                // The generation check and publish must be atomic: a reconnect can
+                // replace the one-frame stream buffer between separate operations.
+                self?.publishFrame(decoded, generation: generation)
             }
         }
         state.withLock { $0.pumps = [events, frames] }
         Task { await client.connect() }
     }
+
+    /// Publishes only into the stream owned by this connection generation.
+    /// AsyncStream.Continuation.yield is synchronous and does not block; doing it
+    /// inside the lock prevents an old frame from replacing a newer session's
+    /// frame in the shared bufferingNewest(1) stream.
+    private func publishFrame(_ frame: RemoteDecodedFrame, generation: Int) {
+        state.withLock { state in
+            guard state.generation == generation else { return }
+            _ = state.frames?.yield(frame)
+        }
+    }
+
+    #if DEBUG
+    /// Exact-generation injection used by the reconnect/stop regression test.
+    var generationForTesting: Int { state.withLock { $0.generation } }
+    func publishFrameForTesting(_ frame: RemoteDecodedFrame, generation: Int) {
+        publishFrame(frame, generation: generation)
+    }
+    func publishStatusForTesting(_ status: RemoteViewStatus, generation: Int) {
+        setStatus(status, generation: generation)
+    }
+    #endif
 
     /// Ends the session (Stop, a hidden tab, a closed tab). The session's generation ends here:
     /// its pumps stop, and a late frame, handshake or status of it is dropped.
@@ -133,12 +156,13 @@ public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
 
     /// Applies `status` from session `generation`; ignored once a newer session started.
     private func setStatus(_ status: RemoteViewStatus, generation: Int) {
-        let continuation = state.withLock { state -> AsyncStream<RemoteViewStatus>.Continuation? in
-            guard state.generation == generation else { return nil }
+        // A status must obey the same generation boundary as a frame. Publishing
+        // after unlocking can deliver a stale streaming/ended event on reconnect.
+        state.withLock { state in
+            guard state.generation == generation else { return }
             state.status = status
-            return state.statuses
+            _ = state.statuses?.yield(status)
         }
-        continuation?.yield(status)
     }
 
     // MARK: RemoteViewFrameSource
@@ -158,12 +182,12 @@ public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
 
     public func statusUpdates() -> AsyncStream<RemoteViewStatus> {
         let (stream, continuation) = AsyncStream.makeStream(of: RemoteViewStatus.self, bufferingPolicy: .bufferingNewest(4))
-        let current = state.withLock { state in
+        state.withLock { state in
             state.statuses?.finish()
             state.statuses = continuation
-            return state.status
+            // The first snapshot and later updates have one ordered publication path.
+            _ = continuation.yield(state.status)
         }
-        continuation.yield(current)
         return stream
     }
 

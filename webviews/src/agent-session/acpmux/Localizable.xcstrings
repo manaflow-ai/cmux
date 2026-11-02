@@ -1568,6 +1568,7 @@
     "composer.plusSearchPages": {"comment":"Composer + menu: search row","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Search pages"}},"ar":{"stringUnit":{"state":"translated","value":"ابحث في الصفحات"}},"bs":{"stringUnit":{"state":"translated","value":"Pretraži stranice"}},"da":{"stringUnit":{"state":"translated","value":"Søg i sider"}},"de":{"stringUnit":{"state":"translated","value":"Seiten durchsuchen"}},"es":{"stringUnit":{"state":"translated","value":"Buscar páginas"}},"fr":{"stringUnit":{"state":"translated","value":"Rechercher des pages"}},"it":{"stringUnit":{"state":"translated","value":"Cerca pagine"}},"ja":{"stringUnit":{"state":"translated","value":"ページを検索"}},"km":{"stringUnit":{"state":"translated","value":"ស្វែងរកទំព័រ"}},"ko":{"stringUnit":{"state":"translated","value":"페이지 검색"}},"nb":{"stringUnit":{"state":"translated","value":"Søk i sider"}},"pl":{"stringUnit":{"state":"translated","value":"Szukaj stron"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Pesquisar páginas"}},"ru":{"stringUnit":{"state":"translated","value":"Искать страницы"}},"th":{"stringUnit":{"state":"translated","value":"ค้นหาหน้า"}},"tr":{"stringUnit":{"state":"translated","value":"Sayfalarda ara"}},"uk":{"stringUnit":{"state":"translated","value":"Шукати сторінки"}},"vi":{"stringUnit":{"state":"translated","value":"Tìm trang"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"搜索页面"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"搜尋頁面"}}}},
     "retry.running": {"comment":"Agent pane: short note after a failed subagent's or sub-session's line when acpmux refused a retry because it already runs again (subagents/SubagentDoneLine.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Already running again"}},"ar":{"stringUnit":{"state":"needs_review","value":"يعمل مرة أخرى بالفعل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Već ponovo radi"}},"da":{"stringUnit":{"state":"needs_review","value":"Kører allerede igen"}},"de":{"stringUnit":{"state":"needs_review","value":"Läuft bereits wieder"}},"es":{"stringUnit":{"state":"needs_review","value":"Ya se está ejecutando de nuevo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Déjà relancé"}},"it":{"stringUnit":{"state":"needs_review","value":"Già di nuovo in esecuzione"}},"ja":{"stringUnit":{"state":"needs_review","value":"すでに再実行中です"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងដំណើរការម្តងទៀតរួចហើយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이미 다시 실행 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kjører allerede igjen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Już działa ponownie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Já está em execução novamente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Уже снова выполняется"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังทำงานอีกครั้งแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Zaten yeniden çalışıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Уже знову виконується"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã chạy lại rồi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已在重新运行"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已在重新執行"}}}},
     "retry.gone": {"comment":"Agent pane: short note after a failed subagent's or sub-session's line when acpmux can no longer retry it (the chat closed or stopped, or the subagent resumed, was replaced, ended or is unknown) (subagents/SubagentDoneLine.tsx)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Can no longer be retried"}},"ar":{"stringUnit":{"state":"needs_review","value":"لم يعد من الممكن إعادة المحاولة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Više se ne može ponoviti"}},"da":{"stringUnit":{"state":"needs_review","value":"Kan ikke længere prøves igen"}},"de":{"stringUnit":{"state":"needs_review","value":"Kann nicht mehr wiederholt werden"}},"es":{"stringUnit":{"state":"needs_review","value":"Ya no se puede reintentar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ne peut plus être réessayé"}},"it":{"stringUnit":{"state":"needs_review","value":"Non è più possibile riprovare"}},"ja":{"stringUnit":{"state":"needs_review","value":"再試行できなくなりました"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចព្យាយាមម្តងទៀតបានទៀតទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"더 이상 재시도할 수 없음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kan ikke lenger prøves igjen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie można już ponowić"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não é mais possível tentar novamente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторить больше нельзя"}},"th":{"stringUnit":{"state":"needs_review","value":"ลองใหม่ไม่ได้อีกแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Artık yeniden denenemez"}},"uk":{"stringUnit":{"state":"needs_review","value":"Більше не можна повторити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể thử lại nữa"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已无法重试"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已無法重試"}}}},
+    "retry.resumed": {"comment":"Agent pane: quiet marker after the daemon automatically resumes this chat. {attempt} is its retry attempt number, not a duration.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Automatically resumed (attempt {attempt})"}},"ar":{"stringUnit":{"state":"translated","value":"تم الاستئناف تلقائيًا (المحاولة {attempt})"}},"bs":{"stringUnit":{"state":"translated","value":"Automatski nastavljeno (pokušaj {attempt})"}},"da":{"stringUnit":{"state":"translated","value":"Genoptaget automatisk (forsøg {attempt})"}},"de":{"stringUnit":{"state":"translated","value":"Automatisch fortgesetzt (Versuch {attempt})"}},"es":{"stringUnit":{"state":"translated","value":"Reanudado automáticamente (intento {attempt})"}},"fr":{"stringUnit":{"state":"translated","value":"Reprise automatique (tentative {attempt})"}},"it":{"stringUnit":{"state":"translated","value":"Ripreso automaticamente (tentativo {attempt})"}},"ja":{"stringUnit":{"state":"translated","value":"自動再開（試行 {attempt}）"}},"km":{"stringUnit":{"state":"translated","value":"បានបន្តដោយស្វ័យប្រវត្តិ (ការព្យាយាម {attempt})"}},"ko":{"stringUnit":{"state":"translated","value":"자동으로 재개됨 (시도 {attempt})"}},"nb":{"stringUnit":{"state":"translated","value":"Gjenopptatt automatisk (forsøk {attempt})"}},"pl":{"stringUnit":{"state":"translated","value":"Wznowiono automatycznie (próba {attempt})"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Retomado automaticamente (tentativa {attempt})"}},"ru":{"stringUnit":{"state":"translated","value":"Автоматически возобновлено (попытка {attempt})"}},"th":{"stringUnit":{"state":"translated","value":"กลับมาทำงานต่อโดยอัตโนมัติ (ครั้งที่ {attempt})"}},"tr":{"stringUnit":{"state":"translated","value":"Otomatik olarak sürdürüldü (deneme {attempt})"}},"uk":{"stringUnit":{"state":"translated","value":"Автоматично відновлено (спроба {attempt})"}},"vi":{"stringUnit":{"state":"translated","value":"Đã tự động tiếp tục (lần thử {attempt})"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已自动继续（第 {attempt} 次尝试）"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"已自動繼續（第 {attempt} 次嘗試）"}}}},
     "retry.waiting": {"comment":"Agent pane: a subagent's or sub-session's state while acpmux waits to retry its failed turn (subagents/retryState.ts); {attempt} is this try, {of} how many acpmux makes","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retrying ({attempt}/{of})"}},"ar":{"stringUnit":{"state":"needs_review","value":"إعادة المحاولة ({attempt}/{of})"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponovni pokušaj ({attempt}/{of})"}},"da":{"stringUnit":{"state":"needs_review","value":"Prøver igen ({attempt}/{of})"}},"de":{"stringUnit":{"state":"needs_review","value":"Neuer Versuch ({attempt}/{of})"}},"es":{"stringUnit":{"state":"needs_review","value":"Reintentando ({attempt}/{of})"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouvelle tentative ({attempt}/{of})"}},"it":{"stringUnit":{"state":"needs_review","value":"Nuovo tentativo ({attempt}/{of})"}},"ja":{"stringUnit":{"state":"needs_review","value":"再試行中（{attempt}/{of}）"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងព្យាយាមម្តងទៀត ({attempt}/{of})"}},"ko":{"stringUnit":{"state":"needs_review","value":"재시도 중 ({attempt}/{of})"}},"nb":{"stringUnit":{"state":"needs_review","value":"Prøver igjen ({attempt}/{of})"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ponawianie ({attempt}/{of})"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tentando novamente ({attempt}/{of})"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторная попытка ({attempt}/{of})"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังลองใหม่ ({attempt}/{of})"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeniden deneniyor ({attempt}/{of})"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повторна спроба ({attempt}/{of})"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang thử lại ({attempt}/{of})"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在重试（{attempt}/{of}）"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在重試（{attempt}/{of}）"}}}},
     "retry.waiting.capacity": {"comment":"Agent pane: a subagent's or sub-session's state while acpmux waits to retry a turn that failed because no model capacity was available (subagents/retryState.ts); {attempt} is this try, {of} how many acpmux makes","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retrying ({attempt}/{of}) after a capacity error"}},"ar":{"stringUnit":{"state":"needs_review","value":"إعادة المحاولة ({attempt}/{of}) بعد خطأ في السعة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponovni pokušaj ({attempt}/{of}) nakon greške kapaciteta"}},"da":{"stringUnit":{"state":"needs_review","value":"Prøver igen ({attempt}/{of}) efter en kapacitetsfejl"}},"de":{"stringUnit":{"state":"needs_review","value":"Neuer Versuch ({attempt}/{of}) nach einem Kapazitätsfehler"}},"es":{"stringUnit":{"state":"needs_review","value":"Reintentando ({attempt}/{of}) tras un error de capacidad"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouvelle tentative ({attempt}/{of}) après une erreur de capacité"}},"it":{"stringUnit":{"state":"needs_review","value":"Nuovo tentativo ({attempt}/{of}) dopo un errore di capacità"}},"ja":{"stringUnit":{"state":"needs_review","value":"容量エラーのため再試行中（{attempt}/{of}）"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងព្យាយាមម្តងទៀត ({attempt}/{of}) បន្ទាប់ពីកំហុសសមត្ថភាព"}},"ko":{"stringUnit":{"state":"needs_review","value":"용량 오류로 재시도 중 ({attempt}/{of})"}},"nb":{"stringUnit":{"state":"needs_review","value":"Prøver igjen ({attempt}/{of}) etter en kapasitetsfeil"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ponawianie ({attempt}/{of}) po błędzie przepustowości"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tentando novamente ({attempt}/{of}) após um erro de capacidade"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторная попытка ({attempt}/{of}) после ошибки нехватки мощностей"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังลองใหม่ ({attempt}/{of}) หลังข้อผิดพลาดด้านความจุ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kapasite hatasından sonra yeniden deneniyor ({attempt}/{of})"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повторна спроба ({attempt}/{of}) після помилки потужності"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang thử lại ({attempt}/{of}) sau lỗi dung lượng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"容量错误后正在重试（{attempt}/{of}）"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"容量錯誤後正在重試（{attempt}/{of}）"}}}},
     "retry.waiting.transport": {"comment":"Agent pane: a subagent's or sub-session's state while acpmux waits to retry a turn that failed on a connection error (subagents/retryState.ts); {attempt} is this try, {of} how many acpmux makes","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retrying ({attempt}/{of}) after a connection error"}},"ar":{"stringUnit":{"state":"needs_review","value":"إعادة المحاولة ({attempt}/{of}) بعد خطأ في الاتصال"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponovni pokušaj ({attempt}/{of}) nakon greške veze"}},"da":{"stringUnit":{"state":"needs_review","value":"Prøver igen ({attempt}/{of}) efter en forbindelsesfejl"}},"de":{"stringUnit":{"state":"needs_review","value":"Neuer Versuch ({attempt}/{of}) nach einem Verbindungsfehler"}},"es":{"stringUnit":{"state":"needs_review","value":"Reintentando ({attempt}/{of}) tras un error de conexión"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouvelle tentative ({attempt}/{of}) après une erreur de connexion"}},"it":{"stringUnit":{"state":"needs_review","value":"Nuovo tentativo ({attempt}/{of}) dopo un errore di connessione"}},"ja":{"stringUnit":{"state":"needs_review","value":"接続エラーのため再試行中（{attempt}/{of}）"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងព្យាយាមម្តងទៀត ({attempt}/{of}) បន្ទាប់ពីកំហុសការតភ្ជាប់"}},"ko":{"stringUnit":{"state":"needs_review","value":"연결 오류로 재시도 중 ({attempt}/{of})"}},"nb":{"stringUnit":{"state":"needs_review","value":"Prøver igjen ({attempt}/{of}) etter en tilkoblingsfeil"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ponawianie ({attempt}/{of}) po błędzie połączenia"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tentando novamente ({attempt}/{of}) após um erro de conexão"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторная попытка ({attempt}/{of}) после ошибки соединения"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังลองใหม่ ({attempt}/{of}) หลังข้อผิดพลาดการเชื่อมต่อ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bağlantı hatasından sonra yeniden deneniyor ({attempt}/{of})"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повторна спроба ({attempt}/{of}) після помилки з'єднання"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang thử lại ({attempt}/{of}) sau lỗi kết nối"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"连接错误后正在重试（{attempt}/{of}）"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"連線錯誤後正在重試（{attempt}/{of}）"}}}},
@@ -211799,6 +211800,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "以檔案路徑傳送"
+          }
+        }
+      }
+    },
+    "tools.backgroundMoved": {
+      "comment": "Agent pane: a short notice above the composer after Ctrl-B when the running work moved to the background",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نُقل إلى الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premješteno u pozadinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyttet til baggrunden"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In den Hintergrund verschoben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moved to the background"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Movido a segundo plano"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déplacé en arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spostato in background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "バックグラウンドに移しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានផ្លាស់ទីទៅផ្ទៃខាងក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "백그라운드로 옮겼습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyttet til bakgrunnen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przeniesiono w tło"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Movido para segundo plano"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перенесено в фон"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายไปทำงานเบื้องหลังแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arka plana taşındı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перенесено у фон"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã chuyển sang nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已移到后台"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已移到背景"
+          }
+        }
+      }
+    },
+    "tools.backgroundKept": {
+      "comment": "Agent pane: a short notice above the composer after Ctrl-B when Claude Code said it moved the work but the command is still running in the foreground",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم ينقله Claude Code؛ لا يزال يعمل في المقدمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code ga nije premjestio; i dalje radi u prvom planu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code flyttede det ikke; det kører stadig i forgrunden"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code hat es nicht verschoben; es läuft weiter im Vordergrund"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code didn’t move it; it’s still running in the foreground"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code no lo movió; sigue en ejecución en primer plano"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code ne l’a pas déplacé ; il s’exécute toujours au premier plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code non l’ha spostato; è ancora in esecuzione in primo piano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code は移しませんでした。まだフォアグラウンドで実行中です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code មិនបានផ្លាស់ទីវាទេ; វានៅតែដំណើរការនៅផ្ទៃខាងមុខ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code가 옮기지 않았습니다. 아직 포그라운드에서 실행 중입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code flyttet det ikke; det kjører fortsatt i forgrunnen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code tego nie przeniósł; nadal działa na pierwszym planie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Claude Code não moveu; ainda está em execução em primeiro plano"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code не перенёс это; оно всё ещё выполняется на переднем плане"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code ไม่ได้ย้าย ยังทำงานอยู่เบื้องหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code taşımadı; hâlâ ön planda çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code не переніс це; воно досі виконується на передньому плані"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code không chuyển; nó vẫn đang chạy ở nền trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code 没有移动它；它仍在前台运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code 沒有移動它；它仍在前景執行"
           }
         }
       }

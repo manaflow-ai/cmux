@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1266,
+    "entries": 1267,
     "shortcuts": 189
   },
   "sections": [
@@ -7304,6 +7304,12 @@
           "title": "Set Density…",
           "shortcut": null,
           "command": "cmux density set"
+        },
+        {
+          "id": "help.setupGuide",
+          "title": "Setup Guide",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "app.shareCmux",

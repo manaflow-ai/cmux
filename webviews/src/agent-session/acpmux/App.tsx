@@ -470,6 +470,12 @@ import { RenderToolCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, useArtifactCoversPane, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
+import {
+  artifactVersionsForSession,
+  changeArtifactPin,
+  visibleArtifact,
+  type OpenedArtifact,
+} from "./conversation/artifactPin";
 import { uniqueArtifacts } from "./conversation/artifactDedupe";
 import { writtenArtifacts } from "./conversation/writtenArtifacts";
 import { artifactVersions } from "./conversation/artifactVersions";
@@ -541,7 +547,7 @@ import { InboxNoticeCard } from "./conversation/InboxNoticeCard";
 import { mergeInboxNotices, type InboxMessage } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
-import { cloudAgentLogin } from "./cloudAgentLogin";
+import { cloudAgentLogin, localApiKeyLogin } from "./cloudAgentLogin";
 import { handoffTurns } from "./cloudHandoffTurn";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -565,6 +571,7 @@ import { useTranscriptView, type TranscriptView } from "./conversation/transcrip
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
 import { Notice, NoticeSlot } from "./NoticeSlot";
+import { AutoResumeNotice } from "./AutoResumeNotice";
 import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
@@ -622,7 +629,7 @@ import { LiveChatChoice } from "./LiveChatChoice";
 import { WatchBanner } from "./WatchBanner";
 import { ManagedBanner } from "./ManagedBanner";
 import { PaneNotices } from "./PaneNotices";
-import { setPaneNotices } from "./paneNotices";
+import { setPaneNotices } from "./paneNoticeStore";
 import { isTakenOver, managedBy, takeOverManaged } from "./managedBy";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
@@ -767,7 +774,7 @@ declare global {
       applySuggestedTasks?(on: boolean): void;
       /// Session Info's Remote Control switch, `{on}` or null (remoteControl.ts), on the legacy host.
       applyRemoteControl?(value: unknown): void;
-      /// The app's notices about the chat's agent service (paneNotices.ts), on the legacy host.
+      /// The app's notices about the chat's agent service (paneNoticeStore.ts), on the legacy host.
       applyPaneNotices?(value: unknown): void;
       applyHeaderState?(state: unknown): void;
       /// The pane's tab row the header's tools may sit in (header/tabRow.ts).
@@ -2114,6 +2121,7 @@ const RowFrame = React.memo(function RowFrame({
   replyActions,
   status,
   lastFooter,
+  finalFooter,
   continuationFooter,
   lastTurn,
   index,
@@ -2151,6 +2159,10 @@ const RowFrame = React.memo(function RowFrame({
   status: StatusEdge | undefined;
   /// The chat's last footer: it ends at the message gap, so no band sits over the composer.
   lastFooter: boolean;
+  /// The footer that ends the chat (nothing drawn after it): its turn has ended, so its Copy row
+  /// shows without a hover (Leo, 2026-11-02: "i should be able to see the copy buttons on your
+  /// responses when your things end").
+  finalFooter: boolean;
   /// The next drawn turn belongs to this same assistant: half the normal turn gap.
   continuationFooter: boolean;
   /// The final row of a latest turn without a footer: preserve the normal turn gap at the composer.
@@ -2260,7 +2272,7 @@ const RowFrame = React.memo(function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
+      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -5401,6 +5413,7 @@ export function VirtualTranscript({
                       replyActions={keepsReplyRoom(row, next)}
                       status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
                       lastFooter={isLastFooter(row, next)}
+                      finalFooter={row.kind === "turnSummary" && !next}
                       continuationFooter={isContinuationFooter(row, next)}
                       lastTurn={row.lastTurn === true}
                       index={absoluteIndex}
@@ -5955,10 +5968,11 @@ function AcpmuxPane() {
   if (replaying && snapshot.sessionId !== replaying) setReplaying(undefined);
   // A /btw failure belongs to its chat: another chat drops it.
   if (btwFailure && snapshot.sessionId !== btwFailure.sessionId) setBtwFailure(undefined);
-  // The side preview panel (cx-ncc.63) shows a document from the open chat; another chat closes it.
-  // Each open is its own panel (`opened`), which starts on its preview.
-  const [artifact, setArtifact] = useState<Artifact & { sessionId?: string; opened: number }>();
-  if (artifact && snapshot.sessionId !== artifact.sessionId) setArtifact(undefined);
+  // A preview follows its source chat. A deliberate Pin keeps an immutable snapshot visible when
+  // browsing other chats, while the original chat remains its only source of new versions.
+  // Each Open is a fresh panel (`opened`), which starts on its preview.
+  const [artifact, setArtifact] = useState<OpenedArtifact>();
+  if (artifact && !visibleArtifact(artifact, snapshot.sessionId)) setArtifact(undefined);
   // The Background tasks panel (backgroundTasks/BackgroundTasksPanel.tsx), opened from the chat's ⋯
   // menu: the chat's right column, docked under the side panel when that is open. It is the open
   // chat's, as the side panel is; another chat closes it. `dismissed` holds the ended groups Clear
@@ -5976,27 +5990,31 @@ function AcpmuxPane() {
   const artifactRows = artifact ? snapshot.rows : undefined;
   // Render cards by id (cx-ncc.94): a render that names an earlier one's id shows in that card.
   const pages = useMemo(() => renderPages(snapshot.rows), [snapshot.rows]);
-  const artifactVersionList = useMemo(
-    () =>
-      artifact && artifactRows
-        ? artifact.path
-          ? uniqueArtifacts(writtenArtifacts(artifactRows).filter((item) => item.path === artifact.path))
-          : (renderVersions(pages, artifact) ??
-            artifactVersions(
-              artifactRows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : [])),
-              artifact,
-            ))
-        : undefined,
-    [artifact, artifactRows, pages],
-  );
+  const artifactVersionList = useMemo(() => {
+    if (!artifact) return undefined;
+    // A pinned preview from another chat must not use this chat's rows: two unrelated documents
+    // can have the same <title>. Preserve the source's versions captured at Pin instead.
+    if (artifact.sessionId !== snapshot.sessionId) return artifactVersionsForSession(artifact, snapshot.sessionId);
+    const versions = artifactRows
+      ? artifact.path
+        ? uniqueArtifacts(writtenArtifacts(artifactRows).filter((item) => item.path === artifact.path))
+        : (renderVersions(pages, artifact) ??
+          artifactVersions(
+            artifactRows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : [])),
+            artifact,
+          ))
+      : undefined;
+    return artifactVersionsForSession(artifact, snapshot.sessionId, versions);
+  }, [artifact, artifactRows, pages, snapshot.sessionId]);
   const openArtifact = useCallback(
     (next: Artifact) =>
       setArtifact((current) => ({
         ...next,
         sessionId: artifactSession,
+        sourceTitle: snapshot.summary?.title || snapshot.summary?.name,
         opened: (current?.opened ?? 0) + 1,
       })),
-    [artifactSession],
+    [artifactSession, snapshot.summary?.title, snapshot.summary?.name],
   );
   // Repository context follows the selected session, connection origin and cwd. A reconnect
   // handshake for an existing session deliberately omits cwd, so key this lookup from the live
@@ -7612,7 +7630,13 @@ function AcpmuxPane() {
       ),
       // A Cloud chat's agent signs in on its own machine (Leo 2026-11-01: "yes those are
       // important"): its own login, never this Mac's. Its page opens as a link click does here.
-      cloudSignIn: cloudAgentLogin({
+      // A chat here whose built-in Claude Code or Codex is not signed in offers Use an API key
+      // (Leo 2026-10-26: "if user picks a model they don't have api key, we offer them to add
+      // credits or add their own api key").
+      ...((login: Parameters<typeof cloudAgentLogin>[0]) => ({
+        cloudSignIn: cloudAgentLogin(login),
+        apiKeySignIn: localApiKeyLogin(login),
+      }))({
         connected,
         machineID: cloudMachineID,
         sessionId: snapshot.sessionId,
@@ -8066,14 +8090,22 @@ function AcpmuxPane() {
   // says so (conversation/backgroundNotice.ts).
   const background = useBackgroundNotice(shownSessionId);
   const trackBackground = background.track;
+  // The calls in the foreground now, read when a move is checked (backgroundNotice.ts "kept").
+  const foregroundNow = useRef<readonly string[]>([]);
   const runInBackground = useCallback(
-    (toolCallId?: string) => trackBackground(directClient.current?.backgroundWork(toolCallId)),
+    (toolCallId?: string) => {
+      const asked = toolCallId ? [toolCallId] : foregroundNow.current;
+      trackBackground(directClient.current?.backgroundWork(toolCallId), () =>
+        asked.some((id) => foregroundNow.current.includes(id)),
+      );
+    },
     [trackBackground],
   );
   const foreground = useMemo(
     () => (canBackground && snapshot.isWorking ? foregroundCalls(snapshot.rows) : []),
     [canBackground, snapshot.isWorking, snapshot.rows],
   );
+  foregroundNow.current = foreground;
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
   /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`) once the
@@ -12692,6 +12724,7 @@ function AcpmuxPane() {
             {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
           </output>
         </Notice>
+        {!showNewTab && <AutoResumeNotice state={snapshot.autoResume} />}
         <Notice
           id="worktree-creating"
           tier="status"
@@ -13537,7 +13570,7 @@ function AcpmuxPane() {
           ) : showNewTab && newTab.history ? (
             <HistoryScreen
               load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}
-              onOpen={(key) => void callNative("chats.open", { key }).catch(() => undefined)}
+              onOpen={(key) => callNative("chats.open", { key })}
               onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
               onViewOnly={(key) => void callNative("chats.watch", { key }).catch(() => undefined)}
             />
@@ -13927,6 +13960,16 @@ function AcpmuxPane() {
             key={artifact.opened}
             artifact={artifact}
             versions={artifactVersionList}
+            pinned={!!artifact.pinned}
+            sourceTitle={artifact.sourceTitle}
+            onPinChange={
+              artifact.sessionId
+                ? (pinned) =>
+                    setArtifact((current) =>
+                      changeArtifactPin(current, pinned, snapshot.sessionId, artifactVersionList),
+                    )
+                : undefined
+            }
             onClose={() => setArtifact(undefined)}
             onSave={saveDocumentNatively}
           />

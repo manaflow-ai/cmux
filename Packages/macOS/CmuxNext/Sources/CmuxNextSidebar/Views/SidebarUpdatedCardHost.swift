@@ -55,13 +55,18 @@ final class SidebarUpdatedCardHost: NSView {
         }
     }
 
-    /// The card's corner: the page's own card radius (`.wn-card`'s 12 px, updateSurfaces.css), so the
-    /// glass keeps the card's shape. Space 5 is 12 pt at the default density.
-    static var cornerRadius: CGFloat { Metrics.space5 }
+    /// The card's sizes at the sidebar's density (Lawrence 2026-11-01: "the card must reflect my
+    /// compactness level"): the page reads the same ones (`--cmux-sidebar-card-*`, WebTheme).
+    static var metrics: SidebarCardMetrics { SidebarRowTokens.current.card }
+    /// The card's corner: the page's own card radius, so the glass keeps the card's shape.
+    static var cornerRadius: CGFloat { metrics.cornerRadius }
 
-    /// The x's side and its inset from the card's top right (the page's own x stood there).
-    static let closeSide: CGFloat = 18
-    static let closeInset = NSSize(width: 8, height: 7)
+    /// The x's side and its inset from the card's top right: on the title line, inside the padding.
+    static var closeSide: CGFloat { metrics.closeSide }
+    static var closeInset: NSSize {
+        let m = metrics
+        return NSSize(width: max(m.paddingX - 2, 0), height: max(m.paddingY - 2, 0))
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
