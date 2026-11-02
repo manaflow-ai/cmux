@@ -2563,8 +2563,6 @@ CmuxNextApp	class	UpdateSurfaceIslands	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextApp	class	UpdateSurfaceProvider	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/UpdateSurfaceIsland.swift	from class UpdateSurfaceIslands:15: sidebar update surface islands (NSView)
 CmuxNextApp	extension	PageFactory	2	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/UpdateSurfaceIsland.swift	from class UpdateSurfaceIslands:15: sidebar update surface islands (NSView)
 CmuxNextApp	class	WebPageTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/WebPageTab.swift	from class WebPageTab:9: web page tab shell
-CmuxNextApp	enum	WhatsNewDesign	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/WhatsNewTunables.swift	tunable enum for What is New layout
-CmuxNextApp	enum	WhatsNewTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/WhatsNewTunables.swift	from enum WhatsNewDesign:7: tunable enum for What is New layout
 CmuxNextApp	class	DaemonPairingApprovalService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pairing/DaemonPairingApprovalService.swift	from class DaemonPairingApprovalService:13: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	enum	DaemonPairingStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pairing/DaemonPairingStrings.swift	localized string table
 CmuxNextApp	struct	DaemonPrompts	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pairing/DaemonPrompts.swift	from struct DaemonPrompts:5: AppKit/SwiftUI view, host or thin daemon call site
@@ -9035,6 +9033,8 @@ CmuxNextPages	struct	WebDevOverride	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sourc
 CmuxNextPages	class	WebDevOverrideWatcher	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/WebDevOverrideWatcher.swift	WebKit/CEF page host: web view, bridge, scheme handler, pooling, script pipeline, menus or paint probe
 CmuxNextPages	class	WebKitPageHostBridge	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/WebKitPageHostBridge.swift	WebKit/CEF page host: web view, bridge, scheme handler, pooling, script pipeline, menus or paint probe
 CmuxNextPages	class	WebKitPageHostReceiver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/WebKitPageHostBridge.swift	from class WebKitPageHostBridge:6: WebKit/CEF page host: web view, bridge, scheme handler, pooling, script pipeline, menus or paint probe
+CmuxNextPages	enum	WhatsNewDesign	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/WhatsNewTunables.swift	tunable enum for What is New layout
+CmuxNextPages	enum	WhatsNewTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/WhatsNewTunables.swift	from enum WhatsNewDesign:7: tunable enum for What is New layout
 CmuxNextPagesTestSupport	class	FakeChromiumHosting	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPagesTestSupport/FakeChromiumHosting.swift	from class FakeChromiumHosting:6: test double
 CmuxNextPagesTestSupport	class	FakeChromiumPage	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPagesTestSupport/FakeChromiumPage.swift	from class FakeChromiumPage:19: test double
 CmuxNextPalette	func	scheduleAfterFrameCommit	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPalette/AfterFrameCommit.swift	run loop observer to run work after frame commit

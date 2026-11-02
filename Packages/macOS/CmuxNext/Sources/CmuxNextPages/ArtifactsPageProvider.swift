@@ -40,8 +40,8 @@ public nonisolated struct ArtifactsReply: Sendable {
 
 /// `cmux.artifacts.tree {ref?, path?}`, `cmux.artifacts.history {ref?, path?, limit?}` and
 /// `cmux.artifacts.file {path, ref?}`: one platform read each. Every param is checked before
-/// anything is sent, so a page can only name a ref, a path and a count. `allowed` is asked on every
-/// call, so a tab restored or left open after `labs.previewFeatures` turned off reads nothing.
+/// anything is sent, so a page can only name a ref, a path and a count. On for everyone: Leo asked for
+/// the feature, so it has no Labs gate; signed out, every read answers sign in.
 @MainActor
 public final class ArtifactsPageProvider: PageProvider {
     /// The history page size the platform takes.
@@ -49,19 +49,23 @@ public final class ArtifactsPageProvider: PageProvider {
     /// A file larger than this comes back without its content; the page says it is too large to preview.
     public static let previewLimit = 4 * 1024 * 1024
 
-    private let allowed: @MainActor () -> Bool
     private let fetch: @Sendable (ArtifactsRead) async throws -> ArtifactsReply
 
     /// - Parameter fetch: Makes the authenticated GET and returns the platform's answer; throws
     ///   when the platform cannot be reached or the person is signed out.
-    public init(allowed: @escaping @MainActor () -> Bool, fetch: @escaping @Sendable (ArtifactsRead) async throws -> ArtifactsReply) {
-        self.allowed = allowed
+    public init(fetch: @escaping @Sendable (ArtifactsRead) async throws -> ArtifactsReply) {
         self.fetch = fetch
+    }
+
+    /// The Artifacts tab's page: this provider on the platform API (``apiBaseURL(environment:)``),
+    /// each read made with `token`'s access token (nil when signed out).
+    public static func page(token: @escaping @Sendable () async throws -> String?) -> PageWebView? {
+        let provider = ArtifactsPageProvider(fetch: platformFetch(base: apiBaseURL(), token: token))
+        return PageWebView(descriptor: .artifacts, routes: [PageRoute(prefix: "cmux.artifacts.", provider: provider)])
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         let read = try Self.read(op, params)
-        guard allowed() else { throw PageError(code: "cmux.artifacts.unavailable", message: Self.previewRefusal, retryable: true) }
         let reply: ArtifactsReply
         do {
             reply = try await fetch(read)
@@ -190,10 +194,6 @@ public final class ArtifactsPageProvider: PageProvider {
 
     /// The tab's title.
     public static var title: String { t("artifacts.tab.title", "Artifacts") }
-    /// Why `artifacts.show` is unavailable while `labs.previewFeatures` is off.
-    public static var previewRefusal: String {
-        t("artifacts.refusal.preview", "Artifacts is a preview feature: turn on Show Preview Features in Settings.")
-    }
 
     static var unreachable: String {
         t("artifacts.unreachable", "Artifacts could not be reached. Check that you are signed in and online, then try again.")

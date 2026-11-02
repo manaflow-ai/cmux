@@ -18,9 +18,9 @@ struct ArtifactsPageProviderTests {
     static let context = PageCallContext(page: PageDescriptor.artifacts.id)
     nonisolated static let tree = #"{"ref":"main","sha":"abc","entries":[{"name":"notes","path":"notes","type":"tree"}]}"#
 
-    private static func provider(_ log: ReadLog, allowed: Bool = true,
+    private static func provider(_ log: ReadLog,
                                  answer: @escaping @Sendable (ArtifactsRead) throws -> ArtifactsReply) -> ArtifactsPageProvider {
-        ArtifactsPageProvider(allowed: { allowed }) { read in
+        ArtifactsPageProvider { read in
             await log.add(read)
             return try answer(read)
         }
@@ -118,17 +118,6 @@ struct ArtifactsPageProviderTests {
             try await provider.call("cmux.artifacts.save", params: [:], context: Self.context)
         }
         #expect(error?.code == "cmux.protocol.unknown_op")
-        #expect(await log.reads.isEmpty)
-    }
-
-    @Test func previewFeaturesOffReadsNothing() async throws {
-        let log = ReadLog()
-        let provider = Self.provider(log, allowed: false) { _ in ArtifactsReply(status: 200, body: Data(Self.tree.utf8)) }
-        let error = await #expect(throws: PageError.self) {
-            try await provider.call("cmux.artifacts.tree", params: [:], context: Self.context)
-        }
-        #expect(error?.code == "cmux.artifacts.unavailable")
-        #expect(error?.message == ArtifactsPageProvider.previewRefusal)
         #expect(await log.reads.isEmpty)
     }
 
