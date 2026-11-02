@@ -229,7 +229,9 @@ fn a_flood_during_a_write_backoff_does_not_wake_the_writer_per_chunk() {
     {
         let mut state = log.state.lock().unwrap();
         state.store_failed();
-        state.pending = vec![b'.'; super::super::TAIL_MAX_UNWRITTEN_BYTES];
+        // Just under the cap: the chunk below crosses the wake threshold
+        // without the cap's drop, so the backoff rule itself is checked.
+        state.pending = vec![b'.'; super::super::TAIL_MAX_UNWRITTEN_BYTES - 1024];
     }
     store.writer.state.0.lock().unwrap().due = None;
     store.append(&id, &generation, b"one more chunk", None);
@@ -354,4 +356,33 @@ fn a_flood_during_a_backoff_keeps_at_most_the_cap_in_memory() {
         pending <= super::super::TAIL_MAX_UNWRITTEN_BYTES,
         "{pending} bytes wait in memory during the backoff"
     );
+}
+
+/// Failure-mode table, "flood": a drop in `append` while a snapshot is being
+/// written (its capture ended before the dropped bytes) still asks for the
+/// snapshot that covers them (review round 6 of #31643: snapshot_written
+/// cleared the request, and an idle terminal then kept its last screen
+/// neither in the snapshot nor in the tail).
+#[test]
+fn a_drop_during_a_snapshot_write_still_asks_for_a_snapshot() {
+    let directory = directory("drop-during-write");
+    let store = OutputStore::new(None);
+    store.set_tail_enabled(true);
+    let id = TerminalPublicId::parse("term_00000000000000000000000000000f3d").unwrap();
+    let generation: Arc<str> = Arc::from("g");
+    store.append(&id, &generation, b"before", None);
+    let log = store.logs.lock().unwrap().get(&id).cloned().unwrap();
+    {
+        let mut state = log.state.lock().unwrap();
+        state.snapshot_end = Some(0);
+        state.snapshot_generation = Some(generation.clone());
+        state.snapshot_size = Some((80, 24));
+        state.tail_end = Some(0);
+    }
+    // The snapshot's capture ended at 6; then a flood crossed the cap.
+    store.append(&id, &generation, &vec![b'x'; super::super::TAIL_MAX_UNWRITTEN_BYTES + 1], None);
+    snapshot_written(&directory, &log, true, 9, (80, 24), &generation, 6);
+    let retry = log.state.lock().unwrap().snapshot_retry_in();
+    let _ = std::fs::remove_dir_all(&directory);
+    assert!(retry.is_some(), "the dropped bytes are in no snapshot, and none is asked for");
 }
