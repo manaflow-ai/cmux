@@ -407,7 +407,8 @@ impl ClientRegistry {
     }
 
     /// Keeps `surface` as the terminal `client`'s keys to `id` go to, when the client is attached to `id` (the id the
-    /// keys name: a runtime found through the terminal catalog has another id).
+    /// keys name: a runtime found through the terminal catalog has another id). True when it was kept (the client
+    /// views `id`: its keys are the person's).
     /// `generation`: `id`'s route generation read BEFORE the lookup that found `surface`, so a change of its route
     /// during that lookup leaves a kept terminal the next key checks again.
     pub(super) fn remember_attached_input(
@@ -416,13 +417,15 @@ impl ClientRegistry {
         id: SurfaceId,
         surface: &Arc<crate::Surface>,
         generation: u64,
-    ) {
+    ) -> bool {
         let mut state = self.state.lock().recover_poison();
-        if let Some(attached) =
+        let Some(attached) =
             state.clients.get_mut(&client).and_then(|record| record.attached.get_mut(&id))
-        {
-            attached.input = (Arc::downgrade(surface), generation);
-        }
+        else {
+            return false;
+        };
+        attached.input = (Arc::downgrade(surface), generation);
+        true
     }
 
     pub(super) fn detach_surface(
