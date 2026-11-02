@@ -28,10 +28,8 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     }
 
     private var state = CmuxHoverCardMachine()
-    /// The handle of each target id the state may still name, and back.
-    private var handles: [HoverTargetID: UInt64] = [:]
-    private var ids: [UInt64: HoverTargetID] = [:]
-    private var nextHandle: UInt64 = 1
+    /// The 64-bit handle the rule sees for each target id (`HoverCardHandles`).
+    private var handles = HoverCardHandles()
 
     public init(reshowWindow: Duration = HoverCardTiming.reshowWindow, pinLifetime: Duration = HoverCardTiming.pinLifetime,
                 leaveWindow: Duration = HoverIntentTiming.standard.cardGrace, aimWindow: Duration = HoverIntentTiming.standard.cardAim,
@@ -49,7 +47,7 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     /// The rule's phase (`state.phase`: 0 idle, 1 pending, 2 shown, 3 pinned, 4 leaving, 5 grace).
     public var phase: Phase {
         let token = Int(truncatingIfNeeded: state.token)
-        let held = target(state.target)
+        let held = handles.target(state.target)
         switch state.phase {
         case 1: return held.map { .pending($0, token: token) } ?? .idle
         case 2: return held.map { .shown($0) } ?? .idle
@@ -62,11 +60,11 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
 
     /// Active suppressions; no card is pending or shown while any lasts.
     public var suppressions: Set<HoverSuppression> {
-        Set(Self.suppressionOrder.enumerated().filter { state.suppressions & (1 << $0.offset) != 0 }.map(\.element))
+        Set(HoverCardHandles.suppressionOrder.enumerated().filter { state.suppressions & (1 << $0.offset) != 0 }.map(\.element))
     }
 
     /// What the last hit test found under the pointer.
-    public var lastHit: HoverTarget? { state.has_last_hit ? target(state.last_hit) : nil }
+    public var lastHit: HoverTarget? { state.has_last_hit ? handles.target(state.last_hit) : nil }
     /// After a dismissal or suppression, a still pointer starts no card on the target it is
     /// already on; a pointer move clears it.
     public var quiet: Bool { state.quiet }
@@ -138,108 +136,16 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
 
     /// Applies one event in the Rust rule and returns what the coordinator does, in order.
     public mutating func reduce(_ event: HoverCardEvent) -> [HoverCardEffect] {
-        var raw = cEvent(event)
+        var raw = handles.cEvent(event)
         var buffer = (CmuxHoverCardEffect(), CmuxHoverCardEffect(), CmuxHoverCardEffect())
         var count = 0
         // One event yields at most 3 effects (cmux-motion `MAX_EFFECTS_PER_EVENT`).
         withUnsafeMutableBytes(of: &buffer) { bytes in
             _ = cmux_hover_card_reduce(&state, &raw, 1, bytes.baseAddress?.assumingMemoryBound(to: CmuxHoverCardEffect.self), 3, &count)
         }
-        let effects = [buffer.0, buffer.1, buffer.2].prefix(count).compactMap { (effect: CmuxHoverCardEffect) -> HoverCardEffect? in
-            switch effect.kind {
-            case 0: .schedule(token: Int(truncatingIfNeeded: effect.token), after: Duration(hoverNanoseconds: effect.after))
-            case 1: .cancelTimer
-            case 2: target(effect.target).map { .show($0, sliding: effect.sliding) }
-            case 3: .hide
-            default: nil
-            }
-        }
-        prune()
+        let effects = handles.effects([buffer.0, buffer.1, buffer.2].prefix(count))
+        handles.prune(keeping: state)
         return effects
-    }
-
-    // MARK: The C forms
-
-    /// `HoverSuppression` in the rule's bit order (bit 0 drag, 1 scroll, 2 sidebarHide).
-    private static let suppressionOrder: [HoverSuppression] = [.drag, .scroll, .sidebarHide]
-
-    private mutating func cEvent(_ event: HoverCardEvent) -> CmuxHoverCardEvent {
-        var raw = CmuxHoverCardEvent()
-        switch event {
-        case .hit(let target, let moved, let aiming, let bridging):
-            raw.kind = 0
-            raw.flag = target != nil
-            if let target { raw.target = cTarget(target) }
-            raw.moved = moved
-            raw.aiming = aiming
-            raw.bridging = bridging
-        case .pointerOnCard(let on):
-            raw.kind = 1
-            raw.flag = on
-        case .deadline(let token):
-            raw.kind = 2
-            raw.token = UInt64(truncatingIfNeeded: token)
-        case .dismiss:
-            raw.kind = 3
-        case .suppress(let reason):
-            raw.kind = 4
-            raw.suppression = Self.bit(reason)
-        case .unsuppress(let reason):
-            raw.kind = 5
-            raw.suppression = Self.bit(reason)
-        case .targetRemoved(let id):
-            raw.kind = 6
-            // An id with no handle is neither the last hit nor the active target: handle 0 matches none.
-            raw.target.id = handles[id] ?? 0
-        case .pin(let target):
-            raw.kind = 7
-            raw.target = cTarget(target)
-        case .owned(let shown):
-            raw.kind = 8
-            raw.flag = shown
-        }
-        return raw
-    }
-
-    private static func bit(_ reason: HoverSuppression) -> UInt8 {
-        UInt8(suppressionOrder.firstIndex(of: reason) ?? 0)
-    }
-
-    private mutating func cTarget(_ target: HoverTarget) -> CmuxHoverTarget {
-        var raw = CmuxHoverTarget()
-        raw.id = handle(target.id)
-        raw.window = Int64(truncatingIfNeeded: target.window)
-        raw.delay = target.delay.hoverNanoseconds
-        if case .hides(let reshow) = target.leave {
-            raw.leave = 1
-            raw.reshow = reshow.hoverNanoseconds
-        }
-        return raw
-    }
-
-    private func target(_ raw: CmuxHoverTarget) -> HoverTarget? {
-        guard let id = ids[raw.id] else { return nil }
-        let leave: HoverCardLeave = raw.leave == 1 ? .hides(reshow: Duration(hoverNanoseconds: raw.reshow)) : .lingers
-        return HoverTarget(id: id, window: Int(truncatingIfNeeded: raw.window), delay: Duration(hoverNanoseconds: raw.delay), leave: leave)
-    }
-
-    private mutating func handle(_ id: HoverTargetID) -> UInt64 {
-        if let known = handles[id] { return known }
-        let fresh = nextHandle
-        nextHandle &+= 1
-        handles[id] = fresh
-        ids[fresh] = id
-        return fresh
-    }
-
-    /// Keeps only the handles the state names (its phase's target and the last hit): the rule
-    /// compares a new target only with those, so a dropped id gets a fresh handle when it returns.
-    private mutating func prune() {
-        let phaseHolds = (1...4).contains(state.phase)
-        let keep = Set([phaseHolds ? state.target.id : nil, state.has_last_hit ? state.last_hit.id : nil].compactMap(\.self))
-        guard ids.count > keep.count else { return }
-        ids = ids.filter { keep.contains($0.key) }
-        handles = handles.filter { keep.contains($0.value) }
     }
 
     // MARK: Hashable (the state as Swift reads it)

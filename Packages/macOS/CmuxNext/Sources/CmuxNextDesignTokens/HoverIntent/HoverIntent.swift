@@ -83,10 +83,8 @@ public nonisolated struct HoverIntent<Target: Hashable & Sendable>: Hashable, Se
     }
 
     private var state = CmuxHoverIntent()
-    /// The handle of each target the state may still name (the phase's), and back.
-    private var handles: [Target: UInt64] = [:]
-    private var targets: [UInt64: Target] = [:]
-    private var nextHandle: UInt64 = 1
+    /// The 64-bit handle the rule sees for each target (`HoverIntentHandles`).
+    private var handles = HoverIntentHandles<Target>()
 
     public var delay: Duration {
         get { Duration(hoverNanoseconds: state.delay) }
@@ -106,8 +104,8 @@ public nonisolated struct HoverIntent<Target: Hashable & Sendable>: Hashable, Se
     public var phase: Phase {
         let token = Int(truncatingIfNeeded: state.token)
         switch state.phase {
-        case 1: return targets[state.target].map { .pending($0, token: token) } ?? .idle
-        case 2: return targets[state.target].map { .shown($0) } ?? .idle
+        case 1: return handles.target(state.target).map { .pending($0, token: token) } ?? .idle
+        case 2: return handles.target(state.target).map { .shown($0) } ?? .idle
         case 3: return .warm(token: token)
         default: return .idle
         }
@@ -122,8 +120,8 @@ public nonisolated struct HoverIntent<Target: Hashable & Sendable>: Hashable, Se
 
     /// The target under the pointer now (nil: none).
     public mutating func hover(_ target: Target?) -> [Effect] {
-        // A mutating method cannot be passed to `map` unapplied: take the handle first.
-        let raw = target.map { handle($0) }
+        var raw: UInt64?
+        if let target { raw = handles.handle(target) }
         return call(0, target: raw, value: 0)
     }
 
@@ -136,32 +134,14 @@ public nonisolated struct HoverIntent<Target: Hashable & Sendable>: Hashable, Se
         call(2, target: nil, value: 0)
     }
 
-    private mutating func handle(_ target: Target) -> UInt64 {
-        if let known = handles[target] { return known }
-        let fresh = nextHandle
-        nextHandle &+= 1
-        handles[target] = fresh
-        targets[fresh] = target
-        return fresh
-    }
-
     private mutating func call(_ call: UInt8, target: UInt64?, value: UInt64) -> [Effect] {
         var raw = (CmuxHoverIntentEffect(), CmuxHoverIntentEffect())
         let count = withUnsafeMutableBytes(of: &raw) { bytes in
             cmux_hover_intent_call(&state, call, target != nil, target ?? value,
                                    bytes.baseAddress?.assumingMemoryBound(to: CmuxHoverIntentEffect.self), 2)
         }
-        let written = [raw.0, raw.1].prefix(count)
-        let effects: [Effect] = written.compactMap { (effect: CmuxHoverIntentEffect) -> Effect? in
-            switch effect.kind {
-            case 0: .schedule(token: Int(truncatingIfNeeded: effect.token), after: Duration(hoverNanoseconds: effect.after))
-            case 1: .cancelTimer
-            case 2: targets[effect.target].map { .show($0) }
-            case 3: .hide
-            default: nil
-            }
-        }
-        prune()
+        let effects = handles.effects([raw.0, raw.1].prefix(count))
+        handles.prune(keeping: state)
         return effects
     }
 
@@ -176,19 +156,6 @@ public nonisolated struct HoverIntent<Target: Hashable & Sendable>: Hashable, Se
         hasher.combine(state.next_token)
         hasher.combine(delay)
         hasher.combine(warmFor)
-    }
-
-    /// Keeps only the handle the phase names: the rule compares handles with its phase's only.
-    private mutating func prune() {
-        let keep: UInt64? = state.phase == 1 || state.phase == 2 ? state.target : nil
-        guard targets.count > (keep == nil ? 0 : 1) else { return }
-        let kept = keep.flatMap { targets[$0] }
-        targets.removeAll(keepingCapacity: true)
-        handles.removeAll(keepingCapacity: true)
-        if let keep, let kept {
-            targets[keep] = kept
-            handles[kept] = keep
-        }
     }
 }
 
