@@ -39,6 +39,21 @@ import Testing
         for _ in 0..<40 { await Task.yield() }
     }
 
+    /// Waits until two main run-loop passes have committed, so after-commit work the landing scheduled has run: the
+    /// signal `AfterFrameCommit` uses, a one-shot before-waiting observer after every other observer of the pass.
+    private static func nextCommittedPasses() async {
+        for _ in 0..<2 {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue,
+                                                                  false, CFIndex.max) { _, _ in
+                    done.resume()
+                    CFRunLoopWakeUp(CFRunLoopGetMain())
+                }
+                CFRunLoopAddObserver(CFRunLoopGetMain(), observer, CFRunLoopMode.commonModes)
+            }
+        }
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func aClosingPanesContentStaysUntilTheMotionLands() async throws {
         _ = NSApplication.shared
@@ -100,6 +115,7 @@ import Testing
                 releasedInFrame = frames
             }
         }
+        await Self.nextCommittedPasses()
         #expect(frames > 10, "the close springs over several frames (\(frames))")
         #expect(releasedInFrame == nil,
                 "the closed pane's terminal was torn down in motion frame \(releasedInFrame ?? -1) of \(frames): work no frame shows ran in the motion")
