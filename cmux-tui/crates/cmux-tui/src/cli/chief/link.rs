@@ -352,12 +352,18 @@ fn read_line(reader: &mut BufReader<Box<dyn Stream>>) -> io::Result<Option<Value
 /// The Chief conversation by the rule Home and the brain share: the oldest
 /// conversation with `agent_mux`, by `created_at`, then id.
 pub(super) fn select_chief(conversations: &[Value]) -> Option<&Value> {
+    select_chief_of(conversations, AGENT_MUX)
+}
+
+/// Chief `chief`'s own conversation by the same rule (optchat-chief
+/// `daemon::select_chief_of`): the oldest with that participant.
+pub(super) fn select_chief_of<'a>(conversations: &'a [Value], chief: &str) -> Option<&'a Value> {
     let text = |c: &Value, key: &str| c.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
     conversations
         .iter()
         .filter(|c| {
             c.get("participants").and_then(Value::as_array).is_some_and(|ps| {
-                ps.iter().any(|p| p.get("id").and_then(Value::as_str) == Some(AGENT_MUX))
+                ps.iter().any(|p| p.get("id").and_then(Value::as_str) == Some(chief))
             })
         })
         .min_by_key(|c| (text(c, "created_at"), text(c, "id")))

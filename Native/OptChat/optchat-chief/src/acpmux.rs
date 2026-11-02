@@ -204,6 +204,11 @@ pub type SteerWait = Box<dyn FnOnce() -> Result<(), String> + Send>;
 pub trait AgentPort: Send + Sync {
     /// Creates a session; returns its id.
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String>;
+    /// [`Self::new_session`] with no preset at all (not the port's turn
+    /// preset): a session on a harness of its own (brain/chief_inbox.rs).
+    fn new_plain_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        self.new_session(spec)
+    }
     /// Sends a prompt as a new turn; the session's signals and the answer go to `signals`.
     fn start_prompt(
         &self,
@@ -1270,6 +1275,10 @@ impl AgentPort for Acpmux {
                 .map(|p| p.name.as_str()),
         };
         new_session(&*self.client()?, spec, preset)
+    }
+
+    fn new_plain_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        new_session(&*self.client()?, spec, None)
     }
 
     fn start_prompt(

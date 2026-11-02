@@ -53,6 +53,13 @@ pub(super) fn add_sender(
     if let Some(thread) = provenance.and_then(|p| p.get("threadId")).and_then(Value::as_str) {
         sender.insert("threadId".into(), json!(thread));
     }
+    // A Chief's turn sent it (`prompt_provenance::stamp_chief`): that Chief's
+    // participant id, so a relay to another Chief (`cmux chief acp`) can send
+    // the reply back into the sender's chat.
+    let chief = provenance.and_then(|p| p.get(crate::prompt_provenance::FROM_CHIEF));
+    if let Some(chief) = chief.and_then(Value::as_str) {
+        sender.insert("chief".into(), json!(chief));
+    }
     // Params are always an object here (`prompt_params`, a steer's); anything
     // else is left as it is.
     let Some(fields) = params.as_object_mut() else { return };

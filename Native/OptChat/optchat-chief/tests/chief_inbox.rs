@@ -53,7 +53,9 @@ fn a_chief_gets_one_listed_session_on_the_chief_harness_that_relays_into_its_cha
         "{spec:?}"
     );
     assert_eq!(
-        spec.tags.get(cmux_chief::rules::LABEL_TAG).map(String::as_str),
+        spec.tags
+            .get(cmux_chief::rules::LABEL_TAG)
+            .map(String::as_str),
         Some("Codex Chief")
     );
     assert_eq!(
