@@ -465,8 +465,8 @@ impl Hub {
         turn_id: &str,
         cut: Cut,
     ) -> Option<String> {
-        // One continuation per configured wait, as a transport cut gets: `[]` configures none,
-        // which turns it off. A contended config lock reads as the default waits, never as off.
+        // One continuation per configured wait, as a transport cut gets: `[]` configures none.
+        // A contended config lock uses default waits, still honoring the app's off setting.
         let configured = self.config.try_read().ok().and_then(|c| c.auto_resume_delays_ms.clone());
         let attempts = super::settings::read(configured.as_ref()).len();
         if attempts == 0 {

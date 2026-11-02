@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 547,
+  "count": 549,
   "sections": [
     {
       "id": "general",
@@ -206,6 +206,27 @@
             "deepseek/deepseek-v4-flash",
             "deepseek/deepseek-v4-pro"
           ]
+        },
+        {
+          "key": "agents.retry.enabled",
+          "title": "Automatically Retry Failed Turns",
+          "help": "Retry connection and capacity failures using the existing retry schedule. Stop or a successful turn ends the loop. Changes apply to the next scheduled retry.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agents.retry.intervalSeconds",
+          "title": "Retry Interval",
+          "help": "Seconds between retries. Zero keeps the existing backoff schedule and attempt count. Provider reset times can extend a wait.",
+          "kind": "number",
+          "default": 0,
+          "group": "Agent Chat",
+          "range": {
+            "min": 0,
+            "max": 3600,
+            "unit": "seconds"
+          }
         },
         {
           "key": "agents.subsessions.answerQuestions",

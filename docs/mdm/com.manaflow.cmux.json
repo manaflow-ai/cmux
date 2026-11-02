@@ -286,6 +286,20 @@
       "title" : "cmux Model Router Model",
       "type" : "string"
     },
+    "agents.retry.enabled" : {
+      "default" : true,
+      "description" : "Retry connection and capacity failures using the existing retry schedule. Stop or a successful turn ends the loop. Changes apply to the next scheduled retry.",
+      "title" : "Automatically Retry Failed Turns",
+      "type" : "boolean"
+    },
+    "agents.retry.intervalSeconds" : {
+      "default" : 0,
+      "description" : "Seconds between retries. Zero keeps the existing backoff schedule and attempt count. Provider reset times can extend a wait.",
+      "maximum" : 3600,
+      "minimum" : 0,
+      "title" : "Retry Interval",
+      "type" : "number"
+    },
     "agents.subsessions.answerQuestions" : {
       "default" : false,
       "description" : "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.",
