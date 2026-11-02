@@ -24,9 +24,12 @@ final class LaunchSettle {
     /// The launch load-in: the pane region comes in on the first terminal
     /// frame, and everything shows if the daemon is unavailable.
     private let reveal: LaunchReveal
+    /// The first window frame (`AppDelegate.firstFrame`).
+    private let firstFrame: FirstFrameGate
 
-    init(reveal: LaunchReveal = .shared) {
+    init(reveal: LaunchReveal = .shared, firstFrame: FirstFrameGate) {
         self.reveal = reveal
+        self.firstFrame = firstFrame
     }
 
     /// Runs `work` once the launch settled and no agent page waits behind
