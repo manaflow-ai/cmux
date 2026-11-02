@@ -42,24 +42,32 @@ struct ClaudeAccountAutoSwitchFixture {
     func request(
         detail: String? = nil,
         pendingWork: Bool = false,
-        eventId: String = "event-1"
+        eventId: String = "event-1",
+        occurredAtMs: Int64? = nil
     ) -> ClaudeAccountAutoSwitchRequest {
         ClaudeAccountAutoSwitchRequest(
-            draft: draft(eventId: eventId, pendingWork: pendingWork, detail: .some(detail ?? "usage_limit: \(seoulMessage)")),
+            draft: draft(
+                eventId: eventId,
+                pendingWork: pendingWork,
+                detail: .some(detail ?? "usage_limit: \(seoulMessage)"),
+                occurredAtMs: occurredAtMs
+            ),
             isEnabled: true
         )!
     }
 
-    /// The decision with every input defaulting to "nothing in the way".
+    /// The decision with every input defaulting to "nothing in the way": Claude idle at its empty
+    /// prompt, no input, no stored exhaustion, every account usable and trusted.
     func decide(
         _ request: ClaudeAccountAutoSwitchRequest,
         pane: ClaudeAccountAutoSwitchRequest.Pane,
         isEnabled: Bool = true,
         stored: [String: Date] = [:],
         ledger: ClaudeAccountAutoSwitchLedger = ClaudeAccountAutoSwitchLedger(),
-        sourceScreen: AgentAutoResumeCoordinator.ScreenState = .unknown,
+        sourceScreen: AgentAutoResumeCoordinator.ScreenState = .emptyPrompt,
         isUsable: (ClaudeAccount) -> Bool = { _ in true },
-        isTrusted: (ClaudeAccount) -> Bool = { _ in true }
+        isTrusted: (ClaudeAccount) -> Bool = { _ in true },
+        now: Date? = nil
     ) -> ClaudeAccountAutoSwitchAction {
         request.action(
             pane: pane,
@@ -69,7 +77,7 @@ struct ClaudeAccountAutoSwitchFixture {
             sourceScreen: sourceScreen,
             isUsable: isUsable,
             isTrusted: isTrusted,
-            now: now,
+            now: now ?? self.now,
             timeZone: seoul,
             homeDirectory: home
         )
@@ -86,12 +94,13 @@ struct ClaudeAccountAutoSwitchFixture {
         unattributedReason: String? = nil,
         isSubagent: Bool = false,
         pendingWork: Bool = false,
-        detail: String?? = .none
+        detail: String?? = .none,
+        occurredAtMs: Int64? = nil
     ) -> AgentJournalEventDraft {
         AgentJournalEventDraft(
             eventId: eventId,
             kind: kind,
-            occurredAtMs: nowMs,
+            occurredAtMs: occurredAtMs ?? nowMs,
             source: source,
             agentKey: "claude_code",
             sessionId: sessionId,

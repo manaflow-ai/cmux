@@ -179,6 +179,23 @@ struct ClaudeAccountAutoSwitchRequestTests {
     }
 
     @Test
+    func aTimeOnlyResetThatPassedBeforeTheReportWasHandledUsesTheFallback() throws {
+        // "resets 9am" reported at 8:59:59 and handled at 9:00:01 meant this morning. Read
+        // against the handling time it would roll to 9am tomorrow and hold the account a day.
+        let reportedAt = Date(timeIntervalSince1970: 1_792_886_399)  // 2026-10-25 08:59:59 Seoul
+        let handledAt = reportedAt.addingTimeInterval(2)
+        let request = fixture.request(
+            detail: "usage_limit: You've hit your session limit · resets 9am (Asia/Seoul)",
+            occurredAtMs: Int64(reportedAt.timeIntervalSince1970 * 1000)
+        )
+
+        let exhaustion = try #require(fixture.decide(request, pane: fixture.pane(), now: handledAt).exhaustion)
+
+        #expect(exhaustion.quotedReset == nil)
+        #expect(exhaustion.until == handledAt.addingTimeInterval(ClaudeUsageLimitReset.fallbackInterval))
+    }
+
+    @Test
     func theNewAccountHittingItsLimitTooNeverReturnsToTheExhaustedOne() {
         // The first report moved default to work and marked default. When work reports a limit
         // right after, default is still exhausted: work is marked, and nothing switches back.
