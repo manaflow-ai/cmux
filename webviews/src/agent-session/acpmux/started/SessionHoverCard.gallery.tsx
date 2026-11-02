@@ -16,12 +16,12 @@ const cards: SessionHoverInfo[] = [
     title: "Switch gh-merge-green to merge-freeze issues",
     status: "failing",
     pullRequests: {
-    count: 2,
-    tone: "failing",
-    number: 22092,
-    repo: "cmux",
-    others: [{ number: 22093, repo: "cmux" }],
-  },
+      count: 2,
+      tone: "failing",
+      number: 22092,
+      repo: "cmux",
+      others: [{ number: 22093, repo: "cmux" }],
+    },
   },
   {
     sessionId: "c-2",

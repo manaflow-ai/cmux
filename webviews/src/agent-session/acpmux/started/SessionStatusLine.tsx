@@ -51,8 +51,9 @@ export function SessionStatusLine({
       {pullRequests && (
         <span className="acpmux-session-status-pr">
           <span>{pullRequestName(pullRequests)}</span>
-          {pullRequests.others?.map((pr) => (
-            <span key={pullRequestName(pr)} className="acpmux-session-status-pr-other">
+          {pullRequests.others?.map((pr, index) => (
+            // By place: a fork and its upstream can share `repo #N`.
+            <span key={index} className="acpmux-session-status-pr-other">
               {pullRequestName(pr)}
             </span>
           ))}
