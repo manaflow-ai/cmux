@@ -1,6 +1,7 @@
 import {
   footerAfter,
   gridLength,
+  MARK_STEP,
   rowMark,
   gridScale,
   restBand,
@@ -1097,7 +1098,14 @@ function replyHeight(reply: string): number {
 
 /// The compact tool run rhythm (`conversation.css --cv-tool-row-height` and its run bottom gap).
 const TOOL_RUN_TOP = 0;
-const TOOL_ROW_PT = gridLength("row");
+/// The running turn's live run line (conversation/turns.ts ACTIVITY_LINE), by value: turns.ts imports
+/// this module.
+const ACTIVITY_LINE_KIND = "activityLine";
+/// A step row: a tool run, the live run line, or a one-line row (transcriptGrid.ts MARK_STEP).
+const isStepRow = (row: AcpmuxRow) => row.kind === "activity" || row.kind === ACTIVITY_LINE_KIND || isLineRow(row);
+/// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
+/// #29965), `--cv-tool-row-height`.
+const TOOL_ROW_PT = 22;
 const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
 const TOOL_RUN_BOTTOM = 0;
 /// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run
@@ -1111,12 +1119,12 @@ const lineRow = () => LINE_FRAME + toolRowHeight();
 /// A short interim note folded into a run (conversation.css `.cv-tool-note`): one 20px line with
 /// the plain status gap above and below it.
 const NOTE_LINE = 20;
-/// The room around a note (#30400's --cv-note-gap): 0 on the grid, where the run's block gap between
-/// its lines is the room (conversation.css `.cv-tool-note { margin: 0 }`, foldedRunSteps).
-const NOTE_GAP = 0;
+/// The room above and below a note (#30400's --cv-note-gap): the block gap, since a run's lines are
+/// otherwise flush (conversation.css `.cv-tool-note`).
+const noteGap = () => TRANSCRIPT_BLOCK_GAP * chromeScale;
 function activityStepHeight(item: AcpmuxActivity): number {
   const tool = item.tool;
-  if (!tool) return item.kind === "note" ? NOTE_LINE + 2 * NOTE_GAP : 26;
+  if (!tool) return item.kind === "note" ? NOTE_LINE + 2 * noteGap() : 26;
   // A message to another agent (SendMessage, `acpmux send`, a sub-session's `send_message`) is one
   // line on the tool rows' line (AgentMessageRow.tsx), as every one-line row is.
   if (agentMessage(tool)) return toolRowHeight();
@@ -1166,14 +1174,13 @@ function activityStepHeight(item: AcpmuxActivity): number {
 /// "when I'm seeing all of these agent messages back and forth, that's when it sort of, like, gets
 /// confused").
 function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[]): number {
-  // `.cv-tools` and `.cv-tool-run` stack their children with the block gap (conversation.css).
+  // `.cv-tools` and `.cv-tool-run` stack their lines flush (conversation.css), 22 apart.
   const stretches = runStretches(row, groups);
-  const children = stretches.reduce((count, stretch) => count + (stretch.fold ? 1 : stretch.groups.length), 0);
   return stretches.reduce(
     (height, stretch) =>
       height +
       (stretch.fold ? toolRowHeight() : stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group), 0)),
-    Math.max(0, children - 1) * TRANSCRIPT_BLOCK_GAP * chromeScale,
+    0,
   );
 }
 
@@ -1181,12 +1188,9 @@ function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[]): number {
 /// `folded`), one line, as a sent message's row is (SentMessageLine.tsx); anything else is its calls.
 function foldedGroupHeight(group: ToolGroup): number {
   if (group.type === "group" || group.type === "send") return toolRowHeight();
-  // `.cv-tool-group` stacks its calls with the block gap too.
+  // `.cv-tool-group` lists its calls flush too.
   const items = "items" in group ? group.items : [group.item];
-  return items.reduce(
-    (sum, item) => sum + activityStepHeight(item),
-    Math.max(0, items.length - 1) * TRANSCRIPT_BLOCK_GAP * chromeScale,
-  );
+  return items.reduce((sum, item) => sum + activityStepHeight(item), 0);
 }
 
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
@@ -1208,16 +1212,11 @@ export function restRoom(): number {
   const gap = set === undefined || !Number.isFinite(Number(set)) ? REST_GAP : Number(set);
   return Math.max(0, gap - TURN_GAP);
 }
-/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx). A steer the agent has not read yet
-/// puts Send now first in that row (PendingSteer.tsx), including a Chief's prompt and a prompt of
-/// images alone.
-const userMetaHeight = (row: AcpmuxRow) => {
-  const chief = row.from === "chief" || chiefEnvelope(row.text) !== undefined;
-  return (
-    (row.text && row.steer === "waiting" && !row.failed && !row.queued && !chief ? metaRow() : 0) +
-    (row.steer === "waiting" && !row.text?.trim() ? META_GAP + metaRow() : 0)
-  );
-};
+/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx). Under a bubble it takes no layout
+/// height, waiting steer or sent (design/grid.md 5.5: the action row is laid in the turn gap), so
+/// sending a steer changes no row's height. A waiting prompt of images alone has no bubble to lay
+/// the row under, so its row (Send now first, PendingSteer.tsx) stays in flow.
+const userMetaHeight = (row: AcpmuxRow) => (row.steer === "waiting" && !row.text?.trim() ? META_GAP + metaRow() : 0);
 /// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`).
 const AUTHOR_HEIGHT = 22;
 const chromeHeight = (row: AcpmuxRow, _actions: boolean) =>
@@ -1570,10 +1569,7 @@ function fallbackRowHeight(
       if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
     }
     const items = row.items ?? [];
-    const steps = items.length
-      ? items.reduce((height, item) => height + activityStepHeight(item), 0) +
-        Math.max(0, items.length - 1) * TRANSCRIPT_BLOCK_GAP * chromeScale
-      : toolRowHeight();
+    const steps = items.length ? items.reduce((height, item) => height + activityStepHeight(item), 0) : toolRowHeight();
     return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
@@ -2113,7 +2109,8 @@ export function layoutConversation(
   let prevDrawn = prevDrawnRow(rows, start);
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
-    marks[index] = rowMark(row);
+    // A step row (a tool run or a one-line row) joins the step row before it flush (transcriptGap).
+    marks[index] = isStepRow(row) ? MARK_STEP : rowMark(row);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;

@@ -37,12 +37,16 @@ export const MARK_INDICATOR = 3;
 /// own, its hover controls laid over the gap under the row above. A failed or stopped turn's footer
 /// (its card, Continue) is content with this mark too.
 export const MARK_FOOTER = 4;
+/// A step row: a tool run or a one-line activity row (model.ts `isLineRow`). Consecutive step rows
+/// sit flush, one 22px line apart top to top (design/chat-transcript.md "One-line row pitch", #29965);
+/// the block gap is around a run of them only.
+export const MARK_STEP = 5;
 /// A finished reply's footer row (its buttons, then its time): ChatGPT's 32 line, 8 under the reply.
-export const MARK_FOOTER_ROW = 5;
+export const MARK_FOOTER_ROW = 6;
 /// The running turn's line drawn as its last row (`below`): the slot its footer takes when the turn
 /// ends, at the footer's place and height, so the end moves nothing (chat-transcript.md "A turn that
 /// ends moves nothing").
-export const MARK_FOOTER_SLOT = 6;
+export const MARK_FOOTER_SLOT = 7;
 
 type MarkedRow = {
   kind: string;
@@ -79,6 +83,8 @@ export function transcriptGap(previous: number, next: number): number {
   // Waiting for the first output: the indicator right under its prompt takes the block gap.
   if ((next === MARK_INDICATOR || next === MARK_FOOTER_SLOT) && previous === MARK_PROMPT) return TRANSCRIPT_BLOCK_GAP;
   if (previous === MARK_PROMPT || next === MARK_PROMPT) return TRANSCRIPT_TURN_GAP;
+  // The live line under a run is one more line of it (#29965): flush too.
+  if (previous === MARK_STEP && (next === MARK_STEP || next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return 0;
   return TRANSCRIPT_BLOCK_GAP;
 }
 

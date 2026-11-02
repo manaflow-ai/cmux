@@ -144,3 +144,21 @@ test("estimated grid rows follow the Interface Size", () => {
     g.getComputedStyle = saved.getComputedStyle;
   }
 });
+
+test("the live line sits flush under a run of one-line rows: 22 apart top to top (#29965)", () => {
+  const run = row("run", "activity", {
+    items: [{ kind: "tool", text: "", tool: { id: "c", title: "ls", kind: "execute", status: "completed" } }],
+  } as Partial<AcpmuxRow>);
+  const next = row("next", "activity", {
+    items: [{ kind: "tool", text: "", tool: { id: "d", title: "cat x", kind: "execute", status: "completed" } }],
+  } as Partial<AcpmuxRow>);
+  const live = row("live", "thinking", { below: true } as Partial<AcpmuxRow>);
+  const layout = layoutConversation([run, next, live], 720);
+  expect(layout.heights[0]).toBe(22);
+  expect(layout.tops[1]! - layout.tops[0]!).toBe(22);
+  expect(layout.tops[2]! - layout.tops[1]!).toBe(22);
+  // The same live line right under its prompt still waits a block gap under it (grid.md 5.5).
+  const prompt = row("p", "user", { text: "Go" });
+  const waiting = layoutConversation([prompt, live], 720);
+  expect(waiting.tops[1]! - waiting.heights[0]!).toBe(TRANSCRIPT_BLOCK_GAP);
+});

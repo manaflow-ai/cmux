@@ -5993,8 +5993,7 @@ function AcpmuxPane() {
     if (!artifact) return undefined;
     // A pinned preview from another chat must not use this chat's rows: two unrelated documents
     // can have the same <title>. Preserve the source's versions captured at Pin instead.
-    if (artifact.sessionId !== snapshot.sessionId)
-      return artifactVersionsForSession(artifact, snapshot.sessionId);
+    if (artifact.sessionId !== snapshot.sessionId) return artifactVersionsForSession(artifact, snapshot.sessionId);
     const versions = artifactRows
       ? artifact.path
         ? uniqueArtifacts(writtenArtifacts(artifactRows).filter((item) => item.path === artifact.path))
@@ -13569,7 +13568,7 @@ function AcpmuxPane() {
           ) : showNewTab && newTab.history ? (
             <HistoryScreen
               load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}
-              onOpen={(key) => void callNative("chats.open", { key }).catch(() => undefined)}
+              onOpen={(key) => callNative("chats.open", { key })}
               onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
               onViewOnly={(key) => void callNative("chats.watch", { key }).catch(() => undefined)}
             />
@@ -13964,7 +13963,9 @@ function AcpmuxPane() {
             onPinChange={
               artifact.sessionId
                 ? (pinned) =>
-                    setArtifact((current) => changeArtifactPin(current, pinned, snapshot.sessionId, artifactVersionList))
+                    setArtifact((current) =>
+                      changeArtifactPin(current, pinned, snapshot.sessionId, artifactVersionList),
+                    )
                 : undefined
             }
             onClose={() => setArtifact(undefined)}
