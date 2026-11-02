@@ -22,6 +22,8 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+# L1's auto-build must not compile here: the fleet self-test builds first (build-bins); this VM never compiles.
+os.environ["CMUX_TUIKIT_NO_BUILD"] = "1"
 TOOL = os.path.join(HERE, "load_profiles.py")
 PY = sys.executable
 
@@ -290,7 +292,8 @@ class Reach(Base):
 
 class StormL1(Base):
     def test_rate_mix_focus_and_teardown(self):
-        done, out, app = self.run_tool("L1", "--duration", "3", "--rate", "60", "--keep", "pane_keep")
+        done, out, app = self.run_tool("L1", "--duration", "3", "--rate", "60", "--keep", "pane_keep",
+                                       "--engine", "python")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertRegex(done.stdout, r"LOAD-READY L1 t_mono=\d")
         m = self.manifest(out, "L1")
@@ -311,6 +314,46 @@ class StormL1(Base):
         self.assert_no_focus_verbs()
         self.assert_torn_down(app)
 
+    def test_python_engine_verdict(self):
+        done, out, _ = self.run_tool("L1", "--duration", "2", "--rate", "60", "--engine", "python")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        m = self.manifest(out, "L1")
+        self.assertEqual(m["engine"], "python")
+        self.assertIn(m["calls"]["verdict"], ("ok", "NOT RUN"))
+        self.assertIn("verdict=", done.stdout)
+
+    def test_rust_storm_holds_the_rate(self):
+        import tuikit
+        if not tuikit.rust_bin("tk-storm"):
+            if os.environ.get("CMUX_TUIKIT_REQUIRE_RUST") == "1":
+                self.fail("tk-storm is not built (tuikit.py build-bins)")
+            self.skipTest("tk-storm is not built (tuikit.py build-bins)")
+        done, out, app = self.run_tool("L1", "--duration", "4", "--rate", "60", "--keep", "pane_keep",
+                                       "--engine", "rust")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        m = self.manifest(out, "L1")
+        self.assertEqual(m["engine"], "rust")
+        calls = m["calls"]
+        self.assertEqual(calls["engine"], "rust")
+        self.assertEqual(calls["verdict"], "ok", calls)
+        self.assertGreaterEqual(calls["ok_per_s"], 0.95 * 60, calls)
+        self.assertEqual(calls["failed"], 0, calls)  # the stand-in CLI refuses argv outside the real shapes
+        with open(os.path.join(out, "L1", "storm-calls.jsonl")) as f:
+            lines = [json.loads(line) for line in f]
+        self.assertEqual({c["worker"] for c in lines}, set(range(8)))
+        # every counted call is in the log; at most one in flight per worker drained after the stop
+        self.assertTrue(calls["calls"] <= len(lines) <= calls["calls"] + 8, (calls["calls"], len(lines)))
+        # a held schedule, not a burst: no second holds much more than the rate
+        per_second = {}
+        for c in lines:
+            per_second[int(c["t_mono"])] = per_second.get(int(c["t_mono"]), 0) + 1
+        self.assertLessEqual(max(per_second.values()), 1.3 * 60 + 8, per_second)
+        self.assertGreaterEqual(len({c["kind"] for c in lines}), 12, sorted({c["kind"] for c in lines}))
+        closed = m["calls"].get("setup_and_teardown_calls")
+        self.assertIsNotNone(closed)
+        self.assert_no_focus_verbs()
+        self.assert_torn_down(app)
+
     def test_focus_change_is_reported(self):
         open(os.path.join(self.tmp, "steal-focus"), "w").close()  # the stand-in moves focus on tab create
         done, out, _ = self.run_tool("L1", "--duration", "3", "--rate", "60")
@@ -321,6 +364,74 @@ class StormL1(Base):
             events = [json.loads(line)["ev"] for line in f]
         self.assertEqual(events[0], "baseline")
         self.assertIn("change", events)
+
+
+class AutoBuild(Base):
+    def test_l1_tries_build_bins_when_the_storm_is_missing(self):
+        import tuikit
+        if tuikit.rust_bin("tk-storm"):
+            self.skipTest("tk-storm is built here")
+        done, out, app = self.run_tool("L1", "--duration", "1", "--rate", "20")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        m = self.manifest(out, "L1")
+        self.assertEqual(m["build_bins"]["exit"], 69)  # CMUX_TUIKIT_NO_BUILD: tried, not compiled
+        self.assertEqual(m["build_bins"]["why"], "CMUX_TUIKIT_NO_BUILD=1")
+        self.assertEqual(m["engine"], "python")
+        # the build is set-up: its record is in the manifest before LOAD-READY
+        ready = m["ready"]["t_mono"]
+        self.assertTrue(all(c["t_mono"] >= ready for c in self._calls(out) if not c["kind"].startswith(("setup", "teardown"))))
+
+    def _calls(self, out):
+        with open(os.path.join(out, "L1", "calls.jsonl")) as f:
+            return [json.loads(line) for line in f]
+
+    def test_build_bins_with_a_fake_cargo(self):
+        """The build path itself, with a stand-in cargo (it records its argv and env, then fails): the account's
+        RUSTUP_HOME, --offline, --target-dir, the exit and the end of stderr come back."""
+        import tuikit
+        fake = os.path.join(self.tmp, "cargo")
+        record = os.path.join(self.tmp, "cargo.json")
+        with open(fake, "w") as f:
+            f.write("#!%s\nimport json, os, sys\njson.dump({'argv': sys.argv[1:], 'rustup': os.environ.get('RUSTUP_HOME')},"
+                    " open(%r, 'w'))\nsys.stderr.write('error: stand-in cargo fails on purpose')\nsys.exit(101)\n"
+                    % (PY, record))
+        os.chmod(fake, 0o755)
+        saved = {k: os.environ.get(k) for k in ("CARGO", "CMUX_TUIKIT_NO_BUILD")}
+        try:
+            os.environ["CARGO"] = fake
+            os.environ.pop("CMUX_TUIKIT_NO_BUILD", None)
+            code, built, why = tuikit.build_bins(quiet=True)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        self.assertEqual(code, 101)
+        self.assertIn("stand-in cargo fails on purpose", why)
+        with open(record) as f:
+            seen = json.load(f)
+        self.assertEqual(seen["argv"][:3], ["build", "--release", "--offline"])
+        self.assertIn("--target-dir", seen["argv"])
+
+    def test_find_cargo_ignores_a_slot_home(self):
+        import pwd
+        import tuikit
+        account = os.path.join(pwd.getpwuid(os.getuid()).pw_dir, ".cargo", "bin", "cargo")
+        if not os.access(account, os.X_OK):
+            self.skipTest("no cargo in the account's ~/.cargo/bin")
+        saved = {k: os.environ.get(k) for k in ("HOME", "PATH", "CARGO", "CARGO_HOME")}
+        try:
+            os.environ.update(HOME=self.tmp, PATH="/usr/bin:/bin")
+            os.environ.pop("CARGO", None)
+            os.environ.pop("CARGO_HOME", None)
+            self.assertEqual(tuikit.find_cargo(), account)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
 
 class Safety(Base):
@@ -356,6 +467,33 @@ class Safety(Base):
         self.assertEqual(load_profiles.l6_exit({"L1": 0, "L2": 0}), 0)
         self.assertEqual(load_profiles.l6_exit({"L1": 2, "L2": 1}), 2)
         self.assertEqual(load_profiles.l6_exit({}), 2)
+
+
+class HeavyStop(Base):
+    def test_sigterm_stops_heavy_build_between_steps(self):
+        app = self.app()
+        out = os.path.join(self.tmp, "heavy")
+        proc = subprocess.Popen([PY, os.path.join(HERE, "heavy_profile.py"), "build", "--seed", "3", "--workspaces", "20",
+                                 "--tabs", "80", "--visible", "4", "--duration", "5", "--python", PY, "--app-socket",
+                                 app.path, "--socket", "/x/d.sock", "--cli", self.cli, "--app",
+                                 os.path.join(self.tmp, "X.app"), "--home", self.tmp, "--out", out, "--no-focus"],
+                                stdout=subprocess.PIPE, text=True)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and len(app.read_state()["workspaces"]) < 4:
+            time.sleep(0.02)
+        proc.terminate()
+        stdout, _ = proc.communicate(timeout=60)
+        self.assertEqual(proc.returncode, 3, stdout)
+        with open(os.path.join(out, "heavy.json")) as f:
+            data = json.load(f)
+        made = {w["workspace_id"] for w in data["made"]["hidden"]}
+        live = {w["id"] for w in app.read_state()["workspaces"]} - {"ws_person"}
+        self.assertEqual(live, made, "every workspace the stand-in has is in heavy.json")
+        done = subprocess.run([PY, os.path.join(HERE, "heavy_profile.py"), "teardown", "--manifest",
+                               os.path.join(out, "heavy.json"), "--home", self.tmp], capture_output=True, text=True,
+                              timeout=60)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assert_torn_down(app)
 
 
 class McpL2(Base):
@@ -421,6 +559,8 @@ class AgentsL4(Base):
         self.assertEqual(len(m["agents"]), 6)
         self.assertTrue(all(a["mode"] == "terminal" and a["why"] for a in m["agents"]))
         self.assertEqual(m["agent_modes"], ["terminal"])
+        self.assert_no_focus_verbs()
+        self.assert_torn_down(app)
 
     def test_acp_falls_back_once_not_per_pane(self):
         start = time.monotonic()
@@ -433,7 +573,6 @@ class AgentsL4(Base):
         self.assertLess(time.monotonic() - start, 120)
         self.assertLessEqual(sum(1 for meth, p in app.methods if meth == "action.run"), 1)
         self.assertEqual(len([a for a in m["agents"] if a.get("why") == "the first pane's agent chat did not stream"]), 5)
-        self.assert_torn_down(app)
         self.assert_no_focus_verbs()
         self.assert_torn_down(app)
 
