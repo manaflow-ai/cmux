@@ -44,6 +44,7 @@ import json
 import os
 import plistlib
 import re
+import shlex
 import shutil
 import signal
 import socket
@@ -219,13 +220,14 @@ class App:
         except ValueError:
             return {"error": (out.stdout + out.stderr).strip()[:300]}
 
-    def action(self, action: str, *, focus: bool = False, **args) -> dict:
+    def action(self, action: str, *, focus: bool = False, wait: bool = True, **args) -> dict:
         """`action.run` over the socket itself: the CLI reads `--session`
         as its own option, so an action argument of that name never reaches
         the app through it. `focus` moves the app's focus to what the action
         opens or selects, as the user's shortcut would; without it a new tab
-        opens in the background and does not load until it is shown."""
-        params = {"action": action, "args": args, "wait": True, "origin": "script",
+        opens in the background and does not load until it is shown. `wait`
+        False answers once the handler ran, before the work it started ends."""
+        params = {"action": action, "args": args, "wait": wait, "origin": "script",
                   "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
         if focus:
             params["focus"] = True
@@ -277,8 +279,10 @@ class FakeChats:
 
     def __init__(self, app: App, bundle: str, script: str):
         self.app = app
+        # The app splits `args` into words like a shell: a fleet step's checkout is under
+        # "/Library/Application Support/...", so the path is quoted or the agent never starts.
         added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
-                        args=os.path.abspath(script), protocol="acp", replace="true")
+                        args=shlex.quote(os.path.abspath(script)), protocol="acp", replace="true")
         if added.get("error") or added.get("code"):
             raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
         self.env = dict(os.environ, ACPMUX_SOCKET=self.acpmux_socket(bundle))

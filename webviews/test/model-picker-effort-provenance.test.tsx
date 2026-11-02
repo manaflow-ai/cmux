@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { openEffort } from "./support/effortDropdown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -149,7 +150,7 @@ test.each(["absent", "empty", "unmarked-empty"] as const)(
       await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
     }
     expect(document.querySelector(".acpmux-quick-menu")).not.toBeNull();
-    const segments = document.querySelectorAll(".acpmux-quick-effort-segment");
+    const segments = await openEffort(document);
     const fallback = [...document.querySelectorAll(".acpmux-quick-sub")].some((row) =>
       row.textContent?.startsWith("Effort"),
     );

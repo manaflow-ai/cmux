@@ -24,6 +24,12 @@
 //!   (`queue_order`) still restores it at the head (`queue.rs` `restore_queue`), and once.
 //! - It goes through the trust gate as the cut turn did (`turn_started` records `trustGate`),
 //!   and carries the images the cut turn's prompt and steers sent (`prompt_images.rs`).
+//!
+//! A move that stops a running turn (`transfer_begin` with `interrupt`, `transfer_out.rs`) logs
+//! the same continuation, with `reason: "moved"` ([`Cut::Move`]), before it stops the turn. The
+//! bundle carries it in the queue, so the turn goes on where the chat lands; a move that does not
+//! happen gives it back to the queue here. #5846 item 1: a chat moves between a laptop and a
+//! Cloud machine mid-turn and keeps working.
 
 use super::{DEFAULT_DELAYS_MS, SUFFIX, configured_attempts, split_attempt};
 use crate::hub::{Hub, Session};
@@ -173,14 +179,7 @@ fn input_prefix(update: &Value) -> Option<String> {
             let text = String::from_utf8(bytes).unwrap_or_default();
             let masked = safe_tool_text(&text, truncated, MAX_TOOL_INPUT_CHARS);
             // The input budget is also a byte budget, including multibyte characters.
-            let end = masked
-                .char_indices()
-                .map(|(at, _)| at)
-                .chain([masked.len()])
-                .take_while(|at| *at <= MAX_TOOL_INPUT_CHARS)
-                .last()
-                .unwrap_or(0);
-            masked[..end].to_owned()
+            char_prefix(&masked, MAX_TOOL_INPUT_CHARS).to_owned()
         })
     })
 }
@@ -252,7 +251,7 @@ struct BoundedJsonWriter<'a> {
 impl std::io::Write for BoundedJsonWriter<'_> {
     fn write(&mut self, input: &[u8]) -> std::io::Result<usize> {
         let remaining = self.limit.saturating_sub(self.bytes.len());
-        self.bytes.extend_from_slice(&input[..input.len().min(remaining)]);
+        self.bytes.extend(input.iter().take(remaining));
         if input.len() > remaining {
             // Stop serialization immediately, rather than visiting the rest of a large input.
             Err(std::io::Error::other("restart input prefix is full"))
@@ -285,29 +284,37 @@ fn mask_input_assignments(text: &str) -> String {
     for captures in assignment_pattern.captures_iter(text) {
         let Some(assignment) = captures.get(0) else { continue };
         if sensitive_key(&captures[1]) {
-            return format!("{}[secret]", &text[..assignment.end()]);
+            return format!("{}[secret]", text.get(..assignment.end()).unwrap_or_default());
         }
     }
     text.to_owned()
 }
 
 fn masked_scan(value: &str) -> String {
-    let end = value
+    let head = char_prefix(value, MAX_TOOL_SCAN_BYTES);
+    let masked = mask_input_assignments(head);
+    safe_tool_text(&masked, head.len() < value.len(), MAX_TOOL_SCAN_BYTES)
+}
+
+/// The longest prefix of `text` that is at most `max` bytes and ends on a char boundary.
+fn char_prefix(text: &str, max: usize) -> &str {
+    let end = text
         .char_indices()
         .map(|(at, _)| at)
-        .chain([value.len()])
-        .take_while(|at| *at <= MAX_TOOL_SCAN_BYTES)
+        .chain([text.len()])
+        .take_while(|at| *at <= max)
         .last()
         .unwrap_or(0);
-    let masked = mask_input_assignments(&value[..end]);
-    safe_tool_text(&masked, end < value.len(), MAX_TOOL_SCAN_BYTES)
+    text.get(..end).unwrap_or_default()
 }
 
 /// Like the hand-off preview, discard the word crossing the scan boundary: its partial
 /// secret may not match a scanner rule. Mask before the much smaller display cut.
 fn safe_tool_text(text: &str, truncated: bool, max: usize) -> String {
     let head = if truncated {
-        text.rfind(|c: char| c.is_whitespace() || c.is_control()).map_or("", |at| &text[..at])
+        text.rfind(|c: char| c.is_whitespace() || c.is_control())
+            .and_then(|at| text.get(..at))
+            .unwrap_or_default()
     } else {
         text
     };
@@ -339,16 +346,75 @@ fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, ToolOmissi
     })
 }
 
+/// The opening of a move's continuation when the move did not happen ([`Cut::unmoved`]).
+const STAYED: &str = "This chat did not move: a move to another machine stopped your previous \
+                      turn and then did not happen. You are still on this machine, with the same \
+                      files; processes you started may have ended with the turn.";
+
+/// What cut the turn off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::hub) enum Cut {
+    /// The daemon restarted (an update or a crash).
+    Restart,
+    /// The chat moved to another machine (`transfer_out.rs`).
+    Move,
+}
+
+impl Cut {
+    /// The `reason` of its records and provenance.
+    pub(in crate::hub) fn reason(self) -> &'static str {
+        match self {
+            Cut::Restart => "daemon_restart",
+            Cut::Move => "moved",
+        }
+    }
+
+    /// Whether `reason` is a queued continuation's, which goes ahead of what waited behind the
+    /// cut turn and is no waiting retry (`queue.rs`, `auto_resume/restore.rs`).
+    pub(in crate::hub) fn queued(reason: Option<&str>) -> bool {
+        matches!(reason, Some("daemon_restart" | "moved"))
+    }
+
+    /// A [`Cut::Move`] continuation's text for a move that did not happen (`transfer_out.rs`
+    /// `queue_carried`): the same turn, told it is still on this machine. `None` for any other
+    /// text.
+    pub(in crate::hub) fn unmoved(text: &str) -> Option<String> {
+        text.strip_prefix(Cut::Move.opening()).map(|rest| format!("{STAYED}{rest}"))
+    }
+
+    fn opening(self) -> &'static str {
+        match self {
+            Cut::Restart => {
+                "acpmux restarted (an update or a crash) while your previous turn was running, \
+                 and the turn was cut off."
+            }
+            Cut::Move => {
+                "This chat moved to another machine while your previous turn was running, and the \
+                 turn was cut off. The files and git state came with it, but processes you \
+                 started (dev servers, watchers, background shells) did not: start again any \
+                 that you still need."
+            }
+        }
+    }
+}
+
 /// The text the agent gets: the cut turn's prompt, then what was steered into it.
+#[cfg(test)]
 fn continue_text(
     prompts: &[String],
     tools: &[UnfinishedTool],
     omitted_tools: ToolOmission,
 ) -> String {
-    let mut text = String::from(
-        "acpmux restarted (an update or a crash) while your previous turn was running, and the \
-         turn was cut off.",
-    );
+    continue_text_for(Cut::Restart, prompts, tools, omitted_tools)
+}
+
+fn continue_text_for(
+    cut: Cut,
+    prompts: &[String],
+    tools: &[UnfinishedTool],
+    omitted_tools: ToolOmission,
+) -> String {
+    let mut text = String::from(cut.opening());
     for (i, p) in prompts.iter().enumerate() {
         let quoted: String = p.chars().take(MAX_QUOTE_CHARS).collect();
         let what = if i == 0 { "Its prompt" } else { "A message sent into it" };
@@ -387,17 +453,28 @@ impl Hub {
         session: &Arc<Session>,
         turn_id: &str,
     ) -> Option<String> {
+        self.log_continuation(session, turn_id, Cut::Restart)
+    }
+
+    /// [`Self::log_restart_continuation`] for a turn `cut` cut off.
+    pub(in crate::hub) fn log_continuation(
+        &self,
+        session: &Arc<Session>,
+        turn_id: &str,
+        cut: Cut,
+    ) -> Option<String> {
         // One continuation per configured wait, as a transport cut gets: `[]` configures none,
         // which turns it off. A contended config lock reads as the default waits, never as off.
-        let attempts = self.config.try_read().map_or(DEFAULT_DELAYS_MS.len(), |c| {
-            configured_attempts(c.auto_resume_delays_ms.as_ref())
-        });
+        let configured = self.config.try_read().map(|c| c.auto_resume_delays_ms.clone());
+        let attempts =
+            configured.map_or(DEFAULT_DELAYS_MS.len(), |d| configured_attempts(d.as_ref()));
         if attempts == 0 {
             return None;
         }
         // The cut turn's prompt id, control, trust gate, texts and images: its `turn_started`,
         // the `user_message` that started it and those steered into it.
         let (mut prompt_id, mut control, mut gate) = (None::<String>, None::<String>, None);
+        let mut cloud_mobile = false;
         let mut prompts: Vec<String> = Vec::new();
         let mut images: Vec<Value> = Vec::new();
         // A Web steer made the turn a Web turn (`web_control.rs` `check_steer`).
@@ -406,6 +483,7 @@ impl Hub {
         // no host replay, so carry their terminal control state into this decision too: a Web
         // continuation must not cross a remote-floor cancellation or stale ended control.
         let mut started = false;
+        let mut trigger = false;
         // A carried turn's input is the steers it carried (`carried_turn.rs`), logged in the
         // turns before it: the steers since the last turn that was not carried, by prompt id.
         let mut steered: std::collections::HashMap<String, (Option<String>, Vec<Value>)> =
@@ -413,6 +491,7 @@ impl Hub {
         let mut carried_ids: Vec<String> = Vec::new();
         let mut control_ended = false;
         let mut floor_cancelled = false;
+        let mut stopped = false;
         let mut tool_start = None;
         let mut tool_end = None;
         let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
@@ -428,6 +507,7 @@ impl Hub {
                     | "remote_control_restored"
                     | "remote_floor_cancel"
                     | "turn_result"
+                    | "turn_stop_requested"
             );
             if !needs_record {
                 return true;
@@ -438,10 +518,13 @@ impl Hub {
             match e.kind.as_str() {
                 "turn_started" if is_turn => {
                     started = true;
+                    trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
                     tool_start = Some(e.seq);
                     prompt_id = field("promptId");
                     control = field("control");
                     gate = e.msg.get("trustGate").and_then(Value::as_bool);
+                    cloud_mobile =
+                        e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
                     let ids = e.msg.pointer("/carried/promptIds").and_then(Value::as_array);
                     carried_ids = ids
                         .into_iter()
@@ -468,6 +551,7 @@ impl Hub {
                         steered.insert(id, (text, named.cloned().unwrap_or_default()));
                     }
                 }
+                "turn_stop_requested" if is_turn => stopped = true,
                 "user_message" if is_turn => {
                     let named = e.msg.get("images").and_then(Value::as_array);
                     let shown = named.map_or(0, Vec::len);
@@ -485,6 +569,11 @@ impl Hub {
             }
             true
         });
+        // The trigger dispatcher must reauthorize any retry. A generic restart
+        // continuation would drop its principal and execute as the person.
+        if trigger {
+            return None;
+        }
         // The carried steers come first: they started the turn.
         let mut carried_prompts = Vec::new();
         let mut carried_images = Vec::new();
@@ -501,6 +590,9 @@ impl Hub {
         let prompts = carried_prompts;
         carried_images.append(&mut images);
         let images = carried_images;
+        if stopped {
+            return None;
+        }
         let prompt_id = prompt_id.filter(|p| !p.is_empty())?;
         let own_session_id = session.meta().agent_session_id;
         let (unfinished, omitted_tools) = collect_unfinished(|page| {
@@ -527,7 +619,7 @@ impl Hub {
         let (root, done) = split_attempt(&prompt_id);
         let attempt = done + 1;
         if attempt > attempts {
-            let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": "daemon_restart"});
+            let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": cut.reason()});
             self.append(session, "mux", "auto_resume_exhausted", msg);
             return None;
         }
@@ -549,17 +641,33 @@ impl Hub {
             return None;
         }
         let id = format!("{root}{SUFFIX}{attempt}");
-        // Logged by a daemon that crashed before it settled the turn: once is enough.
-        if self.logged_prompt(session, &id).is_some() {
+        // Logged by a daemon that crashed before it settled the turn: once is enough. Its
+        // `queued` record counts though it never started (`logged_prompt` leaves such a prompt
+        // to recovery): the restored queue runs it.
+        if self.logged_prompt(session, &id).is_some() || self.queued_logged(session, &id) {
             return Some(id);
         }
-        let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": "daemon_restart"});
+        let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": cut.reason()});
         self.append(session, "mux", "auto_resume_scheduled", msg);
-        let text = continue_text(&prompts, &unfinished, omitted_tools);
-        let provenance = json!({"kind": "auto_resume", "reason": "daemon_restart", "promptId": root, "attempt": attempt, "turnId": turn_id});
+        let text = continue_text_for(cut, &prompts, &unfinished, omitted_tools);
+        let provenance = json!({"kind": "auto_resume", "reason": cut.reason(), "promptId": root, "attempt": attempt, "turnId": turn_id});
         let control = if raised_to_web { "web" } else { control.as_deref().unwrap_or("web") };
         let mut blocks = vec![json!({"type": "text", "text": text})];
-        blocks.extend(super::super::prompt_images::blocks_of(&images));
+        // Each image's source goes with it as display metadata, so the continuation's record keeps
+        // it (`prompt_images.rs`, `keep_sourced`).
+        let mut display = Vec::new();
+        for image in &images {
+            let Some(block) =
+                super::super::prompt_images::blocks_of(std::slice::from_ref(image)).pop()
+            else {
+                continue;
+            };
+            if let Some(source) = image.get("source") {
+                display
+                    .push(json!({"kind": "image", "blockIndex": blocks.len(), "source": source}));
+            }
+            blocks.push(block);
+        }
         let mut queued = json!({
             "text": text,
             "client": "acpmux",
@@ -572,13 +680,29 @@ impl Hub {
             // restart. A Web turn (by its start or a Web steer) is always checked again, as is
             // one from a log from before `turn_started` recorded its gate.
             "trustGate": control == "web" || gate.unwrap_or(false),
+            "cloudMobile": cloud_mobile,
         });
         if !images.is_empty() {
             queued.set("images", Value::Array(images));
         }
+        if !display.is_empty() {
+            queued.set("displayParts", Value::Array(display));
+        }
         let queued = crate::prompt_provenance::marked(queued, Some(&provenance));
         self.append(session, "mux", "queued", queued);
         Some(id)
+    }
+}
+
+impl Hub {
+    /// Whether the chat's log holds a `queued` record of prompt `id`.
+    fn queued_logged(&self, session: &Session, id: &str) -> bool {
+        let mut found = false;
+        let _ = self.store.scan_kinds(&session.id, &["queued"], &mut |e: EventRecord| {
+            found = e.msg.get("promptId").and_then(Value::as_str) == Some(id);
+            !found
+        });
+        found
     }
 }
 
@@ -637,6 +761,22 @@ mod tests {
         (id, gave_up)
     }
 
+    /// A daemon that crashed after it queued the continuation and before it settled the cut turn
+    /// finds the turn open again: the next one queues the continuation once, not twice.
+    #[tokio::test]
+    async fn a_crash_before_the_cut_turn_settles_queues_its_continuation_once() {
+        let (root, hub, session) = cut_turn(Some(vec![10_000]), 0);
+        let first = hub.log_restart_continuation(&session, "t1");
+        let again = hub.log_restart_continuation(&session, "t1");
+        assert_eq!(first, Some(format!("p1{SUFFIX}1")));
+        assert_eq!(again, first);
+        let events = hub.events("c1", 0, 10_000).unwrap();
+        let queued = events.iter().filter(|e| e.kind == "queued").count();
+        assert_eq!(queued, 1, "{events:?}");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// One continuation per configured wait, for a chain of restarts as for a transport cut:
     /// `autoResumeDelaysMs` is the whole loop, not only its waits.
     #[tokio::test]
@@ -659,19 +799,20 @@ mod tests {
             "{msg}"
         );
 
-        // A loop longer than the default's four runs all of its attempts.
+        // A configured six-attempt loop runs all of its attempts.
         let (id, gave_up) = chain(Some(vec![10_000; 6]), 5).await;
         assert_eq!(id, Some(format!("p1{SUFFIX}6")));
         assert!(gave_up.is_empty(), "{gave_up:?}");
     }
 
-    /// The key unset keeps the default waits' four attempts, and `[]` still turns it off.
+    /// The key unset keeps the default waits' attempts, and `[]` still turns it off.
     #[tokio::test]
     async fn an_unset_key_keeps_the_default_attempts_and_an_empty_list_turns_it_off() {
-        let (id, _) = chain(None, 3).await;
-        assert_eq!(id, Some(format!("p1{SUFFIX}4")));
+        let attempts = DEFAULT_DELAYS_MS.len();
+        let (id, _) = chain(None, attempts - 1).await;
+        assert_eq!(id, Some(format!("p1{SUFFIX}{attempts}")));
 
-        let (id, gave_up) = chain(None, 4).await;
+        let (id, gave_up) = chain(None, attempts).await;
         assert_eq!(id, None);
         assert_eq!(gave_up.len(), 1, "{gave_up:?}");
 
@@ -1205,6 +1346,22 @@ mod tests {
         let prefix = input_prefix(&json!({"rawInput": "世".repeat(10_000)})).unwrap();
         assert!(prefix.len() <= MAX_TOOL_INPUT_CHARS);
         assert!(!prefix.contains('\u{fffd}'));
+    }
+
+    #[test]
+    fn multibyte_text_is_cut_on_char_boundaries() {
+        // "世" is 3 bytes: a 4-byte budget keeps one, never half of the second.
+        assert_eq!(char_prefix("世世", 4), "世");
+        assert_eq!(char_prefix("世世", 6), "世世");
+        assert_eq!(char_prefix("世", 2), "");
+        // 7-byte units: the scan cut (4096 = 7 * 585 + 1) lands inside a 3-byte char, and the
+        // word crossing it is dropped back to the last space.
+        let long = "世世 ".repeat(MAX_TOOL_SCAN_BYTES);
+        assert_eq!(masked_scan(&long), "世世 ".repeat(585).trim_end());
+        // The truncated tail is cut at a multibyte space (U+3000), not a byte inside it.
+        assert_eq!(safe_tool_text("世\u{3000}世世", true, 100), "世");
+        // Multibyte text before a sensitive assignment keeps its prefix whole.
+        assert_eq!(mask_input_assignments("世 PASSWORD=世世"), "世 PASSWORD=[secret]");
     }
 
     #[tokio::test]

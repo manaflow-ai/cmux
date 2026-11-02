@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
@@ -108,10 +109,11 @@ enum WorkspaceBulkClose {
         let names = members.map { $0.0.name }
         // The groups these closes may empty. `workspaceGroup.closeOthers` closes whole groups,
         // whose unpinned ones `PersonalGroupPin` already deletes, so it prunes none.
-        let life = PersonalGroupLife(machines: services.machines)
-        let groupsToPrune: Set<WorkspaceGroupID> = id == "workspaceGroup.closeOthers" ? [] : life.groupsClosing(members.map(\.0.id))
+        let groupsToPrune: Set<WorkspaceGroupID> = id == "workspaceGroup.closeOthers" ? []
+            : PersonalGroupLife(machines: services.machines).groupsClosing(members.map(\.0.id))
+        let cleanups = WorkspaceGroupClose.closeCleanups(groupsToPrune, services, failed: { [weak services] _ in services?.windows.active?.sidebar.resync() })
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
-        var groups = WorkspaceGroupClose.undoGroups(names, pruned: groupsToPrune)
+        var groups: [(String?, [String])] = [(nil, names)]
         if id == "workspaceGroup.closeOthers" {
             // Each group closes as Close Workspaces in Group does (an unpinned group goes);
             // Undo reopens each group's workspaces, then its record.
@@ -124,12 +126,13 @@ enum WorkspaceBulkClose {
             WorkspaceClose.close(members)
         }
         // The unpinned groups these closes empty go once the closes land (cx-rcby); a refused close keeps its group.
-        for group in groupsToPrune {
-            // task-owner: one cleanup per group, bounded by `PersonalGroupLife.closeSettleLimit`
-            Task { @MainActor in await life.deleteWhenEmpty(group, failed: {}) }
+        for cleanup in cleanups {
+            // task-owner: one cleanup per group, bounded by `PersonalGroupLife.closeSettleLimit` and its delete
+            Task { @MainActor in await cleanup.run() }
         }
         guard invocation.origin == .user, members.count > 1, let window else { return }
-        WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), groups: groups, after: seen, in: window, services)
+        WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), groups: groups, after: seen, in: window, services,
+                                      cleanups: cleanups)
     }
 
     /// The open workspaces a sidebar section lists: its workspace items (Pinned
@@ -138,7 +141,7 @@ enum WorkspaceBulkClose {
     /// the workspaces section.
     static func sectionWorkspaces(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [String] {
         let layout = context.services.sidebarLayout
-        if let reason = SidebarDocWiring.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
+        if let reason = context.services.sidebarDoc.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
         let section = try SidebarSectionResolve.section(invocation.target, in: layout.document)
         switch section.content {
         case .items:

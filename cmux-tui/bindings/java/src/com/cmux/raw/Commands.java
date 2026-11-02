@@ -57,6 +57,7 @@ public final class Commands {
     public static final CommandMetadata CLOUD_CONVERSATION_THREAD = new CommandMetadata("cloud-conversation-thread", Authority.LOCAL_ADMIN, 12, "conversation-thread-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_TYPING = new CommandMetadata("cloud-conversation-typing", Authority.LOCAL_ADMIN, 12, "cloud-conversation-typing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_UNSUBSCRIBE = new CommandMetadata("cloud-conversation-unsubscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_ENVIRONMENT = new CommandMetadata("cloud-environment", Authority.LOCAL_ADMIN, 12, "cloud-environments-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_HOST_REPLICA_CLEAR = new CommandMetadata("cloud-host-replica-clear", Authority.LOCAL_ADMIN, 12, "cloud-host-replica-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_HOST_REPLICA_SET = new CommandMetadata("cloud-host-replica-set", Authority.LOCAL_ADMIN, 12, "cloud-host-replica-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_HOST_REPLICA_STATUS = new CommandMetadata("cloud-host-replica-status", Authority.LOCAL_ADMIN, 12, "cloud-host-replica-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -232,6 +233,7 @@ public final class Commands {
     public static final CommandMetadata SEND = new CommandMetadata("send", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("paste", 7L)), Map.ofEntries(Map.entry("expect_agent", "send-expect-agent-v1"), Map.entry("expect_foreground", "send-expect-foreground-v1"), Map.entry("submit", "send-expect-agent-v1"), Map.entry("terminal_id", "terminal-input-while-creating-v1")));
     public static final CommandMetadata SEND_KEY = new CommandMetadata("send-key", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SERVER_STATS = new CommandMetadata("server-stats", Authority.LOCAL_ADMIN, 12, "server-stats-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SET_ATTACH_VISIBILITY = new CommandMetadata("set-attach-visibility", Authority.FRONTEND, 12, "attach-visibility-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_CELL_PIXELS = new CommandMetadata("set-cell-pixels", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_CLIENT_INFO = new CommandMetadata("set-client-info", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("api_revision", 12L), Map.entry("device_id", 12L), Map.entry("device_kind", 12L), Map.entry("device_name", 12L), Map.entry("display_name", 12L), Map.entry("install", 12L), Map.entry("remote", 12L), Map.entry("user_id", 12L), Map.entry("version", 12L)), Map.ofEntries(Map.entry("device_id", "shared-sizing-v1"), Map.entry("device_kind", "shared-sizing-v1"), Map.entry("device_name", "shared-sizing-v1"), Map.entry("display_name", "shared-sizing-v1"), Map.entry("remote", "host-size-policy-v1"), Map.entry("user_id", "shared-sizing-v1")));
     public static final CommandMetadata SET_CLIENT_SIZING = new CommandMetadata("set-client-sizing", Authority.CONTROL, 10, null, StreamKind.NONE, Map.of(), Map.of());
@@ -347,6 +349,7 @@ public final class Commands {
         values.put("cloud-conversation-thread", CLOUD_CONVERSATION_THREAD);
         values.put("cloud-conversation-typing", CLOUD_CONVERSATION_TYPING);
         values.put("cloud-conversation-unsubscribe", CLOUD_CONVERSATION_UNSUBSCRIBE);
+        values.put("cloud-environment", CLOUD_ENVIRONMENT);
         values.put("cloud-host-replica-clear", CLOUD_HOST_REPLICA_CLEAR);
         values.put("cloud-host-replica-set", CLOUD_HOST_REPLICA_SET);
         values.put("cloud-host-replica-status", CLOUD_HOST_REPLICA_STATUS);
@@ -522,6 +525,7 @@ public final class Commands {
         values.put("send", SEND);
         values.put("send-key", SEND_KEY);
         values.put("server-stats", SERVER_STATS);
+        values.put("set-attach-visibility", SET_ATTACH_VISIBILITY);
         values.put("set-cell-pixels", SET_CELL_PIXELS);
         values.put("set-client-info", SET_CLIENT_INFO);
         values.put("set-client-sizing", SET_CLIENT_SIZING);

@@ -5,6 +5,9 @@
 //  - The page has one left line, `--acpmux-newtab-lead` in from the box's edge (on the 4 px grid):
 //    "All sessions" starts its ink on it to 0.5 px, and the field row's leading glyph's ink sits on it
 //    within its own side bearing (1 px).
+//  - The quiet row's permission mode chip continues that column: its shield centers on the row glyph's
+//    center line (`--acpmux-newtab-mark`) to 0.5 px and its first ink sits on the lead within 1 px, in
+//    the stepped and the plain footer looks.
 // Leo, 2026-10-29: "we need to have better grids ... We need to have the fucking shit aligned on
 // fucking grids and lines".
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -19,6 +22,12 @@ type Lines = {
   lead: number;
   glyph: number;
   allSessions: number;
+  /** The permission mode chip under the box: its leading glyph's ink (stepped look) and its label's. */
+  mode: { glyph: number | null; text: number; chip: number; center: number | null } | null;
+  /** The field row's leading glyph box's center. */
+  glyphCenter: number;
+  /** --acpmux-newtab-mark: the leading marks' center line. */
+  mark: number;
 };
 
 await requireBrowserLane("new-tab-classic-lines.test.ts", async () => {
@@ -93,12 +102,33 @@ await requireBrowserLane("new-tab-classic-lines.test.ts", async () => {
       };
 
       const row = box.querySelector(".acpmux-newtab-row")!;
+      const centerOf = (node: Element) => {
+        const rect = node.getBoundingClientRect();
+        return rect.left + rect.width / 2;
+      };
+      function modeInk(): Lines["mode"] {
+        const access = root.querySelector<HTMLElement>(".acpmux-newtab-foot .acpmux-access");
+        if (!access || access.getBoundingClientRect().width === 0) return null;
+        const svg = [...access.querySelectorAll<SVGSVGElement>("svg")].find((one) => {
+          const style = getComputedStyle(one);
+          return one.getBoundingClientRect().width > 0 && style.display !== "none" && style.visibility !== "hidden";
+        });
+        return {
+          glyph: svg ? glyphInk(svg) - boxRect.left : null,
+          text: textInk(access) - boxRect.left,
+          chip: access.getBoundingClientRect().left - boxRect.left,
+          center: svg ? centerOf(svg) - boxRect.left : null,
+        };
+      }
       return {
         box: { left: boxRect.left, right: boxRect.right, top: boxRect.top, bottom: boxRect.bottom, radius },
         hairlines,
         lead: parseFloat(getComputedStyle(root).getPropertyValue("--acpmux-newtab-lead")),
         glyph: glyphInk(row.querySelector<SVGSVGElement>(":scope > svg")!) - boxRect.left,
         allSessions: textInk(root.querySelector(".acpmux-newtab-all")!) - boxRect.left,
+        mode: modeInk(),
+        glyphCenter: centerOf(row.querySelector(":scope > svg")!) - boxRect.left,
+        mark: parseFloat(getComputedStyle(root).getPropertyValue("--acpmux-newtab-mark")),
       };
     });
   }
@@ -122,55 +152,65 @@ await requireBrowserLane("new-tab-classic-lines.test.ts", async () => {
     await vite?.close();
   });
 
-  for (const width of [680, 1280]) {
-    test(`classic New Tab at ${width}: no hairline past the box's corners, one left text column`, async () => {
-      const page = await browser!.newPage({ viewport: { width, height: 700 } });
-      try {
-        await page.addInitScript(() => {
-          const newTab = {
-            kind: "agent",
-            template: "classic",
-            hotkeys: {},
-            home: "/Users/you",
-            cwd: "/Users/you/src/atlas-web",
-            projects: ["/Users/you/src/atlas-web"],
-            lastPicks: { global: { harness: "claude", model: "claude-opus-5-5" }, folders: [] },
-          };
-          localStorage.setItem("cmux.composer.look", "claude");
-          Object.assign(window, {
-            __cmuxNewTabContext: newTab,
-            webkit: { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } },
-            cmuxAcpmuxActions: {
-              ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true, newTab }),
-            },
+  for (const plainFooter of [false, true])
+    for (const width of [680, 1280]) {
+      const look = plainFooter ? "plain" : "stepped";
+      test(`classic New Tab at ${width}, ${look} footer: no hairline past the box's corners, one left line`, async () => {
+        const page = await browser!.newPage({ viewport: { width, height: 700 } });
+        try {
+          await page.addInitScript(() => {
+            const newTab = {
+              kind: "agent",
+              template: "classic",
+              hotkeys: {},
+              home: "/Users/you",
+              cwd: "/Users/you/src/atlas-web",
+              projects: ["/Users/you/src/atlas-web"],
+              lastPicks: { global: { harness: "claude", model: "claude-opus-5-5" }, folders: [] },
+            };
+            localStorage.setItem("cmux.composer.look", "claude");
+            Object.assign(window, {
+              __cmuxNewTabContext: newTab,
+              webkit: { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } },
+              cmuxAcpmuxActions: {
+                ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true, newTab }),
+              },
+            });
           });
-        });
-        const { port } = vite!.httpServer!.address() as { port: number };
-        await page.goto(`http://127.0.0.1:${port}/`);
-        await page.locator(".acpmux-newtab .acpmux-composer-foot .acpmux-model .acpmux-picker-button").waitFor();
-        await page.evaluate(() => document.fonts.ready);
-        // raf-read: the footer's row fit settles before the following painted frame.
-        await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-        const lines = await measure(page);
-        console.log(`[new-tab-classic-lines] ${width}: ${JSON.stringify(lines)}`);
+          const { port } = vite!.httpServer!.address() as { port: number };
+          await page.goto(`http://127.0.0.1:${port}/`);
+          await page.locator(".acpmux-newtab .acpmux-composer-foot .acpmux-model .acpmux-picker-button").waitFor();
+          await page.evaluate((plainFooter) => window.cmuxAcpmuxComposer?.({ plainFooter }), plainFooter);
+          await page.evaluate(() => document.fonts.ready);
+          // raf-read: the footer's row fit settles before the following painted frame.
+          await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+          const lines = await measure(page);
+          console.log(`[new-tab-classic-lines] ${width} ${look}: ${JSON.stringify(lines)}`);
 
-        const { box } = lines;
-        for (const line of lines.hairlines) {
-          expect({
-            ...line,
-            insideCorners: line.left >= box.left + box.radius - 0.5 && line.right <= box.right - box.radius + 0.5,
-          }).toEqual({
-            ...line,
-            insideCorners: true,
-          });
+          const { box } = lines;
+          for (const line of lines.hairlines) {
+            expect({
+              ...line,
+              insideCorners: line.left >= box.left + box.radius - 0.5 && line.right <= box.right - box.radius + 0.5,
+            }).toEqual({
+              ...line,
+              insideCorners: true,
+            });
+          }
+          // The line is on the 4 px grid (design/grid.md section 1).
+          expect(lines.lead % 4).toBe(0);
+          expect(Math.abs(lines.allSessions - lines.lead)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(lines.glyph - lines.lead)).toBeLessThanOrEqual(1);
+          // The permission mode chip under the box: its shield centers on the row glyph's center line, and
+          // whichever ink comes first (the shield, or the label when the look drops it) starts on the lead.
+          expect(Math.abs(lines.glyphCenter - lines.mark)).toBeLessThanOrEqual(0.5);
+          expect(lines.mode, "the quiet row shows the permission mode").not.toBeNull();
+          const mode = lines.mode!;
+          expect(Math.abs((mode.center ?? lines.mark) - lines.mark)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(Math.min(mode.glyph ?? Infinity, mode.text) - lines.lead)).toBeLessThanOrEqual(1);
+        } finally {
+          await page.close();
         }
-        // The line is on the 4 px grid (design/grid.md section 1).
-        expect(lines.lead % 4).toBe(0);
-        expect(Math.abs(lines.allSessions - lines.lead)).toBeLessThanOrEqual(0.5);
-        expect(Math.abs(lines.glyph - lines.lead)).toBeLessThanOrEqual(1);
-      } finally {
-        await page.close();
-      }
-    });
-  }
+      });
+    }
 });

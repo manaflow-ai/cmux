@@ -597,6 +597,16 @@
         }
       ]
     },
+    "progenitor-client 0.15.0": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/oxidecomputer-progenitor-76a3b70f0eb1/LICENSE",
+          "source": "https://raw.githubusercontent.com/oxidecomputer/progenitor/76a3b70f0eb11e044b52ee15bd07bcc370c8adb5/LICENSE",
+          "sha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04"
+        }
+      ]
+    },
     "ratatui-termina 0.1.0": {
       "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
       "files": [

@@ -132,12 +132,19 @@ mod agent_inventory;
 #[cfg(unix)]
 mod agent_session_attach;
 #[cfg(unix)]
+mod mobile_chat;
+#[cfg(unix)]
 pub use agent_session_attach::{
-    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
-    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
-    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
-    start_link_share_bridge,
+    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
+    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
+    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
+    AgentStartHost, AgentStartHostSource, start_link_share_bridge,
+};
+#[cfg(unix)]
+pub(crate) use agent_session_attach::{
+    close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
 };
 #[cfg(unix)]
 pub mod agent_transfer;
@@ -147,6 +154,7 @@ mod client_hello;
 mod command_args;
 #[cfg(unix)]
 mod fs_wire;
+mod input_qos;
 mod line_connection;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
@@ -190,6 +198,9 @@ mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
+pub(crate) use launch_snapshot::MAX_LAUNCH_SNAPSHOT_BYTES;
+#[cfg(unix)]
+mod native_owner;
 mod new_screen;
 mod personal;
 mod raw_tab;
@@ -237,6 +248,7 @@ mod tab_column;
 mod tab_park;
 mod tab_restart;
 mod websocket_listener;
+pub(crate) use cmd_subscribe::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY;
 #[cfg(test)]
 use cmd_subscribe::subscribed_event_json;
 use cmd_subscribe::subscription_overflow_json;
@@ -265,6 +277,7 @@ use group_outcome_json::{
 use split_respawn::{
     SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
 };
+mod connection_wait;
 mod terminal_create;
 mod terminal_history;
 mod terminal_ports;
@@ -485,6 +498,11 @@ pub const WORKSPACE_STATUS_CAPABILITY: &str = "workspace-status-v1";
 /// `workspace.create` takes `focus`: a created workspace becomes the focused
 /// one only with `focus: true` (the app sends it for the person's creations).
 pub const WORKSPACE_CREATE_FOCUS_CAPABILITY: &str = "workspace-create-focus-v1";
+/// `workspace.create` takes `placement` (`top`, `after_current`, `bottom`):
+/// the new workspace's sidebar place for that create, over the
+/// `workspaces.newPlacement` setting; and `workspace.move {index}` moves the
+/// workspace in the sidebar document's order too (#29875).
+pub const WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY: &str = "workspace-sidebar-placement-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
@@ -612,6 +630,10 @@ struct Request {
     id: Option<Value>,
     #[serde(flatten)]
     cmd: Command,
+    /// A remote device's line, judged again at dispatch
+    /// (`incognito_remote::recheck`, #31210).
+    #[serde(skip)]
+    remote_line: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1820,6 +1842,8 @@ enum Command {
     /// `cloud-selfhost-info` (`cloud-selfhost-v1`): the self-hosted chat
     /// server's identity of the person (no fields).
     CloudSelfhostInfo(cloud_conversations::NoParams),
+    /// The cloud environment editor; the signed-in person only.
+    CloudEnvironment(cloud_conversations::EnvironmentParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
     CloudConversationThread(cloud_conversations::ThreadParams),
@@ -2266,6 +2290,8 @@ enum Command {
     },
     /// One READY snapshot on the caller's snapshot attach (`terminal-snapshot-v1`).
     SnapshotRequest(terminal_snapshot::SnapshotRequestParams),
+    /// The caller's snapshot attach of a surface shows it or not (`attach-visibility-v1`).
+    SetAttachVisibility(terminal_snapshot::AttachVisibilityParams),
     /// GHOSTSNP history pages above a row marker (`terminal.history`).
     TerminalHistory(terminal_history::TerminalHistoryParams),
     /// Text or VT of a row-marker range (`terminal.read_range`).
@@ -2631,10 +2657,14 @@ use connection_scheduler::{
 mod bounded_outbound;
 use bounded_outbound::{
     BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
-    SynchronizedTcpStream, claim_connection, claim_watched_connection, write_line_outbound_item,
+    SynchronizedTcpStream, claim_connection, claim_watched_connection,
+    claim_watched_terminal_connection, write_line_outbound_item,
 };
 #[cfg(test)]
-use bounded_outbound::{ControlOutbound, websocket_server_frame_header};
+use bounded_outbound::{
+    ControlOutbound, MAX_TERMINAL_CONNECTIONS, claim_terminal_connection,
+    claim_terminal_connection_from, websocket_server_frame_header,
+};
 
 mod client_registry;
 pub(crate) use client_registry::ClientRegistry;
@@ -2654,6 +2684,7 @@ pub use listen::{
     connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,
 };
 mod restoring;
+mod terminal_sessions;
 #[cfg(test)]
 use listen::{prepare_runtime_socket_directory, socket_start_lock_retry_delay};
 pub use restoring::RestoringServer;
@@ -2717,6 +2748,8 @@ use journal_stream::{
     handle_journal_extension_request, prepare_session_journal_stream, start_session_journal_stream,
 };
 
+mod incognito_orphans;
+mod incognito_remote;
 mod resource_connection;
 use resource_connection::{
     handle_resource_connection_message, resource_stream_end, send_resource_stream_item,
@@ -2835,7 +2868,8 @@ mod attach_lifecycle;
 use attach_lifecycle::{
     AttachWorkerCommit, MarkedClientAttach, attach_response, commit_client_attach_and_start_worker,
     detach_committed_attach, mark_client_attached, mark_resource_client_attached,
-    rollback_failed_attach, spawn_attach_notification_stream, wait_for_initial_browser_resize,
+    rollback_failed_attach, spawn_attach_notification_stream,
+    spawn_attach_notification_stream_gated, wait_for_initial_browser_resize,
 };
 #[cfg(test)]
 use attach_lifecycle::{cleanup_failed_attach, commit_client_attach};
@@ -2939,3 +2973,6 @@ mod browser_profile_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(unix)]
+mod cloud_repos;

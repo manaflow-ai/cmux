@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextAccounts
+import CmuxNextAppCore
 import Foundation
 import Testing
 

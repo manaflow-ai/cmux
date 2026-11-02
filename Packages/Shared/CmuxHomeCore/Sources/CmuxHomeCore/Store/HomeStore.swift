@@ -55,6 +55,10 @@ public final class HomeStore {
     @ObservationIgnored var agentMessages: [ConversationID: HomeAgentMessages] = [:]
     @ObservationIgnored var agentMessageReads: [ConversationID: Task<Void, Never>] = [:]
     @ObservationIgnored var agentMessageRefreshes: Set<ConversationID> = []
+    /// The agent-message folds the user expanded, by conversation (`toggleAgentMessages`).
+    @ObservationIgnored var expandedAgentMessages: [ConversationID: Set<String>] = [:]
+    /// The Feed rows the main Chief's transcript shows, and that conversation (``setFeedRows(_:in:)``).
+    @ObservationIgnored var feedRows: (conversation: ConversationID, rows: [HomeFeedRow])?
     @ObservationIgnored var liveBook = HomeLiveBook()
     /// Conversations whose `run.live` request is out (one at a time).
     @ObservationIgnored var liveRequests: Set<ConversationID> = []
@@ -272,7 +276,14 @@ public final class HomeStore {
         if let cached = transcriptCache[id], cached.version == version, cached.me == me { return cached.items }
         var items = (mirror.windows[id] ?? TranscriptWindow()).items(pending: log.sends(in: id), me: me)
         if !localFiles.isEmpty { items = items.map(decorated) }
-        items = agentMessages[id]?.inserting(into: items, summary: summary(id)) ?? items
+        items = agentMessages[id]?.inserting(into: items, summary: summary(id),
+                                             expanded: expandedAgentMessages[id] ?? []) ?? items
+        if let feed = feedRows, feed.conversation == id,
+           let chief = summary(id)?.participants.first(where: \.isChief)?.id {
+            // A window that does not reach the start shows no rows older than its first message.
+            let since = mirror.windows[id]?.reachedStart == false ? items.first(where: { $0.delivery == .committed })?.createdAt : nil
+            items = HomeFeedRow.inserting(feed.rows, into: items, author: chief, since: since)
+        }
         transcriptCache[id] = (version, me, items)
         return items
     }

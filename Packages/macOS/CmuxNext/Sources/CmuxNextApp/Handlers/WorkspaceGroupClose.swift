@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -44,8 +45,12 @@ enum WorkspaceGroupClose {
 
     /// The close toast in `window`; its Undo reopens what this close recorded
     /// (`reopen`). Also the bulk closes' toast (`WorkspaceBulkClose`, no group). `undone` runs when its Undo does.
+    /// `cleanups`: the personal groups this close may delete once it lands (`closeCleanups`); Undo
+    /// stops each one that has not sent its delete, or waits for the delete in flight, then reopens
+    /// the workspaces and, last, the record each delete made, so the group forms again around them.
     static func offerUndo(_ id: String, _ message: String, groups: [(String?, [String])], after seen: Set<String>,
-                          in window: NSWindow, _ services: AppServices, undone: (@MainActor () -> Void)? = nil) {
+                          in window: NSWindow, _ services: AppServices, cleanups: [GroupCloseCleanup] = [],
+                          undone: (@MainActor () -> Void)? = nil) {
         // Too soon after the last one: Reopen Closed and History still bring the workspaces back.
         if let undoToasts = services.closedTabs?.undoToasts, !CmuxToastCenter.shared.toasts(in: window).contains(where: { $0.id == id }),
            !undoToasts.allowsNewToast(id) { return }
@@ -54,7 +59,14 @@ enum WorkspaceGroupClose {
             undone?()
             guard let services else { return }
             // task-owner: one undo, bounded by `arrivalLimit`
-            Task { @MainActor in for (group, names) in groups { await reopen(group: group, names: names, after: seen, services) } }
+            Task { @MainActor in
+                var records: [String] = []
+                for cleanup in cleanups { if let record = await cleanup.undo(limit: arrivalLimit) { records.append(record) } }
+                for (group, names) in groups { await reopen(group: group, names: names, after: seen, services) }
+                for record in records {
+                    if let entry = DaemonClosedHistory.entry(record, in: services) { DaemonClosedHistory.reopen(entry, services: services) }
+                }
+            }
         }
     }
 
@@ -62,12 +74,17 @@ enum WorkspaceGroupClose {
     /// daemon's closed items to reach the store.
     static let arrivalLimit: Duration = .seconds(5)
 
-    /// The Undo of a close of `names` that may delete the `pruned` groups it empties
-    /// (`PersonalGroupLife.groupsClosing`): the workspaces first, then each group's own record,
-    /// so Undo reopens the workspaces and then forms each deleted group again around them, with
-    /// its id, name, pin and place, as this close's own Undo does.
-    static func undoGroups(_ names: [String], pruned: Set<WorkspaceGroupID>) -> [(String?, [String])] {
-        [(nil, names)] + pruned.map(\.rawValue).sorted().map { ($0, []) }
+    /// One cleanup per personal group in `groups` (`PersonalGroupLife.groupsClosing`) for a close
+    /// whose Undo they share (`offerUndo`); each runs once the close lands (`GroupCloseCleanup.run`).
+    static func closeCleanups(_ groups: Set<WorkspaceGroupID>, _ services: AppServices,
+                              failed: @escaping @MainActor @Sendable (ActionWorkFailure) -> Void) -> [GroupCloseCleanup] {
+        let life = PersonalGroupLife(machines: services.machines)
+        return groups.sorted { $0.rawValue < $1.rawValue }.map { group in
+            life.closeCleanup(group, history: { [weak services] in
+                guard let services else { return [] }
+                return DaemonClosedHistory.entries([.workspace], in: services).map { ($0.item.id, $0.item.group?.id) }
+            }, failed: failed)
+        }
     }
 
     /// The closed items of this close: the new workspace items (newest first)
@@ -104,11 +121,7 @@ enum WorkspaceGroupClose {
     private static func reopen(group id: String?, names: [String], after seen: Set<String>, _ services: AppServices) async {
         let arrived: @MainActor @Sendable () -> Bool = { [weak services] in
             guard let services else { return true }
-            let found = matches(names: names, group: id, after: seen, services)
-            // A group-only entry (`undoGroups`) waits for the record of a group a cleanup deleted.
-            let awaitsGroup = names.isEmpty && found.group == nil
-                && id.map { services.machines.local.store.personal.group(WorkspaceGroupID(rawValue: $0)) == nil } == true
-            return found.missing.isEmpty && !awaitsGroup
+            return matches(names: names, group: id, after: seen, services).missing.isEmpty
         }
         if !arrived() { await ObservationDeadline(owner: "workspace-group-close-undo").until(arrived, limit: arrivalLimit) }
         let found = matches(names: names, group: id, after: seen, services)

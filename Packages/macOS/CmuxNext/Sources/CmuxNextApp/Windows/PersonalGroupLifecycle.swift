@@ -1,7 +1,9 @@
+import CmuxNextAppCore
+import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextSidebar
 import CmuxNextDesign
-import CmuxNextWakeups
 
 /// When a personal workspace group ends (cx-rcby). The home daemon keeps a
 /// group until a client deletes it, so the client that moves workspaces
@@ -113,39 +115,42 @@ struct PersonalGroupLife {
     /// The delete goes only to the groups `recheck` still names once the
     /// command landed, read from the latest personal state: a member
     /// another window or client placed meanwhile keeps its group.
-    /// `failed` runs when a command fails (the caller re-syncs).
+    /// `failed` runs when a command fails, with why (the caller re-syncs and says so).
     /// `applied` runs once the home store holds the command's result
     /// (read-your-writes): a sidebar pending edit settles there (cx-odqn).
+    /// `completed` runs last, with whether the command and its cleanup applied.
     /// `landed` gets the command's value as soon as it replied.
     func commit<Value: Sendable>(_ label: String, ending: [WorkspaceGroupID], recheck: @escaping @MainActor () -> [WorkspaceGroupID] = { [] },
-                                 failed: @escaping @MainActor () -> Void, applied: (@MainActor () -> Void)? = nil,
+                                 failed: @escaping @MainActor (ActionWorkFailure) -> Void, applied: (@MainActor () -> Void)? = nil,
                                  completed: (@MainActor (Bool) -> Void)? = nil,
                                  landed: @escaping @MainActor (Value) -> Void = { _ in },
                                  _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> Value) {
         let home = machines.local, personal = personal, v2 = home.store.servesStateResources
-        let transaction = ClientTransactionID.generate()
         personal.endingGroups.formUnion(ending)
         Task {
             // Shown again before a failure re-syncs, so a kept group never stays hidden.
             @MainActor func end() { personal.endingGroups.subtract(ending) }
-            let result: (value: Value, completed: Bool)? = await home.request(label, transaction: transaction) { connection, _ in
-                let value = try await body(connection)
-                // Keep cleanup on the reply's connection and wait for the primary
-                // event before deciding whether the source group is now empty.
-                guard await home.appliedThroughReply(on: connection, after: label) else { throw DaemonError.notConnected }
-                await landed(value)
-                if let applied { await applied() }
-                let still = await MainActor.run { Set(recheck()) }
-                let doomed = ending.filter(still.contains)
-                for group in doomed {
-                    if v2 { try await connection.state.deleteWorkspaceGroup(group.rawValue) }
-                    else { try await connection.deletePersonalGroup(group) }
+            let result: (value: Value, completed: Bool)
+            do {
+                // `perform`, not `request`: a failure comes back with why, for the caller to say (#26382).
+                result = try await home.perform(label) { connection in
+                    let value = try await body(connection)
+                    // Keep cleanup on the reply's connection and wait for the primary
+                    // event before deciding whether the source group is now empty.
+                    guard await home.appliedThroughReply(on: connection, after: label) else { throw DaemonError.notConnected }
+                    await landed(value)
+                    if let applied { await applied() }
+                    let still = await MainActor.run { Set(recheck()) }
+                    let doomed = ending.filter(still.contains)
+                    for group in doomed {
+                        if v2 { try await connection.state.deleteWorkspaceGroup(group.rawValue) }
+                        else { try await connection.deletePersonalGroup(group) }
+                    }
+                    return (value, true)
                 }
-                return (value, true)
-            }
-            guard let result else {
+            } catch {
                 end()
-                failed()
+                failed(ActionWorkFailure(label, error))
                 completed?(false)
                 return
             }
@@ -155,7 +160,7 @@ struct PersonalGroupLife {
     }
 
     /// Deletes `group` when it is still an unpinned group with no live member.
-    func deleteIfEmpty(_ group: WorkspaceGroupID, failed: @escaping @MainActor () -> Void) {
+    func deleteIfEmpty(_ group: WorkspaceGroupID, failed: @escaping @MainActor (ActionWorkFailure) -> Void) {
         guard let model = personal.group(group),
               PersonalGroupLifecycle.shouldDeleteAfterClose(
                   PersonalGroupLifecycle.Group(id: model.id, pinned: model.pinned),
@@ -174,55 +179,40 @@ struct PersonalGroupLife {
         return personal.isLoaded && home.store.servesStateResources && home.supports(DaemonCapability.workspaceGroupPin.rawValue)
     }
 
-    /// The personal groups of the workspaces `ids` that a close of them may
-    /// empty, read before they close (none when `endsGroupsOnClose` is false).
+    /// The unpinned personal groups of the workspaces `ids` that a close of
+    /// them may empty, read before they close (none when `endsGroupsOnClose`
+    /// is false). A pinned group stays, so its close has nothing to delete.
     func groupsClosing(_ ids: [String]) -> Set<WorkspaceGroupID> {
         guard endsGroupsOnClose else { return [] }
-        return Set(ids.compactMap { id in
+        let closing = Set(ids.compactMap { id in
             WindowProfiles.qualified(id, machines: machines).flatMap { personal.workspace(session: $0.session, key: $0.key)?.group }
         })
+        return GroupCloseCleanup.prunable(closing, groups: groups.map { ($0.id, $0.pinned) })
     }
 
-    /// How long a close waits for its members' close events to reach the
-    /// home store before it stops waiting to delete their group. A close the
-    /// daemon refuses (or one that never lands) leaves its members live, so
-    /// without a limit the wait would never end; a close that lands is seen
-    /// well within it (`WorkspaceGroupClose.arrivalLimit` gives Undo the same).
-    nonisolated static let closeSettleLimit: Duration = .seconds(5)
-
-    /// What a close's group cleanup did: `deleted` sent the delete (`deleteIfEmpty`), `kept` left the group.
-    enum CloseCleanup: Equatable {
-        case deleted
-        case kept
+    /// Deletes `group` as `deleteIfEmpty` does, and returns whether the
+    /// delete went to the group (its recheck still found it empty) and landed.
+    func deleteIfEmptyLanded(_ group: WorkspaceGroupID, failed: @escaping @MainActor (ActionWorkFailure) -> Void) async -> Bool {
+        guard isEmptyUnpinned(group) else { return false }
+        let life = self, doomed = DeleteSent()
+        return await withCheckedContinuation { done in
+            commit("delete-personal-group", ending: [group],
+                   recheck: { doomed.value = life.isEmptyUnpinned(group); return doomed.value ? [group] : [] },
+                   failed: failed, completed: { ok in done.resume(returning: ok && doomed.value) }) { _ -> Void in }
+        }
     }
 
-    /// Deletes `group` once its members' closes reach the home store: waits
-    /// until it is an unpinned group with no live member, it is gone, the
-    /// observation ends, or `limit` passes, whichever comes first, then
-    /// deletes it only if it still is an unpinned group with no live member.
-    /// So it always returns, and a refused close (its members stay live)
-    /// keeps its group.
-    @discardableResult
-    func deleteWhenEmpty(_ group: WorkspaceGroupID, limit: Duration = PersonalGroupLife.closeSettleLimit,
-                         failed: @escaping @MainActor () -> Void) async -> CloseCleanup {
+    @MainActor private final class DeleteSent { var value = false }
+
+    /// One close's cleanup of `group`, on the home store and the closed history (`GroupCloseCleanup`).
+    func closeCleanup(_ group: WorkspaceGroupID, history: @escaping @MainActor @Sendable () -> [(id: String, group: String?)],
+                      failed: @escaping @MainActor @Sendable (ActionWorkFailure) -> Void) -> GroupCloseCleanup {
         let life = self
-        return await Self.settle(
-            limit: limit,
-            settled: { life.personal.group(group) == nil || life.isEmptyUnpinned(group) },
-            deletable: { life.isEmptyUnpinned(group) },
-            delete: { life.deleteIfEmpty(group, failed: failed) })
-    }
-
-    /// The bounded wait behind `deleteWhenEmpty`, over the state it reads (a
-    /// test drives it with its own): waits until `settled` holds, the
-    /// observation ends or `limit` passes (`ObservationDeadline`), then runs
-    /// `delete` only when `deletable` holds.
-    static func settle(limit: Duration, settled: @escaping @MainActor @Sendable () -> Bool,
-                       deletable: @MainActor () -> Bool, delete: @MainActor () -> Void) async -> CloseCleanup {
-        if !settled() { await ObservationDeadline(owner: "personal-group-close-cleanup").until(settled, limit: limit) }
-        guard deletable() else { return .kept }
-        delete()
-        return .deleted
+        return GroupCloseCleanup(group, home: .init(
+            exists: { life.personal.group(group) != nil },
+            isEmptyUnpinned: { life.isEmptyUnpinned(group) },
+            delete: { await life.deleteIfEmptyLanded(group, failed: failed) },
+            history: history))
     }
 }
 

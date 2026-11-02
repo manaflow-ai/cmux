@@ -55,7 +55,8 @@ public nonisolated struct HistoryEntry: Identifiable, Hashable, Sendable {
         case .page(let url, _): parts.append(url)
         case .location(let location, _):
             parts += [location.workspaceTitle, location.url, location.cwd].compactMap { $0 }
-        case .closed(let item): parts += [item.url, item.cwd].compactMap { $0 }
+        case .closed(let item):
+            parts += [item.url, item.cwd, item.agentSession?.sessionID, item.agentSession?.harness].compactMap { $0 }
         case .command(let command): parts += [command.command, command.cwd].compactMap { $0 }
         case .agent(let session): parts += [session.provider, session.sessionID, session.cwd].compactMap { $0 }
         }
@@ -65,7 +66,7 @@ public nonisolated struct HistoryEntry: Identifiable, Hashable, Sendable {
 
 /// A closed tab, screen or workspace that can be reopened.
 public nonisolated struct ClosedItem: Hashable, Sendable {
-    public enum Kind: String, Hashable, Sendable { case terminalTab, browserTab, screen, workspace }
+    public enum Kind: String, Hashable, Sendable { case terminalTab, browserTab, conversationTab, screen, workspace }
 
     /// The closed-items log's own id for the record.
     public var id: String
@@ -75,9 +76,20 @@ public nonisolated struct ClosedItem: Hashable, Sendable {
     public var workspace: String?
     public var cwd: String?
     public var url: String?
+    /// The closed tab was an agent chat; nil for terminal, browser, page and legacy records.
+    public struct AgentSession: Hashable, Sendable {
+        public var sessionID: String?
+        public var harness: String?
+
+        public init(sessionID: String? = nil, harness: String? = nil) {
+            self.sessionID = sessionID
+            self.harness = harness
+        }
+    }
+    public var agentSession: AgentSession?
 
     public init(id: String, kind: Kind, title: String, machine: String, workspace: String? = nil,
-                cwd: String? = nil, url: String? = nil) {
+                cwd: String? = nil, url: String? = nil, agentSession: AgentSession? = nil) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -85,6 +97,7 @@ public nonisolated struct ClosedItem: Hashable, Sendable {
         self.workspace = workspace
         self.cwd = cwd
         self.url = url
+        self.agentSession = agentSession
     }
 }
 

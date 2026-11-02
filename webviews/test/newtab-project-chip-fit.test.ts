@@ -51,7 +51,7 @@ await requireBrowserLane("newtab-project-chip-fit.test.ts", async () => {
           );
           expect(playFailures(report)).toEqual([]);
           const geometry = await page
-            .locator(".nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child button")
+            .locator(".nt-above .acpmux-location-leading > .acpmux-location-picker:first-child button")
             .evaluate((button) => {
               const label = button.querySelector<HTMLElement>(".acpmux-location-label")!;
               const chevron = button.querySelector<HTMLElement>(":scope > .ui-ghost-icon:last-child")!;

@@ -29,6 +29,10 @@ fn cache_path(dir: &std::path::Path, peer: &str) -> Option<std::path::PathBuf> {
 /// clients read), `stale`, and when the peer was last seen. Returns whether
 /// the row changed.
 pub(super) fn mark_stale(summary: &mut Value, last_seen: Option<u64>) -> bool {
+    // A completed chat stays completed even when its machine goes away.
+    if summary["status"] == "closed" {
+        return false;
+    }
     let before = summary.clone();
     summary["status"] = Value::String("unreachable".into());
     if summary.get("state").is_some() {
@@ -137,6 +141,20 @@ impl Hub {
         // current (under this lock) has sent its op already and none after it does, so no
         // listing that lets a page start a copy again comes after this.
         self.peer_snapshots.forget_peer(peer);
+    }
+
+    /// A peer `name` that is registered but whose link is down, having listed `rows` and taken
+    /// attachments before it went: what a server test sends to while the peer is unreachable.
+    #[cfg(test)]
+    pub(crate) fn seed_down_peer(&self, name: &str, rows: Vec<Value>) -> Arc<crate::peer::Peer> {
+        use crate::peer::PeerNotice;
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
+        peer.seed_send_attach(true);
+        self.peers.lock().unwrap().insert(name.to_owned(), peer.clone());
+        self.apply_peer_notice(name, peer.generation, PeerNotice::Sessions(rows));
+        self.apply_peer_notice(name, peer.generation, PeerNotice::Disconnected("down".into()));
+        peer
     }
 
     /// The refusal for `PEER/name` when PEER is a peer that is down and

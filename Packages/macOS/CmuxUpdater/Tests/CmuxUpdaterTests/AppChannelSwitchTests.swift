@@ -8,6 +8,20 @@ import Testing
         #expect(AppChannelSwitchTarget.counterpart(ofBundleIdentifier: "com.cmuxterm.app.nightly") == .stable)
     }
 
+    @Test func nextNightlyAndDevOfferEachOther() {
+        #expect(AppChannelSwitchTarget.counterpart(ofBundleIdentifier: "com.cmuxterm.app.nightly.cmux-next") == .dev)
+        #expect(AppChannelSwitchTarget.counterpart(ofBundleIdentifier: "com.cmuxterm.app.debug.next") == .nightlyNext)
+    }
+
+    @Test func nextDownloadsAreTheNextNightlyDMGAndTheDevZip() {
+        #expect(AppChannelSwitchTarget.nightlyNext.downloadURL(architecture: .arm64)?.absoluteString
+            == UpdateManualDownloadRecovery.nightlyNextDownloadURLString(for: .arm64))
+        #expect(AppChannelSwitchTarget.nightlyNext.archive == .diskImage)
+        #expect(AppChannelSwitchTarget.dev.downloadURL(architecture: .arm64)?.absoluteString
+            == "https://github.com/manaflow-ai/cmux/releases/download/cmux-next-dev/cmux-NEXT-DEV.zip")
+        #expect(AppChannelSwitchTarget.dev.archive == .zip)
+    }
+
     @Test func devAndUnknownBuildsOfferNothing() {
         #expect(AppChannelSwitchTarget.counterpart(ofBundleIdentifier: nil) == nil)
         #expect(AppChannelSwitchTarget.counterpart(ofBundleIdentifier: "com.cmuxterm.app.debug.my-tag") == nil)
@@ -167,6 +181,23 @@ import Testing
         #expect(harness.leftoverStagingEntries().isEmpty)
     }
 
+    /// cmux NEXT DEV ships a zip: it is opened by the zip opener, then verified and installed
+    /// like a DMG's app.
+    @Test func devDownloadsTheZipAndInstallsTheDevApp() async throws {
+        let harness = try SwitcherHarness()
+
+        let outcome = try await harness.switcher().switchTo(.dev) { _ in }
+
+        let destination = harness.systemApplications.appendingPathComponent("cmux.app", isDirectory: true)
+        #expect(outcome == .installedAndOpened(destination))
+        let devZip = try #require(AppChannelSwitchTarget.dev.downloadURL())
+        #expect(harness.downloader.requested == [devZip])
+        #expect(harness.mounter.attached.map(\.lastPathComponent) == ["dev.zip"])
+        #expect(FileManagerAppInstallFileSystem().bundleIdentifier(ofAppAt: destination) == "com.cmuxterm.app.debug.next")
+        #expect(harness.launcher.opened == [destination])
+        #expect(harness.leftoverStagingEntries().isEmpty)
+    }
+
     @Test func installsIntoUserApplicationsWhenSystemIsReadOnly() async throws {
         let harness = try SwitcherHarness()
         harness.fileSystem.readOnly = [harness.systemApplications.path]
@@ -274,6 +305,32 @@ import Testing
         #expect(HdiutilDiskImageMounter.deviceEntry(fromAttachPlist: data) == "/dev/disk9")
     }
 
+    /// The live zip opener extracts a `ditto --keepParent` zip (the DEV publisher's) beside it,
+    /// app at the top, and removes the extracted copy on detach.
+    @Test func liveZipOpenerExtractsAndRemoves() async throws {
+        let root = try TemporaryDirectory()
+        let app = try root.makeApp(named: "build/cmux NEXT DEV.app", bundleIdentifier: "com.cmuxterm.app.debug.next")
+        let zip = root.url.appendingPathComponent("dev.zip")
+        let ditto = Process()
+        ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        ditto.arguments = ["-c", "-k", "--keepParent", app.path, zip.path]
+        try ditto.run()
+        ditto.waitUntilExit()
+        #expect(ditto.terminationStatus == 0)
+
+        let opener = DittoZipArchiveOpener()
+        let folder = try await opener.attach(zip)
+        let fileSystem = FileManagerAppInstallFileSystem()
+        #expect(fileSystem.contentsOfDirectory(at: folder).map(\.lastPathComponent) == ["cmux NEXT DEV.app"])
+        #expect(fileSystem.bundleIdentifier(ofAppAt: folder.appendingPathComponent("cmux NEXT DEV.app")) == "com.cmuxterm.app.debug.next")
+        await opener.detach(folder)
+        #expect(!fileSystem.fileExists(at: folder))
+
+        await #expect(throws: DittoZipArchiveOpener.ExtractError.self) {
+            try await opener.attach(root.url.appendingPathComponent("missing.zip"))
+        }
+    }
+
     /// A download started from an already-cancelled task must end, not wait forever.
     @Test func liveDownloaderEndsWhenStartedCancelled() async throws {
         let root = try TemporaryDirectory()
@@ -343,6 +400,7 @@ final class SwitcherHarness: @unchecked Sendable {
             locator: locator,
             downloader: downloader,
             mounter: mounter,
+            zipOpener: mounter,
             inspector: inspector,
             launcher: launcher,
             fileSystem: fileSystem,

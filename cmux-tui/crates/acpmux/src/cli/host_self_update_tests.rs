@@ -80,6 +80,7 @@ fn paths(peer: &FakePeer) -> Paths {
         installed: peer.home.join(".local/bin/acpmux"),
         off: peer.home.join(".acpmux").join(NO_AUTO_UPDATE),
         cloud_vm: peer.home.join("etc/cmux/vm-kind"),
+        unit: peer.home.join(format!("{UNITS}/acpmux.service")),
         target: TARGET,
     }
 }
@@ -392,13 +393,37 @@ async fn one_self_update_runs_at_a_time_and_the_opt_out_stops_them() {
 
 #[tokio::test]
 async fn a_cloud_vm_is_refused_before_anything_is_read() {
-    let peer = FakePeer::new("self-cloud-vm");
-    peer.write("etc/cmux/vm-kind", "cloud\n");
-    let files = serving(&fake_acpmux(NEW, Some(NEW)));
-    let why = refused(&peer, &files).await;
-    assert!(why.contains("--to-bundled"), "{why}");
-    assert!(files.asked().is_empty());
-    peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+    // cmux Cloud's own shape: no acpmux.service, or one someone else wrote.
+    for theirs in [None, Some("# theirs\n")] {
+        let peer = FakePeer::new("self-cloud-vm");
+        peer.write("etc/cmux/vm-kind", "cloud\n");
+        let unit = peer.home.join(format!("{UNITS}/acpmux.service"));
+        match theirs {
+            None => std::fs::remove_file(&unit).unwrap(),
+            Some(edit) => std::fs::write(&unit, format!("{SYSTEMD_UNIT}{edit}")).unwrap(),
+        }
+        let files = serving(&fake_acpmux(NEW, Some(NEW)));
+        let why = refused(&peer, &files).await;
+        assert!(why.contains("--to-bundled"), "{why}");
+        assert!(files.asked().is_empty());
+        peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+    }
+}
+
+/// A cmux Cloud VM set up as a fleet lane host (2026-10-30) runs
+/// acpmux's own `acpmux.service`; its timer refused every run and the host
+/// stayed on its first build. That daemon is nobody else's, so it updates.
+#[tokio::test]
+async fn a_cloud_vm_running_acpmux_service_updates_itself() {
+    let peer = FakePeer::new("self-cloud-vm-own-unit");
+    peer.write("etc/cmux/vm-kind", "team\n");
+    let new = fake_acpmux(NEW, Some(NEW));
+    let files = serving(&new);
+    let plan = ready(&peer, &files).await;
+    let up = apply(&peer, &plan, TARGET);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), new);
+    assert_eq!(peer.daemon(), NEW);
 }
 
 #[tokio::test]

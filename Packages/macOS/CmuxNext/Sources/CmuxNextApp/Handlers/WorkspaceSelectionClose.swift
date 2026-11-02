@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAppCore
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
@@ -12,11 +13,12 @@ enum WorkspaceSelectionClose {
     static func close(_ ids: [String], in state: WindowState, _ services: AppServices) {
         let windows = services.windows, controller = windows.controller(for: state.id), shownAtPress = controller?.state.workspaceID
         let members = ids.compactMap { services.machines.workspace(id: $0) }.filter { workspace, _ in
-            workspace.key != nil && !HomeRules.isHome(workspace) && WorkspaceSelectionCloseFlow.canStart(workspace.id)
+            workspace.key != nil && !HomeRules.isHome(workspace) && services.selectionCloses.canStart(workspace.id)
         }
         let closing = members.map(\.0.id), undoWindow = WorkspaceBulkClose.survivor(closing: closing, AppActionContext(services: services))
         let incognito = members.contains { windows.isIncognito(workspace: $0.0.id) }, selected = WorkspaceCloseSelection()
-        let groupsToPrune = PersonalGroupLife(machines: services.machines).groupsClosing(closing)
+        let cleanups = WorkspaceGroupClose.closeCleanups(PersonalGroupLife(machines: services.machines).groupsClosing(closing), services,
+                                                         failed: { _ in controller?.sidebar.resync() })
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id)), warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
         let flow = WorkspaceSelectionCloseFlow(
             hide: { ids in
@@ -43,13 +45,14 @@ enum WorkspaceSelectionClose {
             listed: { services.workspace(id: $0) != nil }, machines: { services.machines.daemons },
             offerUndo: { names, undone in
                 guard names.count > 1, let undoWindow else { return }
-                WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(names.count), groups: WorkspaceGroupClose.undoGroups(names, pruned: groupsToPrune), after: seen, in: undoWindow, services, undone: undone)
+                WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(names.count), groups: [(nil, names)], after: seen, in: undoWindow, services,
+                                              cleanups: cleanups, undone: undone)
             },
             settled: {
-                let life = PersonalGroupLife(machines: services.machines)
-                for group in groupsToPrune { life.deleteIfEmpty(group, failed: { controller?.sidebar.resync() }) }
+                // task-owner: one cleanup per group (a later settle of the batch may run a kept one again)
+                for cleanup in cleanups { Task { @MainActor in await cleanup.run() } }
             },
-            window: state.id, toastWindow: controller?.window)
+            window: state.id, toastWindow: controller?.window, running: services.selectionCloses)
         if let work = flow.start(members) { services.registry.track(work) }
     }
 }

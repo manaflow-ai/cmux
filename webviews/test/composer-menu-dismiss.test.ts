@@ -10,7 +10,7 @@
 // - A press anywhere else only closes the menu: nothing under it is clicked (the mic does not start
 //   dictation, the field takes no click), as a macOS menu swallows the click that dismisses it.
 // - Escape closes the menu and puts the keyboard back on its chip, with the chip's focus ring.
-// - Picking a permission mode, or a level in the model menu's Effort ›, hands the keyboard back to
+// - Picking a permission mode, or a level (the running model's effort dropdown, else the Effort ›), hands the keyboard back to
 //   the prompt.
 //
 // Real Chromium and WebKit (the app's engine) with real pointer events, on the gallery stage at
@@ -327,15 +327,19 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
             const page = await open(engine, stage, width);
             await pressAt(page, chip(name));
             await settle(page, stage.chips, [name]);
-            // The current model's row carries its levels inline where the caller picks model and
-            // effort together (#26521: New Tab); the segment group is the one with a checked level.
-            const inlineLevel =
-              '.acpmux-quick-menu .acpmux-quick-efforts:has(.acpmux-quick-effort-segment[aria-checked="true"]) .acpmux-quick-effort-segment[aria-checked="false"]';
+            // Where the caller picks model and effort together (New Tab), the running model's effort
+            // is a side dropdown beside its row (#27948): its effort item opens the levels.
+            const sideEffort = ".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger";
+            const sideLevel = '.acpmux-quick-effort-menu [role="menuitemradio"][aria-checked="false"]';
             if (name === "Model")
-              await page.locator(`${inlineLevel}, .acpmux-quick-sub:has-text("Effort")`).first().waitFor();
-            if (name === "Model" && (await page.locator(inlineLevel).count()) > 0) {
+              await page.locator(`${sideEffort}, .acpmux-quick-sub:has-text("Effort")`).first().waitFor();
+            if (name === "Model" && (await page.locator(sideEffort).count()) > 0) {
+              // A submenu trigger opens on hover or from the keyboard (Base UI ignores a press while it
+              // opens on hover): hover it, then press a level in its dropdown.
+              await page.locator(sideEffort).first().hover();
+              await page.locator(sideLevel).first().waitFor();
               await menusAtRest(page);
-              await pressAt(page, inlineLevel);
+              await pressAt(page, sideLevel);
             } else if (name === "Model") {
               // The level rows sit in the model menu's Effort › submenu, the popup with no submenu row.
               await pressAt(page, '.acpmux-quick-sub:has-text("Effort")');

@@ -543,6 +543,8 @@ final class RowCell: UICollectionViewCell {
     var tiled: TiledBody?
     /// Markdown rows: scrollable blocks and copy buttons (MarkdownOverlay.swift).
     var markdownOverlay: MarkdownOverlay?
+    /// cmux: the Chief's status line's shimmer (HomeNoticeShimmer.swift), made on its first notice row.
+    var noticeShimmer: HomeNoticeShimmer?
     /// The row this cell waits for from the bitmap queue (renders nobody waits for are skipped).
     private var pendingWant: RowSpec?
     private func dropWant() { if let w = pendingWant { RowBitmaps.shared.unwant(w); pendingWant = nil } }
@@ -858,6 +860,8 @@ final class RowCell: UICollectionViewCell {
         } else {
             setTyping(false, spec)
         }
+        // cmux: the Chief's status line shimmers (HomeNoticeShimmer); any other row takes the shimmer off.
+        if case .notice = spec.kind { HomeNoticeShimmer.configure(self, spec) } else { noticeShimmer?.detach(from: self) }
         if TiledBubble.applies(spec) { markdownOverlay?.detach(); TiledBubble.configure(self, spec); CATransaction.commit(); return }
         tiled?.detach(self)
         let span = RowDraw.drawSpan(spec)

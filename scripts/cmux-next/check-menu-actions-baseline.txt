@@ -37,4 +37,6 @@
 1 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteHoverToolbar.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarNoticeCardView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdateCardView.swift
+# Page-declared tab-row menu rows return the selected id to the page, which owns the action (as WebContextMenu does).
+1 Packages/macOS/CmuxNext/Sources/CmuxNextTabs/PaneToolbarView.swift
 3 Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSurfaceView+Pasteboard.swift

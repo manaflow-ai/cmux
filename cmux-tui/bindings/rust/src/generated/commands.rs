@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2461ff8aeeb5d34f4dd06fbf14db7a02d2e540305fe2174488fd74e38e0b2f8d.
+// cmux-tui mux protocol 12, IR cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -745,6 +745,18 @@ pub struct CloudConversationUnsubscribeRequest {
 pub type CloudConversationUnsubscribeResult = T::JsonValue;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudEnvironmentRequest {
+    pub access_token: String,
+    pub action: String,
+    pub params: Nullable<T::JsonValue>,
+    pub platform_origin: String,
+}
+
+#[rustfmt::skip]
+pub type CloudEnvironmentResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CloudHostReplicaClearRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -779,6 +791,8 @@ pub type CloudHostReplicaStatusResult = T::JsonValue;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CloudInboxListRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cursor: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub include_archived: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3266,6 +3280,19 @@ pub struct ServerStatsRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetAttachVisibilityRequest {
+    pub surface: T::Id,
+    pub visible: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetAttachVisibilityResult {
+    pub viewers: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetCellPixelsRequest {
     pub height_px: u16,
     pub width_px: u16,
@@ -4390,6 +4417,10 @@ impl CmuxClient {
         self.execute(&CLOUD_CONVERSATION_UNSUBSCRIBE_METADATA, &request)
     }
 
+    pub fn cloud_environment(&mut self, request: CloudEnvironmentRequest) -> Result<CloudEnvironmentResult> {
+        self.execute(&CLOUD_ENVIRONMENT_METADATA, &request)
+    }
+
     pub fn cloud_host_replica_clear(&mut self, request: CloudHostReplicaClearRequest) -> Result<CloudHostReplicaClearResult> {
         self.execute(&CLOUD_HOST_REPLICA_CLEAR_METADATA, &request)
     }
@@ -5361,6 +5392,10 @@ impl CmuxClient {
 
     pub fn server_stats(&mut self, request: ServerStatsRequest) -> Result<T::ServerStatsResult> {
         self.execute(&SERVER_STATS_METADATA, &request)
+    }
+
+    pub fn set_attach_visibility(&mut self, request: SetAttachVisibilityRequest) -> Result<SetAttachVisibilityResult> {
+        self.execute(&SET_ATTACH_VISIBILITY_METADATA, &request)
     }
 
     pub fn set_cell_pixels(&mut self, request: SetCellPixelsRequest) -> Result<T::SetCellPixelsResult> {

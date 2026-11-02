@@ -7,7 +7,7 @@
 // - ↑ on the empty prompt reaches the last queued prompt; ⌥↑ moves it up, and it keeps focus.
 // - Return edits a queued prompt in its row; it keeps its place. So does the ⋯ menu's Edit message.
 // - The X on a steer the agent has not read takes it back into the composer; what is sent then is
-//   the edited text.
+//   the edited text. One acpmux refuses says Read after this step and stays for the next click.
 // - ⌘Return on a queued prompt does nothing (it means "not now"); Delete removes one.
 // - A queue a failed turn paused says so, and Resume runs it again.
 //
@@ -38,6 +38,9 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
   let claude = false;
   /// The steer the agent has not read yet, which `withdraw` takes back.
   let waitingSteer: string | undefined;
+  /// How many of the next withdraws acpmux refuses while the steer still waits (it registers a steer
+  /// as withdrawable only once its images are prepared, steer_end.rs).
+  let refuseWithdraws = 0;
   /// The prompts the page sent (`session/prompt`), as text, and who waits for the next.
   const sent: string[] = [];
   let onSent: (() => void) | undefined;
@@ -109,6 +112,10 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
         edits.push({ ...params });
         delete edits.at(-1)!.sessionId;
         if (params.op === "withdraw") {
+          if (refuseWithdraws > 0) {
+            refuseWithdraws--;
+            return { ok: false };
+          }
           const took = params.promptId === waitingSteer;
           if (took) event(ws, "steer_withdrawn", { promptId: waitingSteer, turnId: "turn-1" });
           waitingSteer = undefined;
@@ -178,10 +185,11 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  async function openChat(first = "first", pausedQueue = false, steer?: string): Promise<Page> {
+  async function openChat(first = "first", pausedQueue = false, steer?: string, refuses = 0): Promise<Page> {
     paused = pausedQueue;
     claude = steer !== undefined;
     waitingSteer = steer === undefined ? undefined : "p-steer";
+    refuseWithdraws = refuses;
     sent.length = 0;
     opening.length = 1;
     if (steer !== undefined)
@@ -261,8 +269,8 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
     });
 
     // Leo, 2026-10-29: "Plus this fucking edit message thing. It doesn't even fucking work." The ⋯
-    // menu's Edit message opens the prompt in its row, and what is saved is what acpmux sends.
-    test("the ⋯ menu's Edit message edits a queued prompt in its row, and saving changes what is sent", async () => {
+    // menu's Edit message opens the prompt in its row, and saving it updates the prompt acpmux sends.
+    test("the ⋯ menu's Edit message edits a queued prompt in its row, and saving updates the prompt acpmux will send", async () => {
       const page = await openChat();
       const row = page.locator('.acpmux-queued[data-prompt-id="q-1"]');
       await row.hover();
@@ -301,6 +309,32 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
       await page.keyboard.press("Enter");
       await delivered;
       expect(sent).toEqual(["Use the cache dir for the next run"]);
+      await page.close();
+    });
+
+    // Review of #27672: acpmux refuses a withdraw for a moment right after a steer is sent. The row
+    // says Read after this step, the X stays (the pointer leaving draws nothing again), and the next
+    // click takes the steer back into the composer.
+    test("an X acpmux refuses once says Read after this step and stays; the next click takes the steer back", async () => {
+      const page = await openChat("first", false, "Use the cache dir", 1);
+      const steer = page.locator(".cv-user", { hasText: "Use the cache dir" });
+      const x = steer.getByRole("button", { name: "Edit message" });
+      await steer.locator(".cv-user__bubble").hover();
+      await x.click();
+      await steer.locator(".cv-user__kept", { hasText: "Read after this step" }).waitFor();
+      await page.mouse.move(2, 2);
+      expect({ notes: await steer.locator(".cv-user__kept").count(), xs: await x.count() }).toEqual({
+        notes: 1,
+        xs: 1,
+      });
+      expect(await x.isEnabled()).toBe(true);
+      await x.click();
+      await steer.waitFor({ state: "detached" });
+      await page.locator(".acpmux-composer-prompt").filter({ hasText: "Use the cache dir" }).waitFor();
+      expect(edits).toEqual([
+        { op: "withdraw", promptId: "p-steer" },
+        { op: "withdraw", promptId: "p-steer" },
+      ]);
       await page.close();
     });
 

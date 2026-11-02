@@ -71,15 +71,29 @@ impl LinkTimings {
 /// Reconnect delays: doubling from `BASE` to `CAP`, each drawn from the
 /// upper half of its step (equal jitter), so peers that lost the same host
 /// do not retry in step, and no attempt follows another at once. It never
-/// gives up.
+/// gives up. While a client waits on the peer, no step is longer than
+/// `WANTED_CAP` (`Backoff::wanted`, `Peer::want`).
 #[derive(Debug, Clone, Default)]
 pub struct Backoff {
     failures: u32,
 }
 
 impl Backoff {
-    pub const BASE: Duration = Duration::from_secs(2);
+    pub const BASE: Duration = Duration::from_millis(500);
     pub const CAP: Duration = Duration::from_secs(60);
+    /// The longest step while a client waits on the peer: a daemon that restarts or a
+    /// handshake that fails once costs an open chat a second, not the doubled minute.
+    pub const WANTED_CAP: Duration = Duration::from_secs(1);
+
+    /// `delay` for a peer a client waits on: unchanged when it is within `WANTED_CAP`, else
+    /// drawn again from that cap's upper half with `jitter` (in `0.0..1.0`).
+    pub fn wanted(delay: Duration, jitter: f64) -> Duration {
+        if delay <= Self::WANTED_CAP {
+            return delay;
+        }
+        let half = Self::WANTED_CAP.mul_f64(0.5);
+        half.saturating_add(Self::WANTED_CAP.mul_f64(jitter.clamp(0.0, 1.0) / 2.0))
+    }
 
     /// The delay before the next attempt; `jitter` is in `0.0..1.0`.
     pub fn next(&mut self, jitter: f64) -> Duration {
@@ -342,6 +356,12 @@ impl Link {
         self.down_since.get_or_insert(now);
     }
 
+    /// How long the link has been ready, while it is.
+    pub fn ready_for(&self, now: u64) -> Option<Duration> {
+        let at = self.ready_at.filter(|_| self.is_ready())?;
+        Some(Duration::from_millis(now.saturating_sub(at)))
+    }
+
     /// The attempt failed or the link dropped. Returns whether the link had
     /// stayed ready for `stable_after` (so the backoff starts over).
     pub fn down(&mut self, now: u64, stable_after: Duration) -> bool {
@@ -576,6 +596,25 @@ mod tests {
         assert_eq!(low.next(0.0), Backoff::BASE / 2);
         let j = jitter();
         assert!((0.0..1.0).contains(&j));
+    }
+
+    #[test]
+    fn a_wanted_peer_retries_within_seconds_however_long_the_backoff_grew() {
+        // The schedule a failed handshake starts: 0.25-0.5 s, 0.5-1 s, 1-2 s, 2-4 s, ...
+        let mut backoff = Backoff::default();
+        let steps: Vec<_> = (0..4).map(|_| backoff.next(0.999_999)).collect();
+        for (step, cap) in steps.iter().zip([500, 1_000, 2_000, 4_000]) {
+            assert!(*step <= Duration::from_millis(cap), "{steps:?}");
+        }
+        assert_eq!(Backoff::wanted(Duration::from_millis(300), 0.0), Duration::from_millis(300));
+        for _ in 0..12 {
+            let delay = backoff.next(0.999_999);
+            let wanted = Backoff::wanted(delay, 0.999_999);
+            assert!(wanted <= Backoff::WANTED_CAP && wanted <= delay, "{wanted:?} for {delay:?}");
+        }
+        assert_eq!(Backoff::wanted(Backoff::CAP, 0.0), Backoff::WANTED_CAP / 2, "never zero");
+        let parked = Duration::from_secs(3_600);
+        assert!(Backoff::wanted(parked, 1.0) <= Backoff::WANTED_CAP, "a parked peer too");
     }
 
     #[test]

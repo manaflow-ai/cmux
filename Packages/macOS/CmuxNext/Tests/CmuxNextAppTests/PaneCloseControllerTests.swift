@@ -5,6 +5,7 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -15,6 +16,7 @@ import Testing
 ///   history; close-focus.md), the same pane the daemon's tree without the pane would get.
 /// - Overlapping closes under fit-screen: the shown widths are always what the closes still pending
 ///   leave, whatever order their echoes or refusals come in, and the widths go out once.
+@Suite(.closesItsWindows)
 @MainActor struct PaneCloseControllerTests {
     private static func pane(_ id: UInt64) -> PaneSnapshot {
         PaneSnapshot(id: DaemonPaneID(rawValue: id), tabs: [TabSnapshot(surface: SurfaceID(rawValue: id), title: "~")])

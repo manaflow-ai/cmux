@@ -117,6 +117,7 @@ export function SettingsApp() {
   return (
     <div className="settings" ref={keyboardRef}>
       <aside className="sidebar">
+        <h2 className="sidebar-title">{t("settingsPage.title")}</h2>
         <SearchField
           query={query}
           onQuery={setQuery}

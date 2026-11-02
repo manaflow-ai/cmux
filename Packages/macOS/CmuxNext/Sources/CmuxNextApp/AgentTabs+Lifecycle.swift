@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
@@ -236,6 +237,30 @@ extension AgentTabStore {
         spare.adoptNewTab(page)
     }
 
+    /// Local tab `key`, which shows this Mac's chat `session`, adopts the prewarmed, connected `spare`:
+    /// the page switches to the chat in place (``AgentPaneView/adoptSession(_:revealTurn:moved:)``).
+    /// A spare that refuses (no longer an untouched New Tab page) goes back to the pool or is retired,
+    /// and the tab gets nothing from it.
+    @discardableResult
+    func adoptSpare(_ spare: AgentPaneView, key: String, session: String, revealTurn: String?) -> Bool {
+        let moved: @MainActor () -> Void = { [weak spare] in
+            // A Chromium page's window follows its view only when told (CEFHostView.pagesNeedUpdate).
+            guard let window = spare?.window else { return }
+            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+        }
+        guard spare.adoptSession(session, revealTurn: revealTurn, moved: moved) else {
+            AgentPaneSpareOutcome.refused.trace(note: spare.model.spareRefusal)
+            if let revealTurn { pendingTurns[key] = revealTurn }
+            if recycle?(spare) != true { retirer.retire(spare) }
+            return false
+        }
+        AgentPaneSpareOutcome.adopted.trace()
+        standaloneViews.remove(spare)
+        (views[key], spare.model.allowsTabConversion) = (spare, true)
+        wire(spare.model, key: key)
+        return true
+    }
+
     /// The page of tab `key` reported `session` (a new chat started, or the user changed the chat
     /// in this tab): a compare-and-swap from the session the tab shows, as a store intent
     /// (`Intent.bindAgentSession`): the record shows the new session at once, and a refusal (a
@@ -313,6 +338,8 @@ extension AgentTabStore {
     /// Stops tab `key`'s page and forgets its view state.
     func release(_ key: String) {
         if let view = views.removeValue(forKey: key) {
+            // Its machine link is no longer pushed; the last page gone ends that observation.
+            machineLink.forget(view)
             // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81); a
             // page of another machine's chat never does (NewTabSparePool.recycle, cx-k21v).
             if newTabPages[key] != nil, recycle?(view) == true {
