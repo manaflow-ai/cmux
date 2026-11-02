@@ -61,6 +61,8 @@ public final class AgentPaneView: NSView {
     let terminations: AgentPageTerminations
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: ChromeLabel?
+    /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
+    var runsOnOtherInstall = false
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: NSStackView?
     var remoteApprovals: AgentPaneRemoteApprovals?

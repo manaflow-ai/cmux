@@ -1,10 +1,13 @@
 /* ManagedBanner.tsx: one quiet line over the composer, centered on the conversation column, with a
-   pill button, the way ChatGPT shows a chat its agent runs. */
+   quiet bordered Take over button, the way ChatGPT shows a chat its agent runs. The button takes the
+   transcript's quiet-button tokens (as the permission card's buttons do), never --agent-page-bg as
+   its text colour: that token is transparent in the agent pane, which left the label invisible on
+   a solid pill (#30765; Leo, 2026-11-01: "this needs to be a better button"). */
 .acpmux-managed-banner{display:flex;align-items:center;justify-content:center;gap:8px;box-sizing:border-box;width:100%;max-width:760px;margin:0 auto;padding:4px 16px 8px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);min-width:0}
 .acpmux-managed-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-managed-name{color:var(--agent-text);font-weight:600}
 button.acpmux-managed-name{border:0;padding:0;background:none;font:inherit;font-weight:600}
 button.acpmux-managed-name:hover{text-decoration:underline}
-.acpmux-managed-take-over{flex:none;border:0;border-radius:6px;padding:4px 12px;background:var(--agent-text);color:var(--agent-page-bg);font:inherit;font-weight:500}
-.acpmux-managed-take-over:hover{background:color-mix(in srgb,var(--agent-text) 86%,var(--agent-page-bg))}
+.acpmux-managed-take-over{flex:none;box-sizing:border-box;border:1px solid var(--agent-border);border-radius:6px;padding:1px 8px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit;font-weight:500;line-height:inherit;white-space:nowrap;cursor:default}
+.acpmux-managed-take-over:hover{background:color-mix(in srgb,var(--agent-text) 8%,var(--agent-input-bg))}
 .acpmux-managed-banner button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
