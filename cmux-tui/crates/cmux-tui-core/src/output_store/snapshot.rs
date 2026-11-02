@@ -266,7 +266,8 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                     // stored byte (not settled), and the tail takes the bytes.
                     let end =
                         log.state.lock().unwrap_or_else(PoisonError::into_inner).next_offset();
-                    let seen = Seen { digest: 0, settled: false, end, size: Some(size) };
+                    let seen =
+                        Seen { digest: 0, settled: false, end, size: Some(size), upload: false };
                     return Some((seen, size, Capture::Failed));
                 };
                 // A chunk the reader parsed but has not handed to the store
@@ -280,7 +281,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                     let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
                     (state.generation.clone(), state.next_offset(), state.note_size(size))
                 };
-                let seen = Seen { digest, settled, end, size: Some(size) };
+                let seen = Seen { digest, settled, end, size: Some(size), upload: false };
                 if !plan.wants_snapshot(digest, size, size_settled, full, tail, quitting) {
                     return Some((seen, size, Capture::None));
                 }
@@ -416,6 +417,9 @@ struct Seen {
     end: u64,
     /// The terminal's size at the capture (`None`: not read).
     size: Option<(u16, u16)>,
+    /// A Kitty image upload was being assembled at the capture: its bytes
+    /// change nothing the digest sees, but they are content.
+    upload: bool,
 }
 
 /// Print a store write error once until the next success (a disk that keeps
