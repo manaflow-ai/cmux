@@ -922,6 +922,9 @@ fieldset.acpmux-question[hidden]{display:none}
    A column: the search field, then the list, which is the scroller, so the field never scrolls away
    or fades with the rows. */
 .acpmux-palette-menu{display:flex;flex-direction:column;width:min(360px,calc(100vw - 16px));max-height:min(480px,70vh);padding:0;overflow:hidden}
+/* The palette deliberately removes the popup's outer padding, so its rows put the shared icon
+   column back at the popup edge instead of subtracting the absent padding token. */
+.acpmux-palette-menu .acpmux-menu-item { padding-inline: var(--cmux-menu-icon-x); }
 .acpmux-palette-menu{animation:none!important;transition:none!important}
 .acpmux-palette-menu .acpmux-menu-item>svg{flex:none;color:var(--agent-muted)}
 .acpmux-palette-search{flex:none;padding:var(--ui-popup-padding);border-bottom:.5px solid var(--agent-border)}
