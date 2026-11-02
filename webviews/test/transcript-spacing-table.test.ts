@@ -101,10 +101,6 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
             return node.parentElement;
         return null;
       };
-      const lineOf = (text: string) => {
-        const element = holding(text);
-        return element ? (lines(element)[0] ?? null) : null;
-      };
       const bubble = (text: string) =>
         holding(text)?.closest<HTMLElement>(".cv-user__bubble")?.getBoundingClientRect() ?? null;
       const paragraph = (text: string) => lines(holding(text)?.closest(".cv-md p, .cv-md li") ?? holding(text));

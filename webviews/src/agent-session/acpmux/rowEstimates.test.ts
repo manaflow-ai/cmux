@@ -362,7 +362,6 @@ test("a prompt of ten lines or fewer is estimated whole, with no Show more line"
 // A pasted block (`pasted` ranges, the chip in UserBubble.tsx) is one chip line, however long the
 // paste, and the prompt's own words around it.
 test("a prompt with a 2,300-line paste is its typed line and one chip", () => {
-  const { lineHeight } = currentChatMetrics();
   const typed = "Why does this fail?";
   const paste = Array.from({ length: 2300 }, (_, index) => `frame ${index}`).join("\n");
   const text = `${typed}\n${paste}`;
