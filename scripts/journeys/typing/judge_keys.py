@@ -29,106 +29,160 @@ def np():
     return numpy
 
 
-def judge(frames, times, events, cell_px, refresh_hz=120.0, thresh=24, cell_h_px=None):
-    """Each event's `t_start` (else `t_post`) is its key's start. A key's frame is the first movie frame after the
-    start, and at or after the previous key's frame, that differs from the frame shown at that point over >= 1.5 cells
-    of width, inside the typed line's band: the rows of the previous key's change +- one cell height (after a Return or
-    Ctrl-C, the next line too). So a late echo of the key before, a relayout elsewhere in the pane or a toast never
-    counts for this key (review should-fix 4 at 8802cbd6e87). A key not shown within 0.5 s is `missing` (the ledger
-    counts it as a breach)."""
+def judge(frames, times, events, cell_px, refresh_hz=120.0, thresh=24, cell_h_px=None, origin=None, start=(0, 0)):
+    """A line-editor model of the typing pane (echo.py's echo, see its docstring) says, for each key, the one cell where
+    the cursor lands after it: a character or a space at (row, col + 1); Backspace and Left at (row, col - 1); Right
+    at (row, col + 1); Return and Ctrl-C at (row + 1, 0); a paste of L characters at (row, col + L). The key is shown
+    in the first movie frame after its start in which that cell differs from the frame shown at the start (at least
+    6 pixels over THRESH): before the key the cursor is not in that cell, so a cursor blink cannot change it, and a
+    late echo of the key before or a relayout elsewhere in the pane never counts. ORIGIN (x, y) of cell (0, 0) in the
+    crop: from the first key's change when not given. Rows scroll at the pane's last row. A key not shown within
+    0.5 s is `missing`. START (row, col) is the cursor cell before the first key (a later part of the same run passes
+    the end state and origin of the part before; summary `end` and `origin`)."""
     n = np()
     period = 1.0 / refresh_hz
+    cell_h = float(cell_h_px or 2 * cell_px)
     phase = float(n.median([t % period for t in times])) if times else 0.0
-    rows, defects = [], []
-    cell_h = cell_h_px or 2 * cell_px
-    band = None  # (r0, r1) of the line being typed
-    prev_frame = 0
+    height, width = frames.shape[1], frames.shape[2]
+    rows_visible = max(1, int(height // cell_h))
 
     def shown_at(t):
         return max([i for i, tt in enumerate(times) if tt <= t] or [0])
-    for e in events:
+
+    def cell_box(row, col):
+        x0 = int(round(origin[0] + col * cell_px))
+        y0 = int(round(origin[1] + row * cell_h))
+        return y0, min(height, int(round(y0 + cell_h))), x0, min(width, int(round(x0 + cell_px)))
+
+    if origin is None and events:
+        e = events[0]
         t0 = e.get("t_start", e["t_post"])
-        b = max(shown_at(t0), prev_frame)
-        base = frames[b].astype(n.int16)
+        b = shown_at(t0)
+        for j in range(b + 1, len(times)):
+            if times[j] > t0 + 0.5:
+                break
+            m = n.abs(frames[j].astype(n.int16) - frames[b].astype(n.int16)) > thresh
+            if m.any():
+                rr, cc = n.nonzero(m.any(axis=1))[0], n.nonzero(m.any(axis=0))[0]
+                origin = (float(cc[0]), float(rr[0]))
+                break
+    if origin is None:
+        return {"error": "the first key changed nothing in the pane", "keys": [], "summary": {}, "stalls": []}
+    row, col = start
+    rows, defects = [], []
+    for e in events:
+        kind = e["kind"]
+        if kind in ("char",):
+            nrow, ncol = row, col + 1
+        elif kind == "paste":
+            nrow, ncol = row, col + len(e.get("text") or "")
+        elif kind in ("backspace", "left"):
+            nrow, ncol = row, max(0, col - 1)
+        elif kind == "right":
+            nrow, ncol = row, col + 1
+        else:  # return, ctrl_c
+            nrow, ncol = min(row + 1, rows_visible - 1), 0
+        scrolled = kind in ("return", "ctrl_c") and row + 1 >= rows_visible
+        t0 = e.get("t_start", e["t_post"])
+        b = shown_at(t0)
+        y0, y1, x0, x1 = cell_box(nrow, ncol)
+        base = frames[b, y0:y1, x0:x1].astype(n.int16)
         idx = None
         for j in range(b + 1, len(times)):
             if times[j] > t0 + 0.5:
                 break
             if times[j] <= t0:
                 continue
-            m = n.abs(frames[j].astype(n.int16) - base) > thresh
-            if band is not None:
-                lo = max(0, int(band[0] - cell_h))
-                hi = int(band[1] + cell_h * (2 if e["kind"] in ("return", "ctrl_c") else 1))
-                m[:lo, :] = False
-                m[hi:, :] = False
-            cols = n.nonzero(m.any(axis=0))[0]
-            if cols.size and (cols[-1] - cols[0] + 1) >= 1.5 * cell_px:
-                r = n.nonzero(m.any(axis=1))[0]
-                band = (int(r[0]), int(r[-1]) + 1) if e["kind"] not in ("return", "ctrl_c") else (int(r[-1]) + 1 - int(cell_h), int(r[-1]) + 1)
+            if int((n.abs(frames[j, y0:y1, x0:x1].astype(n.int16) - base) > thresh).sum()) >= 6:
                 idx = j
                 break
+        row, col = nrow, ncol
         if idx is None:
-            rows.append(dict(i=e["i"], kind=e["kind"], t_start=t0, frame=None, refreshes=None))
-            defects.append({"kind": "missing", "key": e["i"], "key_kind": e["kind"]})
+            rows.append(dict(i=e["i"], kind=kind, t_start=t0, frame=None, refreshes=None, cell=[nrow, ncol],
+                             scrolled=scrolled))
+            defects.append({"kind": "missing", "key": e["i"], "key_kind": kind, "cell": [nrow, ncol]})
             continue
-        prev_frame = idx
         t = times[idx]
         first_vsync = math.floor((t0 - phase) / period) * period + phase + period
         refreshes = int(round((t - first_vsync) / period)) + 1
-        rows.append(dict(i=e["i"], kind=e["kind"], t_start=t0, frame=idx, t_frame=round(t, 6),
-                         video_s=round(t - times[0], 4), refreshes=refreshes))
+        rows.append(dict(i=e["i"], kind=kind, t_start=t0, frame=idx, t_frame=round(t, 6), video_s=round(t - times[0], 4),
+                         refreshes=refreshes, cell=[nrow, ncol]))
         if refreshes > 2:
-            defects.append({"kind": "stall", "key": e["i"], "key_kind": e["kind"], "frame": idx,
+            defects.append({"kind": "stall", "key": e["i"], "key_kind": kind, "frame": idx,
                             "video_s": round(t - times[0], 4), "refreshes": refreshes})
     got = sorted(r["refreshes"] for r in rows if r.get("refreshes") is not None)
-    # A missing key counts as worse than any measured one in the percentiles (review must-fix 1 at 8802cbd6e87).
-    allk = got + [10 ** 6] * (len(events) - len(got))
-    allk.sort()
+    allk = sorted(got + [10 ** 6] * (len(events) - len(got)))  # a missing key is the worst key
 
     def pct(p):
         return allk[min(len(allk) - 1, int(math.ceil(p / 100.0 * len(allk))) - 1)] if allk else None
     summary = {"n": len(events), "shown": len(got), "missing": len(events) - len(got), "p50": pct(50), "p95": pct(95),
                "p99": pct(99), "max": allk[-1] if allk else None, "over1": sum(1 for g in allk if g > 1),
-               "over2": sum(1 for g in allk if g > 2)}
+               "over2": sum(1 for g in allk if g > 2), "origin": [round(origin[0], 3), round(origin[1], 3)],
+               "end": [row, col]}
     return {"keys": rows, "summary": summary, "stalls": defects}
 
 
-def self_test():
+def _synthetic(kinds, late, cell=8, cell_h=17, blink=True, period=1 / 120.0, gap=0.1, toast=None):
+    """A pane at 1x: origin (4, 4); each event of KINDS ("c" char, "b" backspace, "r" return) changes the screen at the
+    LATE[i]-th refresh after its post; a block cursor that blinks every 0.5 s while idle (solid 0.6 s after input)."""
     n = np()
-    period = 1 / 120.0
-    times = [i * period for i in range(300)]
-    cell = 10
-    events = [{"i": i, "kind": "char", "t_post": 0.1 + i * 0.1 + 0.001} for i in range(20)]
-    late = {i: (5 if i == 7 else 1) for i in range(20)}
+    events = [{"i": i, "kind": {"c": "char", "b": "backspace", "r": "return"}[k], "key": "x", "t_post": 0.1 + i * gap + 0.001}
+              for i, k in enumerate(kinds)]
+    shows = [(math.floor(e["t_post"] / period + 1e-9) + late[i]) * period - 1e-6 for i, e in enumerate(events)]
+    times = [i * period for i in range(int((len(kinds) * gap + 1.0) / period))]
     frames = []
     for j, t in enumerate(times):
-        f = n.zeros((20, 400), dtype=n.uint8)
-        shown = [i for i, e in enumerate(events) if t >= (math.floor(e["t_post"] / period + 1e-9) + late[i]) * period - 1e-6]
-        count = len(shown)
-        f[4:16, 0: cell * count] = 200
-        # A block cursor that blinks when idle and is solid for 0.6 s after each glyph (a terminal resets the blink on
-        # input), as Ghostty's.
-        last = max([(math.floor(events[i]["t_post"] / period + 1e-9) + late[i]) * period for i in shown] or [-9])
-        on = (t - last) < 0.6 or (j // 60) % 2 == 0
-        f[2:18, cell * count: cell * count + cell] = 120 if on else 0
+        f = n.zeros((200, 400), dtype=n.uint8)
+        row, col, text = 0, 0, {}
+        last = -9
+        for i, e in enumerate(events):
+            if shows[i] > t:
+                continue
+            last = max(last, shows[i])
+            if e["kind"] == "char":
+                text[(row, col)] = 1
+                col += 1
+            elif e["kind"] == "backspace":
+                col = max(0, col - 1)
+                text.pop((row, col), None)
+            else:
+                row, col = row + 1, 0
+        for (r, c) in text:
+            f[4 + r * cell_h + 3: 4 + r * cell_h + 14, 4 + c * cell + 1: 4 + c * cell + 7] = 200
+        on = (t - last) < 0.6 or not blink or int(t / 0.5) % 2 == 0
+        if on:
+            f[4 + row * cell_h: 4 + (row + 1) * cell_h, 4 + col * cell: 4 + (col + 1) * cell] = 120
+        if toast is not None and toast[0] <= j < toast[1]:
+            f[150:170, 300:390] = 255
         frames.append(f)
-    out = judge(n.stack(frames), times, events, cell)
-    got = [r["refreshes"] for r in out["keys"]]
-    assert got[7] == 5 and all(g == 1 for i, g in enumerate(got) if i != 7), got
-    assert out["summary"]["over2"] == 1 and out["stalls"][0]["key"] == 7, out["summary"]
-    # A key that never shows is missing and counts as the worst key (max is no longer the measured 5).
-    frames2 = n.stack(frames)
-    ev2 = events + [{"i": 20, "kind": "char", "t_post": 2.2}]
-    out2 = judge(frames2, times, ev2, cell)
-    assert out2["summary"]["missing"] == 1 and out2["summary"]["max"] > 100, out2["summary"]
-    # A change far from the typed line (a toast in rows 0-1 is outside the band once the band is known) does not count.
-    f3 = frames2.copy()
-    j_late = next(j for j, t in enumerate(times) if t > events[7]["t_post"])
-    f3[j_late:j_late + 3, 0:1, :] = 255  # row 0: above the band (rows 2-18) by more than one cell height (1 here)
-    out3 = judge(f3, times, events, cell, cell_h_px=1)
-    assert [r["refreshes"] for r in out3["keys"]][7] == 5, out3["keys"][7]
-    print("self-test OK", json.dumps(out["summary"]))
+    return n.stack(frames), times, events
+
+
+def self_test():
+    def refr(out):
+        return [r["refreshes"] for r in out["keys"]]
+    kinds = "cccccbcccrcccc"
+    late = [1] * len(kinds)
+    late[6] = 5
+    frames, times, events = _synthetic(kinds, late)
+    out = judge(frames, times, events, 8, cell_h_px=17)
+    got = refr(out)
+    assert got[6] == 5 and all(g == 1 for i, g in enumerate(got) if i != 6), got
+    assert out["summary"]["over2"] == 1, out["summary"]
+    # every key 3 refreshes late, with a toast elsewhere in the pane during the run: every key reads 3
+    frames, times, events = _synthetic(kinds, [3] * len(kinds), toast=(40, 80))
+    got = refr(judge(frames, times, events, 8, cell_h_px=17))
+    assert all(g == 3 for g in got), got
+    # a key whose effect never shows is missing and the worst key
+    frames, times, events = _synthetic("cccc", [1, 1, 1, 10 ** 4])
+    out = judge(frames, times, events, 8, cell_h_px=17)
+    assert out["summary"]["missing"] == 1 and out["summary"]["max"] > 100, out["summary"]
+    # only changed frames in the movie (the recorder drops idle refreshes): the same counts
+    frames, times, events = _synthetic(kinds, late)
+    keep = [0] + [j for j in range(1, len(frames)) if (frames[j] != frames[j - 1]).any()]
+    got = refr(judge(frames[keep], [times[j] for j in keep], events, 8, cell_h_px=17))
+    assert got[6] == 5 and all(g == 1 for i, g in enumerate(got) if i != 6), got
+    print("self-test OK")
 
 
 def main():

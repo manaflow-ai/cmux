@@ -132,6 +132,7 @@ def main():
         reads = [json.loads(l) for l in (jdir / "echo.jsonl").read_text().splitlines() if '"bytes"' in l]
         keys = keys_check.check(events, reads)
     refreshes, stalls, refresh_ms, judged, missing = [], [], None, 0, 0
+    state = {}  # the typed line continues from part 1 into part 2: its origin and cursor cell carry over
     import judge as line_judge
     import judge_keys
     for p in plays:
@@ -152,7 +153,10 @@ def main():
         cell_h = float(rect.get("cell_height") or 16) * scale
         ids = {(e["i"], e["t_post"]) for e in p["result"]["events"]}
         part = [x for x in events if (x["i"], x["t_post"]) in ids]  # this part's keys, with their t_start
-        rep = judge_keys.judge(frames[:m], times[:m], part, cell, cell_h_px=cell_h)
+        rep = judge_keys.judge(frames[:m], times[:m], part, cell, cell_h_px=cell_h, origin=state.get("origin"),
+                               start=tuple(state.get("end") or (0, 0)))
+        if rep.get("summary", {}).get("origin"):
+            state = {"origin": tuple(rep["summary"]["origin"]), "end": rep["summary"]["end"]}
         (mov.with_suffix(".keys.json")).write_text(json.dumps(rep, indent=1))
         judged += 1
         refreshes += [r["refreshes"] for r in rep["keys"] if r.get("refreshes") is not None]
