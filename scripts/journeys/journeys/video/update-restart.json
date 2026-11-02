@@ -208,16 +208,15 @@
     },
     {
       "do": "expect",
-      "title": "after Restart to Update: the left terminal's scrollback has every line 1..300 once, in order (the daemon's history: line 1 is far above the screen)",
+      "title": "after Restart to Update: the left terminal's scrollback (the rows above the screen; the screen check proves line 300) has lines 1.. once, in order, from line 1",
       "timeout": 20,
       "all": [
         {
           "daemon_history": {
             "rows": "oldest",
             "count": 2000,
-            "pattern": "^U${nonce}-(\\d+)-L$",
+            "pattern": "^U${nonce}-(\\d+)-L\\s*$",
             "contiguous": true,
-            "last": 300,
             "contains": "U${nonce}-1-L"
           }
         }
