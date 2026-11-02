@@ -108,8 +108,10 @@ fn after_a_respawn_the_next_key_reaches_the_new_terminal() {
     // dead yet (its host stops after the new one is in), so only the routing says it no longer owns the id.
     let removed = mux.remove_surface_runtime_for_test(old.id).expect("the placement had a runtime");
     assert!(Arc::ptr_eq(&removed, &old));
+    // The replacement takes no Kitty image budget slot: the old runtime still holds this id's slot while it lives,
+    // as in a respawn (its host stops after the new runtime is in).
     let respawned =
-        crate::Surface::spawn_for_test(old.id, SurfaceOptions::default(), Arc::downgrade(&mux))
+        crate::Surface::spawn_for_test(old.id, SurfaceOptions::default(), std::sync::Weak::new())
             .unwrap();
     let (new_sent, new_input) = mpsc::channel();
     respawned.replace_input_writer_for_test(Box::new(InputRecorder(new_sent)));
