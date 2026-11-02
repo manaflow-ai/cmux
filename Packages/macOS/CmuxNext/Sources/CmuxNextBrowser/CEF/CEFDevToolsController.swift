@@ -94,11 +94,8 @@ final class CEFDevToolsController {
     /// console and inspect act on the pane's active Chromium tab (`ExecuteChromeCommand`), so after a tab switch
     /// between the two turns they would open DevTools on another page. Otherwise the stand-in rolls back.
     private func askChromium(_ command: Int32, generation: Int) {
-        guard standIn, generation == standInGeneration else { return }
-        guard let tab, !tab.isClosed, let browserID = tab.browserID, let shim = tab.runtime.shim,
-              tab.host.visibleTab === tab, tab.container.window != nil, !tab.container.isHiddenOrHasHiddenAncestor else {
-            return cancelStandIn()
-        }
+        guard standIn, let tab, !tab.isClosed, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
+        _ = generation
         _ = shim.devToolsCommand(browserID, command, 0, 0)
         if standIn { cancelStandIn() }
     }
