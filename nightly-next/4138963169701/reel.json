@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "build": "4138963169701",
+  "notes": "notes/4138963169701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31761,
+      "title": "fix(protocol): preserve provider state observation fields",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31803,
+      "title": "Transcript: a stopped turn keeps its Continue label width (#31690 fix forward)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31723,
+      "title": "fix(cloud-image): retry transient apt mirror failures",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31685,
+      "title": "cmux NEXT: opt-in setting moves a workspace to the top when its agent finishes",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31722,
+      "title": "cmux NEXT: a new window lists no other window's Connecting to <host> rows (#31490)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31668,
+      "title": "base red: the process-group test passes its marker path to the shell and stops on a readiness fifo",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31741,
+      "title": "Session Info: rows fade at the body's scroll edges instead of a hard cut",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31760,
+      "title": "fix(agent-pane): clear stopped scroll lead",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31783,
+      "title": "perf(sidebar): a folded session's step or title lays nothing out; only its roll-up state does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31793,
+      "title": "Prompt rail: the wheel over its pane-edge padding scrolls the rail",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31791,
+      "title": "test(chat): reply room tests read the stack's gaps, not the 2026-10-30 room",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31779,
+      "title": "fix(model menu): drop the route-files note from an empty Account menu (ask-067e9aa217)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31669,
+      "title": "fix(sidebar): the rename field's text lands within half a pixel of the title's, measured after placing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31732,
+      "title": "fix: scale handoff editors with chat font size (ask-082cdbe456)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31504,
+      "title": "debug.motion record_*: own-window 120 Hz ScreenCaptureKit movie off the main thread; trace_* in bench builds",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30656,
+      "title": "ci: runs_on_values counts the hosts that serve each variable's runs-on labels",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31727,
+      "title": "test(cmux-next): SSH recovery shots set the app's look per appearance",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31728,
+      "title": "project menu: a failed owner avatar is retried after a minute, not kept for the run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31705,
+      "title": "bench-startup: --profile stress (reopen of the standard STRESS session)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31704,
+      "title": "perf cron: web UI perf harness on Linux (web-ui part, PERF_ROW lines)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
