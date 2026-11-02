@@ -253,3 +253,10 @@ pub(super) fn peer_pid(stream: &std::os::unix::net::UnixStream) -> Option<u32> {
     } == 0;
     ok.then_some(pid as u32)
 }
+
+/// This build's acpmux, beside the daemon (the Swift host does not use it).
+pub(super) fn acpmux_executable() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let acpmux = exe.parent()?.join("acpmux");
+    acpmux.is_file().then_some(acpmux)
+}

@@ -25,40 +25,47 @@
 //! (the app socket's secret) go only to the verified app
 //! (`server/remote_host_command.rs`), and raising access needs the app or the
 //! person (the command's origin rule).
+//!
+//! Windows and Linux run the same lifecycle with the Rust host
+//! (`crates/cmux-remote-host`, docs/cmux-remote.md "Windows and Linux"): a
+//! sha256-verified copy of `cmux-remote-host` beside the daemon, started in the
+//! person's desktop session (a systemd user unit on Linux, an interactive-session
+//! task on Windows), the same `remote-host-v1` wire.
 
 
 /// Advertised by `identify` once `remote-host-status` and `remote-host-call` exist.
 pub(crate) const REMOTE_HOST_CAPABILITY: &str = "remote-host-v1";
 
-#[cfg(unix)]
-#[path = "remote_host/unix.rs"]
+#[cfg(any(unix, windows))]
+#[path = "remote_host/supervisor.rs"]
 mod imp;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(crate) use imp::*;
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 mod imp {
     use serde_json::{Value, json};
 
-    /// cmux Remote runs on macOS; elsewhere the commands answer that.
+    /// cmux Remote runs on macOS, Windows and Linux; elsewhere the commands answer that.
     #[derive(Default)]
     pub(crate) struct RemoteHostSupervisor;
 
     impl RemoteHostSupervisor {
         pub(crate) fn status(&self) -> Value {
-            json!({"state": "off", "reason": "cmux Remote runs on macOS only"})
+            json!({"state": "off", "reason": "cmux Remote runs on macOS, Windows and Linux"})
         }
         pub(crate) fn call(&self, _method: &str, _params: Value) -> Result<Value, String> {
-            Err("cmux Remote runs on macOS only".into())
+            Err("cmux Remote runs on macOS, Windows and Linux".into())
         }
         pub(crate) fn set_config(&self, _update: &Value) -> Result<Value, String> {
-            Err("cmux Remote runs on macOS only".into())
+            Err("cmux Remote runs on macOS, Windows and Linux".into())
         }
+        pub(crate) fn set_acpmux_socket(&self, _socket: Option<std::path::PathBuf>) {}
     }
 
     impl crate::mux::Mux {
         pub fn configure_remote_host(self: &std::sync::Arc<Self>, _daemon_socket: &std::path::Path) {}
     }
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 pub(crate) use imp::*;

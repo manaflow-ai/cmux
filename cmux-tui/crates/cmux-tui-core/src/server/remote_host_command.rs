@@ -10,6 +10,9 @@
 //!   a session stopped). Raising (sharing on, a viewer to Ask from None, View
 //!   or Full) needs the verified app: an agent in a terminal never grants a
 //!   device access to this Mac.
+//!   On Windows and Linux also `computer_use.pending`, `computer_use.approvals`,
+//!   `computer_use.revoke`, `computer_use.deny` (lowering trust) and
+//!   `computer_use.collect` (opens the local protected collector).
 //! - `remote-host-config {computer_use, screen_sharing, headless}`: the
 //!   person's switches, from the verified app.
 //! - `remote-host-app`: the app socket's credentials for the verified app's
@@ -97,6 +100,12 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
     let host = &mux.control_clients.remote_host;
     match method {
         "status" | "refresh" | "request" | "open_settings" | "restart" | "screen.stop_session" => {}
+        // Windows and Linux hosts (docs/computer-use-approvals.md, Controls): reads and
+        // lowering trust (revoke, deny) for any local caller; `collect` only opens the
+        // machine's protected dialog (polkit, Windows Hello), which decides nothing
+        // until the person confirms there.
+        "computer_use.pending" | "computer_use.approvals" | "computer_use.revoke" | "computer_use.deny"
+        | "computer_use.collect" => {}
         "screen.share" => {
             let on = params.get("on").and_then(Value::as_bool).ok_or_else(|| {
                 RemoteRefused { code: "bad_request", message: "screen.share needs on: true or false".into() }

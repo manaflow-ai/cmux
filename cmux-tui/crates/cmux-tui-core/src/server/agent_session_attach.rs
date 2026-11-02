@@ -1235,6 +1235,7 @@ impl Mux {
     /// like `cmux acp`). Without one the daemon does not advertise
     /// `agent-session-attach-v1` and refuses the verbs.
     pub fn set_acpmux_socket(&self, socket: Option<PathBuf>) {
+        self.control_clients.remote_host.set_acpmux_socket(socket.clone());
         self.control_clients.agent_sessions.set_socket(socket);
     }
 
