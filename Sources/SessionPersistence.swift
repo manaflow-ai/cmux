@@ -1768,6 +1768,8 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var customTitleWasRemote: Bool? = nil
     /// The panel's badge (``Workspace/panelBadges``); absent in older snapshots.
     var badge: String? = nil
+    /// The badge's color as `#RRGGBB`; absent when the badge has none.
+    var badgeColor: String? = nil
     var directory: String?
     var directoryIsTrustedRemoteReport: Bool? = nil
     var directoryRequiresRemoteTrust: Bool? = nil

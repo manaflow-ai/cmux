@@ -113,6 +113,15 @@ def main() -> int:
         _must("invalid badge" in str(rejected).lower(), f"Unexpected set_badge error: {rejected}")
         _wait_for_title(c, ws_id, surface_id, f"🦀 {renamed}")
 
+        colored = c._call("tab.action", {**target, "action": "set_badge", "badge": "🦀", "color": "#bb9af7"}) or {}
+        _must(colored.get("badge_color") == "#BB9AF7", f"set_badge should echo the normalized color: {colored}")
+        bad_color: Optional[cmuxError] = None
+        try:
+            c._call("tab.action", {**target, "action": "set_badge", "badge": "🦀", "color": "not-a-color"})
+        except cmuxError as err:
+            bad_color = err
+        _must(bad_color is not None and "color" in str(bad_color).lower(), f"An unknown color should fail: {bad_color}")
+
         payload = c._call("tab.action", {**target, "action": "clear_badge"}) or {}
         _must("badge" in payload and payload["badge"] is None, f"clear_badge should report a null badge: {payload}")
         _wait_for_title(c, ws_id, surface_id, renamed)
@@ -123,7 +132,8 @@ def main() -> int:
         _wait_for_title(c, ws_id, surface_id, f"💼 {renamed}")
 
         # CLI: explicit --badge flag and clear-badge.
-        _run_cli(cli, ["tab-action", "--workspace", ws_id, "--tab", surface_id, "--action", "set-badge", "--badge", "🤝"])
+        tinted = _run_cli(cli, ["tab-action", "--workspace", ws_id, "--tab", surface_id, "--action", "set-badge", "--badge", "🤝", "--color", "Blue"]).stdout
+        _must("badge_color=#" in tinted, f"set-badge --color should report the resolved color: {tinted!r}")
         _wait_for_title(c, ws_id, surface_id, f"🤝 {renamed}")
         cleared = _run_cli(cli, ["tab-action", "--workspace", ws_id, "--tab", surface_id, "clear-badge"]).stdout
         _must("badge=none" in cleared, f"Unexpected clear-badge summary: {cleared!r}")

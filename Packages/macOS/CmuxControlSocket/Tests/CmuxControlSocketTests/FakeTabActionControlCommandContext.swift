@@ -6,6 +6,7 @@ final class FakeTabActionControlCommandContext: ControlCommandContext {
     var resolution: ControlTabActionResolution = .tabManagerUnavailable
     private(set) var actionKey: String?
     private(set) var badge: String?
+    private(set) var badgeColor: String?
     private(set) var surfaceID: UUID?
     private(set) var force = false
 
@@ -14,6 +15,7 @@ final class FakeTabActionControlCommandContext: ControlCommandContext {
         actionKey: String?,
         title: String?,
         badge: String?,
+        badgeColor: String?,
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
@@ -22,6 +24,7 @@ final class FakeTabActionControlCommandContext: ControlCommandContext {
     ) -> ControlTabActionResolution {
         self.actionKey = actionKey
         self.badge = badge
+        self.badgeColor = badgeColor
         self.surfaceID = surfaceID
         self.force = force
         return resolution

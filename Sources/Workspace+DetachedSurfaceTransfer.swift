@@ -49,7 +49,7 @@ extension Workspace {
         let customTitleSource: Workspace.CustomTitleSource?
         /// The panel's badge (``Workspace/panelBadges``). `title` excludes it;
         /// a workspace destination composes the two.
-        let badge: PanelBadgeText?
+        let badge: PanelBadge?
         let manuallyUnread: Bool
         let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
         /// The panel's last submitted prompt, carried so the destination

@@ -184,7 +184,7 @@ struct MobileWorkspaceListFidelityTests {
 
         // A badge on an unfocused terminal changes neither panelTitles nor the
         // workspace title; the observer must still see the badged title.
-        workspace.setPanelBadge(panelId: panelId, badge: PanelBadgeText("🦀"))
+        workspace.setPanelBadge(panelId: panelId, badge: PanelBadgeText("🦀").map { PanelBadge(text: $0, color: nil) })
         #expect(workspace.panelTitle(panelId: panelId) == "🦀 Build")
 
         let after = MobileWorkspaceListObserver.summaryHashForTesting(

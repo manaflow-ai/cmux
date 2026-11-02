@@ -860,7 +860,8 @@ extension Workspace {
             customTitle: customTitle,
             customTitleSource: customTitleSource == .remote ? .user : customTitleSource,
             customTitleWasRemote: customTitleSource == .remote ? true : nil,
-            badge: panelBadges[panelId]?.value,
+            badge: panelBadges[panelId]?.text.value,
+            badgeColor: panelBadges[panelId]?.color?.hexString,
             directory: directory,
             directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
             directoryRequiresRemoteTrust: directoryRequiresRemoteTrust ? true : nil,
@@ -2459,7 +2460,9 @@ extension Workspace {
         // Re-admit the persisted badge so a hand-edited snapshot cannot carry
         // text the socket would reject; the tab refresh below picks it up.
         if restoresBadge {
-            let restoredBadge = snapshot.badge.flatMap(PanelBadgeText.init)
+            let restoredBadge = snapshot.badge.flatMap(PanelBadgeText.init).map {
+                PanelBadge(text: $0, color: snapshot.badgeColor.flatMap { TabColor(hex: $0) })
+            }
             if panelBadges[panelId] != restoredBadge { panelBadges[panelId] = restoredBadge }
         }
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
@@ -2472,7 +2475,8 @@ extension Workspace {
             bonsplitController.updateTab(
                 tabId,
                 title: resolvedPanelTitle(panelId: panelId, fallback: panelTitles[panelId] ?? panel.displayTitle),
-                hasCustomTitle: panelCustomTitles[panelId] != nil
+                hasCustomTitle: panelCustomTitles[panelId] != nil,
+                color: .some(panelBadges[panelId]?.color)
             )
         }
 
@@ -3248,7 +3252,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Badges a client puts in front of a panel's title (`<badge> <title>`);
     /// persisted, and unlike a custom title they keep the live title.
     /// Published because the mobile workspace list re-emits on title inputs.
-    @Published var panelBadges: [UUID: PanelBadgeText] = [:]
+    @Published var panelBadges: [UUID: PanelBadge] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
     var pinMutationTokensByPanelId: [UUID: UUID] = [:]
     let panelUnread = WorkspacePanelUnreadModel()
@@ -5813,12 +5817,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         refreshTabTitle(panelId: panelId, panel: panel)
     }
 
-    /// Pushes a panel's resolved title to its tab after a title prefix (an
-    /// automation label or a badge) changed.
+    /// Pushes a panel's resolved title and badge color to its tab after a
+    /// title prefix (an automation label or a badge) changed.
     func refreshTabTitle(panelId: UUID, panel: any Panel) {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle
-        bonsplitController.updateTab(tabId, title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle))
+        bonsplitController.updateTab(
+            tabId,
+            title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
+            color: .some(panelBadges[panelId]?.color)
+        )
     }
 
     private func syncPinnedStateForTab(_ tabId: TabID, panelId: UUID) {
@@ -11900,6 +11908,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
 
         bindSurface(newTabId, toPanelId: detached.panelId)
+        if let color = detached.badge?.color {
+            bonsplitController.updateTab(newTabId, color: .some(color))
+        }
         detached.panel.retainTransferredSurfaceMachine(detached.surfaceMachine)
         panels[detached.panelId] = detached.panel
         restoreProgramStatusStore(detached.programStatusStore, panelId: detached.panelId)

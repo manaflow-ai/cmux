@@ -18,7 +18,7 @@ struct ControlCommandCoordinatorTabBadgeTests {
     @Test func setBadgeForwardsTrimmedBadgeAndReportsIt() throws {
         let surfaceID = UUID()
         let context = FakeTabActionControlCommandContext()
-        context.resolution = completed(.badge("🦀"), surfaceID: surfaceID)
+        context.resolution = completed(.badge("🦀", color: "#BB9AF7"), surfaceID: surfaceID)
         let coordinator = ControlCommandCoordinator(context: context)
 
         let result = coordinator.handle(ControlRequest(
@@ -28,6 +28,7 @@ struct ControlCommandCoordinatorTabBadgeTests {
                 "action": .string("set-badge"),
                 "surface_id": .string(surfaceID.uuidString),
                 "badge": .string("  🦀 "),
+                "color": .string(" lavender "),
             ]
         ))
 
@@ -37,16 +38,18 @@ struct ControlCommandCoordinatorTabBadgeTests {
         }
         #expect(context.actionKey == "set_badge")
         #expect(context.badge == "🦀")
+        #expect(context.badgeColor == "lavender")
         #expect(context.surfaceID == surfaceID)
         #expect(payload["action"] == .string("set_badge"))
         #expect(payload["badge"] == .string("🦀"))
+        #expect(payload["badge_color"] == .string("#BB9AF7"))
         #expect(payload["tab_id"] == .string(surfaceID.uuidString))
     }
 
     @Test func clearBadgeReportsNullBadge() throws {
         let surfaceID = UUID()
         let context = FakeTabActionControlCommandContext()
-        context.resolution = completed(.badge(nil), surfaceID: surfaceID)
+        context.resolution = completed(.badge(nil, color: nil), surfaceID: surfaceID)
         let coordinator = ControlCommandCoordinator(context: context)
 
         let result = coordinator.handle(ControlRequest(
@@ -65,6 +68,7 @@ struct ControlCommandCoordinatorTabBadgeTests {
         #expect(context.actionKey == "clear_badge")
         #expect(context.badge == nil)
         #expect(payload["badge"] == .null)
+        #expect(payload["badge_color"] == .null)
     }
 
     @Test func invalidBadgeReturnsInvalidParamsWithLimit() {
@@ -85,6 +89,26 @@ struct ControlCommandCoordinatorTabBadgeTests {
         #expect(code == "invalid_params")
         #expect(message.contains("badge"))
         #expect(data == .object(["max_characters": .int(16)]))
+    }
+
+    @Test func invalidBadgeColorListsNamedColors() {
+        let context = FakeTabActionControlCommandContext()
+        context.resolution = .invalidBadgeColor(namedColors: ["Red", "Blue"])
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "tab.action",
+            params: ["action": .string("set_badge"), "badge": .string("🦀"), "color": .string("nope")]
+        ))
+
+        guard case .err(let code, let message, let data) = result else {
+            Issue.record("expected invalid badge color error")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(message.contains("color"))
+        #expect(data == .object(["named_colors": .array([.string("Red"), .string("Blue")])]))
     }
 
     @Test func unknownTabActionAdvertisesBadgeActions() {

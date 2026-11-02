@@ -6762,7 +6762,8 @@ extension TabManager {
             // Badges are persisted per panel; a badge-only edit must autosave.
             for (panelId, badge) in workspace.panelBadges.sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
                 hasher.combine(panelId)
-                hasher.combine(badge.value)
+                hasher.combine(badge.text.value)
+                hasher.combine(badge.color?.hexString)
             }
             hasher.combine(workspace.panelPullRequests.count)
             hasher.combine(workspace.panelGitBranches.count)

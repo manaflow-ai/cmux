@@ -12353,8 +12353,9 @@ struct CMUXCLI {
         let (focusOpt, rem6) = parseOption(rem5, name: "--focus")
         let (windowOpt, rem7) = parseOption(rem6, name: "--window")
         let (badgeOpt, rem8) = parseOption(rem7, name: "--badge")
+        let (colorOpt, rem9) = parseOption(rem8, name: "--color")
 
-        var positional = rem8.filter { $0 != "--force" }
+        var positional = rem9.filter { $0 != "--force" }
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -12421,6 +12422,9 @@ struct CMUXCLI {
         if !isSetBadge, badgeOpt != nil {
             throw CLIError(message: "tab-action: --badge only applies to set-badge")
         }
+        if !isSetBadge, colorOpt != nil {
+            throw CLIError(message: "tab-action: --color only applies to set-badge")
+        }
 
         var params: [String: Any] = ["action": action]
         if let windowHandle {
@@ -12438,6 +12442,9 @@ struct CMUXCLI {
         if let badge, !badge.isEmpty {
             params["badge"] = badge
         }
+        if let color = colorOpt?.trimmingCharacters(in: .whitespacesAndNewlines), !color.isEmpty {
+            params["color"] = color
+        }
         if let urlOpt, !urlOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             params["url"] = urlOpt.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -12454,6 +12461,7 @@ struct CMUXCLI {
         } else if payload.keys.contains("badge") {
             summaryParts.append("badge=none")
         }
+        if let badgeColor = payload["badge_color"] as? String { summaryParts.append("badge_color=\(badgeColor)") }
         if let created = formatCreatedTabHandle(payload, idFormat: idFormat) { summaryParts.append("created=\(created)") }
         appendCreatedWorkspaceSummaryParts(from: payload, idFormat: idFormat, to: &summaryParts)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
@@ -22163,6 +22171,7 @@ struct CMUXCLI {
               --window <id|ref|index>      Window context for workspace/tab refs and indexes
               --title <text>               Title for rename (or pass trailing title text; for set-badge, trailing text is the badge)
               --badge <text>               Badge for set-badge, shown before the live title (or pass trailing badge text; up to \(PanelBadgeText.maximumCharacters) characters)
+              --color <name|#hex>          Tab color for set-badge: tints the tab and draws a strip on its top edge (same names as workspace-action set-color)
               --url <url>                  Optional URL for new-browser-right
               --focus <true|false>         Focus the destination when supported (default: false for move-to-new-workspace)
               --force                      Close even when a live process would be killed
@@ -22173,6 +22182,7 @@ struct CMUXCLI {
               cmux tab-action --tab tab:2 --action move-to-new-workspace
               cmux tab-action --tab tab:2 --action rename --title "build logs"
               cmux tab-action set-badge 🦀
+              cmux tab-action set-badge 🦀 --color "#BB9AF7"
               cmux tab-action --action clear-badge
             """
         case "move-tab-to-new-workspace", "detach-tab":

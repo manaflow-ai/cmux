@@ -32,6 +32,7 @@ extension ControlCommandCoordinator {
             actionKey: action,
             title: string(params, "title"),
             badge: string(params, "badge"),
+            badgeColor: string(params, "color"),
             rawURL: string(params, "url"),
             surfaceID: surfaceID ?? tabID,
             requestedFocus: bool(params, "focus") ?? false,
@@ -75,6 +76,12 @@ extension ControlCommandCoordinator {
                 code: "invalid_params",
                 message: "Missing or invalid badge: use 1-\(maximumCharacters) visible characters on one line, without control or bidi formatting characters",
                 data: .object(["max_characters": .int(Int64(maximumCharacters))])
+            )
+        case .invalidBadgeColor(let namedColors):
+            return .err(
+                code: "invalid_params",
+                message: "Invalid badge color. Use a hex value (#RRGGBB) or a named color.",
+                data: .object(["named_colors": .array(namedColors.map { .string($0) })])
             )
         case .invalidURL(let rawURL):
             return .err(
@@ -133,8 +140,9 @@ extension ControlCommandCoordinator {
                 break
             case .title(let title):
                 payload["title"] = .string(title)
-            case .badge(let badge):
+            case .badge(let badge, let color):
                 payload["badge"] = orNull(badge)
+                payload["badge_color"] = orNull(color)
             case .pinned(let pinned):
                 payload["pinned"] = .bool(pinned)
             case .fullWidthTabMode(let enabled):

@@ -2921,6 +2921,7 @@
 		29694FC4AD416A43C96FED5B /* PaneFocusFindResponderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E960400B0C66CA43D219BC5B /* PaneFocusFindResponderTests.swift */; };
 		C2921FC48AE4BDA2BF67A845 /* PaneFocusTestWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC905DADF2BA91C8C865D37B /* PaneFocusTestWindow.swift */; };
 		A5001400 /* Panel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001410 /* Panel.swift */; };
+		918030F80A6D398C9322807F /* PanelBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC95E723F5D224A3BF5BE715 /* PanelBadge.swift */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		986900050000000000000001 /* PanelHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900050000000000000002 /* PanelHost.swift */; };
 		BB49DF25341706C2A892C27C /* PanelOwnedNativeViewSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */; };
@@ -7607,6 +7608,7 @@
 		E960400B0C66CA43D219BC5B /* PaneFocusFindResponderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PaneFocusFindResponderTests.swift; sourceTree = "<group>"; };
 		EC905DADF2BA91C8C865D37B /* PaneFocusTestWindow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PaneFocusTestWindow.swift; sourceTree = "<group>"; };
 		A5001410 /* Panel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/Panel.swift; sourceTree = "<group>"; };
+		FC95E723F5D224A3BF5BE715 /* PanelBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelBadge.swift; sourceTree = "<group>"; };
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
 		986900050000000000000002 /* PanelHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelHost.swift; sourceTree = "<group>"; };
 		CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelOwnedNativeViewSession.swift; sourceTree = "<group>"; };
@@ -12678,6 +12680,7 @@
 				C2452EDA6ED2355F908EE912 /* AppDelegate+KiroAgentMessages.swift */,
 				D4D9700C7689786CCDB82CAE /* TerminalController+AgentMessageClaim.swift */,
 				ADCF1F0F7C181E6DCB06F961 /* Workspace+PanelBadge.swift */,
+				FC95E723F5D224A3BF5BE715 /* PanelBadge.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -16677,6 +16680,7 @@
 				D0B1001CA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift in Sources */,
 				42A979F1902C488385061842 /* PaneDropTargetRepresentable.swift in Sources */,
 				A5001400 /* Panel.swift in Sources */,
+				918030F80A6D398C9322807F /* PanelBadge.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
 				986900050000000000000001 /* PanelHost.swift in Sources */,
 				BB49DF25341706C2A892C27C /* PanelOwnedNativeViewSession.swift in Sources */,

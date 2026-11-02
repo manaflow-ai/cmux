@@ -1,3 +1,4 @@
+import Bonsplit
 import CmuxCore
 import Foundation
 import Testing
@@ -15,8 +16,12 @@ struct WorkspacePanelBadgeTests {
         workspace.surfaceIdFromPanelId(panelId).flatMap { workspace.bonsplitController.tab($0)?.title }
     }
 
-    private func badge(_ text: String) throws -> PanelBadgeText {
-        try #require(PanelBadgeText(text))
+    private func badge(_ text: String, color: String? = nil) throws -> PanelBadge {
+        PanelBadge(text: try #require(PanelBadgeText(text)), color: color.flatMap { TabColor(hex: $0) })
+    }
+
+    private func tabColor(_ workspace: Workspace, _ panelId: UUID) -> TabColor? {
+        workspace.surfaceIdFromPanelId(panelId).flatMap { workspace.bonsplitController.tab($0)?.color }
     }
 
     @Test
@@ -27,7 +32,7 @@ struct WorkspacePanelBadgeTests {
         #expect(workspace.updatePanelTitle(panelId: panelId, title: "first title"))
 
         #expect(workspace.setPanelBadge(panelId: panelId, badge: try badge("🦀")))
-        #expect(workspace.panelBadges[panelId]?.value == "🦀")
+        #expect(workspace.panelBadges[panelId]?.text.value == "🦀")
         #expect(tabTitle(workspace, panelId) == "🦀 first title")
         #expect(workspace.panelTitle(panelId: panelId) == "🦀 first title")
         #expect(workspace.panelTitle(panelId: panelId, includesBadge: false) == "first title")
@@ -59,6 +64,40 @@ struct WorkspacePanelBadgeTests {
         #expect(workspace.setPanelBadge(panelId: panelId, badge: nil))
         #expect(workspace.panelBadges[panelId] == nil)
         #expect(tabTitle(workspace, panelId) == "live title")
+    }
+
+    @Test
+    func badgeColorReachesTabAndClearsWithBadge() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+
+        workspace.setPanelBadge(panelId: panelId, badge: try badge("🦀", color: "#BB9AF7"))
+        #expect(tabColor(workspace, panelId)?.hexString == "#BB9AF7")
+
+        // Setting a badge without a color replaces the colored one.
+        workspace.setPanelBadge(panelId: panelId, badge: try badge("💼"))
+        #expect(tabColor(workspace, panelId) == nil)
+
+        workspace.setPanelBadge(panelId: panelId, badge: try badge("🦀", color: "#BB9AF7"))
+        workspace.setPanelBadge(panelId: panelId, badge: nil)
+        #expect(tabColor(workspace, panelId) == nil)
+    }
+
+    @Test
+    func movingTabBetweenWorkspacesKeepsBadgeColor() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let source = try #require(manager.selectedWorkspace)
+        let destination = manager.addWorkspace(select: false)
+        let anchorId = try #require(source.focusedPanelId)
+        let moved = try #require(source.newTerminalSplit(from: anchorId, orientation: .horizontal))
+        source.setPanelBadge(panelId: moved.id, badge: try badge("🦀", color: "#38B44A"))
+
+        let detached = try #require(source.detachSurface(panelId: moved.id))
+        let destinationPane = try #require(destination.bonsplitController.allPaneIds.first)
+        _ = try #require(destination.attachDetachedSurface(detached, inPane: destinationPane, focus: false))
+
+        #expect(tabColor(destination, moved.id)?.hexString == "#38B44A")
     }
 
     @Test
@@ -122,13 +161,13 @@ struct WorkspacePanelBadgeTests {
         source.setPanelBadge(panelId: moved.id, badge: try badge("🦀"))
 
         let detached = try #require(source.detachSurface(panelId: moved.id))
-        #expect(detached.badge?.value == "🦀")
+        #expect(detached.badge?.text.value == "🦀")
         #expect(detached.title == "live title")
         #expect(source.panelBadges[moved.id] == nil)
 
         let destinationPane = try #require(destination.bonsplitController.allPaneIds.first)
         _ = try #require(destination.attachDetachedSurface(detached, inPane: destinationPane, focus: false))
-        #expect(destination.panelBadges[moved.id]?.value == "🦀")
+        #expect(destination.panelBadges[moved.id]?.text.value == "🦀")
         #expect(tabTitle(destination, moved.id) == "🦀 live title")
     }
 
@@ -141,7 +180,7 @@ struct WorkspacePanelBadgeTests {
 
         _ = try #require(workspace.respawnTerminalSurface(panelId: panelId, command: "echo replacement"))
 
-        #expect(workspace.panelBadges[panelId]?.value == "🦀")
+        #expect(workspace.panelBadges[panelId]?.text.value == "🦀")
         #expect(tabTitle(workspace, panelId)?.hasPrefix("🦀 ") == true)
     }
 
@@ -151,12 +190,13 @@ struct WorkspacePanelBadgeTests {
         let workspace = try #require(manager.selectedWorkspace)
         let panelId = try #require(workspace.focusedPanelId)
         #expect(workspace.updatePanelTitle(panelId: panelId, title: "live title"))
-        workspace.setPanelBadge(panelId: panelId, badge: try badge("🦀"))
+        workspace.setPanelBadge(panelId: panelId, badge: try badge("🦀", color: "#BB9AF7"))
 
         let panelSnapshot = try #require(
             workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == panelId }
         )
         #expect(panelSnapshot.badge == "🦀")
+        #expect(panelSnapshot.badgeColor == "#BB9AF7")
         #expect(panelSnapshot.title == "live title")
 
         // Round-trip through JSON, as the session file does.
@@ -167,8 +207,9 @@ struct WorkspacePanelBadgeTests {
         restored.restoreSessionSnapshot(decoded)
         let restoredWorkspace = try #require(restored.selectedWorkspace)
         let restoredPanelId = try #require(restoredWorkspace.panelBadges.first?.key)
-        #expect(restoredWorkspace.panelBadges[restoredPanelId]?.value == "🦀")
+        #expect(restoredWorkspace.panelBadges[restoredPanelId]?.text.value == "🦀")
         #expect(tabTitle(restoredWorkspace, restoredPanelId) == "🦀 live title")
+        #expect(tabColor(restoredWorkspace, restoredPanelId)?.hexString == "#BB9AF7")
     }
 
     @Test

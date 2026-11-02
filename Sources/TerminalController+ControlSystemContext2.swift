@@ -34,6 +34,7 @@ extension TerminalController {
         actionKey: String?,
         title: String?,
         badge: String?,
+        badgeColor: String?,
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
@@ -187,13 +188,25 @@ extension TerminalController {
             }
             guard action == "set_badge" else {
                 workspace.setPanelBadge(panelId: panelId, badge: nil)
-                return finish(.badge(nil))
+                return finish(.badge(nil, color: nil))
             }
             guard let badgeText = badge.flatMap(PanelBadgeText.init) else {
                 return .invalidBadge(maximumCharacters: PanelBadgeText.maximumCharacters)
             }
-            workspace.setPanelBadge(panelId: panelId, badge: badgeText)
-            return finish(.badge(badgeText.value))
+            var color: TabColor?
+            if let badgeColor {
+                // Same inputs as workspace-action set-color: a palette name
+                // (including user-defined ones) or #RRGGBB.
+                let palette = WorkspaceTabColorSettings.palette()
+                let hex = palette.first(where: { $0.name.caseInsensitiveCompare(badgeColor) == .orderedSame })?.hex
+                    ?? WorkspaceTabColorSettings.normalizedHex(badgeColor)
+                guard let resolved = hex.flatMap({ TabColor(hex: $0) }) else {
+                    return .invalidBadgeColor(namedColors: palette.map(\.name))
+                }
+                color = resolved
+            }
+            workspace.setPanelBadge(panelId: panelId, badge: PanelBadge(text: badgeText, color: color))
+            return finish(.badge(badgeText.value, color: color?.hexString))
 
         case "pin":
             workspace.setPanelPinned(panelId: panelId, pinned: true)
