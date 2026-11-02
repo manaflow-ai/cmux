@@ -628,14 +628,15 @@ async function main() {
       if (out) await page.screenshot({ path: path.join(out, `${arm}-jump.png`) });
       console.log("RAIL_BENCH " + JSON.stringify(report));
       // thread-rail.tick-click.loaded-1000 -> thread_rail.tick_click.loaded_1000.<arm>: a tick click or reveal
-      // until the target paints (a response), a rail scroll's frame time (one frame's work).
+      // until the target paints (a response). A rail scroll's frame time is the painted-frame interval, which a
+      // headless runner's frame clock sets (16.7 ms), not work: a row with no target, so a dropped frame still shows.
       for (const each of report.schema.cases)
         if (each.p95 !== null)
           perfRow({
             name: `${each.id.replaceAll("-", "_")}.${arm.replaceAll("-", "_")}`,
             p50: each.p50 ?? undefined,
             p95: each.p95,
-            target: each.metric === "frame_time" ? TARGET_MS.frameWork : TARGET_MS.response,
+            target: each.metric === "frame_time" ? undefined : TARGET_MS.response,
           });
       if (out) fs.writeFileSync(path.join(out, `${arm}-results.json`), JSON.stringify(report, null, 2));
       await page.close();
