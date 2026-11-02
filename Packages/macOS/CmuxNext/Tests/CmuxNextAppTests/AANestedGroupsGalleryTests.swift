@@ -15,8 +15,15 @@ import Testing
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     static let repoRoot = packageRoot.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
+    /// `name`'s theme file: cmux's own themes (Resources/cmux-themes) first, then the shipped Ghostty ones
+    /// (Resources/ghostty/themes, where Apple System Colors and its Light twin live), the way the app bundles both.
+    static func themeFile(_ name: String) -> URL {
+        let own = repoRoot.appending(path: "Resources/cmux-themes/\(name)")
+        return FileManager.default.fileExists(atPath: own.path) ? own : repoRoot.appending(path: "Resources/ghostty/themes/\(name)")
+    }
+
     static func input(_ name: String) throws -> ThemeInput {
-        let text = try String(contentsOf: repoRoot.appending(path: "Resources/cmux-themes/\(name)"), encoding: .utf8)
+        let text = try String(contentsOf: themeFile(name), encoding: .utf8)
         let file = try #require(ThemeFileColors(name: name, themeFile: text))
         var input = ThemeInput(background: file.background, foreground: file.foreground, palette: file.palette.compactMap { $0 },
                                selectionBackground: file.selectionBackground, selectionForeground: file.selectionForeground)
