@@ -207,8 +207,7 @@ extension AppServices {
                                              tokens: { try await auth.tokens().access }) else { return }
         let consent = joinConsent, previous = consent.changed
         devices.setConsentSource { @MainActor [weak consent] in
-            guard let consent else { return (true, false, false) }
-            return (consent.enabled, consent.permitsMacScreen(control: false), consent.permitsMacScreen(control: true))
+            consent.map { ($0.enabled, $0.permitsMacScreen(control: false), $0.permitsMacScreen(control: true)) } ?? (true, false, false)
         }
         consent.changed = { [weak consent] in
             previous()
