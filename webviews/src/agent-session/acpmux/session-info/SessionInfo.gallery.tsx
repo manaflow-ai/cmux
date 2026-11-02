@@ -674,6 +674,39 @@ const openMcpTools: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-breakdown__items") !== null);
 };
 
+/// One PR or issue reached by every path the transcript records it: a bare mention, a URL, a gh call.
+const githubReferenceRows = [
+  assistant("Merged manaflow-ai/cmux#32123 and teamleaderleo/leo-workspace#2495.", 1),
+  assistant("See https://github.com/manaflow-ai/cmux/pull/32082 and https://cmux.com/docs/session-info", 2),
+  activity(
+    [
+      tool("gh pr view 32160 -R manaflow-ai/cmux", "execute", "completed", {
+        command: "gh pr view 32160 -R manaflow-ai/cmux",
+        exitCode: 0,
+      }),
+    ],
+    3,
+  ),
+];
+
+/// Leo, 2026-11-02: one mark and one label format per kind. A GitHub reference row is the PR mark
+/// and `owner/repo #N`; a plain web link is the link mark.
+const assertOneMarkPerSourceKind: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-session-info-source").length >= 5);
+  const rows = [...ctx.document.querySelectorAll(".acpmux-session-info-source")].map((row) => ({
+    icon: row.querySelector("[data-icon]")?.getAttribute("data-icon"),
+    label: row.querySelector(".acpmux-session-info-source__label")?.textContent ?? "",
+  }));
+  for (const { icon, label } of rows) {
+    const reference = /^[\w.-]+\/[\w.-]+ #\d+$/.test(label);
+    if (/#\d/.test(label) && !reference) throw new Error(`GitHub reference "${label}" is not owner/repo #N`);
+    if (reference && icon !== "git.pullrequest") throw new Error(`"${label}" draws ${icon}, not the PR mark`);
+    if (!reference && label.startsWith("cmux.com") && icon !== "link.web") throw new Error(`"${label}" draws ${icon}`);
+  }
+  if (rows.filter((row) => row.icon === "git.pullrequest").length !== 4)
+    throw new Error(`expected four GitHub reference rows, got ${JSON.stringify(rows)}`);
+};
+
 const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-session-info")?.textContent ?? "";
 
 export default componentEntry<Props>({
@@ -1042,6 +1075,14 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => /already on base/.test(text(ctx)));
         await ctx.hover({ selector: ".acpmux-session-info-pr" });
       },
+    },
+    "sources-github-references": {
+      note: "Sources as the transcript records them: a bare manaflow-ai/cmux#32123 mention, a PR URL, a gh pr view and a docs link. Every PR or issue draws the PR mark and reads owner/repo #N; only the docs link draws the link mark (Leo, 2026-11-02, on mixed rows).",
+      props: {
+        ...full,
+        made: { ...made, pullRequests, sources: sessionSummary(githubReferenceRows, "manaflow-ai/cmux").sources },
+      },
+      play: assertOneMarkPerSourceKind,
     },
     "sources-hover": {
       note: "The pointer on a Sources link's row: one faint tint over the row, the link inside it never tinting a second time. An MCP tool's row takes no click, so it never lights.",
