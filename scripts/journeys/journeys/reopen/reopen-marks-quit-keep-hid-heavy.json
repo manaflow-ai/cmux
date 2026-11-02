@@ -1,0 +1,96 @@
+{
+ "id": "reopen-marks-quit-keep-hid-heavy",
+ "priority": "P1",
+ "title": "REOPEN (no film, app marks and exact state), HEAVY profile: a real Cmd-Q (Keep Sessions), then reopen",
+ "why": "Lawrence 2026-11-02 via cmux-ad: reopen must be super fast with video evidence of every terminal restoring; the HEAVY profile is owner 3's (tui-kit heavy_profile.py). TUI panes are judged for content on screen (no blank) from main(); keys are typed only where a shell waits (none in HEAVY), so (3) is not judged here.",
+ "source": "REOPEN VIDEO (STATUS 4269, 4276)",
+ "budget_seconds": 255,
+ "steps": [
+  {
+   "do": "require_whole_host"
+  },
+  {
+   "do": "wait",
+   "seconds": 4
+  },
+  {
+   "do": "window_place",
+   "fraction": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "title": "set-up: the window fills the screen (12 TUI panes visible, not one column)"
+  },
+  {
+   "do": "heavy_profile",
+   "seed": 7,
+   "workspaces": 40,
+   "tabs": 200,
+   "visible": 12,
+   "duration": 900,
+   "timeout": 150,
+   "title": "set-up: the HEAVY profile"
+  },
+  {
+   "do": "wait",
+   "seconds": 3,
+   "title": "set-up: the TUIs run"
+  },
+  {
+   "do": "reopen_video",
+   "count": 5,
+   "how": "quit-keep-hid",
+   "type_keys": false,
+   "title": "filmed: a real Cmd-Q (Keep) and reopen, 5 cycles",
+   "film": false
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "as": "after"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo after-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "after"
+  },
+  {
+   "do": "expect",
+   "title": "after the cycles: a new terminal answers (the app is live)",
+   "since": "after",
+   "timeout": 20,
+   "all": [
+    {
+     "daemon_line": "after-${nonce}-42"
+    },
+    {
+     "app_text_line": "after-${nonce}-42"
+    },
+    {
+     "frame_text": "after-${nonce}-42"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "input_journal",
+   "name": "inputjournal",
+   "last": 300,
+   "title": "evidence: the app's input journal (cmux-ad 02:55Z: every reopen journey)"
+  },
+  {
+   "do": "heavy_teardown"
+  },
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
