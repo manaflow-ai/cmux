@@ -343,10 +343,19 @@ impl Seed {
     /// build caches are retained without scanning their contents.
     fn check_new_paths_before_reseed(&self) -> Result<(), Failed> {
         let changed = |why: &str| failed("seed.machine_changed", why);
+        let mut ignore_rules_changed = false;
         for (previous, incoming) in [
             ("refs/cmux-seed/head", self.params.head.as_str()),
             ("refs/cmux-seed/work", self.params.work.as_str()),
         ] {
+            let changed_paths = self.git(&[
+                "diff-tree", "-r", "-z", "--no-renames", "--name-only",
+                previous, incoming,
+            ])
+            .map_err(|failure| changed(&failure.message()))?;
+            ignore_rules_changed |= changed_paths.split(|byte| *byte == 0).any(|raw| {
+                raw == b".gitignore" || raw.ends_with(b"/.gitignore")
+            });
             let added = self.git(&[
                 "diff-tree", "-r", "-z", "--no-renames", "--name-only",
                 "--diff-filter=A", previous, incoming,
@@ -355,11 +364,34 @@ impl Seed {
             for raw in added.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
                 let path = std::str::from_utf8(raw)
                     .map_err(|_| changed("the new seed adds a non-UTF8 path; retry in a new folder"))?;
-                if std::fs::symlink_metadata(self.folder.join(path)).is_ok() {
+                let candidate = Path::new(path);
+                // A checkout into a symlinked parent can reach files outside
+                // the project. A changed seed never gets to follow that path.
+                if candidate.ancestors().skip(1).any(|parent| {
+                    std::fs::symlink_metadata(self.folder.join(parent))
+                        .is_ok_and(|meta| meta.file_type().is_symlink())
+                }) {
+                    return Err(changed("the new seed would write through a Cloud symlink"));
+                }
+                if std::fs::symlink_metadata(self.folder.join(candidate)).is_ok() {
                     return Err(changed(
                         "the new seed would overwrite an existing untracked or ignored Cloud file",
                     ));
                 }
+            }
+        }
+        // git clean -fd runs after checkout --force. At that point the new
+        // .gitignore is active, so a previously ignored cache can become
+        // unignored and be deleted even with no path collision.
+        if ignore_rules_changed {
+            let ignored = self.git(&[
+                "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory",
+            ])
+            .map_err(|failure| changed(&failure.message()))?;
+            if !ignored.is_empty() {
+                return Err(changed(
+                    "the new seed changes ignore rules while Cloud has ignored files",
+                ));
             }
         }
         Ok(())
