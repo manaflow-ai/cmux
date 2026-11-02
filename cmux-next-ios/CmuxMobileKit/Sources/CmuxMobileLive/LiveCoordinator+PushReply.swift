@@ -133,6 +133,19 @@ extension LiveCoordinator {
         chief.send(ConversationComposeMessage(text: text, images: images))
     }
 
+    /// Send Message… to the Chief about a workspace or a tab of `macID`: Chief runs on the
+    /// focused Mac's link, so that Mac becomes the focus first, and the message goes only once
+    /// its Chief is connected (never to the Chief of the Mac that was focused). False when the
+    /// Mac can't be reached within `budget`; nothing was sent then.
+    public func sendToChief(_ text: String, on macID: String, budget: Duration = .seconds(20)) async -> Bool {
+        guard canLink(macID: macID) else { return false }
+        if focusedMacID != macID { select(macID: macID) }
+        let chief = ChiefSession.shared
+        guard await waitUntil(within: budget, { [weak self] in self?.chiefMacID == macID && chief.isConnected }) else { return false }
+        chief.send(text: text)
+        return true
+    }
+
     /// Text into the terminal that posted the notification, over the Mac's
     /// `daemon` channel (`notification-reply`; the Mac's policy allows only
     /// that notification and text).

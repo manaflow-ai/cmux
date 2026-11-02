@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextDaemon
 public import CmuxNextDaemonService
 import CmuxNextDesign
 
@@ -26,6 +27,23 @@ enum DaemonRecoveryStrings {
     static var failed: String {
         String(localized: "daemon.recovery.failed", defaultValue: "cmux-tui could not be restarted. Try again in a moment.", bundle: .module)
     }
+    /// Why cmux-tui is not running, when its start failed because the disk is full (restore fuzz h2): the one
+    /// disk-full reason a refused change also shows (`RefusalStrings.diskFull`, restore fuzz h3).
+    static var diskFull: String {
+        String(format: String(localized: "daemon.recovery.diskFull",
+                              defaultValue: "cmux-tui could not start: %@. Free some space and cmux starts it again by itself.",
+                              bundle: .module), RefusalStrings.diskFull)
+    }
+    /// Why cmux-tui is not running, when its start failed for any other reason.
+    static var stopped: String {
+        String(localized: "daemon.recovery.stopped",
+               defaultValue: "cmux-tui stopped and could not start again. cmux keeps trying.", bundle: .module)
+    }
+
+    /// What the person reads about a failed start: the full disk, or the short generic reason.
+    static func startFailed(_ failure: DaemonStartFailure?) -> String {
+        failure?.isDiskFull == true ? diskFull : stopped
+    }
 }
 
 /// Restart cmux-tui's question and the App Store banner's controls, one path
@@ -37,27 +55,33 @@ enum DaemonRestartPrompt {
 
     /// Asks before Restart cmux-tui (terminals of a stuck owner may be lost),
     /// then runs it. `window` scopes the question; none asks app-wide.
-    static func confirm(_ recovery: DaemonRecovery, in window: NSWindow?) {
+    /// `cancelled` runs when the person answered no (the window's notice shows again).
+    static func confirm(_ recovery: DaemonRecovery, in window: NSWindow?, cancelled: (@MainActor () -> Void)? = nil) {
         let spec = CmuxDialogSpec(title: DaemonRecoveryStrings.confirmTitle, lines: [DaemonRecoveryStrings.confirmBody],
                                   buttons: [.cancel(), CmuxDialogButton(id: confirmID, title: DaemonRecoveryStrings.confirmButton, role: .default)],
                                   identifier: identifier)
         CmuxDialogCenter.shared.present(spec, in: window.map(CmuxDialogScope.window) ?? .app) { answer in
-            guard answer.button == confirmID else { return }
+            guard answer.button == confirmID else {
+                cancelled?()
+                return
+            }
             // task-owner: one restart per confirm; DaemonRecovery ignores another while one runs
             Task { await recovery.restart() }
         }
     }
 
-    /// What the restart shows while it runs or after it failed; nil otherwise.
+    /// What the restart shows while it runs or after it failed, or that the start failed on a
+    /// full disk (restore fuzz h2); nil otherwise.
     static func status(_ recovery: DaemonRecovery) -> String? {
         if recovery.isRestarting { return DaemonRecoveryStrings.restarting }
-        return recovery.restartFailure == nil ? nil : DaemonRecoveryStrings.failed
+        if recovery.restartFailure != nil { return DaemonRecoveryStrings.failed }
+        return recovery.startFailure?.isDiskFull == true ? DaemonRecoveryStrings.diskFull : nil
     }
 }
 
 /// Retry Now and Restart cmux-tui under the launch window's failure
-/// (cx-jniyz.1). Restart shows only once a plain ensure failed as a stuck
-/// owner makes it fail (`DaemonRecovery.offersRestart`).
+/// (cx-jniyz.1). Restart shows once a plain ensure failed, or the connected
+/// daemon stopped answering (`DaemonRecovery.offersRestart`).
 final class DaemonRecoveryControls: NSStackView {
     private let recovery: DaemonRecovery
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
@@ -88,7 +112,7 @@ final class DaemonRecoveryControls: NSStackView {
         refresh()
         // task-owner: ends after this view is gone (weak self), at the recovery's next change
         observation = Task { [weak self, recovery] in
-            for await _ in ObservationStream({ (recovery.offersRestart, recovery.isRestarting, recovery.restartFailure) }) {
+            for await _ in ObservationStream({ (recovery.offersRestart, recovery.isRestarting, recovery.restartFailure, recovery.startFailure) }) {
                 guard let self else { return }
                 self.refresh()
             }

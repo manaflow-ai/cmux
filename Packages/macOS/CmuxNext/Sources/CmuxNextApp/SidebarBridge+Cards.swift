@@ -17,7 +17,9 @@ extension SidebarBridge {
         // The Priority view (`sidebar.priorityView.*`) ends with the cards.
         let priority = SidebarPriorityFeed(services: services).start(container.sidebarView)
         let updateButton = SidebarCardFeed.followAvailableUpdate(container.sidebarView, updater: services.updater)
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry, settings: services.settings, asks: services.machineAsks)
+        let document: @MainActor @Sendable () -> SidebarDocStore? = { [weak services] in services?.sidebarDoc.store }
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry,
+                                                 settings: services.settings, asks: services.machineAsks)
             .cancelling(nowPlaying).cancelling(priority).cancelling(updateButton)
     }
 }
@@ -38,14 +40,14 @@ enum SidebarCardFeed {
     /// Announcement cards are `announcement:<id>`.
     static let announcementPrefix = "announcement:"
 
-    /// The cards, and with `window` its top items (`SidebarModel.followTopItems`):
-    /// one task, so the bridge cancels both together. `registry` gives the
-    /// tip card its action's shortcut.
-    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil,
+    /// The cards, and with `window` its top items (`SidebarModel.followTopItems`, over the app's own sidebar
+    /// `document`): one task, so the bridge cancels both together. `registry` gives the tip card its action's shortcut.
+    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?,
+                      document: @escaping @MainActor @Sendable () -> SidebarDocStore?, registry: ActionRegistry? = nil,
                       settings: SettingsController? = nil, asks: SidebarAsks? = nil) -> Task<Void, Never> {
         let cards = start(model: model, updater: updater, registry: registry, asks: asks)
         guard window != nil else { return cards }
-        let whatsNew = model.followTopItems()
+        let whatsNew = model.followTopItems(document: document)
         return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
     }
 
@@ -198,11 +200,17 @@ enum SidebarCardFeed {
         let progress: SidebarNoticeCard.Progress? = shown.showsProgress ? (shown.progress.map { .fraction($0) } ?? .indeterminate) : nil
         // A found update gets the Hide button (remind me later on right-click); a result keeps the x.
         let closes = shown.actions.contains(.update)
-        return SidebarNoticeCard(id: updateCardID, symbol: shown.symbol, title: shown.title, detail: shown.detail, lines: shown.lines, progress: progress,
+        // A status card: the text starts at the card's padding, with no small glyph before it, and
+        // its control sits on the right (Leo 2026-10-31: "WHY NOT JUST LEFT ALIGN THE TEXT PUT A
+        // BIGGER SYMBOL ON THE RIGHT").
+        var notice = SidebarNoticeCard(id: updateCardID, symbol: nil, title: shown.title, detail: shown.detail, lines: shown.lines, progress: progress,
                                  actions: shown.actions.map { SidebarNoticeCard.Action(id: $0.rawValue, title: $0.title, prominent: $0.isProminent) },
+                                 trailing: shown.trailing.map { SidebarNoticeCard.Trailing(id: $0.rawValue, symbol: $0.symbol, label: $0.title) },
                                  dismissLabel: shown.dismissible ? (closes ? UpdaterService.updateCloseLabel : UpdaterService.cardDismissLabel) : nil,
                                  dismissTitle: closes && shown.dismissible ? UpdaterService.updateHideTitle : nil, dismissMenu: closes ? UpdaterService.updateCloseMenu.map(SidebarNoticeCard.Action.init) : [],
                                  userAsked: asked)
+        notice.leadingSpinner = false
+        return notice
     }
 
     /// The staged update card (UPDATE-CARD; nil while checking or downloading).

@@ -44,6 +44,16 @@ public final class ChiefMascotPicks {
         return picks[chief] ?? HomeChiefPetSetting.defaultMascot
     }
 
+    /// The character Chief `chief` (nil: the default Chief) was given by a pick (the popover, Settings >
+    /// Chiefs, the config file), or nil while it wears the default without one: the default Chief's is
+    /// `home.chiefPetMascot` when `file` (the config file's root) sets it, another's its own pick.
+    public func picked(_ chief: String?, in file: JSONValue?) -> String? {
+        guard let chief, !isDefault(chief) else {
+            return file?.value(at: HomeChiefPetSetting.mascotPath)?.stringValue.flatMap { HomeChiefPetSetting.mascots.contains($0) ? $0 : nil }
+        }
+        return picks[chief]
+    }
+
     /// Makes `mascot` the character of Chief `chief`, which is not the default Chief (its character is
     /// the setting, written through the settings). An id that is not a character is ignored.
     public func remember(_ mascot: String, for chief: String) {

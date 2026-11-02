@@ -4,7 +4,8 @@
 // no `limit`, so the list is still whole. A list that fits, and any older daemon, answers one
 // reply with no cursor, as before.
 import { expect, test } from "bun:test";
-import { SessionPager } from "../src/agent-session/acpmux/sessionPages";
+import { SessionPageError, SessionPager } from "../src/agent-session/acpmux/sessionPages";
+import { translate } from "../src/agent-session/acpmux/i18n";
 
 type Row = { sessionId: string };
 const rows = (from: number, to: number): Row[] =>
@@ -41,7 +42,9 @@ test("a whole list past one reply is read on from its cursor", async () => {
 
 test("a cursor that comes back fails the read instead of looping", async () => {
   const { pager } = daemon(5, 2, true);
-  await expect(pager.whole()).rejects.toThrow('the page cursor "2" twice');
+  const failure = pager.whole();
+  await expect(failure).rejects.toThrow(translate("error.connectFailed"));
+  await expect(failure).rejects.toBeInstanceOf(SessionPageError);
 });
 
 /** A daemon that answers `replies` in turn, as sent. */
@@ -80,12 +83,18 @@ test("a whole list read in pages is sorted newest first", async () => {
 
 test("a cursor that is not a string fails the read instead of cutting the list short", async () => {
   const { pager } = scripted({ sessions: [{ sessionId: "a" }], nextCursor: 7 });
-  await expect(pager.whole()).rejects.toThrow("the page cursor 7");
+  await expect(pager.whole()).rejects.toMatchObject({
+    name: "SessionPageError",
+    detail: "acpmux gave the page cursor 7",
+  });
 });
 
 test("a page after a cursor that lists no sessions fails the read", async () => {
   const { pager } = scripted({ sessions: [{ sessionId: "a" }], nextCursor: "c1" }, {});
-  await expect(pager.whole()).rejects.toThrow('the page after cursor "c1" lists no sessions');
+  await expect(pager.whole()).rejects.toMatchObject({
+    name: "SessionPageError",
+    detail: 'the page after cursor "c1" lists no sessions',
+  });
 });
 
 test("an empty page that names the rest is read on from", async () => {
@@ -95,5 +104,49 @@ test("an empty page that names the rest is read on from", async () => {
     { sessions: [{ sessionId: "b" }], nextCursor: null },
   );
   expect((await pager.whole()).map((row) => row.sessionId)).toEqual(["a", "b"]);
+  expect(calls.map((call) => call.params.cursor)).toEqual([undefined, "c1", "c2"]);
+});
+
+test("bounded list follows an empty first page that has a continuation cursor", async () => {
+  const { calls, pager } = scripted(
+    { sessions: [], nextCursor: "c1" },
+    { sessions: [{ sessionId: "a" }], nextCursor: null },
+  );
+  const first = await pager.first();
+  expect(first).toBeDefined();
+  if (!first) return;
+  const held = first.sessions.slice();
+  expect(
+    await pager.rest(
+      first,
+      () => held,
+      (fresh) => held.push(...fresh),
+    ),
+  ).toBe(true);
+  expect(held.map((row) => row.sessionId)).toEqual(["a"]);
+  expect(calls.map((call) => [call.method, call.params.cursor])).toEqual([
+    ["_acpmux/watch", undefined],
+    ["_acpmux/sessions", "c1"],
+  ]);
+});
+
+test("bounded list follows an empty middle page that has a continuation cursor", async () => {
+  const { calls, pager } = scripted(
+    { sessions: [{ sessionId: "a" }], nextCursor: "c1" },
+    { sessions: [], nextCursor: "c2" },
+    { sessions: [{ sessionId: "b" }], nextCursor: null },
+  );
+  const first = await pager.first();
+  expect(first).toBeDefined();
+  if (!first) return;
+  const held = first.sessions.slice();
+  expect(
+    await pager.rest(
+      first,
+      () => held,
+      (fresh) => held.push(...fresh),
+    ),
+  ).toBe(true);
+  expect(held.map((row) => row.sessionId)).toEqual(["a", "b"]);
   expect(calls.map((call) => call.params.cursor)).toEqual([undefined, "c1", "c2"]);
 });

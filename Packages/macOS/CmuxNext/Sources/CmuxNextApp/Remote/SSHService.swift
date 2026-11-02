@@ -31,6 +31,8 @@ final class SSHService {
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.ssh")
     /// Runs `remote.install` through the registry's confirmation (set by the handlers).
     @ObservationIgnored var offerInstall: ((SSHMachineSession) -> Void)?
+    /// The acting window (`WindowManager.active`): a connect records it as `connectingWindow`.
+    @ObservationIgnored var actingWindow: () -> String? = { nil }
     /// A written Forget's acpmux peer removal (HQ #4877 break 8); tests replace its `remove`.
     @ObservationIgnored let peerForgets: SSHPeerForgets
     /// Forgotten machines, so a stale registry echo does not bring them back.
@@ -149,10 +151,10 @@ final class SSHService {
 
     // MARK: Connect, disconnect, forget
 
-    /// Connects to `destination` (or reconnects the saved machine it names).
+    /// Connects to `destination` (or reconnects the saved machine it names); `byPerson` as ``reconnect(_:byPerson:)``.
     @discardableResult
     func connect(destination text: String, session name: String?, binary: String? = nil, stateDir: String? = nil,
-                 offerInstall: Bool) throws -> SSHMachineSession {
+                 offerInstall: Bool, byPerson: Bool = true) throws -> SSHMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         let destination: SSHDestination
         do { destination = try SSHDestination(parsing: text) } catch { throw ActionFailure(message: RemoteStrings.invalidDestination(text, error)) }
@@ -163,7 +165,7 @@ final class SSHService {
             rememberHost(saved)
             saved.offersInstall = offerInstall
             if offerInstall { offerInstallWhenOld(saved) }
-            reconnect(saved)
+            reconnect(saved, byPerson: byPerson)
             logger.info("connect \(destination.description, privacy: .public): reusing \(saved.machineID, privacy: .public)")
             return saved
         }
@@ -188,8 +190,10 @@ final class SSHService {
         }
         let session = machines.sshSession(host.machineID) ?? makeSession(host)
         guard let session else { throw ActionFailure(message: RemoteStrings.noClient) }
+        if !byPerson, session.waitsForUser { return session }
         // Saved now, before the first connect succeeds (no session id yet).
         session.autoConnect = true
+        session.connectingWindow = actingWindow()
         rememberHost(session)
         session.offersInstall = offerInstall
         if offerInstall { offerInstallWhenOld(session) }
@@ -219,13 +223,16 @@ final class SSHService {
         return text
     }
 
-    func reconnect(_ session: SSHMachineSession) {
-        guard !policyDisabled else { return }
+    func reconnect(_ session: SSHMachineSession, byPerson: Bool = true) {
+        guard !policyDisabled, byPerson || !session.waitsForUser else { return } // only a person takes over a session in use (G5)
+        if byPerson { session.connectingWindow = actingWindow() } // its "Connecting to…" row lists in the asking window (#31490)
         // A retry gets a fresh error from the new attempt. Do not let the
         // recovery sheet copy the previous attempt while the link is working.
         session.lastError = nil
-        switch session.linkStatus.reconnectStep(daemonConnected: session.daemon.startup == .connected, daemonFailed: session.daemonFailure != nil) {
+        switch session.linkStatus.reconnectStep(daemonConnected: session.daemon.startup == .connected, daemonFailed: session.daemonFailure != nil,
+                                                retriesSpent: session.retriesSpent) {
         case .connect: session.connect()
+        case .restart: session.restart()
         case .reconnectDaemon: session.reconnectDaemon()
         case .wake: session.wake(.user)
         case .newAttempt:

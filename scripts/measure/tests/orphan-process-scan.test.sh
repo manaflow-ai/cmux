@@ -92,4 +92,9 @@ grep -q "^ORPHAN-SCAN-BUILDS path=\"$TMP/fixed/cmux-tui\" processes=1 orphans=0 
 grep -q "^ORPHAN-SCAN-BUILDS path=\"$TMP/old/cmux-tui\" processes=1 orphans=1 fix29349=no replaced_after_start=0\$" <<<"$out" || fail "a build without the fix"
 grep -q '^ORPHAN-SCAN-BUILDS path="cmux-tui" processes=1 orphans=1 fix29349=- replaced_after_start=0$' <<<"$out" || fail "a bare name is not a file"
 grep -q '^ORPHAN-SCAN-BUILDS path="/h/bin/cmux" processes=1 orphans=1 fix29349=- ' <<<"$out" || fail "multicall build"
+# Fed on stdin, as `ssh HOST bash -s < orphan-process-scan.sh` runs it on a host the fleet cannot
+# reach: BASH_SOURCE is unset there, and the report must still come out the same.
+stdin_out=$(PATH="$TMP/bin:$PATH" ORPHAN_SCAN_PROC="$TMP/no-proc" bash -s <"$SCRIPT" 2>&1) || fail "bash -s: $stdin_out"
+[[ "$(grep '^ORPHAN-SCAN-SUMMARY' <<<"$stdin_out")" == "$(grep '^ORPHAN-SCAN-SUMMARY' <<<"$out")" ]] \
+  || fail "the report on stdin differs: $stdin_out"
 echo "orphan-process-scan.test.sh: ok"

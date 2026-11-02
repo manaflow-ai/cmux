@@ -22,7 +22,7 @@ optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
 optchat-chief settings [show | set cache.ttl 5m|1h | set replies.thread auto|always|never | set show.afterReport true|false | set trace.full true|false
-                       | set cloud.autoPauseIdleSeconds N] [--mux-home DIR]
+                       | set subagents.showWorkspaces true|false | set cloud.autoPauseIdleSeconds N] [--mux-home DIR]
                                                            per-Chief settings (none of them makes the Chief ask before it acts)
 optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
@@ -324,15 +324,26 @@ fn main() -> std::process::ExitCode {
                         let file = paths.root.join("settings.json");
                         let mut s = optchat_chief::chief_settings::ChiefSettings::load(&file);
                         if let Some((key, value)) = set {
-                            use optchat_chief::chief_settings::{CACHE_TTL, parse_ttl};
+                            use optchat_chief::chief_settings::{
+                                CACHE_TTL, CONTACT, parse_contact, parse_ttl,
+                            };
                             match key {
                                 CACHE_TTL => s.cache_ttl = Some(parse_ttl(value)?),
+                                CONTACT => s.contact = parse_contact(value)?,
                                 optchat_chief::chief_settings::TRACE_FULL => {
                                     s.trace_full = optchat_chief::chief_settings::parse_bool(value)?
+                                }
+                                optchat_chief::chief_settings::CLOUD_AUTO_PAUSE => {
+                                    s.cloud_auto_pause =
+                                        optchat_chief::chief_settings::parse_bool(value)?
                                 }
                                 optchat_chief::chief_settings::CLOUD_AUTO_PAUSE_IDLE_SECONDS => {
                                     s.cloud_auto_pause_idle_secs =
                                         optchat_chief::chief_settings::parse_idle_secs(value)?
+                                }
+                                optchat_chief::chief_settings::SHOW_SUBAGENT_WORKSPACES => {
+                                    s.show_subagent_workspaces =
+                                        optchat_chief::chief_settings::parse_bool(value)?
                                 }
                                 _ => return Err(format!("unknown setting {key:?}")),
                             }

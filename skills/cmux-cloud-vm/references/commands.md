@@ -78,7 +78,7 @@ cmux cloud list-machines --json
 
 ```bash
 cmux cloud list-machines                                    # the app's Cloud machines
-cmux cloud new-machine                                      # answers machine_id (or pending)
+cmux machine new                                            # prints its target and next steps (--json: machine_id, or pending)
 cmux cloud new-workspace                                    # New Cloud Workspace
 cmux cloud open-machine --target machine:vm-…
 cmux cloud open-desktop --target machine:vm-…                # its desktop in a cmux browser tab, over the app's Cloud tunnel
@@ -87,6 +87,7 @@ cmux cloud new-terminal-on-machine --target machine:vm-…      # a new workspac
 cmux cloud new-terminal-on-machine --target machine:vm-… --workspace <workspace-id>   # a terminal tab in that workspace
 cmux cloud rename-machine --target machine:vm-… --name <label>
 cmux cloud resize-machine --target machine:vm-… --size small|medium|large|xlarge
+cmux cloud resize-machine --target machine:vm-… --disk 100   # disk in whole GiB: 4 GiB steps, up to 256, grow-only; --size and --disk may go together
 cmux cloud machine-status --target machine:vm-…              # stats, plus hourly_rate_usd, running_since, estimated_cost_usd
 cmux cloud machine-ports --target machine:vm-…
 cmux cloud snapshot-machine --target machine:vm-…

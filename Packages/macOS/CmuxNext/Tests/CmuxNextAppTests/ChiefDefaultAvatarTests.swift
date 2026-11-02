@@ -1,7 +1,9 @@
 @testable import CmuxNextApp
+@testable import CmuxNextChiefPetWiring
 import CmuxNextFloating
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
+@testable import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -22,6 +24,29 @@ import Testing
         #expect(HomeHostView.defaultTileAvatar(picture: nil) == .text("CH"))
         let upload = URL(fileURLWithPath: "/tmp/upload.png")
         #expect(HomeHostView.defaultTileAvatar(picture: upload) == .picture(upload), "a worn upload still shows")
+    }
+
+    /// Leo 2026-11-01: "im not seeing chiefs with the selected avatar appearance". A Chief given a
+    /// character (the popover, Settings > Chiefs, the config file) wears it in Home; one never given
+    /// one keeps its monogram.
+    @MainActor @Test func aPickedCharacterIsTheChiefsHomePicture() throws {
+        let picks = ChiefMascotPicks(defaults: nil, defaultChief: HomeChiefAvatars.defaultChief)
+        let picture = { (chief: String?, file: JSONValue?) in
+            ChiefPetSettingsRows.chosenPicture(of: chief, picks: picks, uploads: nil, in: nil, file: file)
+        }
+        #expect(picture("agent_scout01", nil) == nil, "no pick: the monogram")
+        picks.remember("fox", for: "agent_scout01")
+        let fox = try #require(ChiefPetMascot.fox.avatarURL)
+        #expect(picture("agent_scout01", nil) == fox)
+        #expect(HomeHostView.defaultTileAvatar(picture: picture("agent_scout01", nil)) == .picture(fox))
+        #expect(picture("agent_scout02", nil) == nil, "one Chief's pick never shows on another")
+        // The default Chief's character is home.chiefPetMascot, picked only when the file sets it.
+        #expect(picture(nil, .object([:])) == nil)
+        let moon = try #require(ChiefPetMascot.moon.avatarURL)
+        let file = JSONValue.object(["home": .object(["chiefPetMascot": .string("moon")])])
+        #expect(picture(nil, file) == moon)
+        #expect(picture(HomeChiefAvatars.defaultChief, file) == moon)
+        #expect(picture(nil, .object(["home": .object(["chiefPetMascot": .string("not-a-pet")])])) == nil)
     }
 
     @Test func eachCharacterStillHasAPetPicture() throws {

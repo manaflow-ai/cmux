@@ -402,7 +402,7 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
       was = now;
     }
     // The band is only the transcript's own to answer for while the composer floats over it
-    // (`data-dock`); on the hero, a handoff review, the diff or the inspector the stack is in flow
+    // (`data-dock`); on the hero, a handoff review, the diff or Session Info the stack is in flow
     // and `.acpmux-dock` is `display: contents`, whose rect is all zeroes (bottomStack.css).
     const mode = document.querySelector<HTMLElement>(".acpmux-main")?.dataset.dock;
     if (mode !== "float") throw new Error(`the stage is not the transcript: data-dock=${mode}`);

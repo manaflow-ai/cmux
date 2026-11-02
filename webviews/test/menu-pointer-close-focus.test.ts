@@ -101,7 +101,9 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
       );
       return {
         ring: ringed ? String(ringed.className).split(" ").slice(0, 2).join(".") : "",
-        focused: String(document.activeElement?.className ?? "").split(" ")[0] ?? "",
+        focused: document.activeElement?.closest(".nt-field")
+          ? "nt-field"
+          : (String(document.activeElement?.className ?? "").split(" ")[0] ?? ""),
       };
     });
 

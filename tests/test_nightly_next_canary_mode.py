@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -160,7 +161,7 @@ class VerdictDurabilityTests(unittest.TestCase):
             step_file = Path(tmp) / "step.sh"
             step_file.write_text(script)
             result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(step_file)],
-                                    env=full, capture_output=True, text=True, timeout=60)
+                                    env=full, cwd=tmp, capture_output=True, text=True, timeout=60)
             return result, output.read_text()
 
     def record(self, app: str, app_class: str = "") -> str:
@@ -308,6 +309,18 @@ cp {tmp}/doc "$out"
                                            path=bin_dir)
             self.assertEqual(result.returncode, 0, result.stderr)
             return output
+
+    def test_a_step_writes_nothing_where_the_tests_run(self):
+        # The durable-verdict step downloads verdict.json into its working
+        # folder; run from a checkout, it must not leave the file there.
+        with tempfile.TemporaryDirectory() as here:
+            before = os.getcwd()
+            os.chdir(here)
+            try:
+                self.durable('{"build": "4100", "verdict": "pass"}')
+            finally:
+                os.chdir(before)
+            self.assertEqual(os.listdir(here), [])
 
     def test_a_marked_build_is_checked_only_while_its_verdict_document_exists(self):
         # The dispatch was accepted, but nightly-next-verdict.yml failed before

@@ -255,7 +255,7 @@ main() {
   done < <(printf '%s\n' "$builds" | cut -f1 | sort -u)
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+if [[ "${BASH_SOURCE[0]:-$0}" == "$0" ]]; then
   main "$@"
   exit 0
 fi

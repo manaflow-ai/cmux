@@ -21,17 +21,17 @@ struct SidebarGroupFlow {
         guard let state = bridge.state else { return }
         // Before personal state loads (or on a daemon without it) the intent waits or is refused like any group intent.
         guard bridge.usesPersonalOrganization else {
-            return bridge.handle(.createGroup(CmuxNextSidebar.GroupID.make(), name: name, color: .grey, workspaces: []))
+            return bridge.handle(.createGroup(CmuxNextSidebar.GroupID.make(), name: name, color: .none, workspaces: []))
         }
         let room = state.profileID, v2 = bridge.statePersonal, home = bridge.services.machines.local, id = WorkspaceGroupID(rawValue: CmuxNextSidebar.GroupID.make().rawValue)
-        // The first palette color no group uses yet (never blue or grey, GroupColor.automatic).
-        let color = GroupColor.automatic(used: Set(home.store.personal.groups.compactMap(\.color))) ?? .grey
+        // No color until a person picks one.
+        let color = GroupTint.none
         let flow = self
         Task {
             let created = await home.request("create-personal-group") { connection -> WorkspaceGroupID in
                 v2 ? WorkspaceGroupID(rawValue: try await connection.state.createWorkspaceGroup(
-                    name: SidebarGroup.named(name), room: room.rawValue, color: color.rawValue).id)
-                    : try await connection.createPersonalGroup(name: SidebarGroup.named(name), id: id, room: room, color: color.rawValue).id
+                    name: SidebarGroup.named(name), room: room.rawValue, color: color.wire).id)
+                    : try await connection.createPersonalGroup(name: SidebarGroup.named(name), id: id, room: room, color: color.wire).id
             }
             guard let created else { return flow.bridge.resync() }
             flow.editor.explicit.insert(created)
@@ -45,14 +45,13 @@ struct SidebarGroupFlow {
     /// asks without a name: that group's name editor opens (repeated New
     /// Group, cx-rcby). Automation, and a person who names the group, get
     /// the group they asked for; the group it empties goes.
-    /// Every new group gets the next palette color (Leo 2026-10-20: agents'
-    /// groups were all grey); a person's also opens its editor (the Chrome flow). `index` places the group
+    /// A new group has no color until a person picks one (Leo 2026-10-31: "WHY DOES THIS HAVE A
+    /// LINE AND COLOR"); a person's also opens its editor (the Chrome flow). `index` places the group
     /// (`SidebarIntent.createGroup`), else it forms at its first member.
     func newGroup(of ids: [SidebarWorkspaceID], name: String, byUser: Bool, index: Int? = nil) {
         if byUser, name.isEmpty, bridge.usesPersonalOrganization, let whole = bridge.life.whole(bridge.placements(ids)) { return editGroup(whole) }
         let id = CmuxNextSidebar.GroupID.make()
-        let used = Set(bridge.services.machines.local.store.personal.groups.compactMap(\.color))
-        bridge.handle(.createGroup(id, name: name, color: GroupColor.automatic(used: used) ?? .grey, workspaces: ids,
+        bridge.handle(.createGroup(id, name: name, color: .none, workspaces: ids,
                                    index: index))
         if byUser, name.isEmpty, bridge.model.group(id) != nil { editGroup(WorkspaceGroupID(rawValue: id.rawValue)) }
     }
@@ -106,7 +105,7 @@ struct SidebarGroupFlow {
 
     /// `.createGroup`: the group forms where the model formed it; a group its
     /// members leave empty goes.
-    func create(_ group: CmuxNextSidebar.GroupID, name: String, color: GroupColor, _ ids: [SidebarWorkspaceID], collapsed: Bool,
+    func create(_ group: CmuxNextSidebar.GroupID, name: String, color: GroupTint, _ ids: [SidebarWorkspaceID], collapsed: Bool,
                 room: ProfileID, index: Int? = nil, _ intent: SidebarIntent) {
         let id = WorkspaceGroupID(rawValue: group.rawValue), members = bridge.placements(ids), v2 = bridge.statePersonal
         let life = bridge.life, ending = life.emptied(by: members, into: nil)
@@ -132,8 +131,8 @@ struct SidebarGroupFlow {
                     applied: applied, landed: { created in flow.landed(id, as: created) }) { connection -> WorkspaceGroupID in
             // The v2 operation names the group itself.
             let created = v2 ? WorkspaceGroupID(rawValue: try await connection.state.createWorkspaceGroup(
-                name: SidebarGroup.named(name), room: room.rawValue, color: color.rawValue, index: move).id)
-                : try await connection.createPersonalGroup(name: SidebarGroup.named(name), id: id, room: room, color: color.rawValue).id
+                name: SidebarGroup.named(name), room: room.rawValue, color: color.wire, index: move).id)
+                : try await connection.createPersonalGroup(name: SidebarGroup.named(name), id: id, room: room, color: color.wire).id
             try await PersonalGroupCreation.finish(created, topIndex: top, collapsed: collapsed, statePersonal: v2, on: connection)
             for workspace in members {
                 try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
