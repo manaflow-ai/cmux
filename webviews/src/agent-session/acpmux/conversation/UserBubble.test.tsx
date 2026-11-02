@@ -136,6 +136,39 @@ test("an inline attachment-only prompt keeps its media strip and footer", async 
   expect(container.querySelector(".cv-user__actions")).not.toBeNull();
 });
 
+// Send and replay record an attachment-only prompt in both shapes: its `images` (or retained
+// files) and its `inlineParts`. Each attachment draws once, by one path.
+const drawnImages = (container: HTMLElement) =>
+  container.querySelectorAll(".cv-user__image, .cv-user__image-placeholder, .cv-user__image-failed").length;
+const drawnFiles = (container: HTMLElement) => container.querySelectorAll(".acpmux-file-chip").length;
+
+test("an image-only prompt recorded with images and inline parts draws its image once", async () => {
+  const sent = { ...image, src: "data:image/png;base64,iVBORw0KGgo=" };
+  const row: AcpmuxRow = {
+    ...baseRow(),
+    images: [sent],
+    inlineParts: [{ kind: "image", ...sent }],
+  };
+  const container = await render(row);
+
+  expect(drawnImages(container)).toBe(1);
+  expect(drawnFiles(container)).toBe(0);
+});
+
+test("a file-only prompt recorded with retained files and inline parts draws its file once", async () => {
+  const file = { name: "notes.pdf", mimeType: "application/pdf", size: 12 };
+  const row: AcpmuxRow = {
+    ...baseRow(),
+    images: undefined,
+    retryAttachments: [{ id: "file-1", kind: "link", ...file }],
+    inlineParts: [{ kind: "file", ...file }],
+  };
+  const container = await render(row);
+
+  expect(drawnFiles(container)).toBe(1);
+  expect(drawnImages(container)).toBe(0);
+});
+
 test("an image-only prompt still hides retry while its send is pending", async () => {
   const row: AcpmuxRow = {
     ...baseRow(),
