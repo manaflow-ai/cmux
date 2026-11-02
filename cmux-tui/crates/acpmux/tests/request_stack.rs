@@ -147,8 +147,9 @@ fn the_table_names_every_request_kind_of_dispatch_request() {
     );
 }
 
-/// How long a request of the table may take to answer.
-const REPLY_WAIT: Duration = Duration::from_secs(10);
+/// How long a request of the table may take to answer: the 30 s that `Client::call` gives one
+/// line, so a row that starts the stand-in agent on a loaded fleet host does not fail at random.
+const REPLY_WAIT: Duration = Duration::from_secs(30);
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
