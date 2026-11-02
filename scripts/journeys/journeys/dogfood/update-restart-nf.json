@@ -1,0 +1,193 @@
+{
+  "id": "update-restart-nf",
+  "priority": "P1",
+  "title": "Restart to Update (the updater's relaunch path) keeps the window in place and every terminal with its output; typing works at once in the focused pane (no film: the verdict is the app's and the daemon's state)",
+  "why": "VIDEO EXTRA item 4 (lead 2026-11-02 00:29Z): 'Restart to Update: the window comes back in place, terminals kept'. Limit: no new binary is installed in a lease (ext_update.py). The -nf copy runs on builds without the in-app recorder (the exact dogfood binary).",
+  "source": "VIDEO EXTRA (STATUS 4271)",
+  "budget_seconds": 200,
+  "options": {
+    "key_path": "real"
+  },
+  "continue_not_judged": true,
+  "finally": [
+    {
+      "do": "env_windows",
+      "at": "end"
+    },
+    {
+      "do": "smoke_close_all"
+    }
+  ],
+  "steps": [
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "env_windows",
+      "at": "start"
+    },
+    {
+      "do": "smoke_remember_workspaces"
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "ws"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: Cmd-N makes a workspace",
+      "since": "ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_workspaces": {
+            "new": 1
+          }
+        },
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "left"
+    },
+    {
+      "do": "outwait_hold"
+    },
+    {
+      "do": "smoke_type",
+      "text": "seq 1 300 | sed 's/^/U${nonce}-/'",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the left terminal printed 300 numbered lines",
+      "since": "left",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "U${nonce}-300"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "U${nonce}-300",
+      "as": "left"
+    },
+    {
+      "do": "smoke_key",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "right"
+    },
+    {
+      "do": "outwait_hold"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo right-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the right terminal ran its line",
+      "since": "right",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "right-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "right-${nonce}",
+      "as": "right"
+    },
+    {
+      "do": "remember",
+      "as": "before",
+      "pane": "right"
+    },
+    {
+      "do": "update_relaunch",
+      "mark": "reopened"
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "after"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo UPD-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "after Restart to Update: the same window frame, both terminals with their output (line 300 of 300 and the right line), and a line typed at once runs in the pane that was focused (right)",
+      "since": "reopened",
+      "timeout": 60,
+      "all": [
+        {
+          "window_frame": {
+            "same_as": "before",
+            "tol": 2
+          }
+        },
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "U${nonce}-300",
+              "U${nonce}-1",
+              "right-${nonce}"
+            ]
+          }
+        },
+        {
+          "routing_marker": {
+            "line": "UPD-${nonce}-42",
+            "on": "right",
+            "attempt": "update"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "UPD-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
