@@ -26,8 +26,17 @@ const earlier = Array.from({ length: 6 }, (_, index) => {
 
 const log = Array.from({ length: 12 }, (_, index) => `ok ${index + 1} - fetch retries case ${index + 1}`).join("\n");
 
+/// A finished turn that ran a command, above the last one: its "Worked for" line stays closed.
+const middle = [
+  user("Find the retry helper", 12),
+  activity([command("Find the retry helper", "rg -n fetchWithRetry src", log)], 11, { id: "expand-mid-run" }),
+  assistant(paragraph(13), 10),
+  summary(9.9, { status: "completed", durationMs: 9_000, toolCount: 1 }),
+];
+
 const rows = [
   ...earlier,
+  ...middle,
   user("Run the fetch tests and show me the log", 6),
   activity(
     [

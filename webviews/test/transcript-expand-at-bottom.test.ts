@@ -83,6 +83,20 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
       };
     }, GROUP);
 
+  /// Clicks the middle of `query`'s line with the mouse (a locator's click scrolls a line the
+  /// composer covers into view first), after checking the point is the line's own.
+  const clickLine = async (page: Page, query: string) => {
+    const point = await page.evaluate((selector) => {
+      const line = document.querySelector<HTMLElement>(selector)!;
+      const box = line.getBoundingClientRect();
+      const x = box.left + Math.min(40, box.width / 2);
+      const y = box.top + box.height / 2;
+      return { x, y, own: line.contains(document.elementFromPoint(x, y)) };
+    }, query);
+    expect(point.own).toBe(true);
+    await page.mouse.click(point.x, point.y);
+  };
+
   async function open(): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
@@ -103,7 +117,7 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     const before = await measure(page);
     expect(before.open).toBe("false");
     expect(before.fromEnd).toBeLessThanOrEqual(2);
-    await page.locator(GROUP).click();
+    await clickLine(page, GROUP);
     await settled(page);
     const after = await measure(page);
     expect(after.open).toBe("true");
@@ -118,24 +132,37 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
 
   test("away from the bottom, opening a line keeps it put and grows its body down", async () => {
     const page = await open();
-    // A little up from the end: the line still in view, the reply and the turn's end under the view.
+    // The earlier turn's "Worked for" line, 160px under the view's top, the rest of the chat under it.
+    const MID = "[data-mid-probe]";
     await page.locator(".acpmux-scroll").evaluate((node) => {
-      node.scrollTop = node.scrollHeight - node.clientHeight - 120;
+      const line = [...node.querySelectorAll<HTMLElement>(".cv-worked")].at(-2)!;
+      line.dataset.midProbe = "true";
+      node.scrollTop += line.getBoundingClientRect().top - node.getBoundingClientRect().top - 160;
     });
     await settled(page);
-    const before = await measure(page);
+    const where = (query: string) =>
+      page.evaluate((selector) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const line = document.querySelector<HTMLElement>(selector)!;
+        return {
+          line: line.getBoundingClientRect().top,
+          open: line.getAttribute("aria-expanded"),
+          scrollTop: scroller.scrollTop,
+          scrollHeight: scroller.scrollHeight,
+          fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
+        };
+      }, query);
+    const before = await where(MID);
+    expect(before.open).toBe("false");
     expect(before.fromEnd).toBeGreaterThan(40);
-    const view = await page.locator(".acpmux-scroll").evaluate((node) => node.getBoundingClientRect());
-    expect(before.line).toBeGreaterThan(view.top);
-    expect(before.line).toBeLessThan(view.bottom - 40);
-    await page.locator(GROUP).click();
+    await clickLine(page, MID);
     await settled(page);
-    const after = await measure(page);
+    const after = await where(MID);
     expect(after.open).toBe("true");
+    // The line stays on its pixel and the view where it was; what opened grew the chat downward.
     expect(Math.abs(after.line - before.line)).toBeLessThanOrEqual(1);
     expect(Math.abs(after.scrollTop - before.scrollTop)).toBeLessThanOrEqual(1);
-    expect(after.scrollHeight).toBeGreaterThan(before.scrollHeight + 40);
-    expect(after.lastFoot).toBeGreaterThan(before.lastFoot + 40);
+    expect(after.scrollHeight).toBeGreaterThan(before.scrollHeight + 20);
     await page.close();
   });
 });

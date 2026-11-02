@@ -5192,7 +5192,12 @@ export function VirtualTranscript({
         stopBottomStackFold();
         return false;
       }
-      if (!atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)) {
+      // At the bottom: the view follows the latest row, or its offset is at (or within the deadband
+      // of) the end.
+      if (
+        !followingRef.current &&
+        !atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)
+      ) {
         stopBottomStackFold();
         return false;
       }
