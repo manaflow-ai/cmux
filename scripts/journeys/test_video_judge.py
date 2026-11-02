@@ -61,6 +61,18 @@ def draw_light(pos):
     return img
 
 
+def draw_offgrid(variant, pos, img):
+    """Review repros of c41e4124528: an edge drawn half a pixel off the grid in EVERY frame, at rest too (the model
+    stays on the grid). "offgrid-divider": the 2 px divider at pos + 0.5; "offgrid-edge": a right pane of another
+    color whose left edge is one mixed pixel."""
+    if variant == "offgrid-divider":
+        mix = (np.array(BG) + np.array(DIV)) // 2
+        img[:, pos], img[:, pos + 1], img[:, pos + 2] = mix, DIV, mix
+    elif variant == "offgrid-edge":
+        img[:, pos + 2] = (img[0, pos + 3].astype(int) + img[0, pos + 1].astype(int)) // 2
+    return img
+
+
 def draw(pos, blank_right=False, right_bg=BG):
     """One frame, RGB (H, W, 3): left pane, 2 px divider at pos, right pane."""
     img = np.zeros((H, W, 3), np.uint8)
@@ -88,6 +100,9 @@ def build_case(root, name, variant="clean"):
                    right_bg=(110, 110, 120) if variant == "flash" and k == 30 else BG)
         if variant == "light":
             img = draw_light(shown_pos(k))
+        if variant == "offgrid-edge":
+            img = draw(shown_pos(k), right_bg=(80, 30, 30))
+        img = draw_offgrid(variant, shown_pos(k), img)
         if variant == "jumpback" and k == 25:
             img = draw(shown_pos(24) - 4)
         if variant == "blend" and k in (20, 21, 22):
@@ -200,7 +215,8 @@ class VideoJudgeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp(prefix="video-judge-")
-        names = ["clean", "blend", "jumpback", "gap", "dropped", "blank", "encoder", "flash", "stale", "light"]
+        names = ["clean", "blend", "jumpback", "gap", "dropped", "blank", "encoder", "flash", "stale", "light", "offgrid-divider",
+                 "offgrid-edge"]
         cls.reports = {}
         from concurrent.futures import ThreadPoolExecutor
 
@@ -255,14 +271,22 @@ class VideoJudgeTests(unittest.TestCase):
         new = [x for x in np.flatnonzero(vj.blend_mask(drag[None])[0] & ~vj.blend_mask(rest[None])[0])
                if MOVED <= x < len(drag) - MOVED]
         self.assertTrue(new, "the drag frame has blends at new places")
-        moved = [x for x in new if vj._moved_whole_pixels(drag, x, [rest.tobytes()])]
+        no_edges = [np.zeros(len(rest), bool)]
+        moved = [x for x in new if vj._moved_whole_pixels(drag, x, [rest.tobytes()], no_edges)]
         self.assertTrue(moved, [doc["x0"] + int(x) for x in new])
         # A pixel mixed half way between two colors (an edge off the grid) inside that same text: no rest frame has
         # that neighbourhood, so it is still a blend.
         edge = drag.copy()
         x = moved[0]
         edge[x, :3] = (edge[x - 1, :3].astype(int) + edge[x + 1, :3].astype(int) + 1) // 2 + 1
-        self.assertFalse(vj._moved_whole_pixels(edge, x, [rest.tobytes()]))
+        self.assertFalse(vj._moved_whole_pixels(edge, x, [rest.tobytes()], no_edges))
+
+    def test_an_edge_off_the_grid_at_rest_too_is_still_a_blend(self):
+        # Review BLOCK of c41e4124528: the whole-pixel rule found the same 13 px at rest (the same off-grid edge) and
+        # dropped every blend. A rest match centered on a model edge does not count.
+        for name in ("offgrid-divider", "offgrid-edge"):
+            hit = find(self.reports[name], "half-pixel blend")
+            self.assertGreaterEqual(sum(h["frames"][1] - h["frames"][0] + 1 for h in hit), 20, (name, hit))
 
     def test_a_dark_divider_between_panes_is_visible(self):
         row = _bgra(draw(200))[100].astype(np.int16)

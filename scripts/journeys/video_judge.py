@@ -119,7 +119,6 @@ class Case:
     movie: Path | None
     notes: list = field(default_factory=list)
     input_t: list = field(default_factory=list)  # host s of each mouse event the app's journal kept
-    hidden_dividers: set = field(default_factory=set)  # (axis, coord, divider id): not visible at rest on that line
 
     @property
     def n(self):
@@ -623,7 +622,6 @@ def _seed_model_tracks(case, line, window):
             elif not visible:
                 # The run at the model divider has the panes' color on a side (narrow: a gap between words; wide:
                 # the panes' background): no divider shows on this line, and its edges are not geometry here.
-                case.hidden_dividers.add((line.axis, line.coord, did))
                 note = (f"divider {did} on {line.axis} {line.coord} is not visible at rest (the panes' color on a side): "
                         f"its geometry is not judged on this line")
                 if note not in case.notes:
@@ -743,19 +741,38 @@ def _edge_mask(case, line, f, tracks, length):
 MOVED_HALF_PX = 6          # a blend whose 13 px neighbourhood is exactly on the same line at rest moved by whole pixels
 
 
-def _moved_whole_pixels(line, x, rest):
-    """Whether line[x-6:x+7] (exact BGRA) occurs at a pixel boundary of one of the rest lines (bytes)."""
+def _moved_whole_pixels(line, x, rest, rest_edges):
+    """Whether line[x-6:x+7] (exact BGRA) occurs at a pixel boundary of one of the rest lines (bytes) with its center
+    away from that rest frame's model edges (rest_edges: one bool mask per rest line). A match centered on a model edge
+    at rest is the same edge drawn off the grid at rest too (review BLOCK of c41e4124528): it stays a blend."""
     lo, hi = x - MOVED_HALF_PX, x + MOVED_HALF_PX + 1
     if lo < 0 or hi > len(line):
         return False
     window = line[lo:hi].tobytes()
-    for raw in rest:
+    for raw, edges in zip(rest, rest_edges):
         at = raw.find(window)
         while at != -1:
-            if at % 4 == 0:
+            if at % 4 == 0 and not edges[at // 4 + MOVED_HALF_PX]:
                 return True
             at = raw.find(window, at + 1)
     return False
+
+
+def _model_edges_at(case, line, f, length):
+    """Positions within 1 px of a model pane or divider edge on LINE in the sample frame f shows."""
+    marks = np.zeros(length, bool)
+    k = committed_sample(case, case.complete_t[f])
+    if k is None:
+        return marks
+    s = case.samples[k]
+    for rect in list(s.panes.values()) + list(s.dividers.values()):
+        if _crosses(rect, line.axis, line.coord / case.scale):
+            start, size = _along(rect, line.axis)
+            for e in (start * case.scale, (start + size) * case.scale):
+                for d in (-1, 0, 1):
+                    if 0 <= int(e) + d < length:
+                        marks[int(e) + d] = True
+    return marks
 
 
 def check_blends(case, windows, tracks):
@@ -770,6 +787,7 @@ def check_blends(case, windows, tracks):
         for line in scan_lines(case):
             ref_blends = blend_mask(line.px[refs]).any(0)
             rest = [line.px[r].tobytes() for r in refs]
+            rest_edges = [_model_edges_at(case, line, r, line.px.shape[1]) for r in refs]
             masks = blend_mask(line.px[frames]) & ~ref_blends
             for f, mask in zip(frames, masks):
                 if not mask.any():
@@ -780,7 +798,7 @@ def check_blends(case, windows, tracks):
                 # line at rest (a glyph's own antialiasing carried along by the drag, STATUS 5795), not an edge drawn
                 # off the device-pixel grid, whose mixed color no rest frame has.
                 for x in np.flatnonzero(mask):
-                    if _moved_whole_pixels(line.px[f], x, rest):
+                    if _moved_whole_pixels(line.px[f], x, rest, rest_edges):
                         mask[x] = False
                 where = np.flatnonzero(mask)
                 if len(where):
