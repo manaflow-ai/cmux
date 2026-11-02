@@ -629,6 +629,7 @@ try:
             ping_ok = bool(ping_events)
             provenance_ok = bool(sender_id and sender_id == chief_session)
         log(f"COORDINATOR owner_reply_posted={'PASS' if pong_in_owner else 'FAIL'} token={pong}")
+        log(f"COORDINATOR owner_turn_timeout={'YES' if not owner_ok else 'NO'}")
         log(f"COORDINATOR ping_readback={'PASS' if ping_ok else 'FAIL'} token={token}")
         log(f"COORDINATOR provenance_sender={'PASS' if provenance_ok else 'FAIL'} sender={sender_id or sender or 'missing'}")
         inventory = acp_cli("ls", "--live", "--with-tools").get("sessions", [])
@@ -673,6 +674,7 @@ try:
         ask_refused = bool(ask_events)
         ask_coord_events = token_events(acp_tail("synthetic-coord"), ask_token)
         log(f"COORDINATOR ask_send_refused={'PASS' if ask_ok and ask_refused and not ask_coord_events else 'FAIL'} token={ask_token}")
+        log(f"COORDINATOR ask_turn_timeout={'YES' if not ask_ok else 'NO'}")
         run["coordinator"] = {
             "token": token,
             "pong": pong,
