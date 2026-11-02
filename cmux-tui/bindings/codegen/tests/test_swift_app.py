@@ -165,6 +165,18 @@ class RenderTests(unittest.TestCase):
             source,
         )
 
+    def test_a_field_gated_by_a_capability_says_so(self) -> None:
+        document = layout_document()
+        fields = document["commands"]["set-split-ratio"]["request"]["fields"]
+        fields["transaction"]["capability"] = "layout-undo-v1"
+        fields["transaction"]["since"] = 9
+        source = rendered(document)["Layout/SetSplitRatioRequest.generated.swift"]
+        self.assertIn(
+            "    /// Needs `layout-undo-v1` (protocol 9); leave it nil for a daemon that does not serve it.\n"
+            "    public var transaction: UInt64?\n",
+            source,
+        )
+
     def test_a_command_without_a_capability_declares_none(self) -> None:
         self.assertNotIn("requiredCapability", rendered()["Layout/SwapPaneRequest.generated.swift"])
 
@@ -279,6 +291,20 @@ class BindingErrorTests(unittest.TestCase):
         bindings["families"]["Layout"]["requests"]["swap-pane"]["fields"]["nope"] = {"type": "PaneID"}
         self.assert_refused("swap-pane.nope", bindings=bindings)
 
+    def test_a_type_name_that_is_not_a_swift_identifier_is_refused(self) -> None:
+        for name in ("../../Escape", "Not-Valid", "1Request", "struct"):
+            with self.subTest(name=name):
+                bindings = layout_bindings()
+                bindings["families"]["Layout"]["requests"]["swap-pane"]["name"] = name
+                self.assert_refused(repr(name), bindings=bindings)
+
+    def test_a_family_that_is_not_one_folder_name_is_refused(self) -> None:
+        for family in ("../Escape", "a/b", "", "."):
+            with self.subTest(family=family):
+                bindings = layout_bindings()
+                bindings["families"] = {family: bindings["families"]["Layout"]}
+                self.assert_refused(f"family {family!r}", bindings=bindings)
+
     def test_an_order_naming_an_unknown_field_is_refused(self) -> None:
         bindings = layout_bindings()
         bindings["families"]["Layout"]["requests"]["swap-pane"]["order"] = ["pane", "nope"]
@@ -330,6 +356,29 @@ class CheckAndWriteTests(unittest.TestCase):
         self.assertEqual(self.run_mode("check"), [])
         self.run_mode("write")
         self.assertTrue(other.exists())
+
+
+class SdkGeneratorHookTests(unittest.TestCase):
+    def test_the_swift_step_reads_the_schema_the_sdk_step_read(self) -> None:
+        from unittest import mock
+
+        from codegen import generate as sdk_generate
+
+        with mock.patch.object(sdk_generate, "run_generation", return_value=()), \
+                mock.patch("codegen.page_router.main", return_value=0), \
+                mock.patch("codegen.swift_app.generate.main", return_value=0) as swift_main:
+            self.assertEqual(sdk_generate.main(["--check", "--schema", "/some/schema.json"]), 0)
+        swift_main.assert_called_once_with(["--check", "--schema", "/some/schema.json"])
+
+    def test_a_failing_swift_step_fails_the_sdk_generator(self) -> None:
+        from unittest import mock
+
+        from codegen import generate as sdk_generate
+
+        with mock.patch.object(sdk_generate, "run_generation", return_value=()), \
+                mock.patch("codegen.page_router.main", return_value=0), \
+                mock.patch("codegen.swift_app.generate.main", return_value=1):
+            self.assertEqual(sdk_generate.main(["--check"]), 1)
 
 
 class RepositoryBindingsTests(unittest.TestCase):
