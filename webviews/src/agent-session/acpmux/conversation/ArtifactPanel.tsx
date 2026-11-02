@@ -134,7 +134,8 @@ export function ArtifactPanel({
         <span className="acpmux-artifact-title">{title}</span>
         {pinned && (
           <span className="acpmux-artifact-source" title={sourceTitle}>
-            {t("sidebar.pinned")}{sourceTitle ? ` · ${sourceTitle}` : ""}
+            {t("sidebar.pinned")}
+            {sourceTitle ? ` · ${sourceTitle}` : ""}
           </span>
         )}
         {list.length > 1 && (

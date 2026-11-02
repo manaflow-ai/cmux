@@ -139,24 +139,48 @@ def term_size(fd, fixed):
         return 80, 24
 
 
+PACE_MODES = ("sleep", "hybrid", "spin")
+
+
 class Pacer:
     """Frame k is due at start + k/fps. A late frame is drawn at once (never skipped: its index is the
-    program frame the analyzer reads); more than 0.25 s behind, the schedule restarts from now."""
+    program frame the analyzer reads); more than 0.25 s behind, the schedule restarts from now.
 
-    def __init__(self, fps):
+    mode: how the wait ends. `sleep`: one time.sleep to the due time (a timer the OS may coalesce:
+    on a fleet mini 266 of 601 frames came more than a frame late). `hybrid`: sleep to `spin_ms` before
+    the due time, then poll the clock (costs about spin_ms per frame of CPU). `spin`: poll only (a
+    whole core). The late time returned is measured after the wait, so it shows what the mode got."""
+
+    def __init__(self, fps, mode="sleep", spin_ms=2.0, clock=time.monotonic, sleep=time.sleep):
+        if mode not in PACE_MODES:
+            raise ValueError("pace mode %r" % mode)
         self.period = 1.0 / fps if fps > 0 else 0.0
-        self.start = time.monotonic()
+        self.mode = mode
+        self.spin = spin_ms / 1000.0
+        self.clock = clock
+        self.sleep = sleep
+        self.start = clock()
         self.base = 0
+        self.before = 0.0  # how late the frame was before its wait (0 when it waited)
 
     def wait(self, k):
+        """Waits for frame k; returns how late the frame starts after the wait (seconds)."""
         if not self.period:
             return 0.0
         due = self.start + (k - self.base) * self.period
-        now = time.monotonic()
+        now = self.clock()
         if now < due:
-            time.sleep(due - now)
-            return 0.0
+            self.before = 0.0
+            if self.mode == "sleep":
+                self.sleep(due - now)
+            else:
+                if self.mode == "hybrid" and due - now > self.spin:
+                    self.sleep(due - now - self.spin)
+                while self.clock() < due:
+                    pass  # pace: poll the clock to the due time (a sleep's wake-up may be coalesced late)
+            return max(0.0, self.clock() - due)
         late = now - due
+        self.before = late
         if late > 0.25:
             self.start, self.base = now, k
         return late
@@ -178,6 +202,21 @@ class Run:
 
 def shown_time(a, k, fps, t0):
     return k / fps if a.fake_clock else time.monotonic() - t0
+
+
+def darwin_bg():
+    """Whether this process is in the Darwin background class ("yes"/"no"; "n/a" off macOS)."""
+    if sys.platform != "darwin":
+        return "n/a"
+    try:
+        import ctypes
+        libc = ctypes.CDLL(None, use_errno=True)
+        value = libc.getpriority(4, 0)  # PRIO_DARWIN_PROCESS
+        if value == -1:
+            return "err%d" % ctypes.get_errno()
+        return "yes" if value & 0x1000 else "no"
+    except (OSError, AttributeError):
+        return "?"
 
 
 def rgb_hex(r, g, b):
@@ -346,11 +385,12 @@ def cmd_gradient(a):
         signal.signal(signal.SIGWINCH, lambda *_: winch.__setitem__(0, True))
     install_quit()
     g = Gradient(a)
-    run, pacer = Run(a), Pacer(a.fps)
+    run, pacer = Run(a), Pacer(a.fps, a.pace, a.spin_ms)
     k = 0
     try:
         out.write(ALT_ON + HIDE + WRAP_OFF + "\x1b[2J")
-        log.event("start", program="gradient", seed=a.seed, fps=a.fps)
+        log.event("start", program="gradient", seed=a.seed, fps=a.fps, pace=a.pace, spin_ms=a.spin_ms,
+                  darwin_bg=darwin_bg(), pid=os.getpid())
         while not run.done(k):
             if winch[0]:
                 winch[0] = False
@@ -359,16 +399,21 @@ def cmd_gradient(a):
                     g.resize(cols, rows)
                     log.event("size", cols=cols, rows=rows, frame=k)
             late = pacer.wait(k)
+            drawn, drawn_wall = time.monotonic(), time.time()
             text = g.frame(k, shown_time(a, k, a.fps, run.t0))
             out.write(text)
-            log.event("frame", frame=k, late_ms=round(late * 1000, 3), bytes=len(text))
+            # late_ms: how late the frame starts after its wait (a sleep that woke late counts);
+            # before_ms: how late it already was before the wait (the frame before took too long).
+            log.event("frame", frame=k, late_ms=round(late * 1000, 3), before_ms=round(pacer.before * 1000, 3),
+                      bytes=len(text), draw_ms=round((time.monotonic() - drawn) * 1000, 3), mono=drawn,
+                      wall=drawn_wall)
             k += 1
     except Quit:
         pass
     finally:
         calm()
         out.write(ESU + RESET + WRAP_ON + SHOW + ALT_OFF)
-        log.event("end", frames=k)
+        log.event("end", frames=k, darwin_bg=darwin_bg())
         log.close()
     return 0
 
@@ -906,7 +951,7 @@ def cmd_top(a):
     log = Log(a.log)
     install_quit()
     top = Top(a)
-    run, pacer = Run(a), Pacer(a.fps)
+    run, pacer = Run(a), Pacer(a.fps, a.pace, a.spin_ms)
     k = 0
     try:
         out.write(ALT_ON + HIDE + WRAP_OFF + "\x1b[2J")
@@ -1233,6 +1278,17 @@ def positive(text):
     return value
 
 
+def pace_args(p, default):
+    # gradient defaults to spin: on a fleet mini (job 0a364ec0ef40, cmux21, 30 s each) sleep and hybrid
+    # woke in bursts (frame interval p50 0.4 ms, p95 47 / 43 ms, about 1100-1300 wake-ups for 3600
+    # frames; taskpolicy -t0 -l0, taskpolicy -B and caffeinate -i did not change it), while spin held
+    # p50 8.33 / p95 8.33 / max 8.34 ms at one core. A load that is meant to draw at 120 fps spins.
+    p.add_argument("--pace", choices=PACE_MODES, default=default,
+                   help="how a frame wait ends: sleep, hybrid (sleep, then poll the last --spin-ms), spin "
+                        "(default %s)" % default)
+    p.add_argument("--spin-ms", type=float, default=2.0, help="hybrid: milliseconds polled before each frame")
+
+
 def common(p, duration=30.0, size=False):
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--duration", type=float, default=duration, help="seconds; 0 runs until a signal")
@@ -1249,6 +1305,7 @@ def build_parser():
     p = sub.add_parser("gradient", help="120 fps truecolor gradient, art, CJK, emoji, frame counter")
     common(p, size=True)
     p.add_argument("--fps", type=positive, default=120.0)
+    pace_args(p, "spin")
     p.add_argument("--cell", type=int, choices=(1, 2), default=1, help="columns per gradient color step")
     p.add_argument("--no-sync", dest="sync", action="store_false", help="no synchronized-update brackets")
     p.set_defaults(fn=cmd_gradient)
@@ -1286,6 +1343,7 @@ def build_parser():
     p = sub.add_parser("top", help="htop look-alike (seeded, synthetic)")
     common(p, size=True)
     p.add_argument("--fps", type=positive, default=30.0)
+    pace_args(p, "sleep")
     p.add_argument("--cores", type=int, default=10)
     p.set_defaults(fn=cmd_top)
     p = sub.add_parser("agent-stream", help="a coding agent's streamed answer in a terminal")

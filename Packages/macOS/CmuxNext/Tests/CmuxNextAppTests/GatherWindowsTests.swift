@@ -175,7 +175,7 @@ struct GatherWindowsTests {
         #expect(services.windows.registry.value == before, "a refused move changed windows")
         #expect(here.state.profileID == Self.rooms[0])
 
-        services.windows.pendingClaims["k-new-1"] = nil
+        services.windows.claims.pending["k-new-1"] = nil
         services.windows.pendingPlacements["k-new-2"] = PendingPlacement(window: there.state.id, slot: nil, byDefault: nil, then: nil)
         #expect(throws: ActionFailure.self) { try services.windows.mergeWindows(into: here.state) }
         services.windows.pendingPlacements["k-new-2"] = nil
