@@ -105,6 +105,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setUnhandledKeyHandler: @convention(c) (KeyFn?) -> Void
     let devToolsSetPlacement: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32) -> Void
     let devToolsCommand: @convention(c) (Int32, Int32, Int32, Int32) -> Int32
+    /// The host's dock side into the DevTools frontend's own setting (`cmux_shim_devtools_set_frontend_dock_side`).
+    let devToolsSetFrontendDockSide: @convention(c) (Int32, Int32) -> Int32
     let devToolsBrowser: @convention(c) (Int32) -> Int32
     let devToolsSetFocus: @convention(c) (Int32, Int32) -> Void
     /// Opens DevTools on one frontend panel (`network`, `timeline`); 0 when gone or invalid.
@@ -361,6 +363,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setUnhandledKeyHandler = try r("cmux_shim_set_unhandled_key_handler")
         devToolsSetPlacement = try r("cmux_shim_devtools_set_placement")
         devToolsCommand = try r("cmux_shim_devtools_command")
+        devToolsSetFrontendDockSide = try r("cmux_shim_devtools_set_frontend_dock_side")
         devToolsBrowser = try r("cmux_shim_devtools_browser")
         devToolsSetFocus = try r("cmux_shim_devtools_set_focus")
         devToolsShowPanel = try r("cmux_shim_devtools_show_panel")

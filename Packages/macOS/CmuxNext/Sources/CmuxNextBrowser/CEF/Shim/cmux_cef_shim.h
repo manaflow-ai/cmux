@@ -489,6 +489,11 @@ CMUX_SHIM_EXPORT void cmux_shim_devtools_set_key_handler(cmux_shim_key_fn key);
 CMUX_SHIM_EXPORT void cmux_shim_devtools_set_placement(int browser_id, void* parent_view, int x, int y, int width, int height);
 // cmux_shim_devtools_command_t; returns 0 when browser_id is gone.
 CMUX_SHIM_EXPORT int cmux_shim_devtools_command(int browser_id, int command, int x, int y);
+// Writes the host's dock side (0 undocked, 1 left, 2 bottom, 3 right) into
+// browser_id's DevTools frontend setting, which the frontend applies when it
+// loads. Returns 1 when set (or already so), 0 when it cannot be set, -1 when
+// Chromium refused it.
+CMUX_SHIM_EXPORT int cmux_shim_devtools_set_frontend_dock_side(int browser_id, int side);
 // The DevTools browser id of browser_id, or 0 when DevTools is closed.
 CMUX_SHIM_EXPORT int cmux_shim_devtools_browser(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_devtools_set_focus(int browser_id, int focus);
