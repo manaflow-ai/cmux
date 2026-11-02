@@ -76,7 +76,15 @@ const asks: WatchedAsk[] = [
   },
 ];
 const sessions = [
-  session({ sessionId: "s-chief", title: "Chief", harness: "chief", pendingPermissions: 1, updatedAt: ago(3) }),
+  session({
+    sessionId: "s-chief",
+    title: "Chief",
+    harness: "chief",
+    pendingPermissions: 1,
+    updatedAt: ago(3),
+    // What acpmux's summary says the chat said last: another chat's context step shows it.
+    lastMessage: "#22410 passed its review at its head, and its only red fails the same way on the base.",
+  }),
   session({
     sessionId: "s-codex",
     title: "Port settings to React Aria",
@@ -206,6 +214,37 @@ export default agentPaneEntry({
         ctx.find({ selector: askAbout }).scrollIntoView({ block: "center" });
         await ctx.click({ selector: askAbout });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-needs-you-side-field"));
+      },
+    },
+    expanded: {
+      note: "A press on a subagent's question expands its row: the whole ask, every option as a radio, an Other field and Submit, then Show context and the places to open the chat (Open on right, the default; Jump to workspace; Open in new workspace).",
+      snapshot: snapshot(),
+      play: async (ctx) => {
+        await openList(ctx);
+        const ask = ".acpmux-needs-you-item:nth-child(3) .acpmux-needs-you-ask-toggle";
+        ctx.find({ selector: ask }).scrollIntoView({ block: "center" });
+        await ctx.click({ selector: ask });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-needs-you-form"));
+      },
+    },
+    context: {
+      note: "This chat's ask expanded further: its context, the turns before the ask, read-only in the row.",
+      snapshot: snapshot(),
+      play: async (ctx) => {
+        await openList(ctx);
+        await ctx.click({ selector: ".acpmux-needs-you-item:nth-child(1) .acpmux-needs-you-ask-toggle" });
+        await ctx.click({ selector: ".acpmux-needs-you-item:nth-child(1) .acpmux-needs-you-more-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-needs-you-context"));
+      },
+    },
+    "context-other-chat": {
+      note: "Another chat's ask expanded further: the page holds only that chat's latest message, and the note says to open it for the rest. Allow and Deny answer it here.",
+      snapshot: snapshot(),
+      play: async (ctx) => {
+        await openList(ctx);
+        await ctx.click({ selector: ".acpmux-needs-you-item:nth-child(2) .acpmux-needs-you-ask-toggle" });
+        await ctx.click({ selector: ".acpmux-needs-you-item:nth-child(2) .acpmux-needs-you-more-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-needs-you-context"));
       },
     },
     compact: {
