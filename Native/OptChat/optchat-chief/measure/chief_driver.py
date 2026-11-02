@@ -575,12 +575,27 @@ try:
             time.sleep(0.5)
         return False
 
+    def chief_turn_sessions():
+        # Turn sessions are deliberately short-lived and can rotate between
+        # the owner's message and the coordinator's reply. Use the complete
+        # local session list so a PONG in an earlier turn is still observed.
+        rows = acp_cli("ls", "--all").get("sessions", [])
+        return [r.get("sessionId") or r.get("id") or r.get("name")
+                for r in rows
+                if (r.get("tags") or {}).get("cmux.chief.role") == "turn"
+                and (r.get("sessionId") or r.get("id") or r.get("name"))]
+
     def chief_turn_session():
-        rows = acp_cli("ls", "--live").get("sessions", [])
-        turns = [r for r in rows if (r.get("tags") or {}).get("cmux.chief.role") == "turn"]
-        if not turns:
-            return None
-        return turns[-1].get("sessionId") or turns[-1].get("id") or turns[-1].get("name")
+        turns = chief_turn_sessions()
+        return turns[-1] if turns else None
+
+    def chief_pong_events(token):
+        """Return PONG events from every Chief turn session in this run."""
+        events = []
+        for session in chief_turn_sessions():
+            events.extend(e for e in acp_tail(session)
+                          if token in "".join(serialized([e])))
+        return events
 
     if opts.scenario == "coordinator":
         # The host has already started the isolated daemon. Create a normal
@@ -602,19 +617,21 @@ try:
         target_session = target_row.get("sessionId") or target_row.get("id")
         events = acp_tail("synthetic-coord")
         ping_events = token_events(events, token)
-        ping_events = [e for e in ping_events
-                       if any(isinstance(s, dict) and s.get("sessionId") == chief_session
-                              for s in sender_values(e))]
+        if chief_session:
+            ping_events = [e for e in ping_events
+                           if any(isinstance(s, dict) and s.get("sessionId") == chief_session
+                                  for s in sender_values(e))]
         sender = next((s for e in ping_events for s in sender_values(e)
-                       if isinstance(s, dict) and s.get("sessionId") == chief_session), None)
+                       if isinstance(s, dict)
+                       and (chief_session is None or s.get("sessionId") == chief_session)), None)
         sender_id = sender.get("sessionId") if isinstance(sender, dict) else None
         ping_ok = bool(ping_events)
         provenance_ok = bool(sender_id and sender_id == chief_session)
-        chief_pong_events = [e for e in acp_tail(chief_session or "") if pong in "".join(serialized([e]))]
+        chief_pong = chief_pong_events(pong)
         pong_received = any(
             any(isinstance(s, dict) and s.get("sessionId") == target_session
                 for s in sender_values(e))
-            for e in chief_pong_events
+            for e in chief_pong
         )
         pong_in_owner = any(
             pong.lower() in text.lower()
@@ -624,7 +641,7 @@ try:
         # A real model may finish its first turn before the target's inbox
         # reply arrives. Prompt the normal target once, then ask the owner to
         # read that reply, keeping the proof end to end.
-        if not pong_in_owner:
+        if not owner_posted:
             acp_cli("send", "synthetic-coord",
                     f"Read the Chief's latest message containing {token}. Reply to that Chief using acpmux_inbox_reply with exactly {pong}.",
                     timeout=max(30, int(opts.turn_timeout)))
@@ -633,11 +650,11 @@ try:
             send("Read your coordinator's reply and tell me when it arrived.",
                  f"coordinator-followup-{followup_started}")
             wait_turn(followup_seq, followup_started)
-            chief_pong_events = [e for e in acp_tail(chief_session or "") if pong in "".join(serialized([e]))]
+            chief_pong = chief_pong_events(pong)
             pong_received = any(
                 any(isinstance(s, dict) and s.get("sessionId") == target_session
                     for s in sender_values(e))
-                for e in chief_pong_events
+                for e in chief_pong
             )
             pong_in_owner = any(
                 pong.lower() in text.lower()
@@ -645,15 +662,18 @@ try:
             )
             owner_posted = pong_received and pong_in_owner
             events = acp_tail("synthetic-coord")
-            ping_events = [e for e in token_events(events, token)
-                           if any(isinstance(s, dict) and s.get("sessionId") == chief_session
-                                  for s in sender_values(e))]
+            ping_events = token_events(events, token)
+            if chief_session:
+                ping_events = [e for e in ping_events
+                               if any(isinstance(s, dict) and s.get("sessionId") == chief_session
+                                      for s in sender_values(e))]
             sender = next((s for e in ping_events for s in sender_values(e)
-                           if isinstance(s, dict) and s.get("sessionId") == chief_session), sender)
+                           if isinstance(s, dict)
+                           and (chief_session is None or s.get("sessionId") == chief_session)), sender)
             sender_id = sender.get("sessionId") if isinstance(sender, dict) else None
             ping_ok = bool(ping_events)
             provenance_ok = bool(sender_id and sender_id == chief_session)
-        log(f"COORDINATOR owner_reply_posted={'PASS' if pong_in_owner else 'FAIL'} token={pong}")
+        log(f"COORDINATOR owner_reply_posted={'PASS' if owner_posted else 'FAIL'} token={pong}")
         log(f"COORDINATOR owner_turn_timeout={'YES' if not owner_ok else 'NO'}")
         log(f"COORDINATOR ping_readback={'PASS' if ping_ok else 'FAIL'} token={token}")
         log(f"COORDINATOR provenance_sender={'PASS' if provenance_ok else 'FAIL'} sender={sender_id or sender or 'missing'}")
@@ -709,7 +729,7 @@ try:
             "token": token,
             "pong": pong,
             "ask_token": ask_token,
-            "owner_reply_posted": pong_in_owner,
+            "owner_reply_posted": owner_posted,
             "ping_readback": ping_ok,
             "provenance_sender": provenance_ok,
             "sender": sender,
