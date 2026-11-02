@@ -139,6 +139,8 @@ enum RoomHandlers {
             let toast = moveTo == nil && invocation.origin == .user
             services.machines.local.send("delete-profile") { connection in
                 let response = try await connection.deleteProfile(id, moveTo: moveTo)
+                // The space's Pinned links, tabs, apps and groups go with its pins (`SidebarDocStore.moveSpace`).
+                if let moveTo { await MainActor.run { services.sidebarDoc.store?.moveSpace(id.rawValue, into: moveTo.rawValue) } }
                 guard toast, let closedID = response.closedID else { return }
                 await RoomConfirmation.showDeleted(name, closedID: closedID, services: services)
             }

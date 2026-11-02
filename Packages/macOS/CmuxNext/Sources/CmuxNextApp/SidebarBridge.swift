@@ -262,6 +262,7 @@ final class SidebarBridge {
         model.docDrag = services.sidebarDoc.docMachines.drag() // the sidebar document's drag half, nil keeps the older resolver
         if let id = state?.id { model.docDrag?.listedElsewhere = WorkspaceLayoutRefs(machines: services.machines).listedElsewhere(window: id, registry: services.windows.registry) }
         model.docDrag?.room = state?.profileID.rawValue
+        model.docDrag?.spaces = services.sidebarDoc.spaces
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         // A pass that lists what the rows show already (a daemon reorder the personal or document order hides, a store

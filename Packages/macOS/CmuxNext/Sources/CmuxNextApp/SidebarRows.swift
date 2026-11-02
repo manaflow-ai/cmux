@@ -71,7 +71,7 @@ final class SidebarRows {
         guard services.sidebarDoc.isActive else { return visible }
         return visible.scopedToWindow(ownedElsewhere: bandHides(window: window.id, profile: window.profileID, machines: services.machines,
                                                                  registry: services.windows.registry.value),
-                                      room: window.profileID.rawValue)
+                                      room: window.profileID.rawValue, spaces: services.sidebarDoc.spaces)
     }
 
     /// Whether window `windowID`'s band leaves out the workspace item a layout ref value names: another

@@ -46,10 +46,11 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         /// Whether a window on space `room` lists this group when it lists none of its workspaces (an empty
         /// group, a kept group whose members closed): only in its own space (spaces.md). A group with no stored space
         /// is the default space's, unless an open workspace of it says otherwise (it lists where that one lists).
-        /// `room` nil: no space filter (every group lists, as before spaces owned them).
-        public func lists(inRoom room: String?) -> Bool {
+        /// `room` nil: no space filter (every group lists, as before spaces owned them). `spaces`: the spaces that
+        /// exist; a group of one that is gone is the default space's (`SidebarDocItem.owningRoom`).
+        public func lists(inRoom room: String?, spaces: Set<String>? = nil) -> Bool {
             guard let room else { return true }
-            if let own = self.room { return own == room }
+            if let own = self.room { return SidebarDocItem.owningRoom(own, spaces: spaces) == room }
             return room == SidebarDocItem.defaultRoom && openMembers.isEmpty
         }
 

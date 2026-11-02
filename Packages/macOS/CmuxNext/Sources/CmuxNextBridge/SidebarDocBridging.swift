@@ -110,8 +110,10 @@ public final class SidebarDocSections {
     /// placed in another section (Pinned, a custom section) lists only as a
     /// member of its group there. `unplacedOrder` orders those rows (the App's
     /// personal order, newest first under `top`); it runs only when there are some. `room`: the window's space; a
-    /// group with no workspace at all lists only in its own space (`Group.lists(inRoom:)`), nil lists it everywhere.
+    /// group with no workspace at all lists only in its own space (`Group.lists(inRoom:)`), nil lists it everywhere;
+    /// `spaces`: the spaces that exist (one of a gone space is the default space's).
     public func sections(_ projection: SidebarDocProjection, session: String, workspaces: [WorkspaceModel], room: String? = nil,
+                         spaces: Set<String>? = nil,
                          unplacedOrder: ([WorkspaceModel]) -> [WorkspaceModel] = { $0 }) -> [CmuxNextDaemon.SidebarSection] {
         let byResource = Dictionary(workspaces.compactMap { w in w.resourceID.map { ($0.rawValue, w) } }, uniquingKeysWith: { first, _ in first })
         var sections: [CmuxNextDaemon.SidebarSection] = []
@@ -143,7 +145,7 @@ public final class SidebarDocSections {
                 // A group lists where it or a group under it lists a live workspace, or in its own space with none at
                 // all, under a parent that lists; its link, tab and app members follow it (`SidebarDocProjection.arrange`).
                 let parentListed = group.parent.map(listedGroups.contains) ?? true
-                guard holdsLive.contains(group.id) || (parentListed && group.members.isEmpty && group.lists(inRoom: room)) else { continue }
+                guard holdsLive.contains(group.id) || (parentListed && group.members.isEmpty && group.lists(inRoom: room, spaces: spaces)) else { continue }
                 listedGroups.insert(group.id)
                 flush()
                 listed.formUnion(members.map(\.id))

@@ -26,6 +26,12 @@ public final class SidebarDocument {
     public var isActive: Bool { store.map { $0.isActive && $0.shown != nil } ?? false }
     /// The store while it is shown (`isActive`), else nil.
     public var activeStore: SidebarDocStore? { isActive ? store : nil }
+    /// The home session's spaces (`SidebarDocItem.owningRoom`): an item of a space that is gone lists in the default
+    /// space. Nil until the home store mirrors its spaces (every stored space counts meanwhile, so none hides at launch).
+    public var spaces: Set<String>? {
+        guard let profiles = stores().first?.profiles, !profiles.isEmpty else { return nil }
+        return Set(profiles.map(\.id.rawValue))
+    }
     /// The document item that places sidebar workspace `id`.
     public func item(workspace id: String) -> String? { docMachines.item(workspace: id) }
 

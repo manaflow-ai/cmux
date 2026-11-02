@@ -15,7 +15,7 @@ extension SidebarDocument {
     func sections(of daemon: DaemonService, room: ProfileID, machines: MachineRegistry) -> [CmuxNextDaemon.SidebarSection]? {
         guard let shown = store?.shown, let session = daemon.store.registryID else { return nil }
         return docSections.sections(shown, session: session, workspaces: WindowProfiles.workspaces(of: daemon, in: room, machines: machines),
-                                    room: room.rawValue, unplacedOrder: { PersonalSidebar.personalOrder($0, of: daemon, machines: machines, doc: self) })
+                                    room: room.rawValue, spaces: spaces, unplacedOrder: { PersonalSidebar.personalOrder($0, of: daemon, machines: machines, doc: self) })
     }
 
     /// Builds this app's store and follows its home daemon; once per app (`AppServices.sidebarLayout`'s first read).

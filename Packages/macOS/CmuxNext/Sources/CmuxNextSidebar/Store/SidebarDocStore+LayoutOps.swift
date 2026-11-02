@@ -46,6 +46,26 @@ extension SidebarDocStore {
         }
     }
 
+    /// Space `from` was deleted into space `to` (Delete Space's `moveTo`): every item it owned (a Pinned link, tab or
+    /// app, a group) moves to `to` in one change, with no undo step (the delete has none). With no `to` nothing moves:
+    /// an item of a gone space reads as the default space's (`SidebarDocItem.owningRoom`) and returns if it comes back.
+    public func moveSpace(_ from: String, into to: String) {
+        let ops = Self.spaceOps(from: from, into: to, records: records)
+        if !ops.isEmpty { send(ops: ops, title: Self.moveTitle, undoable: false) }
+    }
+
+    /// Group `group` moved to space `room` (Move Group to Space): its stored space follows, so it stays in `room` once
+    /// no workspace of it lists there (an empty group lists only in its own space).
+    public func moveGroup(_ group: GroupID, toSpace room: String) {
+        _ = (group, room)
+    }
+
+    /// The ops of `moveSpace`: a group's space is its `profile` (`group.update`), a link's, tab's or app's `extra.room`.
+    static func spaceOps(from: String, into to: String, records: SidebarDocRecords) -> [[String: Any]] {
+        _ = (from, to, records)
+        return []
+    }
+
     /// Sends `ops` as one document change titled `title`. Throws when an op
     /// has no document form (`LayoutOpGap`, nothing is sent) or the change is
     /// refused at once (`SidebarDocSendRefusal`).

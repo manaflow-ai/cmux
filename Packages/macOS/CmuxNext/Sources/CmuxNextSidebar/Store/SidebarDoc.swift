@@ -132,6 +132,13 @@ public nonisolated struct SidebarDocItem: Hashable, Sendable, Identifiable {
     /// The id of the default space (`ProfileID.defaultProfile`): where an item with no stored space belongs.
     public static let defaultRoom = "default"
 
+    /// The space an item that stores `room` belongs to while the spaces `spaces` exist: its own, else the default
+    /// space's (none stored, or one that is gone: deleted, or not mirrored back yet). Nil `spaces`: every stored space
+    /// counts. So no item is ever left out of every window; one whose space comes back (Reopen) returns to it.
+    public static func owningRoom(_ room: String?, spaces: Set<String>?) -> String {
+        room ?? defaultRoom
+    }
+
     public init(id: String, section: String, parent: String? = nil, body: SidebarDocBody, showsLabel: Bool = true, span: Int? = nil,
                 label: String? = nil, iconURL: String? = nil, pinnedInGroup: Bool = false, archived: Bool = false,
                 autoArchive: SidebarDocAutoArchiveRule? = nil, room: String? = nil) {

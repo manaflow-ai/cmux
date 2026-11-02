@@ -221,7 +221,7 @@ extension SidebarDocProjection {
     @MainActor public func bandGroupsNotListedHere(drag: SidebarDocDrag, listedHere: Set<String> = []) -> Set<String> {
         let hidden = bandGroupsListedElsewhere(drag: drag)
         guard drag.room != nil else { return hidden }
-        var otherSpace = Set(bandGroups.filter { !$0.lists(inRoom: drag.room) && !listedHere.contains($0.id) }.map(\.id))
+        var otherSpace = Set(bandGroups.filter { !$0.lists(inRoom: drag.room, spaces: drag.spaces) && !listedHere.contains($0.id) }.map(\.id))
         // A group under another space's group leaves with it: a window never draws a child whose parent it leaves
         // out. Repeat until no group changes, so a deeper descendant follows whatever order `bandGroups` has.
         var changed = !otherSpace.isEmpty

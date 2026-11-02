@@ -170,6 +170,113 @@ import Testing
         #expect(links.contains("itm_pl"), "the child group's link is gone: \(links)")
     }
 
+    static let gone = "prof_gone"
+    /// The spaces that exist: Default and Work (`prof_gone` was deleted, or is not mirrored back).
+    static let spaces: Set<String> = [home, work]
+
+    /// Pinned: link `itm_lg` of the gone space, link `itm_lw` of Work. Work: empty group `itm_gg` of the gone space.
+    /// This Mac: empty group `itm_mg` of the gone space, `ws-1`.
+    static func goneSpaceProjection() -> SidebarDocProjection {
+        let records = SidebarDocRecords(sections: [
+            pinned: SidebarDocSection(id: pinned, kind: .pinned, region: .top),
+            custom: SidebarDocSection(id: custom, kind: .custom, title: "Work"),
+            machine: SidebarDocSection(id: machine, kind: .machine(session: session)),
+        ], items: [
+            "itm_lg": SidebarDocItem(id: "itm_lg", section: pinned, body: .url("https://gone.example", title: "Gone"), room: gone),
+            "itm_lw": SidebarDocItem(id: "itm_lw", section: pinned, body: .url("https://work.example", title: "Work"), room: work),
+            "itm_gg": group("itm_gg", custom, room: gone),
+            "itm_mg": group("itm_mg", machine, room: gone),
+            "itm_1": SidebarDocItem(id: "itm_1", section: machine, body: .workspace(ref("ws-1"))),
+        ])
+        let rows = [
+            SidebarDocRow(key: "itm_lg", kind: "url", section: pinned, item: "itm_lg"),
+            SidebarDocRow(key: "itm_lw", kind: "url", section: pinned, item: "itm_lw"),
+            SidebarDocRow(key: "itm_gg", kind: "group", section: custom, item: "itm_gg"),
+            SidebarDocRow(key: "itm_mg", kind: "group", section: machine, item: "itm_mg"),
+            SidebarDocRow(key: "itm_1", kind: "item", section: machine, item: "itm_1", ref: ref("ws-1")),
+        ]
+        return SidebarDocProjection(rows: rows, records: records, revision: 1)
+    }
+
+    /// The review of #27308 (Sol): a space deleted (with or without `moveTo`), or not mirrored back yet, leaves its
+    /// Pinned links and its groups naming it. They list in Default, as base listed them everywhere, never in no window;
+    /// in another space they stay out. Without the spaces (not mirrored yet at launch) every stored space counts.
+    @Test func aGoneSpacesPinsAndGroupsListInDefault() {
+        let projection = Self.goneSpaceProjection()
+        func pinned(_ room: String, _ spaces: Set<String>?) -> [String] {
+            projection.layout.scopedToWindow(ownedElsewhere: { _ in false }, room: room, spaces: spaces)
+                .section(SidebarLayoutDocument.pinnedSectionID)?.items.map(\.id.rawValue) ?? []
+        }
+        #expect(pinned(Self.home, Self.spaces) == ["itm_lg"], "\(pinned(Self.home, Self.spaces))")
+        #expect(pinned(Self.work, Self.spaces) == ["itm_lw"], "\(pinned(Self.work, Self.spaces))")
+        #expect(pinned(Self.home, nil).isEmpty, "\(pinned(Self.home, nil))")
+
+        func bandGroups(_ room: String) -> Set<String> {
+            var drag = Self.drag(room: room)
+            drag.spaces = Self.spaces
+            let window = [SidebarSection(kind: .machine(Self.thisMac), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("ws-1"), title: "ws-1"))])]
+            return Set(projection.arrange(window, drag: drag).flatMap(\.nodes).compactMap { if case let .group(group) = $0 { group.id.rawValue } else { nil } })
+        }
+        #expect(bandGroups(Self.home) == ["itm_gg"], "\(bandGroups(Self.home))")
+        #expect(bandGroups(Self.work).isEmpty, "\(bandGroups(Self.work))")
+
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil,
+                                                                        resourceID: ResourceID(rawValue: "ws-1"), name: "ws-1")]))
+        func machineGroups(_ room: String) -> [String] {
+            SidebarDocSections(document: { nil }).sections(projection, session: Self.session, workspaces: store.workspaces, room: room, spaces: Self.spaces)
+                .compactMap { $0.group?.id.rawValue }
+        }
+        #expect(machineGroups(Self.home) == ["itm_mg"], "\(machineGroups(Self.home))")
+        #expect(machineGroups(Self.work).isEmpty, "\(machineGroups(Self.work))")
+    }
+
+    /// Delete Space with `moveTo`: everything the deleted space owned moves to the target in one change: a group by
+    /// its `profile`, a Pinned link, tab or app by its `room`. A built-in, another space's item and one with no
+    /// space stored stay.
+    @Test func deletingASpaceIntoAnotherMovesItsPinsAndGroups() {
+        let records = SidebarDocRecords(sections: [
+            Self.pinned: SidebarDocSection(id: Self.pinned, kind: .pinned, region: .top),
+            Self.custom: SidebarDocSection(id: Self.custom, kind: .custom, title: "Work"),
+        ], items: [
+            "itm_a": SidebarDocItem(id: "itm_a", section: Self.pinned, body: .url("https://a.example", title: nil), room: Self.work),
+            "itm_t": SidebarDocItem(id: "itm_t", section: Self.pinned, body: .tab("tab-1"), room: Self.work),
+            "itm_g": Self.group("itm_g", Self.custom, room: Self.work),
+            "itm_b": SidebarDocItem(id: "itm_b", section: Self.pinned, body: .builtin("settings")),
+            "itm_o": SidebarDocItem(id: "itm_o", section: Self.pinned, body: .url("https://o.example", title: nil), room: "prof_other"),
+            "itm_n": SidebarDocItem(id: "itm_n", section: Self.pinned, body: .url("https://n.example", title: nil)),
+        ])
+        let ops = SidebarDocStore.spaceOps(from: Self.work, into: Self.home, records: records)
+        let summary = ops.map { op in "\(op["op"] as? String ?? "") \(op["id"] as? String ?? "") \((op["patch"] as? [String: String]) ?? [:])" }
+        #expect(summary == ["item.update itm_a [\"room\": \"default\"]", "group.update itm_g [\"profile\": \"default\"]",
+                            "item.update itm_t [\"room\": \"default\"]"], "\(summary)")
+    }
+
+    /// A document with one group `itm_g` made in Work.
+    static let groupDocument = Data("""
+    {"revision": "3",
+     "sections": [
+       {"id": "sec_custom", "kind": {"type": "custom"}, "region": "top", "order": "a", "title": "Work"},
+       {"id": "sec_m_s-local", "kind": {"type": "machine", "session_id": "s-local"}, "order": "b"}
+     ],
+     "items": [
+       {"id": "itm_g", "section": "sec_custom", "order": "a", "body": {"type": "group", "name": "G", "profile": "prof_work"}}
+     ]}
+    """.utf8)
+
+    /// Move Group to Space stores the target on the document group, so it stays there once no workspace of it lists;
+    /// Delete Space's `moveTo` sends its moves through the same store. A group already in the target sends nothing.
+    @Test func movingAGroupToASpaceStoresItsSpace() async throws {
+        let remote = RecordingRemote(document: Self.groupDocument)
+        let store = try await Self.loadedStore(remote)
+        store.moveGroup(GroupID("itm_g"), toSpace: Self.work)
+        store.moveGroup(GroupID("itm_g"), toSpace: Self.home)
+        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !remote.applied.isEmpty }
+        let sent = remote.applied.flatMap { $0 }
+        #expect(sent.count == 1 && sent.first?["op"] as? String == "group.update"
+                && (sent.first?["patch"] as? [String: Any])?["profile"] as? String == Self.home, "\(remote.applied)")
+    }
+
     /// The wire: a group's space is its body's `profile`, another item's is `extra.room`.
     @Test func theSpaceIsReadFromTheWire() throws {
         let group = Data(#"{"id":"itm_g","section":"sec_custom","body":{"type":"group","name":"G","profile":"prof_work"}}"#.utf8)

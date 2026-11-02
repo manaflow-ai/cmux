@@ -24,6 +24,8 @@ public struct SidebarDocDrag {
     /// The window's space (`ProfileID`): a group no open workspace here lists draws only in its own space
     /// (`SidebarDocProjection.Group.lists(inRoom:)`, spaces.md). Nil: every such group draws.
     public var room: String?
+    /// The spaces that exist (`SidebarDocItem.owningRoom`); nil: every stored space counts.
+    public var spaces: Set<String>?
     /// The app's own document store this drag acts on (what the list arranges by, the key of its last change); nil
     /// for a fixture with no document.
     public let document: SidebarDocStore?
