@@ -756,15 +756,40 @@ pub(super) fn wrap(
     Ok((exec.to_string_lossy().into_owned(), out))
 }
 
+/// The first word of `argv` a remote chain refuses (`REFUSED_ARGS`), skipping
+/// acpmux's own `--disallowedTools NAME` (`tools::disallowed_args`: a built-in
+/// tool the chat started without, such as the AskUserQuestion that `acpmux new
+/// --prompt-file`, `--report-to` and `--worktree` leave out, or an MCP server
+/// it turned off). Such a pair only takes a tool away, so the chain keeps it;
+/// refusing it refused every remote Claude start those flags make. Any other
+/// spelling, or a value that is not a plain tool name (a pattern such as
+/// `Bash(rm:*)`), is still refused.
+fn refused_arg(argv: &[String]) -> Option<&String> {
+    let refused = |a: &str| REFUSED_ARGS.iter().any(|r| a == *r || a.starts_with(&format!("{r}=")));
+    let tool_name = |n: &str| {
+        !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    };
+    let mut words = argv.iter();
+    while let Some(word) = words.next() {
+        if word == "--disallowedTools" {
+            match words.next() {
+                Some(name) if tool_name(name) => continue,
+                _ => return Some(word),
+            }
+        }
+        if refused(word) {
+            return Some(word);
+        }
+    }
+    None
+}
+
 fn claude_args(
     endpoint: Option<&Endpoint>,
     profile: &HarnessProfile,
     mut args: Vec<String>,
 ) -> Result<Vec<String>, String> {
-    let refused = |a: &String| {
-        REFUSED_ARGS.iter().any(|r| a.as_str() == *r || a.starts_with(&format!("{r}=")))
-    };
-    if let Some(bad) = profile.argv.iter().find(|a| refused(a)) {
+    if let Some(bad) = refused_arg(&profile.argv) {
         return Err(format!("a remote chain never runs Claude Code with {bad}"));
     }
     #[cfg(target_os = "linux")]
