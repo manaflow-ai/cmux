@@ -31,9 +31,7 @@
 {"file":"agent-session/acpmux/chips/linkCard.css","kind":"spacing","property":"padding","values":{"8px 10px":1,"0 6px":4}}
 {"file":"agent-session/acpmux/chips/linkCard.css","kind":"spacing","property":"padding-block","values":{"max(0px,calc((20px - var(--text-control--line-height)) / 2))":1}}
 {"file":"agent-session/acpmux/chips/linkCard.css","kind":"spacing","property":"padding-top","values":{"2px":1}}
-{"file":"agent-session/acpmux/composer/dropOverlay.css","kind":"height","property":"height","values":{"calc(100% - 12px)":1,"18px":1}}
-{"file":"agent-session/acpmux/composer/dropOverlay.css","kind":"spacing","property":"gap","values":{"10px":1}}
-{"file":"agent-session/acpmux/composer/dropOverlay.css","kind":"spacing","property":"padding","values":{"6px 16px 6px 6px":1}}
+{"file":"agent-session/acpmux/composer/dropOverlay.css","kind":"height","property":"height","values":{"18px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"height","property":"height","values":{"56px":2,"38px":1,"min(280px, 58vh)":1,"9px":1,"1.5px":1,"42px":1,"4px":1,"16px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"height","property":"min-height","values":{"44px":1,"300px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"gap","values":{"3px":2,"6px":2,"13px":1,"2px 6px":1}}

@@ -540,7 +540,8 @@ export function NewTabScreen(props: Props) {
     const element = fieldElement();
     setDropHost(element ? (element.closest(".acpmux-main") ?? element.ownerDocument.body) : null);
   }, []);
-  const dropLandingTarget = useCallback(() => fieldElement()?.parentElement ?? null, []);
+  // The input card, which a file drag rings (composer/DropOverlay.tsx).
+  const dropLandingTarget = useCallback(() => fieldElement()?.closest(".nt-box") ?? null, []);
   const submitNow = useRef(() => {});
   const continueAfterSetup = useRef<(harness: string) => void>(() => {});
   const openSetup = () => {
