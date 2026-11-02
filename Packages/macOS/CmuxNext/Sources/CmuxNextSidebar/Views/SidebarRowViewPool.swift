@@ -19,9 +19,11 @@ struct SidebarRowViewPool {
         max(32, 2 * Int((height / max(rowHeight, 1)).rounded(.up)))
     }
     private var views: [SidebarRowKey: SidebarRowView] = [:]
-    /// A workspace row view made after a frame committed (`SidebarListView.makeSpareRow`), never shown: the next
-    /// workspace row with no view of its own takes it, so a new workspace's turn makes no row view.
-    var spare: WorkspaceRowView?
+    /// Workspace row views made after frames committed (`SidebarListView.makeSpareRow`), never shown: a new workspace
+    /// row with no view of its own takes one, so a new workspace's turn makes no row view. Up to `spareCount`, so a
+    /// burst of Cmd-N faster than the frames (key repeat) takes views made before it too.
+    var spares: [WorkspaceRowView] = []
+    static let spareCount = 3
     /// Parked keys, oldest first, for eviction.
     private var order: [SidebarRowKey] = []
 
@@ -42,8 +44,7 @@ struct SidebarRowViewPool {
             parked.prepareForReuse(key: key)
             return parked
         }
-        if rowClass == WorkspaceRowView.self, let spare {
-            self.spare = nil
+        if rowClass == WorkspaceRowView.self, let spare = spares.popLast() {
             spare.prepareForReuse(key: key)
             return spare
         }

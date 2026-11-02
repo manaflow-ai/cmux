@@ -82,8 +82,8 @@ final class SidebarListView: NSView {
     /// Keeps one spare workspace row view (SidebarListView+SpareRow): the sidebar's list does, a space page's does not.
     var keepsSpareRow = false
     var spareRowScheduled = false
-    /// Whether `window` shows its lists now (spares are made only then). Tests inject an answer.
-    var windowShowsRows: @MainActor (NSWindow) -> Bool = { _ in true }
+    /// Whether `window` shows its lists now (spares are made only then): on screen and not fully covered. Tests inject an answer.
+    var windowShowsRows: @MainActor (NSWindow) -> Bool = { $0.isVisible && $0.occlusionState.contains(.visible) }
     /// Runs work once the current pass committed its frame (`AfterFrameCommit`); tests pass their own.
     var afterFrameCommit: (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) }
     var hoveredKey: SidebarRowKey?
@@ -289,6 +289,11 @@ final class SidebarListView: NSView {
     }
     private func windowOcclusionChanged() {
         setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
+        scheduleSpareRow() // spares wait for a shown window
+    }
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        scheduleSpareRow() // the sidebar folded open again
     }
     /// Pauses (or resumes) every row's activity animation, down to a row badge's glyphs (cx-m8buz).
     func setWindowVisible(_ visible: Bool) {
