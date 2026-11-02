@@ -1765,8 +1765,8 @@
       "type" : "boolean"
     },
     "computerUse.driver" : {
-      "default" : "legacy",
-      "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
+      "default" : "upstream",
+      "description" : "cmux Remote runs Computer Use and holds its macOS permissions, with no relaunch after you grant them. Classic Helper uses the cmux Computer Use helper of an installed classic cmux.",
       "enum" : [
         "legacy",
         "upstream"
@@ -1776,7 +1776,7 @@
     },
     "computerUse.enabled" : {
       "default" : false,
-      "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
+      "description" : "Lets agents see and use your apps through cmux Remote. Grant it Accessibility and Screen Recording once; cmux never needs a relaunch.",
       "title" : "Computer Use",
       "type" : "boolean"
     },
@@ -1784,6 +1784,24 @@
       "default" : true,
       "description" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
       "title" : "Live Preview in Chat",
+      "type" : "boolean"
+    },
+    "computerUse.mode" : {
+      "default" : "ask",
+      "description" : "Ask Before Using Apps asks you the first time an agent uses each app, on this Mac and on your iPhone. Approved Apps Only runs the apps you set up and asks for the rest. Standard runs routine clicks and typing without asking. Unrestricted never asks; use it only on a disposable machine.",
+      "enum" : [
+        "ask",
+        "bounded",
+        "standard",
+        "unrestricted"
+      ],
+      "title" : "Agents Using Apps",
+      "type" : "string"
+    },
+    "computerUse.phoneAlwaysAllow" : {
+      "default" : false,
+      "description" : "Your iPhone can answer Always Allow for an app, after Face ID. Off, it can allow once or for one agent session, and Always Allow stays on this Mac.",
+      "title" : "Allow Always from iPhone",
       "type" : "boolean"
     },
     "contextMenus.showCustomizeItem" : {
@@ -3478,6 +3496,12 @@
       },
       "title" : "Pinned Folders",
       "type" : "array"
+    },
+    "remote.headless" : {
+      "default" : true,
+      "description" : "cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit. Off, a session ends when cmux quits.",
+      "title" : "Keep Sharing When cmux Is Quit",
+      "type" : "boolean"
     },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",

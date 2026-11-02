@@ -855,11 +855,23 @@
             "rows" : [
               "computerUse.enabled",
               "computerUse.driver",
-              "computerUse.livePreview"
+              "computerUse.livePreview",
+              "computerUse.mode",
+              "computerUse.phoneAlwaysAllow"
             ],
             "title" : {
               "key" : "settings.group.computerUse",
               "text" : "Computer Use"
+            }
+          },
+          {
+            "key" : "settings.group.cmuxRemote",
+            "rows" : [
+              "remote.headless"
+            ],
+            "title" : {
+              "key" : "settings.group.cmuxRemote",
+              "text" : "Screen Sharing"
             }
           },
           {
@@ -9323,7 +9335,7 @@
       },
       "help" : {
         "key" : "settings.computerUse.enabled.help",
-        "text" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them."
+        "text" : "Lets agents see and use your apps through cmux Remote. Grant it Accessibility and Screen Recording once; cmux never needs a relaunch."
       },
       "kept_on_reset_all" : false,
       "key" : "computerUse.enabled",
@@ -9451,14 +9463,14 @@
         {
           "title" : {
             "key" : "settings.computerUse.driver.legacy",
-            "text" : "Legacy"
+            "text" : "Classic Helper"
           },
           "value" : "legacy"
         },
         {
           "title" : {
             "key" : "settings.computerUse.driver.upstream",
-            "text" : "Upstream"
+            "text" : "cmux Remote"
           },
           "value" : "upstream"
         }
@@ -9466,7 +9478,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "legacy",
+      "default" : "upstream",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.computerUse",
@@ -9474,7 +9486,7 @@
       },
       "help" : {
         "key" : "settings.computerUse.driver.help",
-        "text" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately."
+        "text" : "cmux Remote runs Computer Use and holds its macOS permissions, with no relaunch after you grant them. Classic Helper uses the cmux Computer Use helper of an installed classic cmux."
       },
       "kept_on_reset_all" : false,
       "key" : "computerUse.driver",
@@ -9725,6 +9737,311 @@
       "title" : {
         "key" : "settings.computerUse.livePreview",
         "text" : "Live Preview in Chat"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "ask",
+        "bounded",
+        "standard",
+        "unrestricted"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.computerUse.mode.ask",
+            "text" : "Ask Before Using Apps"
+          },
+          "value" : "ask"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.mode.bounded",
+            "text" : "Approved Apps Only"
+          },
+          "value" : "bounded"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.mode.standard",
+            "text" : "Standard"
+          },
+          "value" : "standard"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.mode.unrestricted",
+            "text" : "Unrestricted"
+          },
+          "value" : "unrestricted"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "ask",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.mode.help",
+        "text" : "Ask Before Using Apps asks you the first time an agent uses each app, on this Mac and on your iPhone. Approved Apps Only runs the apps you set up and asks for the rest. Standard runs routine clicks and typing without asking. Unrestricted never asks; use it only on a disposable machine."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.mode",
+      "keywords" : [
+        "computer use",
+        "approval",
+        "approve",
+        "ask",
+        "permission",
+        "mode",
+        "apps",
+        "bounded",
+        "unrestricted"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "mode"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.computerUse.mode.summary",
+        "text" : "When agents ask before using an app"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:computerUse.mode"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.computerUse.mode",
+        "text" : "Agents Using Apps"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.phoneAlwaysAllow.help",
+        "text" : "Your iPhone can answer Always Allow for an app, after Face ID. Off, it can allow once or for one agent session, and Always Allow stays on this Mac."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.phoneAlwaysAllow",
+      "keywords" : [
+        "computer use",
+        "iphone",
+        "phone",
+        "always allow",
+        "face id",
+        "approval"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "phoneAlwaysAllow"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.computerUse.phoneAlwaysAllow.summary",
+        "text" : "Lets your iPhone save an app approval"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:computerUse.phoneAlwaysAllow"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.computerUse.phoneAlwaysAllow",
+        "text" : "Allow Always from iPhone"
       },
       "validation" : "portable"
     },
@@ -88262,6 +88579,142 @@
       "title" : {
         "key" : "settings.macScreen.debug.relayOnly",
         "text" : "Relay Only"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cmuxRemote",
+        "text" : "Screen Sharing"
+      },
+      "help" : {
+        "key" : "settings.remote.headless.help",
+        "text" : "cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit. Off, a session ends when cmux quits."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "remote.headless",
+      "keywords" : [
+        "cmux remote",
+        "screen sharing",
+        "mac screen",
+        "headless",
+        "quit",
+        "background",
+        "device hub"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "remote",
+        "headless"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.remote.headless.summary",
+        "text" : "This Mac stays shared while cmux is quit"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:remote.headless"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.remote.headless",
+        "text" : "Keep Sharing When cmux Is Quit"
       },
       "validation" : "portable"
     },
