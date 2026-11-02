@@ -6320,7 +6320,7 @@ function AcpmuxPane() {
       ? {
           target: {
             harness: healthHarness,
-            ...(snapshot.cwd?.startsWith("/") ? { cwd: snapshot.cwd } : {}),
+            ...(snapshot.summary?.cwd?.startsWith("/") ? { cwd: snapshot.summary.cwd } : {}),
           },
         }
       : undefined;
