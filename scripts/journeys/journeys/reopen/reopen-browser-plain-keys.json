@@ -221,6 +221,11 @@
  ],
  "finally": [
   {
+   "do": "rpc_try",
+   "method": "debug.focus",
+   "title": "evidence: debug.focus at the end (creation_hold and creation_hold_end per window; reopen-f4)"
+  },
+  {
    "do": "input_journal",
    "name": "inputjournal",
    "last": 300
