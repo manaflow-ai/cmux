@@ -4,6 +4,8 @@ public import CmuxNextLayout
 /// Resizing moves the divider nearest the pane in the arrow's direction;
 /// in columns mode a left or right
 /// resize with no horizontal split in the column changes the column width.
+/// A press steps from the size the screen shows and stops at the size it can show (`shown`): one equal step, the
+/// part step that reaches a pane's minimum, or no change at all; never a model change that moves nothing.
 public nonisolated enum PaneResize {
     public enum Change: Equatable, Sendable {
         case splitRatio(LayoutSplitID, Double)
@@ -24,8 +26,7 @@ public nonisolated enum PaneResize {
         case .columns: tree = layout.column(containing: pane)?.tree(containing: pane)
         }
         if let tree, let (split, ratio) = nearestSplit(containing: pane, axis: axis, in: tree) {
-            let clamped = min(max(ratio + delta, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
-            return clamped == ratio ? nil : .splitRatio(split, clamped)
+            return stepped(ratio, by: delta, within: SplitRatio.range, shown: shown?.ratio(of: split)).map { .splitRatio(split, $0) }
         }
         guard let column = layout.column(containing: pane) else { return nil }
         let range = ColumnWidthPreset.widthRange
@@ -38,8 +39,20 @@ public nonisolated enum PaneResize {
             return extent == column.width ? nil : .columnWidth(column.id, extent)
         }
         guard axis == .horizontal else { return nil }
-        let width = min(max(column.width + delta, range.lowerBound), range.upperBound)
-        return width == column.width ? nil : .columnWidth(column.id, width)
+        return stepped(column.width, by: delta, within: range, shown: shown?.width(of: column)).map { .columnWidth(column.id, $0) }
+    }
+
+    /// `value` moved by `delta` inside `range` cut to `shown`, from where the screen shows it: a value past what the
+    /// screen can show (set before, or by another client) counts as the shown limit, so the press back is a whole
+    /// step. Nil when the press would change nothing on screen.
+    static func stepped(_ value: Double, by delta: Double, within range: ClosedRange<Double>, shown: ClosedRange<Double>?) -> Double? {
+        var lower = range.lowerBound, upper = range.upperBound
+        if let shown, shown.lowerBound <= upper, shown.upperBound >= lower {
+            (lower, upper) = (max(lower, shown.lowerBound), min(upper, shown.upperBound))
+        }
+        let current = min(max(value, lower), upper)
+        let next = min(max(current + delta, lower), upper)
+        return abs(next - current) < 1e-9 ? nil : next
     }
 
     /// The column before (`forward == false`) or after the pane's column.
