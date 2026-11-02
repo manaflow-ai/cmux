@@ -14,19 +14,23 @@ import Testing
         return registry
     }
 
-    @Test func aStaleTableIsBuiltOnTheWarmHookBeforeAnyKey() {
+    @Test func aStaleTableIsBuiltOnTheWarmHookBeforeAnyKey() throws {
         let registry = Self.registry()
+        _ = RegistryKeyBindings(registry).table  // a built table, as after the first key
+        #expect(registry.shortcutIndex?.bindingTable != nil)
         var queued: [@MainActor () -> Void] = []
         registry.warmBindingTable = { queued.append($0) }
+        #expect(queued.isEmpty, "a built table asks for nothing")
         registry.seed(Array(ActionCatalog.all.prefix(1)))  // any change makes the table stale
         #expect(registry.shortcutIndex?.bindingTable == nil)
-        try? #require(queued.count == 1, "a stale table asks the warm hook once")
+        try #require(queued.count == 1, "a stale table asks the warm hook once")
         queued.forEach { $0() }
         #expect(registry.shortcutIndex?.bindingTable != nil, "the warm hook built the table: no key pays for it")
     }
 
     @Test func manyChangesInOneTurnAskForOneBuild() {
         let registry = Self.registry()
+        _ = RegistryKeyBindings(registry).table
         var queued: [@MainActor () -> Void] = []
         registry.warmBindingTable = { queued.append($0) }
         for descriptor in ActionCatalog.all.prefix(5) { registry.seed([descriptor]) }
@@ -35,5 +39,16 @@ import Testing
         queued.forEach { $0() }
         registry.seed(Array(ActionCatalog.all.prefix(1)))
         #expect(queued.count == 2, "a change after the warm ran asks again")
+    }
+
+    @Test func aNewHookAsksAgainWhenTheOldOnesWorkWasDropped() {
+        let registry = Self.registry()
+        var dropped: [@MainActor () -> Void] = []
+        registry.warmBindingTable = { dropped.append($0) }  // stale from the start: asked once
+        var queued: [@MainActor () -> Void] = []
+        registry.warmBindingTable = { queued.append($0) }
+        #expect(queued.count == 1, "the new hook is asked, so the table does not wait for a key")
+        queued.forEach { $0() }
+        #expect(registry.shortcutIndex?.bindingTable != nil)
     }
 }

@@ -177,7 +177,10 @@ public final class ActionRegistry {
     /// change paid for `makeTable()`, 27.6 ms on the main thread). The App gives it a budgeted background batch
     /// on its main-thread scheduler, which yields to a person's input; nil (tests, tools): the first key builds
     /// the table, as before.
-    @ObservationIgnored public var warmBindingTable: (@MainActor (@escaping @MainActor () -> Void) -> Void)?
+    @ObservationIgnored public var warmBindingTable: (@MainActor (@escaping @MainActor () -> Void) -> Void)? {
+        // A new hook drops the old one's queued work: ask again through the new one.
+        didSet { bindingTableWarmQueued = false; if shortcutIndex?.bindingTable == nil { askToWarmBindingTable() } }
+    }
     /// A warm is queued and has not run yet: further changes need no second one.
     @ObservationIgnored private var bindingTableWarmQueued = false
 
