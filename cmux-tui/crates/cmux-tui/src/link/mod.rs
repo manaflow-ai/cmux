@@ -5,7 +5,6 @@
 mod access_cli;
 mod agent_cli;
 mod cloud;
-#[cfg(target_os = "linux")]
 mod cloud_broker;
 mod cloud_fs;
 mod control;
@@ -15,6 +14,8 @@ mod dial;
 mod dial_cli;
 mod enrollment;
 mod ensure;
+mod native_broker;
+mod native_route;
 // `cmux link seed plan`; `cmux link seed push|clone|pull` is [`seed_cli`].
 #[cfg_attr(not(test), allow(dead_code))]
 mod seed;
@@ -196,6 +197,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
                 "--server-config",
                 "--credential-socket",
                 "--ready-fd",
+                "--native-cloud-broker-fd",
             ],
         )?),
         "ensure" => {
@@ -447,6 +449,7 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
         ready,
         served,
         watch,
+        broker,
     ))
 }
 
@@ -543,13 +546,29 @@ async fn serve(
         },
         socket,
     )?;
-    let overlay = Arc::new(MeshOverlay::new(mesh, private_key));
+    let overlay = Arc::new(MeshOverlay::new(mesh, private_key).with_native_route(native_route));
     // Cloud host ids resolve through the private credential relay owned by
     // the signed-in app. A missing relay fails closed as unavailable.
-    let resolver = Arc::new(cloud::CloudResolver::new(
-        credential_socket.map_or_else(cloud::RelaySource::unavailable, cloud::RelaySource::socket),
-    ));
-    let peers = Arc::new(Peers::load(state.peers_path())?);
+    let (source, broker_driver) = match broker {
+        Some(cloud_broker::Bound { stream, .. }) => {
+            stream.set_nonblocking(true)?;
+            let (source, driver) = cloud_broker::channel(tokio::net::UnixStream::from_std(stream)?);
+            (cloud::CloudSource::Broker(source), Some(driver))
+        }
+        None => (
+            cloud::CloudSource::Relay(
+                credential_socket
+                    .map_or_else(cloud::RelaySource::unavailable, cloud::RelaySource::socket),
+            ),
+            None,
+        ),
+    };
+    let resolver = Arc::new(cloud::CloudResolver::new(source));
+    let peers = Arc::new(if native {
+        Peers::isolated(state.peers_path())
+    } else {
+        Peers::load(state.peers_path())?
+    });
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
     let socket_path = state.socket_path();
