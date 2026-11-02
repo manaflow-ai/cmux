@@ -20,6 +20,11 @@ int32_t cmux_layout_reducer_json(
     uint8_t *output,
     size_t output_capacity,
     size_t *output_len);
+/* Focus operations of cmux_layout_reducer_json (cmux-focus-core wire.rs):
+ *   focus_input_world   InputObservation -> {violations:[{invariant,window?,detail}], unsettled:[window]}
+ *   focus_input_step    {old, event, new, window?} (FocusState read views, a FocusEvent) -> {violations}
+ *   focus_debug_window  {resolved, childPage?, ghostty, ownTabs, isKey} -> {expectedResponder?, kind, ghosttyMismatch?}
+ * (debug monitor, debug.focus and journal replay only; never per event). */
 
 /*
  * The sidebar document mirror (sidebar-doc-v1). One handle per client, used
@@ -263,7 +268,8 @@ typedef struct CmuxFocusReply {
     uint8_t expectation_key; /* 0 surface 1 tab */
     uint8_t expectation_target;
     uint8_t expectation_target_keyboard;
-    uint8_t reserved[2];
+    uint8_t omnibar_return;     /* 1: queue focusTarget(addressBar, programmatic) after this event's effects */
+    uint8_t returns_to_omnibar; /* 1: this event is that queued return: restore the edit, do not select all */
     uint64_t generation;
     uint64_t expectation_generation;
     CmuxFocusStr pane;
@@ -279,6 +285,7 @@ typedef struct CmuxFocusReply {
     uint32_t effect_count;
     uint32_t strings_len;
     uint32_t reserved2;
+    CmuxFocusStr typing_tab; /* the tab a key typed now is for: an expected tab, else the focused terminal */
 } CmuxFocusReply;
 
 typedef struct CmuxFocusStrings {
@@ -303,5 +310,39 @@ const CmuxFocusStrings *cmux_focus_remembered(CmuxFocus *focus);
 char *cmux_focus_export_json(CmuxFocus *focus);
 int32_t cmux_focus_import_json(CmuxFocus *focus, const uint8_t *json, size_t json_len);
 void cmux_focus_string_free(char *text);
+
+/*
+ * The pane a Close Tab press is aimed at after a close emptied a pane
+ * (PaneCloseAim), kept by the window's focus handle. Times are seconds of
+ * system uptime (NSEvent.timestamp's clock); is_key 1 for a key-down,
+ * is_repeat 1 for an auto-repeat.
+ */
+/* the focused pane moved from `from` (has_from 0: none) to the handle's focused pane; returns the move's serial */
+uint64_t cmux_focus_pane_moved(CmuxFocus *focus, const uint8_t *from, size_t from_len, uint8_t has_from);
+/* the frame that shows move `serial` was presented at `time` */
+void cmux_focus_frame_presented(CmuxFocus *focus, uint64_t serial, double time);
+/* the press closed the last tab of `pane` */
+void cmux_focus_pane_emptied(CmuxFocus *focus, const uint8_t *pane, size_t pane_len, double time, uint8_t is_key, uint8_t is_repeat);
+/* 1: the press is aimed at the emptied pane (it closes nothing; show why) */
+uint8_t cmux_focus_aims_at_emptied_pane(CmuxFocus *focus, double time, uint8_t is_key, uint8_t is_repeat);
+
+/*
+ * The close successor rules (cmux-focus-core close_focus), one call per
+ * close, no handle. Ids are the caller's own uint32_t numbering of its tab
+ * or workspace ids; CMUX_FOCUS_NONE is none. A null array with a nonzero
+ * count gives CMUX_FOCUS_NONE (live_openers: -1).
+ */
+/* the tab a pane selects after `selected` closed; opener_children[i] was opened by opener_parents[i] */
+uint32_t cmux_close_focus_tab(uint32_t selected, const uint32_t *old, size_t old_count,
+                              const uint32_t *surviving, size_t surviving_count,
+                              const uint32_t *shown, size_t shown_count,
+                              const uint32_t *opener_children, const uint32_t *opener_parents, size_t opener_count);
+/* the workspace a window shows after `shown` left; orders: order_count row orders flattened, order i holds order_lengths[i] ids */
+uint32_t cmux_close_focus_workspace(uint32_t shown, const uint32_t *old, size_t old_count,
+                                    const uint32_t *surviving, size_t surviving_count,
+                                    const uint32_t *orders, const uint32_t *order_lengths, size_t order_count);
+/* writes the live opener of order[i] (Chrome's FixOpeners) to parent_out[i], CMUX_FOCUS_NONE for none; 0 ok */
+int32_t cmux_close_focus_live_openers(const uint32_t *children, const uint32_t *parents, size_t count,
+                                      const uint32_t *order, size_t order_count, uint32_t *parent_out);
 
 #endif
