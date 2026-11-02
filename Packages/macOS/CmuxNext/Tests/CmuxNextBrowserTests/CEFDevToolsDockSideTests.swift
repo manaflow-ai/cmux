@@ -8,30 +8,35 @@ import Testing
 /// was laid out at two sizes. The DevTools frontend keeps its own dock side (its `currentDockState` setting, Chrome's
 /// default right) and applies it when it loads; the fork reports that as a dock-side choice and the pane moved
 /// DevTools there. Chrome has one source of truth for the side (the frontend's setting); cmux now writes its own side
-/// into that setting before every open, so the frontend loads with cmux's side and never moves DevTools.
+/// into that setting when Chromium asks where DevTools goes (every way it opens), so the frontend loads with cmux's side and never moves DevTools.
 @MainActor @Suite(.serialized) struct CEFDevToolsDockSideTests {
+    /// Chromium asks where DevTools goes (DEVTOOLS_WILL_OPEN) for every way it opens: cmux's commands, a panel, the
+    /// page's Inspect, Chromium's own commands. cmux's side is written into the frontend's setting there, before the
+    /// placement and so before the frontend exists.
     @Test(arguments: [(BrowserDevToolsDock.bottom, Int32(2)), (.right, 3), (.left, 1), (.window, 0)])
     func everyOpenTellsTheFrontendCmuxsDockSideFirst(dock: BrowserDevToolsDock, side: Int32) throws {
         let rig = try Rig()
         defer { rig.close() }
         let tab = try rig.attachedTab()
-        // What devtools.openDocked / openDockedRight / openInWindow run (DevToolsHandlers.open).
-        tab.performDevTools(.dock(dock))
-        tab.performDevTools(.show)
-        #expect(ShimLog.calls == ["frontend-dock-side \(Rig.browser) \(side)", "command \(Rig.browser) show"],
-                "the frontend's own dock side is cmux's before DevTools opens")
+        tab.devToolsController.layout.dock = dock  // the remembered side, without writing the runner's defaults
+        rig.runtime.handle(.devToolsWillOpen(browser: Rig.browser))
+        #expect(ShimLog.calls.first == "frontend-dock-side \(Rig.browser) \(side)",
+                "the frontend's own dock side is cmux's before DevTools is created: \(ShimLog.calls)")
+        #expect(ShimLog.calls.contains { $0.hasPrefix("devtools-placement") }, "then the placement")
     }
 
-    @Test func theToggleKeyAndConsoleAndInspectAlsoOpenOnCmuxsSide() throws {
+    /// The page's context menu Inspect and a DevTools panel command reach Chromium without cmux's `.show`; they still
+    /// open on cmux's side (the will-open event above), so a side moved by "Dock to Right" holds for them too.
+    @Test func aSideChangedWhileClosedHoldsForAnInspectFromThePage() throws {
         let rig = try Rig()
         defer { rig.close() }
         let tab = try rig.attachedTab()
-        tab.performDevTools(.dock(.bottom))
-        for command in [BrowserDevToolsCommand.toggle, .console, .inspectElement] {
-            ShimLog.calls = []
-            tab.performDevTools(command)
-            #expect(ShimLog.calls.first == "frontend-dock-side \(Rig.browser) 2", "\(command)")
-        }
+        tab.devToolsController.layout.dock = .bottom
+        rig.runtime.handle(.devToolsWillOpen(browser: Rig.browser))
+        tab.devToolsController.layout.dock = .right  // "Dock to Right" while closed
+        ShimLog.calls = []
+        rig.runtime.handle(.devToolsWillOpen(browser: Rig.browser))  // right-click > Inspect
+        #expect(ShimLog.calls.first == "frontend-dock-side \(Rig.browser) 3")
     }
 
     /// A side the person picks in the DevTools menu still moves DevTools.
@@ -39,7 +44,7 @@ import Testing
         let rig = try Rig()
         defer { rig.close() }
         let tab = try rig.attachedTab()
-        tab.performDevTools(.dock(.bottom))
+        tab.devToolsController.layout.dock = .bottom
         tab.devTools = BrowserDevToolsState(isOpen: true, dock: .bottom)
         tab.devToolsController.dockSideChosen(3)
         #expect(tab.devTools.dock == .right)
@@ -107,6 +112,9 @@ private nonisolated enum ShimLog {
             ShimLog.calls.append("command \(browser) \(name ?? String(command))")
             return 1
         }
+        let placement: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32) -> Void = { browser, _, _, _, _, _ in
+            ShimLog.calls.append("devtools-placement \(browser)")
+        }
         let dockSide: @convention(c) (Int32, Int32) -> Int32 = { browser, side in
             ShimLog.calls.append("frontend-dock-side \(browser) \(side)")
             return 1
@@ -118,6 +126,7 @@ private nonisolated enum ShimLog {
             case "cmux_shim_create_window": unsafeBitCast(createWindow, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_devtools_command": unsafeBitCast(command, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_devtools_set_frontend_dock_side": unsafeBitCast(dockSide, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_devtools_set_placement": unsafeBitCast(placement, to: UnsafeMutableRawPointer.self)
             default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
             }
         }
