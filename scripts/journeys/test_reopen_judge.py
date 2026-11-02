@@ -100,7 +100,8 @@ class VerdictTest(unittest.TestCase):
         self.assertEqual(J.verdict(self.row(a=dict(precise, echo_ms=450.0))), [])
         self.assertTrue(any("echoed at 650.0" in f for f in J.verdict(self.row(a=dict(precise, echo_ms=650.0)))))
         cua = dict(precise, key_path="cua press_key (foreground HID)", key_precise=False)
-        self.assertEqual(J.verdict(self.row(a=cua)), [])
+        self.assertEqual([f for f in J.verdict(self.row(a=cua)) if not f.startswith("NOT JUDGED (3)")], [])
+        self.assertTrue(any(f.startswith("NOT JUDGED (3)") for f in J.verdict(self.row(a=cua))))
 
 
 class JudgeTest(unittest.TestCase):

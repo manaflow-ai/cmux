@@ -952,21 +952,38 @@ def step_heavy_teardown(j, step):
     return {"exit": done.returncode, "tail": (done.stdout or done.stderr or "")[-300:]}
 
 
+def _signal(pid, sig):
+    try:
+        os.kill(pid, sig)
+    except OSError:
+        pass
+
+
 def step_kill_all_relaunch(j, step):
-    """REOPEN-F3 (P0 data loss, cmux-ad 01:30Z): SIGKILL of every background process of the app's bundle (the
-    terminal hosts and the holder first, so no shell survives), then the driver's own `relaunch` kind kill-both
-    (SIGKILL of the daemon and the app) and its reopen through LaunchServices, which finds every named terminal
-    again. No film (the check is what comes back). Records what was killed and that nothing of the bundle ran at
-    the reopen."""
+    """REOPEN-F3 (P0 data loss, cmux-ad 01:30Z): everything of cmux dies AT ONCE, as in a crash of the Mac or a
+    force quit of all: every process of the app's bundle (terminal hosts, holder, daemon) and the app are first
+    stopped (SIGSTOP: nobody can react, mark a terminal ended or save), then killed (SIGKILL). Between the end and
+    the reopen, anything of the bundle still running is killed and listed; the step fails if any survives. Then
+    the driver's reopen through LaunchServices finds every named terminal again. No film."""
     app = j.app
-    others = [r for r in app.bundle_processes(app.pid) if r["pid"] != app.pid and "--headless" not in r["command"]]
-    for row in others:
-        try:
-            os.kill(row["pid"], signal.SIGKILL)
-        except OSError:
-            pass
-    record = D.Journey.step_relaunch(j, dict(step, how="kill-both"))
-    record["killed_first"] = [{"pid": r["pid"], "command": r["command"][:100]} for r in others]
+    daemon = app.daemon_pid()  # asked before the app is stopped
+    rows = app.bundle_processes(app.pid)
+    pids = [r["pid"] for r in rows if r["pid"] != app.pid] + ([daemon] if daemon else [])
+    for pid in pids + [app.pid]:
+        _signal(pid, signal.SIGSTOP)
+    for pid in pids:
+        _signal(pid, signal.SIGKILL)
+
+    def leftovers():
+        for row in app.bundle_processes(None):
+            _signal(row["pid"], signal.SIGKILL)
+        time.sleep(0.3)
+        return [r["command"][:100] for r in app.bundle_processes(None)]
+
+    record = D.Journey.step_relaunch(j, dict(step, how="kill-app", after_end=leftovers))
+    record["killed"] = [{"pid": r["pid"], "command": r["command"][:100]} for r in rows] + [{"pid": daemon, "command": "daemon"}]
+    if record.get("after_end"):
+        raise D.StepError(f"bundle processes still ran at the reopen: {record['after_end'][:5]}")
     return record
 
 
@@ -978,7 +995,10 @@ def cond_cwd_string(j, want, cache):
     lines = [line.strip() for line in text.splitlines()]
     after = [lines[i + 1] for i, line in enumerate(lines[:-1]) if line.endswith("pwd")]
     got = after[-1] if after else None
-    return got == wanted, {"pwd_printed": got, "want": wanted}
+    detail = {"pwd_printed": got, "want": wanted}
+    if got != wanted and not after:
+        detail["why"] = "no line ending in 'pwd' on the screen (a right prompt in the shell's config would hide it)"
+    return got == wanted, detail
 
 
 def cond_ended_line_after(j, want, cache):

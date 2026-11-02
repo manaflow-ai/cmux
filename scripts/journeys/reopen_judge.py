@@ -409,7 +409,11 @@ def verdict(row):
         e = p.get("echo_ms")
         if e is not None and e <= INTERACTIVE_TARGET_MS:
             continue
-        if p.get("key_precise") and p["key_sent_ms"] <= INTERACTIVE_TARGET_MS:
+        if not (p.get("key_precise") and p["key_sent_ms"] <= INTERACTIVE_TARGET_MS):
+            fails.append(f"NOT JUDGED (3) pane {pane[-8:]}: its key went out at {p['key_sent_ms']} ms"
+                         + ("" if p.get("key_precise") else " with an unknown time (slow key call)"))
+            continue
+        if True:
             fails.append(f"pane {pane[-8:]}: " + ("its marker key never echoed (a lost key)" if e is None else
                          f"its marker key (sent {p['key_sent_ms']} ms) echoed at {e} ms > {INTERACTIVE_TARGET_MS:.0f} ms"))
     for key, why in (("pid_matches", "the measured process is not the app that answered after the reopen"),
@@ -452,9 +456,10 @@ def main():
     if a.verdict:
         for row in rows:
             fails = verdict(row)
-            row["verdict"] = "FAIL" if fails else "PASS"
+            hard = [f for f in fails if not f.startswith("NOT JUDGED (3)")]
+            row["verdict"] = "FAIL" if hard else "PASS"
             row["failures"] = fails
-            failed += bool(fails)
+            failed += bool(hard)
             print(f"{row['verdict']} {row.get('dir')} cycle {row.get('cycle')}" + "".join(f"\n  - {f}" for f in fails))
     print(json.dumps(result["summary"], indent=1))
     if a.json:
