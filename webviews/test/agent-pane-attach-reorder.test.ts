@@ -133,9 +133,11 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
     expect(
       await page.evaluate(
         () =>
-          [...document.querySelectorAll(".acpmux-attachments .acpmux-attachment-slot:not([data-dragging]) .acpmux-attachment")]
-            .flatMap((chip) => chip.getAnimations())
-            .length,
+          [
+            ...document.querySelectorAll(
+              ".acpmux-attachments .acpmux-attachment-slot:not([data-dragging]) .acpmux-attachment",
+            ),
+          ].flatMap((chip) => chip.getAnimations()).length,
       ),
     ).toBeGreaterThan(0);
     await page.mouse.up();

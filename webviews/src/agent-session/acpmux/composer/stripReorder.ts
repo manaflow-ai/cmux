@@ -65,7 +65,7 @@ export function slides(
 const settling = new WeakMap<HTMLElement, Animation>();
 
 /// The chip inside a slot: what moves on screen (the slot itself draws nothing, display: contents).
-const chipOf = (slot: HTMLElement) => (slot.querySelector<HTMLElement>(".acpmux-attachment") ?? slot);
+const chipOf = (slot: HTMLElement) => slot.querySelector<HTMLElement>(".acpmux-attachment") ?? slot;
 
 /// Each staged chip of `strip` by id, in the strip's order.
 function chipsById(strip: HTMLElement, ids: readonly string[]): Map<string, HTMLElement> {
@@ -134,7 +134,14 @@ export function useStripReorder(
     if (!chip) return;
     const box = chip.getBoundingClientRect();
     const bounds = strip.getBoundingClientRect();
-    const offset = followOffset(drag.pointerX, drag.grab, box.left - translateOf(chip), box.width, bounds.left, bounds.right);
+    const offset = followOffset(
+      drag.pointerX,
+      drag.grab,
+      box.left - translateOf(chip),
+      box.width,
+      bounds.left,
+      bounds.right,
+    );
     chip.style.translate = `${offset}px 0`;
   };
   // A move re-lays the strip: the chips the dragged one passed slide from their old slots to their
