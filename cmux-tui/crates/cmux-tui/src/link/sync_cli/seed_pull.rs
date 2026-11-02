@@ -67,6 +67,9 @@ pub(crate) struct SeedBase {
     pub(crate) head: String,
     pub(crate) index: String,
     pub(crate) work: String,
+    pub(crate) stash: Option<String>,
+    /// Whether we know the previous stash ref (including an absent ref).
+    pub(crate) stash_known: bool,
 }
 
 /// What a pull did, or the paths that stopped it.
@@ -110,9 +113,16 @@ struct Exported {
     head: String,
     index: String,
     work: String,
+    stash: Option<String>,
     unchanged: bool,
     bundle_bytes: u64,
     left_out: Value,
+}
+
+/// Compare-and-swap update of refs/stash, planned against the last accepted seed.
+struct StashUpdate {
+    before: Option<String>,
+    after: Option<String>,
 }
 
 /// One tree entry: mode and object id.
@@ -172,11 +182,29 @@ pub(crate) fn seed_pull(
         std::process::id()
     );
     let exported = export(&mut remote, remote_root, base, &remote_bundle)?;
-    let new_base = json!({ "head": exported.head, "index": exported.index, "work": exported.work });
+    let new_base = json!({
+        "head": exported.head, "index": exported.index, "work": exported.work,
+        "stash": exported.stash,
+    });
+    let stash = match plan_stash(&folder, base, &exported.stash)? {
+        Ok(change) => change,
+        Err(reason) => {
+            return Ok(SeedPulled::Conflict(
+                vec![".git/refs/stash".into()], vec![format!(".git/refs/stash: {reason}")],
+            ));
+        }
+    };
     if exported.unchanged {
+        // An export may omit its bundle for a stash-only deletion. Apply the
+        // ref with the same compare-and-swap check as a full pull.
+        if let Some(change) = &stash {
+            let here_git = git_back::base_of(&folder)?;
+            move_git(&folder, &here_git, None, None, Some(change))?;
+        }
         return Ok(SeedPulled::Done(json!({
-            "ok": true, "unchanged": true, "written": 0, "deleted": 0, "bytes": 0,
+            "ok": true, "unchanged": stash.is_none(), "written": 0, "deleted": 0, "bytes": 0,
             "bundle_bytes": 0, "fast_forwarded": false, "staged": false,
+            "stash_changed": stash.is_some(),
             "head": exported.head, "base": new_base, "left_out": exported.left_out,
         })));
     }
@@ -333,7 +361,9 @@ pub(crate) fn seed_pull(
             return undone(transaction, &staging, error);
         }
     }
-    if let Err(error) = move_git(&folder, &here_git, fast_forward.as_deref(), staged.as_deref()) {
+    if let Err(error) = move_git(
+        &folder, &here_git, fast_forward.as_deref(), staged.as_deref(), stash.as_ref(),
+    ) {
         return undone(transaction, &staging, error);
     }
     transaction.finish();
@@ -346,6 +376,7 @@ pub(crate) fn seed_pull(
         "bundle_bytes": exported.bundle_bytes,
         "fast_forwarded": fast_forward.is_some(),
         "staged": staged.is_some(),
+        "stash_changed": stash.is_some(),
         "head": exported.head,
         "base": new_base,
         "left_out": exported.left_out,
@@ -414,6 +445,11 @@ fn export(
         head: sha("head")?,
         index: sha("index")?,
         work: sha("work")?,
+        stash: match status.get("stash") {
+            Some(Value::Null) => None,
+            Some(Value::String(value)) if is_sha(value) => Some(value.clone()),
+            _ => bail!("the machine's export answered no valid stash state"),
+        },
         unchanged: status.get("unchanged").and_then(Value::as_bool) == Some(true),
         bundle_bytes: status.get("bundle_bytes").and_then(Value::as_u64).unwrap_or(0),
         left_out: status.get("left_out").cloned().unwrap_or_default(),
