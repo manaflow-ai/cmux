@@ -1,4 +1,7 @@
 import AppKit
+@testable import CmuxNextApp
+import CmuxNextBrowser
+@testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextTerminal
 import CmuxNextTestSupport
@@ -65,8 +68,41 @@ import Testing
         fresh.view.frame = host.bounds
         host.addSubview(fresh.view)
         fresh.view.layoutSubtreeIfNeeded()
+        defer { fresh.close() }
         frames.show("tab", on: fresh)
         #expect(fresh.diagnostics.lastFrameHolds == 1, "the revealed terminal showed no last frame: an empty pane in the switch frame (\(frames.report))")
+    }
+
+    /// Review of #32315: the store now keeps up to 152 frames, so a closed tab's frame must go with the tab, not
+    /// wait for later evictions to push it out.
+    @Test func aClosedTabsLastFrameGoesWithIt() async throws {
+        _ = NSApplication.shared
+        let drew = WindowDrawPolicy.drawsWhenOccluded
+        WindowDrawPolicy.drawsWhenOccluded = true
+        defer { WindowDrawPolicy.drawsWhenOccluded = drew }
+        let io = ScriptedTerminalIO()
+        let session = TerminalSession(io: io)
+        try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 480, height: 240), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer {
+            io.finish()
+            window.close()
+        }
+        window.contentView = session.view
+        window.orderFrontRegardless()
+        session.view.layoutSubtreeIfNeeded()
+        io.send(.output(Data("closed tab\r\nline\r\n".utf8)))
+        try await Self.drawn(session)
+        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()),
+                                    fileInput: NoFileInput())
+        session.isRenderingSuspended = true
+        cache.lastFrames.evict(session, key: "tab_closed", capacity: 8, atOnce: false)
+        session.close()
+        try #require(cache.lastFrames["tab_closed"] != nil, "setup: the evicted terminal kept no frame")
+        cache.release("tab_closed")
+        #expect(cache.lastFrames["tab_closed"] == nil, "a closed tab's last frame stayed in the store: \(cache.lastFrames.report)")
     }
 
     /// The real-app case (sw-sf2fix-light2, cmux24: last_frames kept +2 and dropped +2 per switch, shown 0): 18
