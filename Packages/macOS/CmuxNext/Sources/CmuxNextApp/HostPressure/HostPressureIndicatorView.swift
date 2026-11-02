@@ -122,8 +122,8 @@ final class HostPressureIndicatorView: NSView {
         applyTint()
     }
 
-    /// The gate's inputs now: the feature (with the Debug toggle `hostPressure.enabled` as its live local override, which
-    /// the palette's Show / Hide Host Pressure Warning set) and whether the window can be seen (its node is visible). A forced level
+    /// The gate's inputs now: the feature (the Debug toggle, which the palette sets, as its live local override) and
+    /// whether the window can be seen (its node is visible). A forced level
     /// (Debug Settings only, for captures) counts as seen while the indicator is in a window: capture minis run
     /// windows the occlusion state calls hidden. The 15 s read then runs while the level stays forced; Off restores
     /// the window gate, and leaving the window still stops it.
