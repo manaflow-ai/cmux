@@ -78,5 +78,14 @@ extension AgentPaneView {
         let script = "return document.querySelector('button.acpmux-session-info-toggle')?.getAttribute('aria-pressed') === 'true';"
         return (try? await callPageScript(script)) as? Bool ?? false
     }
+
+    /// Sends one of the page-owned panel actions through the same bridge as a native row click.
+    /// DEBUG capture tours use this to fold a section without adding a second policy path.
+    @discardableResult
+    public func debugSessionInfoAction(_ id: String) -> Bool {
+        guard !id.isEmpty, let panel = model.sessionInfo.panel else { return false }
+        panel.store.act(id)
+        return true
+    }
 }
 #endif
