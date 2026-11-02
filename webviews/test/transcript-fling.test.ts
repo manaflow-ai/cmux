@@ -116,6 +116,21 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
       expect(result.frames).toBeGreaterThan(30);
       expect(result.blank / result.frames).toBeLessThanOrEqual(0.05);
     }
+
+    // A stopped fling should release its directional lead after the idle timeout. Without the
+    // decay, the mounted range stays several viewports wider than the settled view indefinitely.
+    const movingMounted = await page.evaluate(async () => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      scroller.scrollTop = Math.floor((scroller.scrollHeight - scroller.clientHeight) / 2);
+      await window.cmuxPaintFrame();
+      return document.querySelectorAll<HTMLElement>(".acpmux-row").length;
+    });
+    await page.waitForFunction((count) => document.querySelectorAll(".acpmux-row").length < count, movingMounted, {
+      timeout: 2_000,
+    });
+    await page.evaluate(() => window.cmuxPaintFrame());
+    const settledMounted = await page.evaluate(() => document.querySelectorAll<HTMLElement>(".acpmux-row").length);
+    expect(settledMounted).toBeLessThan(movingMounted);
     await page.close();
   });
 });
