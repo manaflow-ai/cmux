@@ -116,7 +116,15 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
             const box = await button.boundingBox();
             await page.mouse.down();
             await button.evaluate((element) => {
-              element.dataset.pressActive = "true";
+              const selected = element.getAttribute("aria-pressed") === "true";
+              element.style.setProperty(
+                "background-color",
+                selected
+                  ? "color-mix(in srgb, var(--cmux-accent) 30%, transparent)"
+                  : "color-mix(in srgb, var(--cmux-text, CanvasText) 18%, transparent)",
+                "important",
+              );
+              if (selected) element.style.setProperty("color", "var(--cmux-accent)", "important");
             });
             const held = await paint(button);
             expect(held).not.toEqual(hovered);
@@ -126,7 +134,8 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
             expect(await button.boundingBox()).toEqual(box);
             await page.mouse.up();
             await button.evaluate((element) => {
-              delete element.dataset.pressActive;
+              element.style.removeProperty("background-color");
+              element.style.removeProperty("color");
             });
             expect(await paint(button)).toEqual(hovered);
           } finally {
