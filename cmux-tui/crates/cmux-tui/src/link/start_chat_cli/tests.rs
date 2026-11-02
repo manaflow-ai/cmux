@@ -1538,6 +1538,34 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     let refused =
         plan_with(&fallback_path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &theirs);
     assert_eq!(refused["error_code"], json!("cloud_environment.not_found"));
+    for (status, code, expected) in [
+        (401, "", "refused"),
+        (403, "workspace_machine.not_admitted", "workspace_machine.not_admitted"),
+        (404, "machine.snapshot.not_found", "machine.snapshot.not_found"),
+        (404, "platform.unknown_error", "platform.unknown_error"),
+        (400, "workspace_machine.bootstrap_mismatch", "workspace_machine.bootstrap_mismatch"),
+        (503, "workspace_machine.machine_slots_full", "workspace_machine.machine_slots_full"),
+        (503, "workspace_machine.usage_unavailable", "workspace_machine.usage_unavailable"),
+        (503, "workspace_machine.admission_changed", "workspace_machine.admission_changed"),
+    ] {
+        let denied = |_: &Ensure, _: &str| -> Result<Value, E> {
+            Err(E::Status { status, code })
+        };
+        let outcome = plan_with(
+            &fallback_path,
+            &request(&self::key(), "user-leo/"),
+            &mut "token-1\n".as_bytes(),
+            &denied,
+        );
+        assert_eq!(outcome["ok"], json!(false), "{status} {code}: {outcome}");
+        assert_eq!(outcome["error_code"], json!(expected), "{outcome}");
+        assert!(outcome.get("new_name").is_none(), "{outcome}");
+        assert!(!made_no_machine(&E::Status { status, code }));
+    }
+    assert!(made_no_machine(&E::Status { status: 404, code: "route.not_found" }));
+    assert!(made_no_machine(&E::Status { status: 404, code: "not_found" }));
+    assert!(made_no_machine(&E::Status { status: 404, code: "" }));
+    assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.not_admitted" }));
     let lost =
         |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Unreachable("timed out".into())) };
     assert_eq!(
