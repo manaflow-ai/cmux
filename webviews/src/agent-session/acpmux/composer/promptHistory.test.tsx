@@ -15,6 +15,10 @@ function prompt(id: string, text: string): AcpmuxRow {
   return { id, version: 1, at: 0, kind: "user", text };
 }
 
+function assistant(id: string, text: string): AcpmuxRow {
+  return { id, version: 1, at: 0, kind: "assistant", text, streaming: true };
+}
+
 function Harness({ rows }: { rows: readonly AcpmuxRow[] }) {
   history = usePromptHistory(rows);
   return null;
@@ -69,6 +73,41 @@ describe("prompt history paging", () => {
     expect(currentHistory().step(-1, "C")).toBe("B");
     render([prompt("a", "A"), ...initial]);
     expect(currentHistory().step(-1, "B")).toBe("A");
+  });
+
+  test("keeps moving forward after an older page is prepended", () => {
+    const initial = [prompt("b", "B"), prompt("c", "C")];
+    render(initial);
+    expect(currentHistory().step(-1, "")).toBe("C");
+    render([prompt("a", "A"), ...initial]);
+    expect(currentHistory().step(1, "C")).toBe("");
+  });
+
+  test("resolves multiple prepended prompts from the recalled row", () => {
+    const initial = [prompt("c", "C")];
+    render(initial);
+    expect(currentHistory().step(-1, "")).toBe("C");
+    render([prompt("a", "A"), prompt("b", "B"), ...initial]);
+    expect(currentHistory().step(-1, "C")).toBe("B");
+    expect(currentHistory().step(-1, "B")).toBe("A");
+  });
+
+  test("keeps an anchored row in its duplicate group when that group grows", () => {
+    const initial = [prompt("b", "same"), prompt("c", "new")];
+    render(initial);
+    expect(currentHistory().step(-1, "")).toBe("new");
+    expect(currentHistory().step(-1, "new")).toBe("same");
+    render([prompt("older-b", "same"), ...initial]);
+    expect(currentHistory().step(-1, "same")).toBeNull();
+    expect(currentHistory().step(1, "same")).toBe("new");
+  });
+
+  test("keeps the recalled row anchored across assistant streaming rows", () => {
+    const initial = [prompt("b", "B"), prompt("c", "C")];
+    render(initial);
+    expect(currentHistory().step(-1, "")).toBe("C");
+    render([prompt("b", "B"), assistant("stream", "reply"), prompt("c", "C")]);
+    expect(currentHistory().step(-1, "C")).toBe("B");
   });
 
   test("merges duplicate text at an older page boundary", () => {

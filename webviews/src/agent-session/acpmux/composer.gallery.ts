@@ -1731,6 +1731,12 @@ export default agentPaneEntry({
       },
     },
     "history-recall-older-page": {
+      checks: {
+        layoutShiftMax: {
+          value: 0.12,
+          reason: "The delayed older page intentionally inserts transcript rows above the composer.",
+        },
+      },
       note: "Play: recall C, then an older page arrives while the field still shows it; ↑ continues with B instead of jumping to A.",
       snapshot: chat(historyPageRows),
       play: async (ctx) => {
@@ -1749,6 +1755,11 @@ export default agentPaneEntry({
         ).cmuxAcpmuxBridge;
         if (!bridge) throw new Error("gallery pane bridge is unavailable");
         bridge.receive(chat(historyPageOlderRows));
+        // Prove the prepend arrived before exercising recall. Without this wait, a dropped bridge
+        // update would leave the original B,C snapshot in place and still make the next ↑ return B.
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(`[data-row-id="${historyPageOlderRows[0]!.id}"]`),
+        );
         await ctx.press("ArrowUp");
         await ctx.waitFor(() => prompt() === "B: update the retry helper");
       },
