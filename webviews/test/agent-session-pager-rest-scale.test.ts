@@ -88,8 +88,7 @@ test("a newer session_changed and a purge beat an in-flight stale page", async (
   releasePage();
 
   expect(await read).toBe(true);
-  const settled = pager.settle(held);
-  expect(settled).toHaveLength(COUNT - 1);
-  expect(settled.filter((row) => row.sessionId === "s250")).toEqual([changed]);
-  expect(settled.some((row) => row.sessionId === "s260")).toBe(false);
+  expect(held).toHaveLength(COUNT - 1);
+  expect(held.filter((row) => row.sessionId === "s250")).toEqual([changed]);
+  expect(held.some((row) => row.sessionId === "s260")).toBe(false);
 });
