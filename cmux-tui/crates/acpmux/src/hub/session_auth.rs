@@ -67,6 +67,21 @@ pub(crate) fn turn_evidence(last: &Value) -> Option<TurnEvidence> {
     Some(TurnEvidence { state, at, detail })
 }
 
+fn session_evidence(meta: &SessionMeta) -> Option<TurnEvidence> {
+    let last = meta.last_turn.as_ref();
+    if let Some(change) = &meta.auth_change
+        && last.and_then(|v| v.get("turnId")).and_then(Value::as_str) == change.turn_id.as_deref()
+        && last.and_then(|v| v.get("endedAt")).and_then(Value::as_u64) == change.ended_at
+    {
+        return Some(TurnEvidence {
+            state: State::Unknown,
+            at: change.at,
+            detail: "credentials changed; the next turn will check the new sign-in".into(),
+        });
+    }
+    last.and_then(turn_evidence)
+}
+
 /// The evidence one answer is decided from, in the module's order.
 #[derive(Debug, Default)]
 pub(crate) struct Facts {
@@ -141,11 +156,11 @@ impl Facts {
         }
         if let Some((from, turn)) = self.turn {
             out.state = turn.state;
-            out.source = Source::Turn;
+            out.source = if turn.state == State::Unknown { Source::None } else { Source::Turn };
             out.evidence_at = Some(turn.at);
             out.detail = turn.detail;
             out.from_session_id = Some(from);
-            if turn.state != State::Ready {
+            if matches!(turn.state, State::SignedOut | State::Expired) {
                 out.login = Some(terminal(&self.login));
             }
             return out;
@@ -207,6 +222,94 @@ pub(crate) fn one_sentence(text: &str) -> String {
 const DETAIL_CHARS: usize = 200;
 
 impl Hub {
+    /// Resolve login in the same profile, preset, recorded account home and route as the chat.
+    /// The caller supplies only a session id and agent family, never a path or environment.
+    pub(crate) async fn login_profile(
+        &self,
+        session: &Session,
+        family: &str,
+    ) -> Result<(crate::config::HarnessProfile, Option<String>), RpcError> {
+        let meta = session.meta();
+        let cfg = self.config.read().await;
+        let mut profile = cfg.harnesses.get(&meta.harness).cloned().ok_or_else(|| {
+            RpcError::invalid_params("the chat's harness is no longer configured")
+        })?;
+        if crate::config::derive_family(&meta.harness, &profile) != family {
+            return Err(RpcError::invalid_params(
+                "the login agent does not match the chat's harness",
+            ));
+        }
+        let defaults = cfg.defaults_for(&meta.harness).env;
+        let (dir, state) = routes::places(&cfg);
+        drop(cfg);
+        let bindings = routes::bindings(&state);
+        let route = route_of(&bindings, dir.as_deref(), &meta, family, &profile.env)
+            .map_err(|e| RpcError::invalid_params(e.to_string()))?;
+        if route.as_ref().is_some_and(|(r, _)| r.file.kind != routes::RouteKind::DirectSubscription)
+        {
+            return Err(RpcError::invalid_params(
+                "this chat uses a provider route; sign in to that route",
+            ));
+        }
+        let picked = route.as_ref().map(|(r, scope)| (r, *scope));
+        let home = self.home_of(&meta, family, &defaults, picked).await;
+        profile.env = route_account::spawn_env(
+            &meta,
+            with_defaults(&defaults, self.harness_env(&meta).await.1),
+        );
+        if let Some(var) = route_account::home_var(family) {
+            let effective = crate::login_env::effective_for(Some(family), &profile.env);
+            let home =
+                home.or_else(|| effective.get(var).map(PathBuf::from)).unwrap_or_else(|| {
+                    effective
+                        .get("HOME")
+                        .map(PathBuf::from)
+                        .or_else(dirs::home_dir)
+                        .unwrap_or_default()
+                        .join(format!(".{family}"))
+                });
+            profile.env.insert(var.into(), home.display().to_string());
+        }
+        Ok((profile, route.map(|(r, _)| r.id)))
+    }
+
+    /// Credential writes invalidate only this account on this route. Keep the old turn in
+    /// history and suppress its auth claim until another turn actually uses the new credential.
+    pub(crate) async fn login_changed(
+        self: &Arc<Self>,
+        family: &str,
+        home: &Path,
+        route: Option<&str>,
+    ) -> Result<(), RpcError> {
+        let Some(var) = route_account::home_var(family) else { return Ok(()) };
+        for session in self.sessions() {
+            let Ok((profile, current_route)) = self.login_profile(&session, family).await else {
+                continue;
+            };
+            if profile.env.get(var).map(Path::new) != Some(home)
+                || current_route.as_deref() != route
+            {
+                continue;
+            }
+            self.session_log(&session).await;
+            {
+                let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                let last = meta.last_turn.as_ref();
+                let change = crate::store::AuthChange {
+                    at: now_ms(),
+                    turn_id: last
+                        .and_then(|v| v.get("turnId"))
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                    ended_at: last.and_then(|v| v.get("endedAt")).and_then(Value::as_u64),
+                };
+                meta.auth_change = Some(change);
+            }
+            self.save_meta_answered(&session)?;
+        }
+        Ok(())
+    }
+
     /// `_acpmux/session/auth` for this daemon's chat `session`, or for `target` (a chat with
     /// no session yet, on this daemon). `refresh`: probe the route and run the harness's own
     /// check when nothing newer answers.
@@ -285,9 +388,7 @@ impl Hub {
             };
         }
         facts.turn = match (session, &meta) {
-            (Some(s), Some(meta)) => {
-                meta.last_turn.as_ref().and_then(turn_evidence).map(|t| (s.id.clone(), t))
-            }
+            (Some(s), Some(meta)) => session_evidence(meta).map(|t| (s.id.clone(), t)),
             _ => {
                 let siblings = Siblings {
                     bindings: &bindings,
@@ -365,7 +466,7 @@ impl Hub {
             // A chat whose log is not read yet (a deferred start) has only its summary.
             self.session_log(&s).await;
             let meta = s.meta();
-            let Some(turn) = meta.last_turn.as_ref().and_then(turn_evidence) else { continue };
+            let Some(turn) = session_evidence(&meta) else { continue };
             if best.as_ref().is_some_and(|(_, b)| b.at >= turn.at) {
                 continue;
             }

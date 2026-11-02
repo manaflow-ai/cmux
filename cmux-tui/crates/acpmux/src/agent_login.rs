@@ -373,10 +373,12 @@ pub struct Started {
 
 /// How `finish` ended: signed in or not, and which agent (for the caller's
 /// next steps).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Finished {
     pub agent: Agent,
     pub signed_in: bool,
+    /// The account whose login actually finished, retained from start rather than the caller.
+    pub store: PathBuf,
 }
 
 /// A private temp folder the CLI runs in, removed with the sign-in.
@@ -685,7 +687,7 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
     // never reads (`claude_auth.rs`); its exit says it.
     let signed_in =
         signed_in_at(agent, &store) || (cfg!(target_os = "macos") && agent == Agent::Claude);
-    Ok(Finished { agent, signed_in })
+    Ok(Finished { agent, signed_in, store })
 }
 
 /// Stops sign-in `login_id`; nothing when none runs.

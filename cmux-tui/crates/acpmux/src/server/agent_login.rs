@@ -18,7 +18,7 @@
 
 use super::{Conn, Origin};
 use crate::agent_login::{self as login, Agent, Cli, LoginError, Machine, reason};
-use crate::config::{Config, HarnessKind};
+use crate::config::{Config, HarnessKind, HarnessProfile};
 use crate::hub::{Control, Hub};
 use crate::rpc::{RpcError, method};
 use serde_json::{Value, json};
@@ -74,26 +74,35 @@ fn allowed(conn: &Conn, params: &Value) -> bool {
 /// or `codex` harness profile when it runs that CLI itself, else the CLI on
 /// the login PATH. The profile's env and Codex's global options come along;
 /// values that refer to a secret store are left out (nothing here asks one).
-pub(crate) fn cli_for(cfg: &Config, agent: Agent) -> Option<Cli> {
+fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Option<Cli> {
     let cwd = std::env::temp_dir();
     let home = dirs::home_dir().unwrap_or_default();
-    let profile = cfg.harnesses.get(agent.name()).filter(|p| match agent {
+    let selected = selected.or_else(|| {
+        let mut profile = cfg.harnesses.get(agent.name())?.clone();
+        let mut env = cfg.defaults_for(agent.name()).env;
+        env.extend(profile.env);
+        profile.env = env;
+        Some(profile)
+    });
+    let native = |p: &&HarnessProfile| match agent {
         Agent::Claude => p.kind == HarnessKind::ClaudeStdio && p.argv.len() == 1,
         Agent::Codex => crate::codex_app_server::is_profile_launch(&p.argv),
-    });
-    let Some(profile) = profile else {
-        let program = crate::config::which(agent.name())?;
-        return Some(Cli { program, ..Cli::default() });
     };
+    let profile =
+        selected.as_ref().filter(native).or_else(|| cfg.harnesses.get(agent.name()).filter(native));
     let model = cfg.defaults_for(agent.name()).model.unwrap_or_default();
     let expand = |v: &str| crate::hub::expand_env_value(v, &cwd, &home, &model);
-    let env: std::collections::BTreeMap<String, String> = profile
-        .env
-        .iter()
+    let env: std::collections::BTreeMap<String, String> = selected
+        .as_ref()
+        .into_iter()
+        .flat_map(|p| p.env.iter())
         .map(|(k, v)| (k.clone(), expand(v)))
         .filter(|(_, v)| !v.contains("${"))
         .collect();
-    let argv: Vec<String> = profile.argv.iter().map(|a| expand(a)).collect();
+    let argv: Vec<String> = match profile {
+        Some(p) => p.argv.iter().map(|a| expand(a)).collect(),
+        None => vec![crate::config::which(agent.name())?],
+    };
     let (command, args) = argv.split_first()?;
     let program = match agent {
         Agent::Codex => env.get("CODEX_PATH").filter(|p| !p.is_empty()).cloned(),
@@ -107,9 +116,17 @@ pub(crate) fn cli_for(cfg: &Config, agent: Agent) -> Option<Cli> {
     Some(Cli { program, globals, env })
 }
 
-async fn cli(hub: &Hub, agent: Agent) -> Result<Cli, RpcError> {
+async fn cli(hub: &Hub, agent: Agent, params: &Value) -> Result<(Cli, Option<String>), RpcError> {
+    let (selected, route) = match text(params, "sessionId") {
+        Some(key) => {
+            let session = hub.resolve(key)?;
+            let (profile, route) = hub.login_profile(&session, agent.name()).await?;
+            (Some(profile), route)
+        }
+        None => (None, None),
+    };
     let cfg = hub.config.read().await;
-    cli_for(&cfg, agent).ok_or_else(|| {
+    cli_for(&cfg, agent, selected).map(|cli| (cli, route)).ok_or_else(|| {
         error(LoginError::new(
             reason::CLI_MISSING,
             format!("{} is not installed on this machine", agent.name()),
@@ -123,15 +140,29 @@ fn machine(hub: &Hub) -> Machine {
 
 /// After a sign-in: the machine's launcher picks the own sign-in, and the
 /// named chat's agent restarts (module docs). Whether it restarted now.
-async fn signed_in(hub: &Arc<Hub>, agent: Agent, params: &Value) -> bool {
+async fn signed_in(
+    hub: &Arc<Hub>,
+    agent: Agent,
+    params: &Value,
+    store: &std::path::Path,
+) -> Result<bool, RpcError> {
+    // Finishing a login may name a different chat, or its config may have changed while
+    // the browser was open. Never apply one account's success to another account.
+    let (current, route) = cli(hub, agent, params).await?;
+    if current.store(agent) != store {
+        return Err(RpcError::invalid_params(
+            "the chat's account changed during sign-in; start again",
+        ));
+    }
     if let Err(e) = machine(hub).choose_own(agent) {
         tracing::warn!(agent = agent.name(), error = %e, "agent login: record the own sign-in choice");
     }
-    let Some(key) = text(params, "sessionId") else { return false };
-    let Ok(session) = hub.resolve(key) else { return false };
+    let Some(key) = text(params, "sessionId") else { return Ok(false) };
+    let session = hub.resolve(key)?;
+    hub.login_changed(agent.name(), store, route.as_deref()).await?;
     let ids = std::collections::BTreeSet::from([session.id.clone()]);
     let done = hub.restart_harnesses(None, Some(&ids)).await;
-    done.now > 0
+    Ok(done.now > 0)
 }
 
 pub(super) async fn handle(
@@ -163,7 +194,7 @@ pub(super) async fn handle(
     match m {
         method::MUX_AGENT_LOGIN_START => {
             let agent = agent_of(params)?;
-            let cli = cli(hub, agent).await?;
+            let (cli, _) = cli(hub, agent, params).await?;
             let s = login::start(&machine(hub), &cli, agent).await.map_err(error)?;
             let mut reply = json!({
                 "loginId": s.login_id,
@@ -182,7 +213,8 @@ pub(super) async fn handle(
             })?;
             let code = params.get("code").and_then(Value::as_str);
             let done = login::finish(id, code).await.map_err(error)?;
-            let restarted = done.signed_in && signed_in(hub, done.agent, params).await;
+            let restarted =
+                done.signed_in && signed_in(hub, done.agent, params, &done.store).await?;
             Ok(json!({"signedIn": done.signed_in, "restarted": restarted}))
         }
         method::MUX_AGENT_LOGIN_CANCEL => {
@@ -195,9 +227,9 @@ pub(super) async fn handle(
         method::MUX_AGENT_LOGIN_API_KEY => {
             let agent = agent_of(params)?;
             let key = params.get("key").and_then(Value::as_str).unwrap_or_default();
-            let cli = cli(hub, agent).await?;
+            let (cli, _) = cli(hub, agent, params).await?;
             login::save_api_key(&machine(hub), &cli, agent, key).await.map_err(error)?;
-            let restarted = signed_in(hub, agent, params).await;
+            let restarted = signed_in(hub, agent, params, &cli.store(agent)).await?;
             Ok(json!({"saved": true, "restarted": restarted}))
         }
         other => Err(RpcError::method_not_found(other)),

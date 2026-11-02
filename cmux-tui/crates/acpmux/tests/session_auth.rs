@@ -82,27 +82,80 @@ async fn agent_login_uses_the_chats_account_and_invalidates_only_its_old_evidenc
     let mut c = client(&hub);
     let other = c.new_session(None).await;
     let id = c.new_session(Some("two")).await;
-    for session in [&id, &other] {
+    let same_account = c.new_session(Some("two")).await;
+    for session in [&id, &other, &same_account] {
         c.prompt(session, &format!("fail-streamed: {NOT_SIGNED_IN}")).await;
     }
     let before = hub.resolve(&id).unwrap().meta().last_turn;
     // Merely refreshing the same failed account must not clear its failure.
     let unchanged = c.auth(json!({"sessionId": id, "refresh": true})).await;
     assert_eq!(state(&unchanged), ("signedOut", "turn"));
-    let saved = c.call(method::MUX_AGENT_LOGIN_API_KEY,
-        json!({"agent": "claude", "sessionId": id, "key": "sk-ant-test-replacement"})).await;
+    let saved = c
+        .call(
+            method::MUX_AGENT_LOGIN_API_KEY,
+            json!({"agent": "claude", "sessionId": id, "key": "sk-ant-test-replacement"}),
+        )
+        .await;
     assert!(saved.get("error").is_none(), "{saved}");
     assert!(root.join("claude-two/settings.json").is_file(), "the chat's account receives the key");
     assert!(!root.join("canonical/settings.json").exists(), "the default account is untouched");
     assert_eq!(hub.resolve(&id).unwrap().meta().last_turn, before, "history is preserved");
     let changed = c.auth(json!({"sessionId": id, "refresh": true})).await;
-    assert_eq!(changed["state"], "unknown", "saving a key permits retry, not proof it works: {changed}");
+    assert_eq!(
+        changed["state"], "unknown",
+        "saving a key permits retry, not proof it works: {changed}"
+    );
     let untouched = c.auth(json!({"sessionId": other, "refresh": true})).await;
     assert_eq!(state(&untouched), ("signedOut", "turn"), "{untouched}");
+    let sibling = c.auth(json!({"sessionId": same_account, "refresh": true})).await;
+    assert_eq!(
+        sibling["state"], "unknown",
+        "the same account's old refusal is obsolete: {sibling}"
+    );
     let ok = c.prompt(&id, "hello").await;
     assert!(ok.get("error").is_none(), "{ok}");
     let after = c.auth(json!({"sessionId": id})).await;
     assert_eq!(state(&after), ("ready", "turn"), "{after}");
+    c.prompt(&id, "fail-streamed: API Error: 401 OAuth token has expired.").await;
+    let expired_again = c.auth(json!({"sessionId": id, "refresh": true})).await;
+    assert_eq!(
+        state(&expired_again),
+        ("expired", "turn"),
+        "new auth failures still block: {expired_again}"
+    );
+}
+
+#[tokio::test]
+async fn agent_login_respects_default_and_route_account_homes() {
+    let root = scratch("login-default-route");
+    let hub = hub(&root);
+    let mut c = client(&hub);
+    let route_home = root.join("route-account");
+    let added = c
+        .call(
+            "_acpmux/route/add",
+            json!({"id": "acct", "kind": "direct-subscription",
+        "families": ["claude"], "accountHome": route_home}),
+        )
+        .await;
+    assert!(added.get("error").is_none(), "{added}");
+    for (harness, home) in [("deflt", root.join("claude-defaulted")), ("acct", route_home)] {
+        let id = c.new_session_of(harness).await;
+        c.prompt(&id, &format!("fail-streamed: {NOT_SIGNED_IN}")).await;
+        let saved = c
+            .call(
+                method::MUX_AGENT_LOGIN_API_KEY,
+                json!({"agent": "claude", "sessionId": id, "key": "sk-ant-test-account"}),
+            )
+            .await;
+        assert!(saved.get("error").is_none(), "{saved}");
+        assert!(home.join("settings.json").is_file(), "{harness} saves into its own account");
+        let auth = c.auth(json!({"sessionId": id, "refresh": true})).await;
+        assert_eq!(auth["state"], "unknown", "{auth}");
+        let target = c.auth(json!({"target": {"harness": harness}, "refresh": true})).await;
+        assert_eq!(target["state"], "unknown", "new chats share the invalidation: {target}");
+    }
+    assert!(!root.join("canonical/settings.json").exists());
 }
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);

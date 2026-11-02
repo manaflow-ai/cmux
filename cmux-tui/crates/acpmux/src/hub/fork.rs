@@ -309,6 +309,7 @@ impl Hub {
             moved_to: None,
             claude_profile: None,
             last_turn: None,
+            auth_change: None,
             harness_failures: Default::default(),
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
