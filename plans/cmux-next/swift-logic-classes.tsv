@@ -11840,7 +11840,7 @@ CmuxNextDesign	class	ScreenRecording	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sour
 CmuxNextDaemon	extension	[String]	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonCommandScope.swift	daemon command trail rule: keeps the first 16 and newest 32 entries for a timeout report
 CmuxNextCloud	enum	NativeBrokerDescriptor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Process/NativeBrokerDescriptor.swift	#28950: socketpair and SCM_RIGHTS descriptor passing (Darwin)
 CmuxNextCloud	struct	NativeCloudExecutable	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Process/NativeCloudExecutable.swift	#28950: code-signature check of the child (Security framework)
-CmuxNextCloud	struct	NativeCloudProcessStart	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Process/NativeCloudExecutable.swift	#28950: posix_spawn start record of the child
+CmuxNextCloud	struct	NativeCloudProcessStart	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Process/NativeCloudExecutable.swift	#28950: process start time read with proc_pidinfo (PROC_PIDTBSDINFO)
 CmuxNextCloud	struct	KeychainNativeDeviceSecret	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Network/NativeDeviceSecret.swift	#28950: Keychain read and write
 CmuxNextCloud	struct	NativeDeviceHTTPTransport	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Network/NativeDeviceHTTPTransport.swift	#28950: URLSession transport
 CmuxNextCloud	protocol	NativeDeviceTransport	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Network/NativeDeviceHTTPTransport.swift	#28950: transport seam
@@ -11875,4 +11875,4 @@ CmuxNextAgentPane	class	SessionInfoClipView	0	PLATFORM	0	0	Packages/macOS/CmuxNe
 CmuxNextAgentPane	enum	SessionInfoMetrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneSessionInfoContent.swift	#31930: panel metrics
 CmuxNextAgentPane	enum	SessionInfoKeys	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneSessionInfoContent.swift	#31930: accessibility keys
 CmuxNextAgentPane	enum	SessionInfoItem	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneSessionInfoContent.swift	#31930: panel list item
-CmuxNextTerminal	class	TerminalLaunchFrameKeeper	0	MIXED	30	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalLaunchFrameKeeper.swift	#31967: GPU copy, JPEG encode and file write are platform; the save timing (idle, interval, busy wait, file bound) is logic
+CmuxNextTerminal	class	TerminalLaunchFrameKeeper	0	MIXED	80	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalLaunchFrameKeeper.swift	#31967: the per-terminal save state and timing rules (idle, interval, busy wait, stale size, retries, prune) are logic; the GPU snapshot call, on-screen check and file-lane posts are platform (the encode and write are in TerminalLaunchFrames)
