@@ -192,8 +192,10 @@ final class ShellModel {
         // task-owner: one wait for a Mac and its agents (after a cold launch the account's Macs and
         // their links come a moment later), then the start
         Task { @MainActor [weak self] in
-            if let live = self?.live, self?.creator.targetMac == nil {
-                _ = await live.waitUntil(within: .seconds(20)) { [weak self] in self?.creator.targetMac != nil }
+            // After a cold launch the live session, the account's Macs and their links come a moment
+            // later: Observation wakes this when they do.
+            if self?.creator.targetMac == nil {
+                _ = await ObservationWait({ [weak self] in self?.live != nil && self?.creator.targetMac != nil }, budget: .seconds(20)).value
             }
             guard let self else { return }
             guard let mac = self.creator.targetMac else {

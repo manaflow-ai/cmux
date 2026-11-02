@@ -626,8 +626,10 @@ def stopall(j, label):
     time.sleep(1)
     pq.shot("stopall-after-confirm")
     out["confirm"] = labels(j)
-    buttons = [e for e in j.sim.find(label="Stop All Agents") if e.frame[1] > 400]
-    check(buttons, "no confirmation")
+    # The confirmation (a popover from the menu's button): its Stop All Agents.
+    check(j.sim.find(contains="Each agent stops its current turn"), "no confirmation")
+    buttons = j.sim.find(label="Stop All Agents", kind="Button")
+    check(buttons, "no confirmation button")
     j.sim.tap_el(buttons[-1])
 
     def phone_stopped():
