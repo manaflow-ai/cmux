@@ -71,9 +71,9 @@ final class ComputerUseHost {
         _ = await ObservationWait({ auth.isResolved }, budget: .seconds(3)).value
         guard auth.isSignedIn else { return nil }
         let bundle = Bundle.main.bundleIdentifier ?? "dev.cmux.mobile"
-        let identity: DeviceIdentity
+        let identity: CmuxDeviceHub.DeviceIdentity
         do {
-            identity = try await Task.detached(priority: .userInitiated) { try DeviceIdentity.forApp(bundleIdentifier: bundle) }.value
+            identity = try await Task.detached(priority: .userInitiated) { try CmuxDeviceHub.DeviceIdentity.forApp(bundleIdentifier: bundle) }.value
         } catch {
             log.error("computer use: this phone's device identity did not load: \(String(describing: error), privacy: .public)")
             return nil
