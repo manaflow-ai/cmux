@@ -383,6 +383,41 @@ class BeaconRust(unittest.TestCase):
         self.assertIn(b"WS 5  PANE 3", data)
 
 
+class BeaconStall(unittest.TestCase):
+    """A beacon that falls behind must show the stall, never hide it (lead 07:4xZ): it skips to the frame of the
+    current time, draws no catch-up burst, and logs the missed frames and the longest gap."""
+
+    def test_forced_stall_shows_as_missed_frames(self):
+        if not tuikit.rust_bin("tk-beacon"):
+            if REQUIRE_RUST:
+                self.fail("tk-beacon is not built (tuikit.py build-bins)")
+            self.skipTest("tk-beacon is not built (tuikit.py build-bins)")
+        with tempfile.TemporaryDirectory() as tmp:
+            log = os.path.join(tmp, "b.jsonl")
+            run = PtyRun([PY, KIT, "beacon", "--ws", "2", "--pane", "1", "--hz", "240", "--duration", "1.5", "--log", log,
+                          "--log-frames", "--inject-stall-ms", "50", "--inject-stall-at", "120"], 80, 24)
+            _, code = run.collect(20)
+            self.assertEqual(code, 0)
+            events = read_jsonl(log)
+        end = [e for e in events if e["ev"] == "end"][0]
+        period_ms = 1000 / 240
+        # 50 ms at 240 Hz is 12 frames: at least 10 are missed, and the longest gap holds the stall
+        self.assertGreaterEqual(end["missed_frames"], 10, end)
+        self.assertGreaterEqual(end["longest_gap_ms"], 50, end)
+        self.assertGreaterEqual(end["stalls"], 1, end)
+        gaps = [e for e in events if e["ev"] == "gap"]
+        self.assertTrue(gaps and max(g["missed"] for g in gaps) >= 10, gaps)
+        stamps = [e["mono"] for e in events if e["ev"] == "frame"]
+        intervals = [(b - a) * 1000 for a, b in zip(stamps, stamps[1:])]
+        self.assertGreater(len(intervals), 200)
+        # no catch-up burst: no two drawn frames closer than half a refresh
+        self.assertGreater(min(intervals), 0.5 * period_ms, sorted(intervals)[:5])
+        self.assertGreaterEqual(max(intervals), 50, "the stall is in the drawn frames")
+        # the drawn count and the missed count add up to the schedule (frames due over the run)
+        due = round((stamps[-1] - stamps[0]) * 240) + 1
+        self.assertLessEqual(abs(end["frames"] + end["missed_frames"] - due), 3, (end, due))
+
+
 class Sigwinch(unittest.TestCase):
     def test_logs_each_sigwinch_and_reflows_per_size(self):
         with tempfile.TemporaryDirectory() as tmp:
