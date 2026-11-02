@@ -61,7 +61,9 @@ export function subsessionDisplayName(t: Translate, session: Pick<SubsessionInfo
 /// and the line shows as the localized "Subagent" instead (Leo, 2026-10-22, on "Subagent finished:
 /// 01a15779-…/toolu_01H9…": "this needs to be rendered better").
 export function subagentDisplayName(t: Translate, agent: { id: string; name: string }): string {
-  return agent.name === agent.id || /(?:^|\/)toolu_[0-9A-Za-z]+$/u.test(agent.name) ? t("tray.kind.subagent") : agent.name;
+  return agent.name === agent.id || /(?:^|\/)toolu_[0-9A-Za-z]+$/u.test(agent.name)
+    ? t("tray.kind.subagent")
+    : agent.name;
 }
 
 /// What a sub-session waiting on the person waits for, in one line: a question (and its first
