@@ -511,3 +511,64 @@ fn kill_all_right_after_a_host_reconnect_restores_the_output_of_the_gap() {
         "the output written while the daemon had no tap is not restored: {restored}"
     );
 }
+
+/// A host reconnect can bring a new size: a direct renderer resized the host
+/// while the daemon had no tap. A kill of everything after that must restore
+/// the terminal at the new size, even when it prints nothing more (review
+/// follow-up of #31999: the reconnect did not record the geometry it got).
+#[test]
+fn kill_all_after_a_reconnect_with_a_new_size_restores_that_size() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = production_harness("kill-all-reconnect-size");
+    let home = harness.dir.clone();
+    let (terminal_id, incarnation, surface) = start_shell_in(&harness, "size", &home);
+    let trigger = harness.dir.join("flood");
+    send_line(
+        &harness.socket,
+        surface,
+        &format!(
+            "while [ ! -e '{}' ]; do sleep 0.05; done; head -c 12000000 /dev/zero; printf 'size-%s\\n' done; exec cat",
+            trigger.display()
+        ),
+    );
+    let grant = request(
+        &harness.socket,
+        serde_json::json!({"id":3,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":60_000}),
+    );
+    let mut renderer = connect_host_detailed(
+        grant["endpoint"].as_str().unwrap(),
+        grant["terminal_id"].as_str().unwrap(),
+        grant["token"].as_str().unwrap(),
+        ClientRole::Renderer,
+        CapabilityRights::RENDERER,
+    )
+    .unwrap();
+    std::thread::sleep(Duration::from_secs(1));
+    // The daemon stops: its tap overflows during the flood, and the renderer
+    // resizes the host while no daemon reads it.
+    harness.signal_daemon(libc::SIGSTOP);
+    fs::write(&trigger, b"").unwrap();
+    let mut size = Vec::new();
+    size.extend_from_slice(&100u16.to_le_bytes());
+    size.extend_from_slice(&30u16.to_le_bytes());
+    write_frame(&mut renderer.stream, &Frame::new(MessageKind::ViewerSize, size)).unwrap();
+    std::thread::sleep(Duration::from_secs(4));
+    drop(renderer);
+    harness.signal_daemon(libc::SIGCONT);
+    wait_for_screen(&harness.socket, surface, "size-done\n");
+    wait_for_vt_size(&harness.socket, surface, 100, 30);
+    // Idle now; well past the settle time, inside the 30 s interval.
+    std::thread::sleep(Duration::from_secs(3));
+
+    kill_everything_and_restart(&mut harness);
+    let surface = respawned_surface(&harness, &terminal_id, &incarnation);
+    wait_for_screen(&harness.socket, surface, RESPAWN_MARKER);
+    let state = request(&harness.socket, serde_json::json!({"cmd":"vt-state","surface":surface}));
+    assert_eq!(
+        (state["cols"].as_u64(), state["rows"].as_u64()),
+        (Some(100), Some(30)),
+        "the respawned terminal is not at the size the reconnect brought: {}x{}",
+        state["cols"],
+        state["rows"]
+    );
+}
