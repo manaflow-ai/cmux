@@ -1138,6 +1138,7 @@ CmuxNextAgentPane	extension	URL	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/C
 CmuxNextAgentPane	struct	VideoControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/VideoControl.swift	AVFoundation frame extraction / control socket glue
 CmuxNextAgentPane	class	WebProcessGroups	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/WebProcessGroups.swift	from class WebProcessGroups:20: URL helper / shared web process grouping
 CmuxNextAgentPane	struct	WorkingURL	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/WorkingURL.swift	Newest localhost URL on screen
+CmuxNextAgentPane	struct	AgentPaneAddAccount	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneAddAccount.swift	init: Add account form limits and key allowlist (LOGIC, a Swift copy beside acpmux route validation); reply: thin _acpmux/route/add call
 CmuxNextAgentPermissions	enum	PermissionKind	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPermissions/Model/PermissionKind.swift	macOS grant kinds
 CmuxNextAgentPermissions	struct	PermissionOutcome	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPermissions/Model/PermissionOutcome.swift	Permission request outcome/reason check/request/requester models
 CmuxNextAgentPermissions	func	contentStems	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPermissions/Model/PermissionReasonCheck.swift	from struct PermissionReasonCheck:18: Permission request outcome/reason check/request/requester models
@@ -1430,8 +1431,7 @@ CmuxNextApp	class	TerminalClipboardReadService	0	PLATFORM	0	0	Packages/macOS/Cmu
 CmuxNextApp	extension	AgentPaneCloudMachines	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/AgentPaneCloudMachines+App.swift	Cloud machines wiring into agent pane (composition)
 CmuxNextApp	class	AgentToolCards	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/AgentToolCards.swift	from class AgentToolCards:8: Registry of tool cards raised in chats by tab (state keyed by chat tab)
 CmuxNextApp	extension	AppServices	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/AppServices+Cloud.swift	AppServices Cloud composition-root wiring
-CmuxNextApp	extension	AppServices	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/AppServices+Cloud.swift	AppServices Cloud composition-root wiring
-CmuxNextApp	extension	AppServices	2	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/AppServices+Cloud.swift	AppServices Cloud composition-root wiring
+CmuxNextApp	extension	AppServices	1	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/AppServices+Cloud.swift	phoneCloudDesktop: phone Cloud desktop access rule (setting gate, one owned link, same account, running, live check), a Swift copy of hostd cloud_desktop_access; phoneCloudLinks: link list rule (#31795); F14. Other members PLATFORM wiring
 CmuxNextApp	class	CloudAccessAsks	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAccessAsks.swift	from class CloudAccessAsks:22: Poll/ask state for moved chats file and secret requests (cards, timing)
 CmuxNextApp	struct	CloudAccessCLI	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAccessCLI.swift	Hand-written parser/types of the Rust `cmux link access` JSON answers
 CmuxNextApp	enum	CloudAccessCard	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAccessCard.swift	from struct CloudAccessAsk:6: Ask card model with answer rules
@@ -1476,7 +1476,6 @@ CmuxNextApp	struct	CloudMove	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxN
 CmuxNextApp	enum	CloudMoveAskStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMoveAskStrings.swift	Localized string accessors
 CmuxNextApp	class	CloudMoveAsks	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMoveAsks.swift	from class CloudMoveAsks:20: Agent Move-to-Cloud ask lifecycle and timing
 CmuxNextApp	enum	CloudMoveStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMoveStrings.swift	Localized string accessors
-CmuxNextApp	class	CloudMovedChats	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMovedChats.swift	from class CloudMovedChats:10: Moved-chats ledger persisted in UserDefaults
 CmuxNextApp	class	CloudPageProvider	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudPageProvider.swift	from class CloudPageProvider:27: Page relay: cmux.cloud.<op> forwarded from app server to Cloud webview (V-12/L7)
 CmuxNextApp	func	daemonJSON	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudPageProvider.swift	from class CloudPageProvider:27: Page relay: cmux.cloud.<op> forwarded from app server to Cloud webview (V-12/L7)
 CmuxNextApp	func	pageJSON	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudPageProvider.swift	from class CloudPageProvider:27: Page relay: cmux.cloud.<op> forwarded from app server to Cloud webview (V-12/L7)
@@ -1839,9 +1838,6 @@ CmuxNextApp	extension	InternalPageID	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sour
 CmuxNextApp	extension	PageDescriptor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/Keybindings/KeybindingsPage.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	class	KeybindingsPageProvider	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/Keybindings/KeybindingsPageProvider.swift	from class KeybindingsPageProvider:15: keybindings page provider relays model to the web page
 CmuxNextApp	extension	NSResponder	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/NSResponder+OwnsTypedText.swift	AppKit/SwiftUI view, host or thin daemon call site
-CmuxNextApp	class	AppKitKeyboardGuardHost	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/NoActivateKeyboardGuard.swift	from class NoActivateApplicationReference:7: AppKit/SwiftUI view, host or thin daemon call site
-CmuxNextApp	class	NoActivateApplicationReference	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/NoActivateKeyboardGuard.swift	AppKit/SwiftUI view, host or thin daemon call site
-CmuxNextApp	class	NoActivateKeyboardGuard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/NoActivateKeyboardGuard.swift	from class NoActivateApplicationReference:7: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	struct	PageFirstKeyOffer	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/PageFirstKeyOffer.swift	page-first key offer entries and matching
 CmuxNextApp	class	PrimaryInputPasteForwarder	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/PrimaryInputPasteForwarder.swift	from class PrimaryInputPasteForwarder:9: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	struct	PrimaryInputPasteRoute	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/PrimaryInputPasteRoute.swift	from struct PrimaryInputPasteRoute:17: paste route decision for primary input
@@ -4880,6 +4876,9 @@ CmuxNextCloud	struct	CloudTunnelEnrollment	0	MIRROR	0	100	Packages/macOS/CmuxNex
 CmuxNextCloud	struct	WireGuardConfig	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Tunnel/CloudTunnelEnrollment.swift	from struct CloudTunnelEnrollment:5: tunnel enroll request/response copy
 CmuxNextCloud	actor	CloudTunnelHub	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Tunnel/CloudTunnelHub.swift	from struct CloudHubEndpoint:9: wg hub child lifecycle, client token, endpoint resolution
 CmuxNextCloud	struct	CloudHubEndpoint	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Tunnel/CloudTunnelHub.swift	wg hub child lifecycle, client token, endpoint resolution
+CmuxNextCloud	extension	CloudMachine	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudMachine+PhoneDirectory.swift	hasRun and isGoneForPhones: machine status rules for the phone directory (#31795); backlog E2
+CmuxNextCloud	extension	CloudMachineLimits	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudMachine+PhoneDirectory.swift	paysForCloud: plan rule, a copy of the create gate rule (#31795); backlog E2
+CmuxNextCloud	class	CloudMovedChats	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Move/CloudMovedChats.swift	moved-chat ledger in UserDefaults (moved from CmuxNextApp by #31795); durable state, backlog E2
 CmuxNextCloudCredentials	enum	CloudCredentialInstaller	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialInstaller.swift	Cloud harness login and credential transfer rules
 CmuxNextCloudCredentials	enum	CloudCredentialLogin	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialLogin.swift	Cloud harness login and credential transfer rules
 CmuxNextCloudCredentials	extension	CloudCredentialRelay	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialRelay+Live.swift	Composition wiring
@@ -7779,6 +7778,7 @@ CmuxNextFocusUI	class	WhichKeyView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Source
 CmuxNextFocusUI	extension	WhichKeyOverlay	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/WhichKey/WhichKeyOverlay.swift	AppKit key/window/HUD plumbing (event tap, Carbon hot key, overlay, key window)
 CmuxNextFocusUI	enum	WhichKeyStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/WhichKey/WhichKeyRow.swift	from struct WhichKeyRow:3: AppKit key/window/HUD plumbing (event tap, Carbon hot key, overlay, key window)
 CmuxNextFocusUI	struct	WhichKeyRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/WhichKey/WhichKeyRow.swift	AppKit key/window/HUD plumbing (event tap, Carbon hot key, overlay, key window)
+CmuxNextFocusUI	class	NoActivateKeyboardGuard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/NoActivateKeyboardGuard.swift	NSEvent keyboard guard while the app is not active (moved from CmuxNextApp by #31707)
 CmuxNextHangReports	struct	CPUExceptionSample	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/CPUExceptionSample.swift	MetricKit sample types
 CmuxNextHangReports	struct	CallStackTreeReader	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/CallStackTreeReader.swift	MetricKit sample types
 CmuxNextHangReports	struct	CoarseCounts	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/CoarseCounts.swift	coarse count buckets
@@ -8585,6 +8585,7 @@ CmuxNextLayout	extension	WindowRegistry	0	LOGIC	100	0	Packages/macOS/CmuxNext/So
 CmuxNextLayout	extension	Array	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Windows/WindowRegistry.swift	from struct WindowRegistry:31: WindowRegistry: which workspaces each window shows, window lifecycle invariants
 CmuxNextLayout	struct	WindowRegistry	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Windows/WindowRegistry.swift	WindowRegistry: which workspaces each window shows, window lifecycle invariants
 CmuxNextLayout	struct	WorkspaceClaims	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Windows/WorkspaceClaims.swift	workspace claims by window
+CmuxNextLayout	extension	LayoutRootView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/LayoutRootView+AvoiderBatch.swift	view frame and sync batching of window-control avoider re-checks
 CmuxNextMacScreen	class	DeviceHubService	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/DeviceHubService.swift	from class DeviceHubService:18: Device hub cloud client service (account, hub, keychain login)
 CmuxNextMacScreen	class	MacScreenApprovalPrompt	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenApprovalPanel.swift	from class MacScreenApprovalPrompt:18: Approval panel, buttons, card, chrome, controls and debug (views)
 CmuxNextMacScreen	class	MacScreenApprovalView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenApprovalPanel.swift	from class MacScreenApprovalPrompt:18: Approval panel, buttons, card, chrome, controls and debug (views)
@@ -8734,6 +8735,7 @@ CmuxNextMobile	enum	DaemonRenderAttribute	0	MIRROR	0	100	Packages/macOS/CmuxNext
 CmuxNextMobile	struct	DaemonRenderFrame	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/RenderGrid/DaemonRenderFrame.swift	decoded daemon render frame JSON
 CmuxNextMobile	struct	DaemonRenderGridState	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/RenderGrid/DaemonRenderGridState.swift	grid state rebuilt from daemon render frames
 CmuxNextMobile	struct	DaemonRenderStyleTable	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/RenderGrid/DaemonRenderStyleTable.swift	style interning for render grid
+CmuxNextMobile	struct	MobileHostCloudLinks	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostCloudLink.swift	hand-written need_cloud_links answer type for hostd (wire type, #31795); backlog F14
 CmuxNextMobileHost	struct	CloudMobileAuth	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/CloudMobileAuth.swift	Pairing seed, notices and last picks handed to acpmux
 CmuxNextMobileHost	class	IPhoneBrowserHosts	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/IPhoneBrowserHosts.swift	Starts local CEF remote browser host per phone tab (process API)
 CmuxNextMobileHost	extension	IPhoneHostService	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/IPhoneHostService+Page.swift	Phone host service wiring, pairing and remote control rules
@@ -8751,6 +8753,7 @@ CmuxNextMobileHost	struct	NewChatPicks	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sou
 CmuxNextMobileHost	struct	PairingQRCode	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/PairingQRCode.swift	QR image, strings or page provider seam
 CmuxNextMobileHost	class	PhoneAdmission	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/PhoneAdmission.swift	from class PhoneAdmission:10: Phone admission, approver key sync and credentials policy
 CmuxNextMobileHost	extension	IPhoneHostService	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/PhoneAdmission.swift	from class PhoneAdmission:10: Phone admission, approver key sync and credentials policy
+CmuxNextMobileHost	extension	MobileHostCloudLink	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/MobileHostCloudLink+Machine.swift	machine ownership rule for the phone directory (live link, cached owner, creator; #31795); backlog F14
 CmuxNextNowPlaying	class	BrowserTabsNowPlaying	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying/BrowserTabsNowPlaying.swift	from class BrowserTabsNowPlaying:13: now playing hosting
 CmuxNextNowPlaying	class	AdapterLineSplitter	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying/MediaRemoteAdapter.swift	from enum SystemNowPlayingCommand:6: now playing hosting
 CmuxNextNowPlaying	class	MediaRemoteAdapterProcess	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying/MediaRemoteAdapter.swift	from enum SystemNowPlayingCommand:6: now playing hosting
@@ -9349,6 +9352,12 @@ CmuxNextPhone	enum	PhoneTool	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxN
 CmuxNextPhone	actor	PlatformPhoneBackend	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PlatformPhoneBackend.swift	Backend routing by mode
 CmuxNextPhone	struct	SimctlDeviceList	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/SimctlDeviceList.swift	simctl JSON parser
 CmuxNextPhone	struct	XcodePhoneBackend	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/XcodePhoneBackend.swift	xcrun simctl/devicectl backend
+CmuxNextPhone	class	CloudDesktopSurfaceServer	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceServer.swift	loopback listener and CVPixelBuffer hand-off PLATFORM ~40; session map, start/stop lifecycle, frame fan-out LOGIC ~60 (#31795); F14
+CmuxNextPhone	extension	CloudDesktopSurfaceServer	0	MIXED	65	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceServer.swift	Session: sf/1 wire state machine (secret auth, encode/visible, damage pacing, coalescing) LOGIC ~65; VideoToolbox encode and buffer size PLATFORM ~35 (#31795); F14
+CmuxNextPhone	let	logger	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceServer.swift	os.Logger
+CmuxNextPhone	struct	SurfaceFrameFeed	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceServer.swift	CVPixelBuffer frame callback seam
+CmuxNextPhone	class	CloudDesktopSurfaceSources	0	MIXED	85	15	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceSources.swift	tab-key parse (copies hostd cloud_desktop_of), refusal codes, per-tab sources, liveness watch LOGIC; refusal codes and tab key repeat hostd MIRROR (#31795); F14
+CmuxNextPhone	let	logger	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceSources.swift	os.Logger
 CmuxNextPhoneAccess	class	CloudHostReplicaFollower	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/CloudHostReplicaFollower.swift	from class CloudHostReplicaFollower:21: follows settings, reconciles wanted cloud host replica state per daemon/account
 CmuxNextPhoneAccess	class	MobileHostService	0	MIXED	49	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/MobileHostService.swift	MobileHostService: listener start/stop lifecycle PLATFORM; generation, allowed/account gate, follower wiring LOGIC
 CmuxNextPhoneAccess	class	MobileHostStatus	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/MobileHostStatus.swift	from class MobileHostStatus:10: phone listener status value (phase, phones usable)
@@ -9643,6 +9652,8 @@ CmuxNextRemoteViewSessions	struct	RemoteViewDebugRdHost	0	PLATFORM	0	0	Packages/
 CmuxNextRemoteViewSessions	class	RemoteViewPageSession	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteViewPageSession.swift	from class RemoteViewPageSession:16: Remote view/VNC frame sources, sessions and Keychain credentials
 CmuxNextRemoteViewSessions	struct	CloudDesktopByteStream	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteViewPageSession.swift	from class RemoteViewPageSession:16: Remote view/VNC frame sources, sessions and Keychain credentials
 CmuxNextRemoteViewSessions	class	RemoteViewPageTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteViewPageTab.swift	from class RemoteViewPageTab:22: Remote view/VNC frame sources, sessions and Keychain credentials
+CmuxNextRemoteViewSessions	class	CloudDesktopFrames	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/CloudDesktopFrames.swift	view-only RFB session lifecycle over the Swift CmuxVNC client (#31795); Rust has cmux-vnc; F14
+CmuxNextRemoteViewSessions	let	framesLogger	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/CloudDesktopFrames.swift	os.Logger
 CmuxNextResources	class	MockResourceSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/MockResourceSource.swift	from class MockResourceSource:6: process/OS plumbing or view
 CmuxNextResources	struct	ProcessKey	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/ProcessSample.swift	process identity key (host + pid) and parsing
 CmuxNextResources	struct	ProcessSample	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/ProcessSample.swift	from struct ProcessKey:5: process identity key (host + pid) and parsing
@@ -11821,6 +11832,8 @@ CmuxNextSettings	struct	AgentRetrySettings	0	LOGIC	100	0	Packages/macOS/CmuxNext
 CmuxNextTabs	extension	[TabLayoutItem]	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabLayoutTypes.swift	tab layout rule: where a drop gap goes relative to group chips
 CmuxNextSidebar	struct	ConnectingRowWindows	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/ConnectingRowWindows.swift	rule: which window lists an SSH connecting row (requester while open, else the oldest normal window)
 CmuxNextApp	extension	WindowManager	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/SSHConnectingRows.swift	adapter: passes the open window ids and incognito test to ConnectingRowWindows
+CmuxNextApp	class	AppKitKeyboardGuardHost	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/AppKitKeyboardGuardHost.swift	AppKit host of the no-activate keyboard guard (file split by #31707)
+CmuxNextApp	class	NoActivateApplicationReference	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/AppKitKeyboardGuardHost.swift	AppKit NSApplication reference for the keyboard guard (file split by #31707)
 CmuxNextDesign	class	MotionScreenRecord	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionScreenRecord.swift	debug.motion record_* handler: ScreenCaptureKit window capture, DEBUG/bench builds only (#31504)
 CmuxNextDesign	class	ScreenRecording	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionScreenRecord.swift	ScreenCaptureKit stream to AVAssetWriter and scanline file, DEBUG/bench builds only (#31504)
 CmuxNextDaemon	extension	[String]	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonCommandScope.swift	daemon command trail rule: keeps the first 16 and newest 32 entries for a timeout report

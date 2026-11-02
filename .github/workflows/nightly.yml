@@ -1927,7 +1927,8 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
         env:
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
-          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+          # actions/checkout's own URL, no .git: on a mismatch a later checkout on this slot deletes the workspace.
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
           WORKFLOW_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
