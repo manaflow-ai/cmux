@@ -167,7 +167,8 @@ def close(pane, mark, title=None):
 CASES = []
 
 
-def case(cid, title, build, play, seconds=20, variants=(("heavy", "dark"),), tail=1.2, sample=False, recorder=True, xtp=False):
+def case(cid, title, build, play, seconds=20, variants=(("heavy", "dark"),), tail=1.2, sample=False, recorder=True, xtp=False,
+         probes=True):
     for load, look in variants:
         heavy, dark = load == "heavy", look == "dark"
         jid = f"rv-{cid}-{load}-{look}"
@@ -184,6 +185,8 @@ def case(cid, title, build, play, seconds=20, variants=(("heavy", "dark"),), tai
                       {"do": "rpc", "method": "debug.hangs", "params": {}, "title": "probe: hangs"}]
         start = kit_record_start(jid, seconds) if recorder else {"do": "trace_only_start", "name": "close",
                                                                     "title": "the geometry trace, no recorder"}
+        if not probes:
+            probes_on, probes_off = [], []
         steps = [theme(dark)] + first_pane(jid, heavy) + build(heavy) + play[:lead] + [settle(1.5)] + probes_on + [start]
         # The recorder's record_start stalls the main thread 48-72 ms (STATUS 4500): 0.6 s of lead before the motion.
         steps.append({"do": "wait", "seconds": 0.6, "title": "lead: the recorder's start stall passes before the motion"})
@@ -227,6 +230,14 @@ case("close-mid-3col-sampled", "Close the middle of 3 strip columns, with a 1 ms
 # F1 BEFORE (fix owner, STATUS 4609): xctrace Time Profiler around the close, no recorder (its builds may abort).
 case("close-in-row-xtp", "Close the middle of 3 split panes in a row, xctrace Time Profiler, no recorder (F1 before/after)",
      lambda h: splits_in_row(3, h), close("p1", "close"), variants=(("idle", "dark"), ("heavy", "dark")), recorder=False, xtp=True)
+# F1 proof (lead 05:xxZ): the kit's 1 s lead after record_start, NO profiler and no debug.frames/main_budget probes,
+# so a lost refresh at the motion's start cannot be the recorder's own start stall. Recorder-free control: trace only.
+case("f1-close-in-row", "F1 proof: close the middle of 3 splits in a row; recorder with 1 s lead, no probes",
+     lambda h: splits_in_row(3, h), close("p1", "close"), variants=(("idle", "dark"),), probes=False)
+case("f1-split-1pane", "F1 proof: Cmd-D in a single pane; recorder with 1 s lead, no probes",
+     lambda h: [], [kit_key("d", ["cmd"], "split", "Cmd-D")], variants=(("idle", "dark"),), probes=False)
+case("f1-close-in-row-norec", "F1 control: close the middle of 3 splits in a row; NO recorder (trace only), no probes",
+     lambda h: splits_in_row(3, h), close("p1", "close"), variants=(("idle", "dark"),), probes=False, recorder=False)
 # 2. Close a pane in a column (3 stacked): the other two grow.
 case("close-in-column", "Close the middle of 3 panes stacked in one column: the other two grow to fill",
      lambda h: splits_in_column(3, h), close("p1", "close"), variants=ALL)

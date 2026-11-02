@@ -31,6 +31,8 @@ def keys(video, case):
 def judge_case(folder, case):
     video = os.path.join(folder, case, "video")
     tpath = os.path.join(video, f"{case}.trace.json")
+    if not os.path.exists(tpath):  # a recorder-free case (ext_rvsuite trace_only_stop)
+        tpath = os.path.join(folder, case, "diag-closetrace.json")
     if not os.path.exists(tpath):
         return [f"{case}: NOT RUN (no trace)"]
     trace = judge_trace.load_trace(tpath)
@@ -73,7 +75,7 @@ def judge_case(folder, case):
 def main():
     for folder in sys.argv[1:]:
         for case in sorted(os.listdir(folder)):
-            if os.path.isdir(os.path.join(folder, case, "video")):
+            if os.path.isdir(os.path.join(folder, case, "video")) or os.path.exists(os.path.join(folder, case, "diag-closetrace.json")):
                 for line in judge_case(folder, case):
                     print(f"{os.path.basename(folder.rstrip('/'))}  {line}")
     return 0
