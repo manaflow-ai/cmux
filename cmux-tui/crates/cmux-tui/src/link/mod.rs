@@ -63,6 +63,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, anyhow, bail};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use cmux_json::JsonSet as _;
 use cmux_link::LINK_PORT;
 use cmux_link::overlay_addr::overlay_address;
 use cmux_link::owner_session::OwnerSession;
@@ -589,8 +590,8 @@ async fn serve(
         "relay_available": cmux_link::dial::RELAY_AVAILABLE,
     });
     if native {
-        ready_line["native"] = json!(true);
-        ready_line["wg_public_key"] = json!(STANDARD.encode(public_key));
+        ready_line.set("native", json!(true));
+        ready_line.set("wg_public_key", json!(STANDARD.encode(public_key)));
     }
     print_json(&ready_line);
     if let Some(ready) = ready {
