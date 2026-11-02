@@ -73,6 +73,9 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     private let emit: @MainActor @Sendable () -> Element
     /// Set by `current(_:)`: the tracking armed by the evaluation it returned, and that value.
     private let primed: Primed?
+    /// `==` of an `Equatable` element, known where the stream is made (the `Element: Equatable` initializers);
+    /// nil: looked up at run time when iteration starts (`equality()`).
+    private let knownEquality: (@Sendable (Element, Element) -> Bool)?
 
     fileprivate struct Primed: Sendable {
         let state: ChangeState
@@ -93,11 +96,14 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     public init(_ emit: @escaping @MainActor @Sendable () -> Element) {
         self.emit = emit
         primed = nil
+        knownEquality = nil
     }
 
-    private init(_ emit: @escaping @MainActor @Sendable () -> Element, primed: Primed) {
+    fileprivate init(_ emit: @escaping @MainActor @Sendable () -> Element, primed: Primed?,
+                     knownEquality: (@Sendable (Element, Element) -> Bool)?) {
         self.emit = emit
         self.primed = primed
+        self.knownEquality = knownEquality
     }
 
     /// Evaluates `emit` now, on the main actor, with tracking, and returns that value with the
@@ -110,25 +116,34 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     public static func current(_ emit: @escaping @MainActor @Sendable () -> Element) -> (value: Element, later: ObservationStream) {
         let state = ChangeState()
         let value = LegacyIterator.track(emit, state: state)
-        return (value, ObservationStream(emit, primed: Primed(state: state, value: value)))
+        return (value, ObservationStream(emit, primed: Primed(state: state, value: value), knownEquality: nil))
     }
 
-    /// Whether iteration asks the runtime if `Element` is `Equatable` (`equality()`): every stream does.
-    var looksUpEqualityAtRunTime: Bool { true }
+    /// Whether iteration asks the runtime if `Element` is `Equatable` (`equality()`); false when `==` came from
+    /// the call site.
+    var looksUpEqualityAtRunTime: Bool { knownEquality == nil }
+
+    /// The tracking and the first value for ``Iterator``: the primed ones (`current(_:)`) for the first iterator.
+    fileprivate func primedForIterator() -> Primed? {
+        guard let primed, primed.once.take() else { return nil }
+        return primed
+    }
 
     public func makeAsyncIterator() -> Iterator {
-        if let primed, primed.once.take() {
-            return Iterator(legacy: LegacyIterator(emit: emit, state: primed.state), isEqual: Self.equality(), last: primed.value)
+        let isEqual = knownEquality ?? Self.equality()
+        if let primed = primedForIterator() {
+            return Iterator(legacy: LegacyIterator(emit: emit, state: primed.state), isEqual: isEqual, last: primed.value)
         }
         // The system-iterator path (NativeIterator) traps at launch on macOS 27
         // (exit 133); every OS uses the withObservationTracking path until it is fixed.
         if #available(macOS 26, *), ObservationStreamNativeOptIn.enabled {
-            return Iterator(native: NativeIterator(emit), isEqual: Self.equality())
+            return Iterator(native: NativeIterator(emit), isEqual: isEqual)
         }
-        return Iterator(legacy: LegacyIterator(emit: emit), isEqual: Self.equality())
+        return Iterator(legacy: LegacyIterator(emit: emit), isEqual: isEqual)
     }
 
-    /// `==` for an `Equatable` element, nil for any other (no dedupe).
+    /// `==` for an `Equatable` element, nil for any other (no dedupe). A runtime conformance lookup:
+    /// the first one per element type scans the binary's conformance records.
     private static func equality() -> (@Sendable (Element, Element) -> Bool)? {
         guard let type = Element.self as? any Equatable.Type else { return nil }
         return equality(type)
@@ -305,6 +320,26 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
                 if resumeNow { continuation.resume() }
             }
         }
+    }
+}
+
+/// An `Equatable` element's `==` is known where the stream is made, so no stream of one asks the runtime
+/// whether its element is `Equatable` (a conformance lookup that scans the binary's conformance records
+/// the first time per type: most of 26-31 ms on the main thread after a reopen's first window, REOPEN-F7).
+/// Swift picks these over the unconstrained ones for every call site whose element is `Equatable`.
+extension ObservationStream where Element: Equatable {
+    /// Makes a sequence of the values of `emit`, as the unconstrained initializer does; an equal
+    /// re-evaluation wakes no consumer.
+    public init(_ emit: @escaping @MainActor @Sendable () -> Element) {
+        self.init(emit, primed: nil, knownEquality: { $0 == $1 })
+    }
+
+    /// ``ObservationStream/current(_:)`` for an `Equatable` element.
+    @MainActor
+    public static func current(_ emit: @escaping @MainActor @Sendable () -> Element) -> (value: Element, later: ObservationStream) {
+        let state = ChangeState()
+        let value = LegacyIterator.track(emit, state: state)
+        return (value, ObservationStream(emit, primed: Primed(state: state, value: value), knownEquality: { $0 == $1 }))
     }
 }
 
