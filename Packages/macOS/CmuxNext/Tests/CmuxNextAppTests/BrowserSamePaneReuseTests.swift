@@ -20,6 +20,9 @@ struct BrowserSamePaneReuseTests {
             let model = try #require(services.daemon.store.tab(surface: created.surface))
             try await PinnedPageTests.until({ services.cache.existingBrowser(model.id) != nil })
             let page = try #require(services.cache.existingBrowser(model.id)?.tab)
+            let controller = try #require(services.paneController(for: pane.pane))
+            controller.select(StripTabID(model.id), source: .intent)
+            try await PinnedPageTests.until({ pane.stripModel.selectedID?.rawValue == model.id })
             let before = Set(pane.pane.tabs.map(\.id))
             let target = try #require(URL(string: "https://EXAMPLE.com/#section"))
 

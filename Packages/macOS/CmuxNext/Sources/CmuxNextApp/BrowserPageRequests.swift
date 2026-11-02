@@ -351,7 +351,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
                       opener: SurfaceID, background: Bool) {
         guard let services else { child?.close(); return }
         if let controller = services.paneController(for: pane) {
-            if let url, reuseExistingTab(url, in: pane, background: background) {
+            if let url, reuseExistingTab(url, in: pane, profile: profile, background: background) {
                 // Chromium/WebKit may have created a child before this intent arrived. The
                 // matching tab is the one the pane already owns, so discard the duplicate page.
                 child?.close()
@@ -385,9 +385,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// and a trailing slash ignored), while a changed fragment still navigates the live page so
     /// same-document links scroll to their destination. Returns false when the pane has no match.
     @discardableResult
-    private func reuseExistingTab(_ url: URL, in pane: PaneModel, background: Bool) -> Bool {
+    private func reuseExistingTab(_ url: URL, in pane: PaneModel, profile: String?, background: Bool) -> Bool {
         guard let services, let match = pane.tabs.first(where: { tab in
             guard tab.kind == .browser else { return false }
+            let tabProfile = services.browserProfiles.profileID(ofTab: tab)
+            guard tabProfile == (profile ?? BrowserProfileRecord.defaultID) else { return false }
             let shown = services.cache.existingBrowser(tab.id)?.tab.state.url ?? tab.url.flatMap(URL.init(string:))
             return shown.map { SidebarBridge.samePage($0, url) } == true
         }) else { return false }
