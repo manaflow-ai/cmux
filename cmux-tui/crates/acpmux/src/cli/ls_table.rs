@@ -19,6 +19,7 @@ pub const HELP: &str = "Examples:
   acpmux ls --all                 also closed, reviewer, sub- and unnamed sessions
   acpmux ls --wide                every column (AGENT, STATUS, usage, LAST)
   acpmux ls --status stuck        only stuck sessions (a filter hides nothing else)
+  acpmux ls --leads               the leaders: each live session others report to, with its reports
   acpmux ls --live --host cosmic-gray   that host's live sessions (--host local: this machine)
   acpmux --json ls --fields name,state,peer   for scripts: the daemon's rows, unchanged
   acpmux ls 'review-27*' --fields name,turn.activity   name globs (host/glob: one peer's); dotted fields

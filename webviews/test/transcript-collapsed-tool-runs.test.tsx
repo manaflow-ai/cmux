@@ -144,10 +144,11 @@ test("the run the agent works in keeps its call in flight out, on the live line"
   expect(rows.find((entry) => entry.doing)?.doing).toContain("bun test");
 });
 
-test("a call still running in an earlier run turns the line's glyph", () => {
+// Leo, 2026-10-31: "I FUCKING HATE THESE SPINNERS FOR TOOL CALLS AND SHIT".
+test("a call still running in an earlier run keeps the line's glyph, never a spinner", () => {
   const background = command("bun run dev", { status: "in_progress", background: true });
   const work = shaped([...mixed, background]).find((entry) => entry.id === "work")!;
-  expect(renderToStaticMarkup(<ToolRows row={work} />)).toContain("cv-spinner");
+  expect(renderToStaticMarkup(<ToolRows row={work} />)).not.toContain("cv-spinner");
 });
 
 test("a failed call is counted on the collapsed line", () => {

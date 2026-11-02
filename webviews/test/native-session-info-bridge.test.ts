@@ -67,3 +67,21 @@ test("malformed events are ignored and only the current model can dispatch actio
   runNativeSessionInfoAction("close");
   expect(received).toEqual(["close"]);
 });
+
+test("a native row's page rectangle reaches its popover handler", async () => {
+  const actions = new NativeInfoActions();
+  let anchor: unknown;
+  const id = actions.add("environment.addRepository", (rect) => {
+    anchor = rect;
+  });
+  setNativeSessionInfoActions(actions);
+  const rect = { left: 640, top: 100, right: 920, bottom: 126 };
+  runNativeSessionInfoAction({ id, rect });
+  await Promise.resolve();
+  expect(anchor).toEqual(rect);
+  anchor = undefined;
+  runNativeSessionInfoAction({ id, rect: { ...rect, right: NaN } });
+  runNativeSessionInfoAction({ id, rect: { ...rect, bottom: 20 } });
+  await Promise.resolve();
+  expect(anchor).toBeUndefined();
+});

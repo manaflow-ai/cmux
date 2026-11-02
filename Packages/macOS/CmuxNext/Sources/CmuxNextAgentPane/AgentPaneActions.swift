@@ -70,7 +70,7 @@ extension ActionRegistry {
     }
 
     /// Binds Session Info for the invocation's pane, focused when there is no target. With
-    /// `agent.inspector` off the page has no Session Info, so the action refuses instead of
+    /// `agent.sessionInfo` off the page has no Session Info, so the action refuses instead of
     /// reporting a toggle that changed nothing.
     @discardableResult
     public func bindAgentPaneSessionInfo(
@@ -116,11 +116,11 @@ extension ActionRegistry {
     /// refused, so the page shows its notice instead of the app's beep; an
     /// editor that fails after it starts opening is not reported back.
     @discardableResult
-    public func openAgentFile(path: String, target: AgentPaneFileTarget, pane: String) -> Bool {
+    public func openAgentFile(path: String, target: AgentPaneFileTarget, pane: String, machineID: String? = nil) -> Bool {
         let invocation = ActionInvocation(
             target: ActionTargetRef(kind: .pane, id: pane),
             arguments: ["path": .string(path), "where": .string(target.rawValue)]
-        )
+        ).onMachine(machineID)
         var performed = false
         let refusal = reportingRefusal { performed = perform(.fileOpen, invocation: invocation) }
         return performed && refusal == nil
@@ -130,11 +130,11 @@ extension ActionRegistry {
     /// of `pane` through `openBrowser`, the path the tab strip and palette
     /// take. False when the handler refused.
     @discardableResult
-    public func openAgentPreview(_ url: URL, pane: String) -> Bool {
+    public func openAgentPreview(_ url: URL, pane: String, machineID: String? = nil) -> Bool {
         let invocation = ActionInvocation(
             target: ActionTargetRef(kind: .pane, id: pane),
             arguments: ["url": .string(url.absoluteString)]
-        )
+        ).onMachine(machineID)
         var performed = false
         let refusal = reportingRefusal { performed = perform(.openBrowser, invocation: invocation) }
         return performed && refusal == nil

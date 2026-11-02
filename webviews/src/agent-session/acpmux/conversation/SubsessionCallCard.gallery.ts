@@ -155,7 +155,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/SubsessionCallCard.tsx"],
   variants: {
     recorded: {
-      note: "Variant A (selected): a Claude-Code-style one-line disclosure with a working spinner, muted model and Open chat on hover. Expanding opens the full prompt as Markdown; Raw stays at the panel end.",
+      note: "Variant A (selected): a Claude-Code-style one-line disclosure with a working spinner and muted model; clicking the row opens its chat. Expanding opens the full prompt as Markdown; Raw stays at the panel end.",
       snapshot: withChildren(
         [
           user("Start a lane for the retry banner.", 3),
@@ -283,7 +283,7 @@ export default agentPaneEntry({
       ),
     },
     started: {
-      note: "Variant B: five adjacent starts use the same one-line disclosure family, keeping Working, Waiting on you, Failed and Done visible without prompt text. A single start opens its chat on hover.",
+      note: "Variant B: five adjacent starts use the same one-line disclosure family, keeping Working, Waiting on you, Failed and Done visible without prompt text. Clicking a single start opens its chat.",
       snapshot: withChildren(
         [
           user(prompt, 6),

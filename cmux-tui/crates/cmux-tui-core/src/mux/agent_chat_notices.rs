@@ -144,9 +144,11 @@ impl CacheTtlQueue {
                 continue;
             }
             let elapsed = now_ms.saturating_sub(target.idle_since);
-            let elapsed = (target.idle_since > 10_000_000_000)
-                .then(|| Duration::from_millis(elapsed))
-                .unwrap_or_default();
+            let elapsed = if target.idle_since > 10_000_000_000 {
+                Duration::from_millis(elapsed)
+            } else {
+                Duration::default()
+            };
             self.entries.insert(
                 (session.clone(), spec.id.clone()),
                 ScheduledCacheTtl {
@@ -206,7 +208,7 @@ fn cache_ttl_scheduler(mux: &Weak<Mux>, receiver: mpsc::Receiver<CacheTtlCommand
         };
         match command {
             Ok(CacheTtlCommand::Observe(target)) => {
-                queue.observe(target, Instant::now(), crate::startup_timings::unix_now_ms())
+                queue.observe(target, Instant::now(), crate::startup_timings::unix_now_ms());
             }
             Ok(CacheTtlCommand::Remove(session)) => queue.remove(&session),
             Ok(CacheTtlCommand::Reload) => {
@@ -1459,7 +1461,7 @@ mod tests {
             idle_since: 100,
             works_below: false,
             muted: false,
-            timers: vec![spec.clone()],
+            timers: vec![spec],
         };
         queue.observe(target.clone(), now, 100);
         assert!(queue.take_due(now + Duration::from_secs(59)).is_empty());

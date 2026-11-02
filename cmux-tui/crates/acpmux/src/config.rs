@@ -934,10 +934,21 @@ pub struct WebSocketConfig {
     /// builds did, in `_acpmux/status`). Set, it never rotates again.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub token_rotated: u32,
+    /// `allowInsecureNetwork`: bind a network (non-loopback) `listen`
+    /// address. The listener speaks plain ws://, so the token crosses that
+    /// network in clear; without it such an address stops the daemon
+    /// (`server/ws_auth.rs`). `--insecure-network-listen` is the same for
+    /// one run.
+    #[serde(default, alias = "allow_insecure_network", skip_serializing_if = "is_false")]
+    pub allow_insecure_network: bool,
 }
 
 fn is_zero(n: &u32) -> bool {
     *n == 0
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 fn default_palette_prefix() -> String {
@@ -991,6 +1002,26 @@ impl Default for TuiConfig {
             keybinds: BTreeMap::new(),
             skill_paths: vec![],
         }
+    }
+}
+
+/// `artifacts` in the config: the agent artifact tools (`acpmux_mcp_artifacts.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactsConfig {
+    /// `enabled`: `false` keeps the artifact tools from every agent. Unset or `true`: they are
+    /// offered whenever this daemon has a cmux sign-in (`meshRelay.tokenCommand`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    /// `baseUrl`: the cmux-platform origin to use. Taken only when it is a platform Worker
+    /// (https `*.debussy.workers.dev`) or loopback http, so the sign-in goes nowhere else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+}
+
+impl ArtifactsConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
     }
 }
 
@@ -1070,6 +1101,46 @@ impl TitlesConfig {
     }
 }
 
+/// Opt-in synchronization of local agent memories and artifacts with cmux-platform.
+/// The feature is disabled unless `enabled` is explicitly set to true.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactsSyncConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// cmux-platform origin. Defaults to the development Worker.
+    #[serde(default = "default_artifacts_base_url")]
+    pub base_url: String,
+    /// Poll period for callers that run the sync loop. A loop must still have
+    /// an explicit stop condition; this value only controls its cadence.
+    #[serde(default = "default_artifacts_poll_interval_ms")]
+    pub poll_interval_ms: u64,
+}
+
+fn default_artifacts_base_url() -> String {
+    "https://cmux-platform-development.debussy.workers.dev".into()
+}
+
+fn default_artifacts_poll_interval_ms() -> u64 {
+    30_000
+}
+
+impl Default for ArtifactsSyncConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_url: default_artifacts_base_url(),
+            poll_interval_ms: default_artifacts_poll_interval_ms(),
+        }
+    }
+}
+
+impl ArtifactsSyncConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -1078,6 +1149,9 @@ pub struct Config {
     pub harnesses: BTreeMap<String, HarnessProfile>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub peers: BTreeMap<String, PeerConfig>,
+    /// Optional platform artifact and memory synchronization.
+    #[serde(default, skip_serializing_if = "ArtifactsSyncConfig::is_default")]
+    pub artifacts_sync: ArtifactsSyncConfig,
     /// Opt-in cmux-platform wake-on-message integration. Absent/disabled keeps
     /// the normal peer route and send behavior unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1238,6 +1312,11 @@ pub struct Config {
     /// default): no relay. `teamMessaging` (team addresses and inboxes) is on unless `false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mesh_relay: Option<crate::mesh_http::MeshRelayConfig>,
+    /// `artifacts`: the agent tools that save to and search the person's cmux artifacts
+    /// (`acpmux_mcp_artifacts.rs`). On whenever `meshRelay` holds a cmux sign-in;
+    /// `{"enabled": false}` turns them off, `baseUrl` names another cmux-platform deployment.
+    #[serde(default, skip_serializing_if = "ArtifactsConfig::is_default")]
+    pub artifacts: ArtifactsConfig,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]
@@ -1255,6 +1334,10 @@ pub struct Config {
     /// No config.json was there at load (`hub/policy_source.rs`: absence proves nothing).
     #[serde(skip)]
     pub file_missing: bool,
+    /// This machine is a cmux Cloud VM (`cloud_host.rs`), read at load: a chat here never fails
+    /// over onto the local CodeRouter, and a sign-in failure says only how to sign it in.
+    #[serde(skip)]
+    pub cloud_host: bool,
     /// The `defaults.claude.prefer` list discovery filled in, not the user.
     /// `save` drops it only while it is still unchanged.
     #[serde(skip)]
@@ -1547,6 +1630,7 @@ impl Config {
         }
         cfg.folder_gate = path.parent().and_then(folder_profiles::FolderGate::for_home);
         cfg.profile_sources = sources.clone();
+        cfg.cloud_host = crate::cloud_host::is_cloud_vm();
         cfg.path = Some(path);
         Ok(cfg)
     }

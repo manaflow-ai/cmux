@@ -99,9 +99,10 @@
   --cv-status-gap-plain: 0px;
   --cv-status-gap-plain-over: 0px;
   /* #30865's reply room on the grid: the stack's block gap is the room under a reply. A note in a
-     run of flush lines keeps --cv-note-gap (below) around it. */
+     run of flush lines keeps --cv-note-gap (below) around it: the run gap, as for any prose by a run
+     (design/transcript-spacing.md rule 4). */
   --cv-reply-room: 0px;
-  --cv-note-gap: var(--grid-gap-block);
+  --cv-note-gap: var(--grid-gap-run);
   --cv-status-reply-tail: 0px;
   --cv-tool-gap: var(--grid-gap);
   /* One icon column for every transcript meta row (Leo, 2026-10-31: "YOU GUYS CANNOT FUCKIGN
@@ -1490,6 +1491,77 @@
   font-size: calc(var(--cv-font-size) * 12 / 14);
   color: var(--cv-text-muted);
 }
+/* EditDiff.tsx: the rendered lines and their placeholder share one cell until the lines are drawn,
+   so the body keeps the placeholder's height (the same as the lines') through the swap. */
+.cv-edit-diff__stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.cv-edit-diff__stack > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.cv-edit-diff__stack:not([data-painted]) > .cv-edit-diff__hunks {
+  visibility: hidden;
+}
+/* EditDiffLoading.tsx: the edit's own lines in Pierre's font, column and wrapping (EditDiffHunks.tsx
+   `cardUnsafeCSS`, sideways.ts `PIERRE_BLOCK_CSS`), the text clear and painted as bars, so the
+   placeholder is as tall as the rendered diff and the swap moves nothing. */
+.cv-edit-diff__loading-lines {
+  --cv-loading-line-height: var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px));
+  /* Pierre's number column: its digits (4ch at least), 2ch leading + 1ch trailing padding, and a
+     2px divider. The unnumbered diff keeps its 4px indicator lane and 2px divider. */
+  padding-inline-start: calc(var(--cv-loading-digits, 4) * 1ch + 3ch + 2px);
+  font-family: var(--cv-mono);
+  font-size: var(--cv-codeblock-size, var(--cmux-diff-font-size, var(--text-detail)));
+  line-height: var(--cv-loading-line-height);
+  tab-size: 2;
+  color: transparent;
+  user-select: none;
+  pointer-events: none;
+}
+.cv-edit-diff__loading-lines[data-numbered="false"] {
+  padding-inline-start: 6px;
+}
+/* Pierre's box scrolls sideways, its scrollbar `--cv-lane` tall (`--diffs-scrollbar-gutter-override`
+   above; 0 while wrapped): this box scrolls the same way, so it keeps the same lane in the same
+   engines. */
+.cv-edit-diff__loading-lines {
+  overflow-x: scroll;
+  overflow-y: hidden;
+}
+.cv-edit-diff__loading-lines::-webkit-scrollbar {
+  width: 0;
+  height: var(--cv-lane);
+}
+.cv-edit-diff__loading-lines::-webkit-scrollbar-thumb,
+.cv-edit-diff__loading-lines::-webkit-scrollbar-track {
+  background: transparent;
+}
+.cv-edit-diff__loading-line {
+  min-height: var(--cv-loading-line-height);
+  padding-inline: 1ch;
+  white-space: pre;
+}
+.cv-edit-diff__loading-lines[data-wrap="true"] .cv-edit-diff__loading-line {
+  padding-inline-start: 4ch;
+  text-indent: -2ch;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cv-edit-diff__loading-line > span {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--cv-text-muted) 24%, transparent);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+/* Pierre's line-info separator before a hunk that skips lines (diffTheme.ts: 24px). */
+.cv-edit-diff__loading-sep {
+  height: 24px;
+}
+.cv-edit-diff__loading-rest {
+  height: calc(var(--cv-loading-lines) * var(--cv-loading-line-height));
+}
 .cv-link.is-file {
   color: var(--cv-text);
   text-decoration: none;
@@ -2767,7 +2839,7 @@ button.cv-video-frames__frame:focus-visible {
 /* An opened run of commands, reads or searches (ToolGroupRow.tsx): the thought that led into the
    run first in full, then a row per step. By default each step is a normal tool row in the
    transcript's one column: its glyph in the header's glyph column, its words at the header's text
-   start, its mark at the right edge, with no card, inset or hairlines around it (Leo, 2026-10-31:
+   start, its mark at the right edge, with no card or inset (Leo, 2026-10-31:
    "WHY IS IT ALGINED SO [...] SHIT" and "why are these indented for no reason"). A line under a
    step (a thought's text, a failure's cause) starts at the same text column.
    Leo, 2026-10-29, asked for the capability of Claude Code desktop's organization ("we want to have
@@ -2778,6 +2850,21 @@ button.cv-video-frames__frame:focus-visible {
 .cv-steps {
   /* Where a step's under-line (a thought's text, a cause) starts. */
   --cv-step-text: var(--cv-tool-text-inset);
+}
+/* A quiet guide between the icon and text columns marks the opened run without indenting it.
+   Keep it inside the transcript row: paint containment clips any outside guide. The comparison
+   gallery's card/tree/zebra looks keep their own rules. */
+:root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not([data-tool-steps-look="zebra"]) .cv-tool-group.is-flat.cv-steps {
+  position: relative;
+}
+:root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not([data-tool-steps-look="zebra"]) .cv-tool-group.is-flat.cv-steps::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(var(--cv-row-icon) + var(--cv-row-icon-gap) / 2);
+  width: 1px;
+  background: var(--cv-rule);
+  pointer-events: none;
 }
 /* Inner calls in an opened group keep their disclosure slot, but the quiet chevron only appears
    when that row is under the pointer (Leo, 2026-11-01). The group header keeps its own disclosure.
@@ -3352,9 +3439,12 @@ button.cv-video-frames__frame:focus-visible {
   max-width: 100%;
 }
 /* The other machine the sender runs on, after its name: muted, a middle dot before it, and the first
-   to give way when the line is short, so the name keeps its room (IncomingMessageCard.tsx SenderName). */
+   to give way when the line is short, so the name keeps its room (IncomingMessageCard.tsx SenderName).
+   Flex shrinks each item by its factor times its width, so 10 still cut the name beside a whole host
+   (session-chip-browser.test.ts); 1000 leaves the name under a hundredth of the overflow until the
+   host is gone. */
 .cv-received__host {
-  flex: 0 10 auto;
+  flex: 0 1000 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3524,7 +3614,13 @@ a.cv-sha:focus-visible {
   font-family: var(--cv-mono);
 }
 .cv-cmux-exec__raw {
-  margin: 2px 0 0 2px;
+  margin: 2px 0 0;
+}
+.cv-cmux-exec__raw > .cv-subsession__raw {
+  padding-inline-start: 0;
+}
+.cv-cmux-exec__raw .cv-subsession__toggle {
+  gap: var(--cv-tool-gap);
 }
 /* The card's box holds the fill and ring, so the output's fades (below) cut the text, not them. */
 .cv-tool-output__box {

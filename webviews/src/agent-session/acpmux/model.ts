@@ -2,12 +2,13 @@ import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
   gridLength,
+  MARK_STATUS,
   MARK_STEP,
   rowMark,
   gridScale,
   restBand,
   tailGap,
-  TRANSCRIPT_BLOCK_GAP,
+  TRANSCRIPT_RUN_GAP,
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_INNER_GAP,
   transcriptGap,
@@ -63,6 +64,10 @@ import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
 import { MessagePlacement } from "./conversation/messagePlacement";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
+import { applyHeightChanges, type HeightChange, type IndexedLayoutGeometry } from "./conversationGeometry";
+
+export type { HeightChange, IndexedLayoutGeometry, LayoutGeometry } from "./conversationGeometry";
+export { applyHeightChanges, geometryFromHeights, geometryFromIndex } from "./conversationGeometry";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -194,6 +199,8 @@ export type QueuedPrompt = {
   next?: boolean;
   sending?: boolean;
   images?: QueuedPromptImage[];
+  /// Not acpmux's: the pane holds it until the folder is trusted (trustHeld.ts).
+  held?: boolean;
   inlineParts?: PromptContentPart[];
   /// Another agent's message waiting here (direct.ts `queuedMessage`): it draws in the transcript
   /// as the message's received card (conversation/queuedMessages.ts), never as a queue row.
@@ -759,6 +766,14 @@ export type AcpmuxWorkflowWire = {
  * (`notListedAtOpen`), or it left the list while the pane showed it (`leftListWhileShown`). */
 export type MissingSessionReason = "notListedAtOpen" | "leftListWhileShown";
 
+/// Whether the pane's link to acpmux is up. A snapshot's `connection` names why the client emitted
+/// it ("connected", "session changed", a streamed event's kind, "failed" for a refused request on
+/// an open socket), not the link's state: only a lost ("disconnected") or opening ("connecting…")
+/// connection is down. Never compare it with "connected" to ask whether the link is up.
+export function linkUp(connection: string): boolean {
+  return connection !== "disconnected" && !connection.startsWith("connecting");
+}
+
 export type AcpmuxSnapshot = {
   type: "snapshot";
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
@@ -1137,9 +1152,9 @@ const lineRow = () => LINE_FRAME + toolRowHeight();
 /// lines at the column's width, with the plain status gap above and below it. A note that wraps
 /// draws a line per wrap, so it is estimated from its text as a reply is (cmux#31148).
 const NOTE_LINE = 20;
-/// The room above and below a note (#30400's --cv-note-gap): the block gap, since a run's lines are
-/// otherwise flush (conversation.css `.cv-tool-note`).
-const noteGap = () => TRANSCRIPT_BLOCK_GAP * chromeScale;
+/// The room above and below a note (#30400's --cv-note-gap): the run gap, as for any prose by a run,
+/// since a run's lines are otherwise flush (conversation.css `.cv-tool-note`).
+const noteGap = () => TRANSCRIPT_RUN_GAP * chromeScale;
 /// The prepared texts of those notes, for their estimates; cleared past 256, as a row's are.
 const notePrepared = new Map<string, PreparedText | null>();
 function noteHeight(text: string | undefined, width: number): number {
@@ -1404,17 +1419,20 @@ export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
 /// Claude Code desktop's do (Leo, 2026-10-30: "see how claude code has those centered tool calls /
 /// id like more alignment too"): `statusEdge`.
 export const isStatusRow = (row: AcpmuxRow | undefined) =>
-  row !== undefined &&
-  (row.kind === "backgroundTask" ||
-    row.kind === SUBAGENT_DONE ||
-    row.kind === "compaction" ||
-    row.kind === "failover" ||
-    row.kind === "policyUnenforced" ||
-    row.kind === "agentPair" ||
-    row.kind === "sessionStart" ||
-    row.kind === MESSAGE_RUN ||
-    (row.kind === "user" && (row.incoming?.kind === "message" || row.incoming?.kind === "notice")) ||
-    (row.kind === "activity" && isToolRun(row)));
+  row !== undefined && (row.kind === "user" ? isIncomingLine(row.incoming?.kind) : isStatusKind(row));
+/// `incoming` is read once per call here and in isLineRow: layoutConversation asks both of every
+/// row, hidden bookkeeping included, and rowLayoutLinearity.test.ts counts those reads.
+const isIncomingLine = (kind: string | undefined) => kind === "message" || kind === "notice";
+const isStatusKind = (row: AcpmuxRow) =>
+  row.kind === "backgroundTask" ||
+  row.kind === SUBAGENT_DONE ||
+  row.kind === "compaction" ||
+  row.kind === "failover" ||
+  row.kind === "policyUnenforced" ||
+  row.kind === "agentPair" ||
+  row.kind === "sessionStart" ||
+  row.kind === MESSAGE_RUN ||
+  (row.kind === "activity" && isToolRun(row));
 /// A tool run with at least one call, not an edited-files card (turnChanges/sessionRows.ts
 /// `isEditRow`): a run of thoughts alone may draw nothing, so it keeps its own spacing. One pass
 /// over the row's items.
@@ -1503,9 +1521,8 @@ export const isLineRow = (row: AcpmuxRow) =>
   row.kind === LANE_NOTICE_BATCH ||
   row.kind === MESSAGE_RUN ||
   row.kind === PENDING_MESSAGES ||
-  (row.kind === "user" &&
-    !row.received &&
-    (row.incoming?.kind === "message" || row.incoming?.kind === "notice" || row.incoming?.kind === "inbox"));
+  (row.kind === "user" && !row.received && isIncomingRunLine(row.incoming?.kind));
+const isIncomingRunLine = (kind: string | undefined) => isIncomingLine(kind) || kind === "inbox";
 /// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts).
 const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden";
 /// The row after `index` that draws something.
@@ -2145,7 +2162,8 @@ export function layoutConversation(
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
     // A step row (a tool run or a one-line row) joins the step row before it flush (transcriptGap).
-    marks[index] = isStepRow(row) || isLiveStep(row, prevDrawn) ? MARK_STEP : rowMark(row);
+    marks[index] =
+      isStepRow(row) || isLiveStep(row, prevDrawn) ? MARK_STEP : isStatusRow(row) ? MARK_STATUS : rowMark(row);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
@@ -2270,6 +2288,18 @@ export function withOrigin(layout: ConversationLayout, origin: number): Conversa
   for (let index = 0; index < tops.length; index += 1) tops[index] = layout.tops[index]! + by;
   const { origin: _, ...rest } = layout;
   return { ...rest, tops, totalHeight: layout.totalHeight + by, ...(origin ? { origin } : {}) };
+}
+
+/**
+ * Places measured rows through the persistent geometry path.  This additive
+ * API is used by the indexed consumer port; the array layout above remains for
+ * legacy callers until that port is complete.
+ */
+export function placeRowsIndexed(
+  estimate: IndexedLayoutGeometry,
+  changes: readonly HeightChange[],
+): IndexedLayoutGeometry {
+  return applyHeightChanges(estimate, changes);
 }
 
 function upperBound(values: Float64Array, target: number): number {
