@@ -50,7 +50,10 @@ public final class QuitOriginTracker {
     /// then terminates the app, so every observer of that notice sees what it sees at a real logout. Returns the
     /// refusal, or nil when the quit started.
     public func debugTerminate(reason: String?, center: NotificationCenter, terminate: @MainActor () -> Void) -> String? {
-        "debug.app.terminate is not implemented"
+        guard reason == "logout" else { return "reason must be \"logout\", not \(reason.map { "\"\($0)\"" } ?? "none")" }
+        center.post(name: NSWorkspace.willPowerOffNotification, object: NSWorkspace.shared)
+        terminate()
+        return nil
     }
     #endif
 }
