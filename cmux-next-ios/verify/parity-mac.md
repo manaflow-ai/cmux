@@ -169,6 +169,13 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | New Tab from Text (`newTab.submit`) | palette: type, then **Open in New Tab**, **New Terminal**, **Ask in New Agent Chat** or **Search the Web** | works (palette batch; live) | The Mac's table (`NewTabIntent`): `!` first is a terminal with the command typed and not run, an address a browser tab beside the tab on screen (`new-browser-tab {url, pane}`), other text a new agent chat that sends it; web search is its own row. |
 | Open Link… (`link.open`), `cmux://` links | palette: a pasted cmux link > **Open Link**; links tapped in chats, Chief and the Feed; links from other apps | works (palette batch; live) | Routing landed with verify/deep-links.md; this batch adds Open Link in the palette and verified a Chief message's link live. |
 
+## Mac Screen
+
+| Mac action | Phone | State | Notes |
+| --- | --- | --- | --- |
+| View another Mac's screen (Mac Screen tab, streamed on cmux.rd/1) | the Screen Sharing viewer (CmuxMobileScreenSharing) | partial | The phone views over WebRTC. A Mac host takes its protocol from the viewer's offer: a cmux.rd/1 document runs `cmux rd serve`, any other offer runs ScreenStreamHost, so Macs and phones both reach it. The phone has no cmux.rd/1 link yet: iOS cannot start the Mac's helper process, so the link has to come in as a library. code-checked; live pending |
+| Share This Mac (serve a session) | | not from a phone | A phone views Macs; it is not a screen host. |
+
 ## Workspace list order (parity2 decision)
 
 The phone's Workspaces list follows the Mac's sidebar: **Needs You** first (the
