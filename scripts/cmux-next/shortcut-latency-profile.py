@@ -57,7 +57,12 @@ SHORTCUTS = {
     "closeTab": ("w", ["command"], "Cmd-W"),
     "commandPalette": ("p", ["command", "shift"], "Shift-Cmd-P"),
     "terminal.clear": ("k", ["command"], "Cmd-K"),
+    # SWITCH FRAMES (agent switch-frames): a warm workspace switch between two workspaces of two terminal panes each
+    # (Cmd-2 from workspace 1; the undo goes back by a script action), and a tab switch between two terminal tabs.
+    "selectWorkspaceByNumber": ("2", ["command"], "Cmd-2"),
+    "nextSurface": ("]", ["command", "shift"], "Shift-Cmd-]"),
 }
+SWITCH_NAME = "sl-switch"
 OUR_MODULE = re.compile(r"(^cmux|CmuxNext|\.debug\.dylib$)", re.I)  # a frame's binary
 
 parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -171,8 +176,33 @@ def press(action, window):
             "error": reply.get("error") if isinstance(reply, dict) else None}
 
 
+def switch_set_up():
+    """Two workspaces named sl-switch-1 / sl-switch-2 at the top of the list (Cmd-1 / Cmd-2 with workspaces-only
+    numbering), each with two terminal panes, and a second terminal tab in sl-switch-1's focused pane. Made once."""
+    names = {w.get("name"): w for w in topology().get("workspaces") or []}
+    if f"{SWITCH_NAME}-1" in names and f"{SWITCH_NAME}-2" in names:
+        return
+    for path, value in (("sidebar.numbering", "workspacesOnly"), ("sidebar.cmd9", "ninth")):
+        rpc("settings.set", {"path": path, "value": value})
+    for i in (2, 1):  # new workspaces list on top: make 2 first, so 1 is Cmd-1
+        rpc("action.run", {"action": "newTab", "args": {"focus": True, "name": f"{SWITCH_NAME}-{i}"}, "wait": True})
+        wait(lambda: (focused() or {}).get("kind") == "terminal", 30)
+        rpc("action.run", {"action": "splitRight", "wait": True})
+        wait(lambda: sum(1 for p in panes() if p.get("kind") == "terminal") >= 2, 10)
+        time.sleep(1.0)  # test harness: the shells' prompts
+    rpc("action.run", {"action": "newSurface", "wait": True})
+    time.sleep(1.0)  # test harness: the new tab's shell
+    note("switch set-up: sl-switch-1 (2 panes, 2 tabs in the focused one) and sl-switch-2 (2 panes)")
+
+
 def before(action):
-    """The press's precondition (untimed): a focused terminal; for Cmd-W one more terminal tab to close."""
+    """The press's precondition (untimed): a focused terminal; for Cmd-W one more terminal tab to close; for the
+    switch cases, workspace sl-switch-1 shown."""
+    if action in ("selectWorkspaceByNumber", "nextSurface"):
+        switch_set_up()
+        rpc("action.run", {"action": "selectWorkspaceByNumber", "args": {"index": 1}, "wait": True})
+        time.sleep(0.4)  # test harness: the switch back settles
+        return
     ensure_terminal()
     if action == "closeTab":
         count = tab_count()
@@ -191,6 +221,10 @@ def after(action, state):
         if workspace_count() > state["workspaces"]:
             rpc("action.run", {"action": "closeWorkspace", "wait": True})
             wait(lambda: workspace_count() <= state["workspaces"], 10)
+    elif action == "selectWorkspaceByNumber":
+        rpc("action.run", {"action": "selectWorkspaceByNumber", "args": {"index": 1}, "wait": True})
+    elif action == "nextSurface":
+        rpc("action.run", {"action": "prevSurface", "wait": True})
     elif action == "commandPalette":
         # To the key window (the palette's panel), not the main window: with "window" the Escape went to the main
         # window, the palette stayed open, and the next press closed it (hide() in the profile, cmux22 04:1xZ).
