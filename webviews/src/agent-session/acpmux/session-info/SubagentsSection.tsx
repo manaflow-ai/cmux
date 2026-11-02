@@ -20,7 +20,7 @@ const ROW_ICON = rowIconSize(12);
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
 import { useAgentProgress } from "../subagents/agentProgressStore";
-import { isRepeatedAgentKind } from "../subagents/AgentIdentity";
+import { isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { nestAgents } from "../subagents/AgentsPill";
 import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
@@ -191,7 +191,7 @@ export function SubagentsSection({
       working: Boolean(retrying(agent)),
       time: formatDuration(elapsed(agent, now)),
       task: agent.task,
-      icon: "agent.session",
+      icon: SUBAGENT_FALLBACK,
       mark: agent.harness ?? harness,
       depth,
       at: agent.endedAt ?? agent.startedAt,
