@@ -481,8 +481,9 @@ class Wiring(unittest.TestCase):
         mac = AUTOFIX["jobs"]["action-exports"]
         self.assertIn("pushed-exports", mac["needs"])
         self.assertIn("needs.pushed-exports.outputs.hit != 'true'", mac["if"])
-        deferred = AUTOFIX["jobs"]["mac-exports-deferred"]
-        self.assertIn("needs.pushed-exports.outputs.hit != 'true'", deferred["if"])
+        # Only the run that carries the exports waits for a pack; the others defer and repair the rest at once.
+        self.assertIn("needs.action-areas.outputs.mac_busy != 'true'", AUTOFIX["jobs"]["pushed-exports"]["if"])
+        self.assertEqual(AUTOFIX["jobs"]["mac-exports-deferred"]["if"], "needs.action-areas.outputs.mac_busy == 'true'")
 
     def test_the_consumer_reads_only_and_its_wait_is_bounded(self):
         job = AUTOFIX["jobs"]["pushed-exports"]

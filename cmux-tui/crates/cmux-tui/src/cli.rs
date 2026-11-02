@@ -1153,6 +1153,7 @@ fn scope_help_for(
         }
         "cloud" => Cow::Owned(cloud_help::overview(catalog.is_japanese())),
         "room" => Cow::Borrowed(scope_help::ROOM_HELP),
+        "space" => Cow::Borrowed(scope_help::SPACE_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
         "git" => Cow::Borrowed(scope_help::GIT_HELP),
         "conversation" => Cow::Borrowed(scope_help::CONVERSATION_HELP),

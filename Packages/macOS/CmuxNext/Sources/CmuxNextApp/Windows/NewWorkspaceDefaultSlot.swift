@@ -39,7 +39,7 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// stale layout yet. Returning true keeps Cmd-N pending until the row is
     /// realized, instead of resolving the slot against an empty layout. Only
     /// while the window's rows are a projection behind the sidebar document
-    /// (`catchingUp`, `layoutCatchingUp(rowsAt:)`): once they have caught up, a row still missing was
+    /// (`catchingUp`, `layoutCatchingUp(_:rowsAt:)`): once they have caught up, a row still missing was
     /// left out on purpose (a filter, another space, a close) and the slot
     /// falls back as documented.
     func awaitsCurrentAnchor(section: SectionID, in sections: [SidebarRowSection], home: String? = nil, catchingUp: Bool) -> Bool {

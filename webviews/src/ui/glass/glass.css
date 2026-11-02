@@ -32,6 +32,14 @@
   --glass-rim: 1;
   /* The chromatic split of the bend (Spectrum only): blue bends 1 + 2x as far as red. */
   --glass-dispersion: 0;
+  /* The lens's specular light along the rim, 0 to 1 (lens.ts): the rim facing the light (above, a
+     little left) catches a bright line, the opposite rim a fainter one. Lens and Spectrum only;
+     plain glass keeps its hairline. On in both (below): it costs a few shader ops per rim pixel and
+     no texture reads (design/glass.md in leo-workspace has the numbers). */
+  --glass-gloss: 0;
+  /* How much the lens's center zooms the wallpaper, 0 to 0.2: a thick lens. Off by default; the
+     gallery's liquid-thick variant shows it. */
+  --glass-magnify: 0;
   /* The lines of the rim. --cmux-card-rim is the host's card rim (transparent with borders off). */
   --glass-edge: var(--cmux-card-rim, color-mix(in srgb, var(--cmux-text, CanvasText) 14%, transparent));
   --glass-fringe-red: transparent;
@@ -73,6 +81,9 @@
 
 :root[data-glass="spectrum"] {
   --glass-dispersion: 0.35;
+}
+:root:is([data-glass="lens"], [data-glass="spectrum"]) {
+  --glass-gloss: 0.7;
 }
 :root[data-glass="spectrum"],
 :root[data-glass="spectrum"] .ui-glass {
@@ -117,6 +128,7 @@
 :root[data-borders="none"] {
   --glass-edge: transparent;
   --glass-rim: 0;
+  --glass-gloss: 0;
 }
 
 .ui-glass {
@@ -129,6 +141,15 @@
    var(--surface-popup)`); as glass that hides the blur, so the glass tint wins over one class. */
 .ui-popup.ui-glass {
   background: var(--glass-tint);
+}
+
+/* SVG REFRACTION (svgRefraction.ts; the gallery's and the latency harness's comparison, never set by a
+   shipped page): Chromium runs the SVG filter as the backdrop, bending the page's own pixels. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-glass-refract="svg"]:not([data-reduce-transparency]) .ui-glass {
+    -webkit-backdrop-filter: url(#cmux-glass-refract) saturate(1.3);
+    backdrop-filter: url(#cmux-glass-refract) saturate(1.3);
+  }
 }
 
 /* CHROMIUM OVER THE WINDOW GLASS (Leo 2026-10-22: "we can't be having unstyled main chat panes").
@@ -255,7 +276,7 @@
 :root {
   --surface-near-opaque: 90%;
   --surface-card-radius: 10px; /* the sidebar's cards (Update Ready, the Updated card, notices and tips) over the sidebar's own glass */
-  --surface-card-veil: light-dark(rgb(252 252 252 / 45%), rgb(28 28 28 / 22%));
+  --surface-card-veil: light-dark(rgb(252 252 252 / 45%), rgb(28 28 28 / 42%));
   --surface-card-rim-top: light-dark(rgb(255 255 255 / 80%), rgb(255 255 255 / 22%));
   --surface-card-rim-bottom: light-dark(rgb(0 0 0 / 8%), rgb(255 255 255 / 4%));
   --surface-toast-radius: 9px; /* toasts: a rounded rect, never a capsule, even on one line */

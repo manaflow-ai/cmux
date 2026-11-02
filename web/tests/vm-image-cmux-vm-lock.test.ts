@@ -65,6 +65,9 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     expect(programChecksCommand(lock)).toContain("acpmux --version");
     const list = acpmuxListCommand();
     expect(list).toContain("acpmux ls --json");
+    // acpmux ls no longer starts a daemon (#28046), so the smoke starts one before listing.
+    expect(list.indexOf("acpmux daemon start")).toBeGreaterThan(-1);
+    expect(list.indexOf("acpmux daemon start")).toBeLessThan(list.indexOf("acpmux ls --json"));
     const syntax = await runChild("bash", ["-n"], { input: list, timeout: 20_000 });
     expect(syntax.stderr).toBe("");
     expect(syntax.status).toBe(0);

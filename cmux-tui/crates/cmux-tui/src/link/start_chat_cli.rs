@@ -22,11 +22,14 @@
 //!   to the machine the App just made for it, and makes it the workspace's
 //!   when the workspace has none yet and no other workspace has it.
 //! - `copy --key K --account A --machine ID --socket PATH --local ROOT
-//!   [--subpath SUB] --work-root R...`: copies ROOT to a folder of the send's
-//!   own on the machine (`cmux link sync push`), trying each work root in
-//!   turn, unless this send's copy already finished there: a second push
-//!   would overwrite what the chat changed since. Answers the chat's folder
-//!   there.
+//!   [--subpath SUB] --work-root R...`: puts ROOT in a folder of the send's
+//!   own on the machine (`cmux link seed push`: seeded from its GitHub
+//!   remote, else copied), trying each work root in turn, unless this send's
+//!   copy already finished there: a second push would overwrite what the chat
+//!   changed since. Answers the chat's folder there, and how it got there:
+//!   `mode` (`seed` or `copy`), `fallback_code`, `fallback_why` and
+//!   `install_url` when a seed copied instead, and `skipped_files`. The push's
+//!   progress lines go to stderr; `--acpmux-home H` adds `source_trusted` ([`trust`]).
 //! - `ensure --workspace W --key K --repo OWNER/NAME [--ref REF] [--environment env_...]
 //!   [--platform URL]`, the cmux credential on stdin: the workspace's own
 //!   machine from the cmux platform (`POST /v1/workspaces/{W}/machine`), made
@@ -49,8 +52,10 @@ mod ledger;
 mod pick;
 #[cfg(test)]
 mod tests;
+mod trust;
 
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
@@ -62,7 +67,7 @@ const USAGE: &str = "usage: cmux link start-chat plan --request JSON\n       \
 cmux link start-chat pin --key KEY --account ACCOUNT --machine ID [--workspace ID]\n       \
 cmux link start-chat ensure --workspace ID --key KEY --repo OWNER/NAME [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
-cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH...";
+cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH]";
 
 /// The error code a work root the machine's user cannot write answers with:
 /// the next root is tried.
@@ -156,6 +161,31 @@ pub(super) fn valid_key(key: &str) -> bool {
 
 fn refused(code: &str, error: impl std::fmt::Display) -> Value {
     json!({"ok": false, "error": error.to_string(), "error_code": code})
+}
+
+#[allow(clippy::arithmetic_side_effects, reason = "epoch milliseconds conversion")]
+fn now_millis() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs_f64() * 1_000.0)
+        .unwrap_or_default()
+}
+
+/// Copy timing belongs to the clone row, never machine creation or harness startup.
+fn copy_progress(
+    mut answer: Value,
+    state: &str,
+    phase: &str,
+    started_at: f64,
+    finished_at: f64,
+) -> Value {
+    if let Some(object) = answer.as_object_mut() {
+        object.insert("seed_state".into(), json!(state));
+        object.insert("seed_phase".into(), json!(phase));
+        object.insert("seed_started_at".into(), json!(started_at));
+        object.insert("seed_finished_at".into(), json!(finished_at));
+    }
+    answer
 }
 
 /// The account a send began in, as the App spells it: printable, at most 512 bytes.
@@ -276,7 +306,7 @@ pub(super) fn plan_with(
             let ask = Ensure {
                 // A send from no Mac workspace is a workspace of its own.
                 workspace: workspace.map_or_else(|| keys.create.clone(), str::to_string),
-                create_key: keys.create.clone(),
+                create_key: keys.create,
                 repo: repo.clone().unwrap_or_default(),
                 git_ref: None,
                 environment: request.environment.clone(),
@@ -303,6 +333,7 @@ pub(super) fn plan_with(
                     json!({"ok": true, "machine": id, "ensured": {
                         "created": line.get("created"), "snapshot": line.get("snapshot"),
                         "environment": line.get("environment"),
+                        "environment_id": line.get("environment_id"), "setup": line.get("setup"),
                     }})
                 }
                 // The platform made no machine: the App makes it, as before.
@@ -358,11 +389,15 @@ pub(super) fn made_no_machine(error: &crate::cli::PlatformCallError) -> bool {
 
 /// A cloud environment's id, as the cmux platform makes them: `env_` and 24 hex digits.
 pub(super) fn valid_environment(id: &str) -> bool {
-    id.len() == 28
-        && id.starts_with("env_")
-        && id
-            .get(4..)
-            .is_some_and(|hex| hex.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')))
+    let (prefix, hex) = if let Some(hex) = id.strip_prefix("env_") {
+        ("env_", hex)
+    } else if let Some(hex) = id.strip_prefix("denv_") {
+        ("denv_", hex)
+    } else {
+        return false;
+    };
+    id.len() == prefix.len() + 24
+        && hex.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 /// A repository as the cmux platform names one: `owner/name`, GitHub's characters, at most 140 bytes.
@@ -524,8 +559,70 @@ impl Ensure {
         )
         .map_err(|failure| unreachable(failure.message))?;
         let path = format!("/v1/workspaces/{}/machine", percent_segment(&self.workspace));
-        platform.post(&path, self.body())
+        let mut body = platform.post(&path, self.body())?;
+        // The machine answer identifies the derived environment. Read its step timings through
+        // the same authenticated client so the startup card can distinguish a first setup from a
+        // snapshot boot. Progress is telemetry: a failed read must not strand a machine that is
+        // already being admitted.
+        if let Some(environment_id) = body.pointer("/environment/id").and_then(Value::as_str) {
+            let path = format!("/v1/environments/{}", percent_segment(environment_id));
+            if let Ok(environment) =
+                platform.get_with_timeout(&path, std::time::Duration::from_secs(10))
+                && let Some(setup) = setup_state(&environment, has_snapshot(body.get("snapshot")))
+                && let Some(object) = body.as_object_mut()
+            {
+                object.insert("setup".into(), setup);
+            }
+        }
+        Ok(body)
     }
+}
+
+fn has_snapshot(value: Option<&Value>) -> bool {
+    value.is_some_and(|value| !value.is_null() && value != &Value::Bool(false))
+}
+
+/// Convert the environment endpoint's ordered step record into the small wire used by the
+/// startup checklist. `done` install means the script ran; a snapshot boot is cached; no install
+/// step means there is no setup script to report, unless the environment is still building.
+pub(super) fn setup_state(environment: &Value, snapshot: bool) -> Option<Value> {
+    let status = environment.get("status").and_then(Value::as_str);
+    let install = environment.get("steps").and_then(Value::as_array).and_then(|steps| {
+        steps.iter().find(|step| step.get("id").and_then(Value::as_str) == Some("install"))
+    });
+    let install_state = install.and_then(|step| step.get("state").and_then(Value::as_str));
+    if snapshot {
+        return Some(json!({"state": "done", "status": "ready"}));
+    }
+    let Some(install) = install else {
+        return (status == Some("building") || status == Some("pending"))
+            .then(|| json!({"state": "running", "status": "building"}));
+    };
+    let mut setup = serde_json::Map::new();
+    match install_state {
+        Some("done") => {
+            setup.insert("state".into(), json!("done"));
+        }
+        Some("running") | Some("pending") => {
+            setup.insert("state".into(), json!("running"));
+            setup.insert("status".into(), json!("building"));
+        }
+        Some("failed") => {
+            setup.insert("state".into(), json!("failed"));
+            setup.insert("status".into(), json!("failed"));
+            if let Some(detail) = install.get("detail").and_then(Value::as_str) {
+                setup.insert("error".into(), json!(detail));
+            }
+        }
+        Some("skipped") | None => return None,
+        Some(_) => return None,
+    }
+    for (source, target) in [("started_at", "started_at"), ("finished_at", "finished_at")] {
+        if let Some(value) = install.get(source).filter(|value| value.is_number()) {
+            setup.insert(target.into(), value.clone());
+        }
+    }
+    Some(Value::Object(setup))
 }
 
 /// One URL path segment: unreserved bytes kept, every other byte percent-encoded.
@@ -545,17 +642,35 @@ pub(super) fn percent_segment(segment: &str) -> String {
 pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>) -> Value {
     use crate::cli::PlatformCallError as E;
     match answer {
-        Ok(body) => match body.pointer("/machine/id").and_then(Value::as_str) {
-            Some(id) => json!({
-                "ok": true,
-                "machine": id,
-                "team": body.get("team"),
-                "created": body.get("created").and_then(Value::as_bool).unwrap_or(false),
-                "snapshot": body.get("snapshot"),
-                "environment": body.get("environment"),
-            }),
-            None => refused("bad_answer", "the cmux platform answered without the machine"),
-        },
+        Ok(body) => {
+            match body.pointer("/machine/id").and_then(Value::as_str) {
+                Some(id) => {
+                    let mut line = json!({
+                        "ok": true,
+                        "machine": id,
+                        "team": body.get("team"),
+                        "created": body.get("created").and_then(Value::as_bool).unwrap_or(false),
+                        "snapshot": body.get("snapshot"),
+                        "environment": body.get("environment"),
+                    });
+                    if let Some(environment) = body.get("environment")
+                        && let Some(environment_id) = environment.get("id").and_then(Value::as_str)
+                    {
+                        if let Some(object) = line.as_object_mut() {
+                            object.insert("environment_id".into(), json!(environment_id));
+                        }
+                        if let Some(setup) = body.get("setup").cloned().or_else(|| {
+                            setup_state(environment, has_snapshot(body.get("snapshot")))
+                        }) && let Some(object) = line.as_object_mut()
+                        {
+                            object.insert("setup".into(), setup);
+                        }
+                    }
+                    line
+                }
+                None => refused("bad_answer", "the cmux platform answered without the machine"),
+            }
+        }
         Err(E::Status { status: 404, code: "" | "not_found" }) => {
             refused("unavailable", "this cmux platform has no workspace machines (it answered 404)")
         }
@@ -577,8 +692,12 @@ pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>
 }
 
 /// `pin`: the send `key` of `account` runs on `machine` (one the App just made
-/// for it), which is the Mac workspace `workspace`'s own from now on when the
-/// workspace has none yet and no other workspace has it ([`pick::claim`]).
+/// for it, or one the person picked for it), which is the Mac workspace
+/// `workspace`'s own from now on when the workspace has none yet and no other
+/// workspace has it ([`pick::claim`]). A repick, a send already pinned to the
+/// workspace's own machine pinned elsewhere, moves the workspace with it
+/// (Leo, 2026-10-31: "picked zesty-indigo-lemur in the machine picker, but the
+/// chat stayed on sr2-tunnel-probe"), unless another workspace has the pick.
 pub(super) fn pin(
     ledger: &Path,
     key: &str,
@@ -587,9 +706,19 @@ pub(super) fn pin(
     workspace: Option<&str>,
 ) -> Value {
     match Ledger::update(ledger, |pins| {
-        pins.record(machine, &Send::new(key, account));
+        let send = Send::new(key, account);
+        let before = pins.machine(&send);
+        pins.record(machine, &send);
         if let Some(workspace) = workspace {
-            pick::claim(pins, workspace, account, machine);
+            let repick = before.as_deref().is_some_and(|before| {
+                before != machine
+                    && pins.workspace_machine(workspace, account).as_deref() == Some(before)
+            });
+            if repick && !pins.held_by_another(machine, workspace, account) {
+                pins.bind(workspace, account, machine);
+            } else {
+                pick::claim(pins, workspace, account, machine);
+            }
         }
     }) {
         Ok(()) => json!({"ok": true}),
@@ -610,20 +739,33 @@ pub(super) fn import(ledger: &Path, entries: &str) -> Value {
     }
 }
 
-/// One push of a folder to a machine: `(socket, local, remote)` to the push's
-/// error code and message.
-pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<(), (String, String)> + 'a;
+/// One push of a folder to a machine: `(socket, local, remote)` to what the
+/// answer adds about it ([`pushed_fields`]), or the push's error code and
+/// message.
+pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, (String, String)> + 'a;
 
-/// `cmux link sync push`, after the machine says it serves `fs-v1`.
-fn push(socket: &Path, local: &Path, remote: &str) -> Result<(), (String, String)> {
-    if let Some(outdated) =
-        super::machine_gate::outdated(socket, &[cmux_tui_core::fs_ops::FS_CAPABILITY])
-    {
-        return Err((super::machine_gate::OUTDATED.to_string(), outdated.message()));
+/// `cmux link seed push` (design/cloud.md, "Getting the project onto the
+/// machine"): a git folder with a GitHub remote is seeded from it, anything
+/// else copied (`cmux link sync push`), which refuses a machine without
+/// `fs-v1` (`machine_outdated`) itself.
+fn push(socket: &Path, local: &Path, remote: &str) -> Result<Value, (String, String)> {
+    super::seed_cli::push(socket, local, remote)
+        .map(|pushed| pushed_fields(&pushed.json()))
+        .map_err(|error| super::seed_cli::failure(&error))
+}
+
+/// What the copy's answer carries of the push's own line: how it went
+/// (`mode`: seed or copy), why a seed copied instead (`fallback_code`,
+/// `fallback_why`, and `install_url` when the machine needs the GitHub App),
+/// and the files it left on this Mac, by name.
+fn pushed_fields(line: &Value) -> Value {
+    let mut fields = serde_json::Map::new();
+    for key in ["mode", "fallback_code", "fallback_why", "install_url", "skipped_files"] {
+        if let Some(value) = line.get(key).filter(|value| !value.is_null()) {
+            fields.insert(key.to_string(), value.clone());
+        }
     }
-    super::sync_cli::push(socket, local, remote)
-        .map(|_| ())
-        .map_err(|error| super::sync_cli::push_failure(&error))
+    Value::Object(fields)
 }
 
 /// Folders a chat's copy refuses as too broad: the disk's root and the
@@ -677,6 +819,8 @@ pub(super) struct StartCopy {
     pub(super) subpath: String,
     /// The machine's folders for copies, in the order they are tried.
     pub(super) work_roots: Vec<String>,
+    /// This Mac's acpmux home (`--acpmux-home`) for `source_trusted`; none: never trusted.
+    pub(super) acpmux_home: Option<PathBuf>,
 }
 
 impl StartCopy {
@@ -701,6 +845,7 @@ impl StartCopy {
             local: local.to_string(),
             subpath,
             work_roots,
+            acpmux_home: trust::acpmux_home(flags),
         })
     }
 
@@ -733,6 +878,34 @@ impl StartCopy {
     /// over a chat's changes. An abandoned folder (its send never retried
     /// on that machine) stays on the machine; nothing cleans it up.
     pub(super) fn run(&self, ledger: &Path, push: &Push<'_>) -> Value {
+        let started_at = now_millis();
+        let mut answer = self.run_copy(ledger, push);
+        if let Some(done) = answer.as_object_mut().filter(|a| a.get("ok") == Some(&json!(true))) {
+            done.insert("source_trusted".into(), json!(self.source_trusted()));
+        }
+        let (state, phase) = if answer.get("ok").and_then(Value::as_bool) == Some(true) {
+            (
+                "done",
+                if answer.get("copied").and_then(Value::as_bool) == Some(false) {
+                    "cached"
+                } else {
+                    "complete"
+                },
+            )
+        } else {
+            (
+                "failed",
+                if answer.get("error_code").and_then(Value::as_str) == Some("ledger_failed") {
+                    "ledger"
+                } else {
+                    "copy"
+                },
+            )
+        };
+        copy_progress(answer, state, phase, started_at, now_millis())
+    }
+
+    fn run_copy(&self, ledger: &Path, push: &Push<'_>) -> Value {
         if too_broad(&self.local, std::env::var_os("HOME").map(PathBuf::from).as_deref()) {
             return refused(
                 "folder_too_broad",
@@ -782,14 +955,21 @@ impl StartCopy {
         for root in &self.work_roots {
             let (folder, chat) = self.remote(root, &place);
             match push(&self.socket, Path::new(&self.local), &folder) {
-                Ok(()) => {
+                Ok(fields) => {
                     let recorded = Ledger::update(ledger, |pins| {
                         pins.record_copy(&chat, &send, &self.machine, &place);
                     });
                     lease.release();
                     return match recorded {
                         Ok(()) => {
-                            json!({"ok": true, "chat": chat, "folder": folder, "copied": true})
+                            let mut answer =
+                                json!({"ok": true, "chat": chat, "folder": folder, "copied": true});
+                            if let (Some(answer), Value::Object(fields)) =
+                                (answer.as_object_mut(), fields)
+                            {
+                                answer.extend(fields);
+                            }
+                            answer
                         }
                         Err(error) => refused("ledger_failed", format!("{error:#}")),
                     };
