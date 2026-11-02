@@ -1,7 +1,98 @@
 {
   "$comment": "What the SDK schema cannot say about the Swift side of each generated CmuxNextDaemon request type (swift_app/emit.py explains the rules). A family is one Requests/<Family> folder; it moves here from hand-written Swift in one change.",
   "output_root": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests",
-  "ids": {},
-  "types": {},
-  "families": {}
+  "ids": {
+    "column": "ColumnID",
+    "pane": "PaneID",
+    "split": "SplitID",
+    "zoomed_pane": "PaneID"
+  },
+  "types": {
+    "RowHeight": "RowHeightValue"
+  },
+  "families": {
+    "Layout": {
+      "$comment": "new-row stays hand-written in Layout/NewRowRequest.swift: it carries the shared SpawnOptions and moves with the Creation family.",
+      "enums": {
+        "ColumnMoveDirection": {
+          "doc": ["The neighbor a viewport column trades places with (`move-column`)."]
+        },
+        "PaneDirection": {
+          "doc": ["A direction from a pane: a split's side, a swap's or a focus move's neighbor."]
+        }
+      },
+      "requests": {
+        "move-column": {
+          "name": "MoveColumnRequest",
+          "doc": [
+            "Moves the whole viewport column holding `pane` (every pane, split and row in it) one place left or",
+            "right (`column-move-v1`). The daemon refuses a column at the strip's edge or next to a docked column",
+            "(`column-move-edge`) and a docked column (`column-move-docked`)."
+          ],
+          "order": ["pane", "direction"],
+          "fields": {"pane": {"doc": ["Any pane of the column that moves."]}},
+          "response": "EmptyResponse"
+        },
+        "set-column-dock": {
+          "name": "SetColumnDockRequest",
+          "doc": [
+            "Pins the column holding `pane` to a viewport edge, or unpins it (`dock-columns-v1`). One docked",
+            "column per edge: the daemon unpins a column already on that edge, and refuses to leave no column",
+            "scrolling. `role` needs `dock-column-role-v1`; an older daemon ignores it. Build it from a",
+            "`DockSnapshot` with `init(pane:dock:pinned:transaction:)`."
+          ],
+          "order": ["pane", "dock", "edge", "mode", "role", "pinned", "transaction"],
+          "fields": {
+            "pinned": {"doc": [
+              "`pinned-dock-v1`: true marks the column pinned (the Home dock); nil keeps what the column has (the",
+              "daemon never clears a pin)."
+            ]}
+          },
+          "response": "EmptyResponse"
+        },
+        "set-row-heights": {
+          "name": "SetRowHeightsRequest",
+          "doc": ["`set-row-heights` (`rows-v1`): every row of one column at once. `fit` requires a sum of exactly 1000."],
+          "order": ["column", "heights", "fit", "transaction"],
+          "response": "EmptyResponse"
+        },
+        "set-split-ratio": {
+          "name": "SetSplitRatioRequest",
+          "doc": ["Divider drag. Reuse one `transaction` per gesture so undo coalesces."],
+          "order": ["split", "ratio", "transaction"]
+        },
+        "set-viewport-pane-width": {
+          "name": "SetColumnWidthRequest",
+          "doc": ["Column width drag (`viewport-column-resize-v1`). Reuse one `transaction` per gesture so undo coalesces."],
+          "order": ["pane", "width", "transaction"],
+          "fields": {"width": {"doc": ["The share of the viewport the column takes."]}},
+          "response": "EmptyResponse"
+        },
+        "swap-pane": {
+          "name": "SwapPaneRequest",
+          "doc": [
+            "Trades `pane` with its neighbor in `dir` or with the pane `target`; exactly one of them. Build it",
+            "from a `SwapTarget` with `init(pane:target:)`."
+          ],
+          "order": ["pane", "dir", "target"],
+          "fields": {"target": {"type": "PaneID"}}
+        },
+        "undo-layout": {
+          "name": "UndoLayoutRequest",
+          "doc": [
+            "Undoes the last layout change of `pane`'s screen. An undo that closes panes first answers",
+            "`confirmation_required`; send it again with that `revision` and `confirmClose` to apply it."
+          ],
+          "order": ["pane", "revision", "confirm_close"],
+          "response": "hand-written"
+        },
+        "zoom-pane": {
+          "name": "ZoomPaneRequest",
+          "order": ["pane", "mode"],
+          "response": "generate",
+          "response_order": ["pane", "zoomed", "zoomed_pane"]
+        }
+      }
+    }
+  }
 }
