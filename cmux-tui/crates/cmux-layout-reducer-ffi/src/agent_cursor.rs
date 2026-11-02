@@ -7,8 +7,13 @@
 //! `agent_cursor_visibility`. `CMUX_FOCUS_NONE` is none. Variable-length
 //! parts are ranges (`offset`, `count`) into the snapshot's flat arrays.
 
-use crate::{ERR_NULL, OK};
-use cmux_focus_core::agent_cursor_visibility::Rect;
+use crate::focus::NONE;
+use crate::{ERR_INVALID, ERR_NULL, ERR_PANIC, OK};
+use cmux_focus_core::agent_cursor_visibility::{
+    Anchor, Edge, NotDrawnReason, Outcome, Page, PaneFacts, Rect, SnapshotView, WindowFacts,
+    resolve_view,
+};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub const WINDOW_MINIMIZED: u32 = 1;
 pub const WINDOW_ON_ACTIVE_SPACE: u32 = 2;
@@ -117,11 +122,199 @@ pub struct CmuxCursorVisibility {
     pub scale: f64,
 }
 
-/// A stub until the rules move in the next commit: nothing draws.
+/// `ptr` points to `count` readable items, or `count` is 0.
+unsafe fn items<'a, T>(ptr: *const T, count: usize) -> Option<&'a [T]> {
+    if count == 0 {
+        return Some(&[]);
+    }
+    if ptr.is_null() {
+        return None;
+    }
+    // SAFETY: guaranteed by the C caller.
+    Some(unsafe { std::slice::from_raw_parts(ptr, count) })
+}
+
+/// The range `offset..offset + count` of `all`, when it lies inside it.
+fn range<T>(all: &[T], offset: u32, count: u32) -> Option<&[T]> {
+    let start = offset as usize;
+    all.get(start..start.checked_add(count as usize)?)
+}
+
+fn present(id: u32) -> Option<u32> {
+    (id != NONE).then_some(id)
+}
+
+/// The caller's arrays, every range checked once before the rules read them.
+struct Typed<'a> {
+    snapshot: &'a CmuxCursorSnapshot,
+    windows: &'a [CmuxCursorWindow],
+    ids: &'a [u32],
+    rows: &'a [CmuxCursorKeyedRect],
+    panes: &'a [CmuxCursorPane],
+    chips: &'a [CmuxCursorKeyedRect],
+}
+
+impl<'a> Typed<'a> {
+    /// # Safety
+    ///
+    /// Every pointer of `snapshot` points to its count of readable items (or the count is 0).
+    unsafe fn from_snapshot(snapshot: &'a CmuxCursorSnapshot) -> Option<Typed<'a>> {
+        let typed = unsafe {
+            Typed {
+                snapshot,
+                windows: items(snapshot.windows, snapshot.windows_count)?,
+                ids: items(snapshot.ids, snapshot.ids_count)?,
+                rows: items(snapshot.rows, snapshot.rows_count)?,
+                panes: items(snapshot.panes, snapshot.panes_count)?,
+                chips: items(snapshot.chips, snapshot.chips_count)?,
+            }
+        };
+        for window in typed.windows {
+            range(typed.ids, window.listed_offset, window.listed_count)?;
+            range(typed.rows, window.rows_offset, window.rows_count)?;
+            for pane in range(typed.panes, window.panes_offset, window.panes_count)? {
+                range(typed.chips, pane.chips_offset, pane.chips_count)?;
+            }
+        }
+        Some(typed)
+    }
+
+    fn window_record(&self, window: usize) -> &'a CmuxCursorWindow {
+        let windows: &'a [CmuxCursorWindow] = self.windows;
+        &windows[window]
+    }
+}
+
+fn rect_if(flags: u32, bit: u32, rect: Rect) -> Option<Rect> {
+    (flags & bit != 0).then_some(rect)
+}
+
+impl SnapshotView for Typed<'_> {
+    type Id = u32;
+
+    fn tab(&self) -> Option<(u32, u32)> {
+        present(self.snapshot.tab_workspace).map(|workspace| (workspace, self.snapshot.tab_pane))
+    }
+
+    fn window_count(&self) -> usize {
+        self.windows.len()
+    }
+
+    fn window(&self, window: usize) -> WindowFacts<u32> {
+        let record = self.window_record(window);
+        WindowFacts {
+            minimized: record.flags & WINDOW_MINIMIZED != 0,
+            on_active_space: record.flags & WINDOW_ON_ACTIVE_SPACE != 0,
+            overlay: record.overlay,
+            shown_workspace: present(record.shown_workspace),
+            sidebar_hidden: record.flags & WINDOW_SIDEBAR_HIDDEN != 0,
+        }
+    }
+
+    fn lists(&self, window: usize, workspace: u32) -> bool {
+        let record = self.window_record(window);
+        range(self.ids, record.listed_offset, record.listed_count)
+            .is_some_and(|listed| listed.contains(&workspace))
+    }
+
+    fn sidebar_row(&self, window: usize, workspace: u32) -> Option<Rect> {
+        let record = self.window_record(window);
+        range(self.rows, record.rows_offset, record.rows_count)?
+            .iter()
+            .find(|row| row.key == workspace)
+            .map(|row| row.rect)
+    }
+
+    fn pane(&self, window: usize, pane: u32) -> Option<(usize, PaneFacts<u32>)> {
+        let record = self.window_record(window);
+        let panes = range(self.panes, record.panes_offset, record.panes_count)?;
+        let index = panes.iter().position(|candidate| candidate.id == pane)?;
+        let found = &panes[index];
+        let page = (found.flags & PANE_HAS_PAGE != 0).then_some(Page {
+            viewport: found.viewport,
+            zoom: found.zoom,
+            scale: (found.flags & PANE_HAS_SCALE != 0).then_some(found.scale),
+        });
+        Some((
+            record.panes_offset as usize + index,
+            PaneFacts {
+                frame: rect_if(found.flags, PANE_HAS_FRAME, found.frame),
+                clip: rect_if(found.flags, PANE_HAS_CLIP, found.clip),
+                selected_tab: present(found.selected_tab),
+                strip: rect_if(found.flags, PANE_HAS_STRIP, found.strip),
+                page,
+            },
+        ))
+    }
+
+    fn chip(&self, _window: usize, pane: usize, tab: u32) -> Option<Rect> {
+        let record = self.panes.get(pane)?;
+        range(self.chips, record.chips_offset, record.chips_count)?
+            .iter()
+            .find(|chip| chip.key == tab)
+            .map(|chip| chip.rect)
+    }
+}
+
+/// The anchor's wire number (the header's list).
+pub fn anchor_number(anchor: Anchor) -> u32 {
+    match anchor {
+        Anchor::TabChip => 0,
+        Anchor::TabStrip => 1,
+        Anchor::ColumnEdge(Edge::Leading) => 2,
+        Anchor::ColumnEdge(Edge::Trailing) => 3,
+        Anchor::ColumnEdge(Edge::Top) => 4,
+        Anchor::ColumnEdge(Edge::Bottom) => 5,
+        Anchor::WorkspaceRow => 6,
+        Anchor::WindowEdge => 7,
+    }
+}
+
+/// The reason's wire number (the header's list).
+pub fn reason_number(reason: NotDrawnReason) -> u32 {
+    match reason {
+        NotDrawnReason::TabClosed => 0,
+        NotDrawnReason::NotInAnyWindow => 1,
+        NotDrawnReason::Minimized => 2,
+        NotDrawnReason::OtherSpace => 3,
+    }
+}
+
+fn answer(typed: &Typed<'_>, outcome: Outcome) -> CmuxCursorVisibility {
+    match outcome {
+        Outcome::Visible { window, viewport, clip, zoom, scale } => CmuxCursorVisibility {
+            kind: KIND_VISIBLE,
+            window: typed.windows[window].id,
+            viewport,
+            clip,
+            zoom,
+            scale,
+            ..CmuxCursorVisibility::default()
+        },
+        Outcome::Hidden { window, anchor, rect } => CmuxCursorVisibility {
+            kind: KIND_HIDDEN,
+            window: typed.windows[window].id,
+            anchor: anchor_number(anchor),
+            rect,
+            ..CmuxCursorVisibility::default()
+        },
+        Outcome::NotDrawn { reason } => CmuxCursorVisibility {
+            kind: KIND_NOT_DRAWN,
+            reason: reason_number(reason),
+            ..CmuxCursorVisibility::default()
+        },
+    }
+}
+
+/// Where the agent cursor for `snapshot.target` draws: writes `out` and
+/// returns `CMUX_LAYOUT_REDUCER_OK`; `ERR_NULL` for a null pointer (or a
+/// null array with a nonzero count), `ERR_INVALID` for a range outside its
+/// array, `ERR_PANIC` for a panic. `out` is written only on OK.
 ///
 /// # Safety
 ///
-/// `snapshot` and `out` are null or valid.
+/// `snapshot` and `out` are null or valid; every array of `snapshot` points
+/// to its count of readable items (or its count is 0).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_agent_cursor_visibility(
     snapshot: *const CmuxCursorSnapshot,
@@ -130,9 +323,28 @@ pub unsafe extern "C" fn cmux_agent_cursor_visibility(
     if snapshot.is_null() || out.is_null() {
         return ERR_NULL;
     }
-    // SAFETY: `out` is non-null and writable, as the caller guarantees.
-    unsafe {
-        *out = CmuxCursorVisibility { kind: KIND_NOT_DRAWN, ..CmuxCursorVisibility::default() }
-    };
-    OK
+    // SAFETY: non-null and valid, as the caller guarantees.
+    let snapshot = unsafe { &*snapshot };
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let has_null = (snapshot.windows.is_null() && snapshot.windows_count != 0)
+            || (snapshot.ids.is_null() && snapshot.ids_count != 0)
+            || (snapshot.rows.is_null() && snapshot.rows_count != 0)
+            || (snapshot.panes.is_null() && snapshot.panes_count != 0)
+            || (snapshot.chips.is_null() && snapshot.chips_count != 0);
+        if has_null {
+            return Err(ERR_NULL);
+        }
+        // SAFETY: every array points to its count of items (checked non-null above).
+        let typed = unsafe { Typed::from_snapshot(snapshot) }.ok_or(ERR_INVALID)?;
+        Ok(answer(&typed, resolve_view(snapshot.target, &typed)))
+    }));
+    match result {
+        Ok(Ok(visibility)) => {
+            // SAFETY: `out` is non-null and writable, as the caller guarantees.
+            unsafe { *out = visibility };
+            OK
+        }
+        Ok(Err(code)) => code,
+        Err(_) => ERR_PANIC,
+    }
 }
