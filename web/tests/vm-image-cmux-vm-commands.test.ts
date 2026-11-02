@@ -84,8 +84,11 @@ describe("Freestyle key by path", () => {
 // still exited 0 (warnings only), apt-cache then knew none of the pins, and the bake failed on the first
 // pin alphabetically ("no size for acl=..."), which read like a bad lock.
 describe("cmux VM image apt index", () => {
-  test("an index that fails to download fails the update step", async () => {
-    expect(bake.APT_UPDATE_COMMAND).toContain("apt-get update -q --error-on=any");
+  test("an index outage gets one bounded retry with backoff before failing", async () => {
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout \"${timeout_s}s\" apt-get update -q --error-on=any");
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=240");
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=45");
+    expect(bake.APT_UPDATE_COMMAND).toContain("sleep 5");
     await bashSyntax(bake.APT_UPDATE_COMMAND);
   });
 

@@ -321,7 +321,14 @@ export const APT_BATCH_BYTES = 20_000_000;
  * `--error-on=any`: without it apt-get update exits 0 when an index fails to download (it warns
  * and keeps the old or no index), so a mirror outage surfaced later as a locked pin with no size.
  */
-export const APT_UPDATE_COMMAND = "apt-get update -q --error-on=any >/tmp/apt-update.log 2>&1 || { tail -30 /tmp/apt-update.log; exit 1; }";
+export const APT_UPDATE_COMMAND = [
+  "for attempt in 1 2; do",
+  "  if [ \"$attempt\" -eq 1 ]; then timeout_s=240; else timeout_s=45; fi;",
+  "  if timeout \"${timeout_s}s\" apt-get update -q --error-on=any >/tmp/apt-update.log 2>&1; then exit 0; fi;",
+  "  [ \"$attempt\" -eq 2 ] || sleep 5;",
+  "done;",
+  "tail -30 /tmp/apt-update.log; exit 1",
+].join(" ");
 
 /** `pkg=version size` for every locked package, from the updated apt index (Size: field). */
 export function aptSizesCommand(packages: Readonly<Record<string, string>>): string {
