@@ -180,3 +180,30 @@ fn a_snapshot_in_full_mode_removes_a_tail_left_from_snapshot_mode() {
     let _ = std::fs::remove_dir_all(&directory);
     assert!(!left, "the tail of snapshot mode outlived a full-mode snapshot");
 }
+
+/// A flood during a write backoff must not wake the writer on every chunk
+/// (review of #31643 at de88631da57: each wake moved the capped 8 MiB
+/// buffer under the lock the reader needs, back to back).
+#[test]
+fn a_flood_during_a_write_backoff_does_not_wake_the_writer_per_chunk() {
+    let store = OutputStore::new(None);
+    store.set_tail_enabled(true);
+    let id = TerminalPublicId::parse("term_00000000000000000000000000000f3b").unwrap();
+    let generation: Arc<str> = Arc::from("g");
+    store.append(&id, &generation, b"x", None);
+    let log = store.logs.lock().unwrap().get(&id).cloned().unwrap();
+    {
+        let mut state = log.state.lock().unwrap();
+        state.store_failed();
+        state.pending = vec![b'.'; super::super::TAIL_MAX_UNWRITTEN_BYTES];
+    }
+    store.writer.state.0.lock().unwrap().due = None;
+    store.append(&id, &generation, b"one more chunk", None);
+    let due = store.writer.state.0.lock().unwrap().due;
+    assert!(
+        due.is_none_or(
+            |due| due > std::time::Instant::now() + std::time::Duration::from_millis(500)
+        ),
+        "a chunk during the backoff woke the writer at once"
+    );
+}
