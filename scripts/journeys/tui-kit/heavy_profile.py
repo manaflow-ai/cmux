@@ -9,7 +9,9 @@ control socket, with no hand steps, on a running tagged build; recorded to a man
   heavy_profile.py teardown --manifest DIR/heavy.json            close what build made, stop its page server
   heavy_profile.py plan [--seed 7]                                the plan only (no app): what goes where
 
-The shown workspace runs tuikit.py's load (gradient, sigwinch, mouse, flood, vim-scroll, top: the same
+The shown workspace's columns and rows are splits with ratios that make them even, so every pane
+is on screen (not viewport columns: the first one keeps the viewport width). It runs tuikit.py's
+load (gradient, sigwinch, mouse, flood, vim-scroll, top: the same
 seeded choice as `tuikit.py scenario`); the browser pane loads tuikit's CSS-animation page from a local
 page server; the agent pane is an agent chat on the `tuikit-stream` harness (agent_stream_acp.py, a
 streaming stand-in agent), else, when the build cannot open it, tuikit's agent-stream in a terminal
@@ -206,7 +208,10 @@ class App:
     def cmux(self, *args, timeout=60):
         env = {"HOME": self.home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_QUIET": "1"}
         argv = [self.cli, "--socket", self.daemon_sock, "--app-socket", self.app_sock, "--json"] + list(args)
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=env)
+        try:
+            done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=env)
+        except subprocess.TimeoutExpired:
+            raise Refused("cmux %s: no answer in %d s" % (" ".join(shlex.quote(x) for x in args[:6]), timeout))
         try:
             parsed = json.loads(done.stdout) if done.stdout.strip() else None
         except ValueError:
@@ -244,10 +249,10 @@ def start_page_server(plan, rec):
     """One tuikit page server for every page the plan shows; its pid goes in the manifest."""
     for seed in plan["pages"]:
         tuikit.write_atomic(os.path.join(plan["out"], "anim-%d.html" % seed), tuikit.page_html(seed))
-    log = open(os.path.join(plan["out"], "page-server.out"), "w")
-    proc = subprocess.Popen([plan["python"], plan["kit"], "serve", "--seed", str(plan["seed"]), "--dir", plan["out"],
-                             "--port", "0", "--duration", str(plan["duration"] + 600)],
-                            stdout=subprocess.PIPE, stderr=log, text=True, start_new_session=True)
+    with open(os.path.join(plan["out"], "page-server.out"), "w") as log:
+        proc = subprocess.Popen([plan["python"], plan["kit"], "serve", "--seed", str(plan["seed"]), "--dir", plan["out"],
+                                 "--port", "0", "--duration", str(plan["duration"] + 600)],
+                                stdout=subprocess.PIPE, stderr=log, text=True, start_new_session=True)
     line = proc.stdout.readline()
     try:
         url = json.loads(line)["url"]
@@ -311,12 +316,15 @@ def write_harness(app, plan, rec):
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, "tuikit-stream.toml")
     existed = os.path.exists(path)
+    if existed:
+        with open(path) as f:
+            before = f.read()
     acp = os.path.join(HERE, "agent_stream_acp.py")
     with open(path, "w") as f:
         f.write('id = "tuikit-stream"\nname = "tuikit stream"\ncommand = %s\nargs = [%s]\n'
                 % (json.dumps(plan["python"]), json.dumps(acp)))
     os.chmod(path, 0o600)
-    rec.data["harness_file"] = {"path": path, "existed": existed}
+    rec.data["harness_file"] = {"path": path, "existed": existed, "before": before if existed else None}
     rec.save()
     return path
 
@@ -369,14 +377,13 @@ def tabs_of(topology, pane_id):
     return []
 
 
-def new_column(app, rec, pane, width, argv, what):
-    """A new viewport column right of `pane` (split --right --viewport-width); a build without
-    --viewport-width gets a plain split --right (recorded as a refusal)."""
-    try:
-        return app.cmux("pane", pane, "split", "--right", "--viewport-width", width, *run_args(argv))
-    except Refused as error:
-        rec.refused(what, error)
-        return app.cmux("pane", pane, "split", "--right", *run_args(argv))
+def new_column(app, pane, remaining, argv):
+    """The next column: `pane` holds the `remaining` columns not made yet; split --right gives the new
+    pane (right) (remaining - 1) / remaining of it, so every column ends 1/N of the window wide.
+    (Not --viewport-width: the first column keeps viewport width 1.0, so the other columns would sit
+    off screen.)"""
+    ratio = "%.4f" % (1.0 - 1.0 / remaining)
+    return app.cmux("pane", pane, "split", "--right", "--ratio", ratio, *run_args(argv))
 
 
 def make_shown(app, plan, rec, base):
@@ -390,11 +397,10 @@ def make_shown(app, plan, rec, base):
                               terminal_id=value.get("terminal_id")))
     rec.save()
     columns = len(shown["columns"]) + (1 if shown["extra_column"] else 0)
-    width = "%.4f" % (1.0 / columns)
     tops = [value.get("pane_id")]
     for col in shown["columns"][1:]:
         cell = col[0]
-        v = new_column(app, rec, tops[-1], width, cell["argv"], "column %d" % cell["column"])
+        v = new_column(app, tops[-1], columns - cell["column"] + 1, cell["argv"])
         tops.append(v.get("pane_id"))
         made["panes"].append(dict(cell, pane_id=v.get("pane_id"), tab_id=v.get("tab_id"), terminal_id=v.get("terminal_id")))
         rec.save()
@@ -417,7 +423,7 @@ def make_shown(app, plan, rec, base):
         # placeholder tab is closed so each pane shows exactly one tab.
         try:
             if last is None:
-                v = new_column(app, rec, tops[-1], width, ["/bin/sleep", "86400"], "extra column")
+                v = new_column(app, tops[-1], 2, ["/bin/sleep", "86400"])
             else:
                 ratio = "%.4f" % (1.0 - 1.0 / (len(extras) - i + 1))
                 v = app.cmux("pane", last, "split", "--down", "--ratio", ratio, "--", "/bin/sleep", "86400")
@@ -494,6 +500,19 @@ def cmd_build(a):
     return 0 if ok else 1
 
 
+def stop_page_server(pid, out):
+    """SIGTERM to the page server build started (its own session), only while that pid still runs
+    `tuikit.py serve --dir OUT`: a reused pid is never signalled."""
+    args = subprocess.run(["ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True).stdout
+    if "tuikit.py serve" not in args or ("--dir %s " % out) not in args + " ":
+        return "not running (pid %d now runs %r)" % (pid, args.strip()[:120])
+    try:
+        os.killpg(pid, signal.SIGTERM)
+        return "stopped"
+    except OSError as error:
+        return str(error)
+
+
 def cmd_teardown(a):
     with open(a.manifest) as f:
         data = json.load(f)
@@ -516,23 +535,28 @@ def cmd_teardown(a):
             app.cmux("workspace", ws, "close")
             report["closed"].append(ws)
         except Refused as error:
-            reply = app.rpc("action.run", {"action": "closeWorkspace", "target": "workspace:%s" % ws,
-                                           "args": {"confirm": True}})
+            try:
+                reply = app.rpc("action.run", {"action": "closeWorkspace", "target": "workspace:%s" % ws,
+                                               "args": {"confirm": True}})
+            except (OSError, ValueError) as rpc_error:
+                reply = {"error": str(rpc_error)}
             if isinstance(reply, dict) and reply.get("error"):
                 report["refused"].append({"what": ws, "error": str(error)[:200], "rpc": json.dumps(reply)[:200]})
             else:
                 report["closed"].append(ws)
     server = data.get("page_server") or {}
-    if server.get("pid"):
-        try:
-            os.killpg(server["pid"], signal.SIGTERM)  # the server was started in its own session by build
-            report["page_server"] = "stopped"
-        except OSError as error:
-            report["page_server"] = str(error)
+    if server.get("pid") and not server.get("stopped"):
+        report["page_server"] = stop_page_server(server["pid"], data["plan"]["out"])
+        server["stopped"] = True
     harness = data.get("harness_file") or {}
-    if harness.get("path") and not harness.get("existed") and os.path.exists(harness["path"]):
-        os.remove(harness["path"])
-        report["harness_file"] = "removed"
+    if harness.get("path") and not harness.get("restored"):
+        if harness.get("existed"):
+            tuikit.write_atomic(harness["path"], harness.get("before") or "")
+            report["harness_file"] = "put back"
+        elif os.path.exists(harness["path"]):
+            os.remove(harness["path"])
+            report["harness_file"] = "removed"
+        harness["restored"] = True
     data["teardown"] = report
     rec.save()
     print(json.dumps(report))

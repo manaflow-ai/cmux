@@ -74,6 +74,13 @@ def install_quit():
         signal.signal(sig, _quit)
 
 
+def calm():
+    """First thing in a clean-up: a second signal (SIGHUP after SIGTERM when the pane closes) must not
+    cut the restore sequence short."""
+    for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+        signal.signal(sig, signal.SIG_IGN)
+
+
 class Out:
     """Whole writes to a file descriptor (a frame never goes out half because of a short write)."""
 
@@ -341,8 +348,8 @@ def cmd_gradient(a):
     g = Gradient(a)
     run, pacer = Run(a), Pacer(a.fps)
     k = 0
-    out.write(ALT_ON + HIDE + WRAP_OFF + "\x1b[2J")
     try:
+        out.write(ALT_ON + HIDE + WRAP_OFF + "\x1b[2J")
         log.event("start", program="gradient", seed=a.seed, fps=a.fps)
         while not run.done(k):
             if winch[0]:
@@ -359,6 +366,7 @@ def cmd_gradient(a):
     except Quit:
         pass
     finally:
+        calm()
         out.write(ESU + RESET + WRAP_ON + SHOW + ALT_OFF)
         log.event("end", frames=k)
         log.close()
@@ -434,8 +442,8 @@ def cmd_sigwinch(a):
     run = Run(a)
     n_winch = n_reflow = ticks = 0
     cols, rows = term_size(1, a.size)
-    out.write(ALT_ON + HIDE + WRAP_OFF)
     try:
+        out.write(ALT_ON + HIDE + WRAP_OFF)
         log.event("start", program="sigwinch", seed=a.seed, cols=cols, rows=rows)
         out.write(r.draw(cols, rows, 0, 0, 0.0))
         tick_period = 1.0 / a.tick if a.tick > 0 else None
@@ -468,6 +476,7 @@ def cmd_sigwinch(a):
     except Quit:
         pass
     finally:
+        calm()
         signal.set_wakeup_fd(-1)
         out.write(ESU + RESET + WRAP_ON + SHOW + ALT_OFF)
         log.event("end", winch=n_winch, reflow=n_reflow, ticks=ticks)
@@ -511,8 +520,9 @@ def cmd_mouse(a):
     run = Run(a)
     ticks = 0
     out = Out()
-    stdscr = curses.initscr()
+    stdscr = None
     try:
+        stdscr = curses.initscr()
         curses.noecho()
         curses.cbreak()
         stdscr.keypad(False)
@@ -632,9 +642,11 @@ def cmd_mouse(a):
     except Quit:
         pass
     finally:
+        calm()
         signal.set_wakeup_fd(-1)
         out.write(MOUSE_OFF)
-        curses.endwin()
+        if stdscr is not None:
+            curses.endwin()
         log.event("end", clicks=clicks, ticks=ticks)
         log.close()
     return 0
@@ -663,9 +675,12 @@ def flood_line(seed, n, width, payloads):
 
 
 def cmd_flood(a):
-    if a.width < 32:
-        sys.exit("flood: --width is at least 32")
-    install_quit()
+    need = len("%010d s%d " % (0, a.seed)) + 12
+    if a.width < max(32, need):
+        sys.exit("flood: --width is at least %d for seed %d" % (max(32, need), a.seed))
+    stop = []
+    for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):  # a batch is never cut: stop between batches
+        signal.signal(sig, lambda signum, _frame: stop.append(signum))
     out = Out()
     log = Log(a.log)
     payloads = flood_payloads(a.seed, a.width)
@@ -675,7 +690,7 @@ def cmd_flood(a):
     batch = max(1, a.rate // 120) if a.rate else 512
     log.event("start", program="flood", seed=a.seed, rate=a.rate, width=a.width)
     try:
-        while True:
+        while not stop:
             if a.lines and n >= a.lines:
                 break
             if run.duration and time.monotonic() - run.t0 >= run.duration:
@@ -693,9 +708,8 @@ def cmd_flood(a):
                 now = time.monotonic()
                 if due > now:
                     time.sleep(due - now)
-    except Quit:
-        pass
     finally:
+        calm()
         out.write(RESET + "tuikit flood end lines=%d\n" % n)
         log.event("end", lines=n)
         log.close()
@@ -894,8 +908,8 @@ def cmd_top(a):
     top = Top(a)
     run, pacer = Run(a), Pacer(a.fps)
     k = 0
-    out.write(ALT_ON + HIDE + WRAP_OFF + "\x1b[2J")
     try:
+        out.write(ALT_ON + HIDE + WRAP_OFF + "\x1b[2J")
         while not run.done(k):
             cols, rows = term_size(1, a.size)
             late = pacer.wait(k)
@@ -907,6 +921,7 @@ def cmd_top(a):
     except Quit:
         pass
     finally:
+        calm()
         out.write(ESU + RESET + WRAP_ON + SHOW + ALT_OFF)
         log.event("end", frames=k)
         log.close()
@@ -996,6 +1011,7 @@ def cmd_agent_stream(a):
     except Quit:
         pass
     finally:
+        calm()
         out.write(RESET + "\n")
         log.event("end", chars=sent)
         log.close()
@@ -1104,6 +1120,7 @@ def cmd_serve(a):
     except Quit:
         pass
     finally:
+        calm()
         server.shutdown()
     return 0
 
@@ -1188,7 +1205,7 @@ def build_manifest(a):
             "mode": a.agent, "seed": aseed,
             "acp": {"harness": "tuikit-stream", "argv": [a.python, os.path.join(kit_dir, "agent_stream_acp.py")],
                     "prompt": "stream: %d %s 400" % (aseed, a.duration),
-                    "how": "add the harness to ACPMUX_HOME/config.json harnesses, _acpmux/reload_config, open an "
+                    "how": "write ACPMUX_HOME/harnesses/tuikit-stream.toml (see agent_stream_acp.py), open an "
                            "agent chat on it and send the prompt; fake_agent.py must sit beside "
                            "agent_stream_acp.py or be named by CMUX_TUIKIT_FAKE_AGENT"},
             "terminal": {"argv": terminal, "command": shlex.join(terminal)}}
@@ -1209,6 +1226,13 @@ def cmd_scenario(a):
 
 # ---- command line --------------------------------------------------------------------------------
 
+def positive(text):
+    value = float(text)
+    if not value > 0:
+        raise argparse.ArgumentTypeError("must be above 0")
+    return value
+
+
 def common(p, duration=30.0, size=False):
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--duration", type=float, default=duration, help="seconds; 0 runs until a signal")
@@ -1224,7 +1248,7 @@ def build_parser():
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("gradient", help="120 fps truecolor gradient, art, CJK, emoji, frame counter")
     common(p, size=True)
-    p.add_argument("--fps", type=float, default=120.0)
+    p.add_argument("--fps", type=positive, default=120.0)
     p.add_argument("--cell", type=int, choices=(1, 2), default=1, help="columns per gradient color step")
     p.add_argument("--no-sync", dest="sync", action="store_false", help="no synchronized-update brackets")
     p.set_defaults(fn=cmd_gradient)
@@ -1261,7 +1285,7 @@ def build_parser():
     p.set_defaults(fn=cmd_vim_scroll)
     p = sub.add_parser("top", help="htop look-alike (seeded, synthetic)")
     common(p, size=True)
-    p.add_argument("--fps", type=float, default=30.0)
+    p.add_argument("--fps", type=positive, default=30.0)
     p.add_argument("--cores", type=int, default=10)
     p.set_defaults(fn=cmd_top)
     p = sub.add_parser("agent-stream", help="a coding agent's streamed answer in a terminal")

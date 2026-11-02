@@ -192,6 +192,12 @@ class Gradient(unittest.TestCase):
         row = "\x1b[12;3H" + "".join(e["char"] for e in lay["wide"])
         self.assertIn(row, text)
 
+    def test_fps_must_be_positive(self):
+        done = subprocess.run([PY, KIT, "gradient", "--fps", "0", "--frames", "1", "--size", "10x5"],
+                              capture_output=True, text=True, timeout=20)
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("must be above 0", done.stderr)
+
     def test_sigterm_ends_cleanly(self):
         run = PtyRun([PY, KIT, "gradient", "--seed", "1", "--duration", "0"], 60, 20)
         self.assertTrue(run.read_until(tuikit.ESU.encode(), 10))
@@ -296,6 +302,24 @@ class Flood(unittest.TestCase):
         stale = lines[:20] + lines[15:30]
         report = tuikit.verify_lines(stale)
         self.assertEqual(report["jumps"], [{"after": 19, "next": 15}])
+
+    def test_sigterm_never_cuts_a_line(self):
+        proc = subprocess.Popen([PY, KIT, "flood", "--seed", "5", "--duration", "0"], stdout=subprocess.PIPE)
+        time.sleep(0.5)
+        proc.send_signal(signal.SIGTERM)
+        out, _ = proc.communicate(timeout=20)
+        lines = out.decode().splitlines()
+        self.assertEqual(proc.returncode, 0)
+        self.assertRegex(lines[-1], r"^\x1b\[0mtuikit flood end lines=\d+$")
+        report = tuikit.verify_lines(lines[:-1])
+        self.assertTrue(report["ok"], report["torn"][:2])
+        self.assertEqual(report["valid"], int(lines[-1].rsplit("=", 1)[1]))
+
+    def test_width_fits_the_seed(self):
+        done = subprocess.run([PY, KIT, "flood", "--seed", "123456789012", "--width", "32", "--lines", "3"],
+                              capture_output=True, text=True, timeout=20)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("--width is at least", done.stderr)
 
     def test_rate_and_duration(self):
         start = time.monotonic()
@@ -440,7 +464,6 @@ class HeavyPlan(unittest.TestCase):
 FAKE_CLI = r'''
 import json, os, sys
 state_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
-no_viewport = os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "no-viewport"))
 state = json.load(open(state_path)) if os.path.exists(state_path) else {"n": 0, "workspaces": []}
 args = sys.argv[1:]
 assert args[0] == "--socket" and args[2] == "--app-socket" and args[4] == "--json", args
@@ -467,8 +490,6 @@ if head[:2] == ["workspace", "create"]:
     value = {"workspace_id": ws["id"], "pane_id": pane["id"], "tab_id": pane["tabs"][0]["id"], "terminal_id": new("term")}
 elif head[0] == "pane" and head[2] == "split":
     ws, _ = pane_of(head[1])
-    if "--viewport-width" in head and no_viewport:
-        print("--viewport-width is not known", file=sys.stderr); sys.exit(2)
     pane = {"id": new("pane"), "tabs": [{"id": new("tab"), "kind": "terminal", "argv": argv}], "split": head[3:]}
     ws["panes"].append(pane)
     value = {"workspace_id": ws["id"], "pane_id": pane["id"], "tab_id": pane["tabs"][0]["id"], "terminal_id": new("term")}
@@ -569,7 +590,7 @@ class FakeApp:
 
 
 class HeavyBuild(unittest.TestCase):
-    def build(self, agent_ok, extra_env=None):
+    def build(self, agent_ok):
         tmp = tempfile.mkdtemp(prefix="tk-heavy-test-")
         self.addCleanup(shutil.rmtree, tmp, True)
         app = FakeApp(tmp, agent_ok)
@@ -578,8 +599,6 @@ class HeavyBuild(unittest.TestCase):
         with open(cli, "w") as f:
             f.write("#!%s\n%s" % (PY, FAKE_CLI))
         os.chmod(cli, 0o755)
-        if extra_env and extra_env.get("FAKE_NO_VIEWPORT"):
-            open(os.path.join(tmp, "no-viewport"), "w").close()
         env = dict(os.environ, FAKE_STATE=app.state)
         out = os.path.join(tmp, "out")
         home = os.path.join(tmp, "home")
@@ -625,13 +644,29 @@ class HeavyBuild(unittest.TestCase):
                         os.path.join(data["plan"]["out"], "heavy.json")], capture_output=True, timeout=60,
                        env=dict(os.environ, FAKE_STATE=os.path.join(os.path.dirname(data["plan"]["out"]), "state.json")))
 
-    def test_column_fallback_without_viewport_width(self):
-        done, data, *_ = self.build(agent_ok=False, extra_env={"FAKE_NO_VIEWPORT": "1"})
+    def test_columns_and_rows_split_even(self):
+        done, data, manifest, argv, env, app = self.build(agent_ok=False)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertTrue(any(r["what"].startswith("column") for r in data["refusals"]))
-        subprocess.run([PY, os.path.join(HERE, "heavy_profile.py"), "teardown", "--manifest",
-                        os.path.join(data["plan"]["out"], "heavy.json")], capture_output=True, timeout=60,
-                       env=dict(os.environ, FAKE_STATE=os.path.join(os.path.dirname(data["plan"]["out"]), "state.json")))
+        state = load_json(env["FAKE_STATE"])
+        shown = [w for w in state["workspaces"] if w["name"] == "tk-3-shown"][0]
+        rights = [p["split"] for p in shown["panes"] if p.get("split") and "--right" in p["split"]]
+        columns = data["plan"]["counts"]["columns"] + 1
+        self.assertEqual(len(rights), columns - 1)
+        self.assertTrue(all("--viewport-width" not in r for r in rights))
+        ratios = [float(r[r.index("--ratio") + 1]) for r in rights]
+        expect = [1 - 1 / (columns - c + 1) for c in range(1, columns)]
+        self.assertEqual([round(x, 4) for x in ratios], [round(x, 4) for x in expect])
+        width, cols = 1.0, []  # each new pane takes its ratio of what is left: every column 1/N
+        for ratio in ratios:
+            cols.append(width * (1 - ratio))
+            width *= ratio
+        cols.append(width)
+        self.assertTrue(all(abs(c - 1 / columns) < 1e-3 for c in cols), cols)
+        subprocess.run([PY, os.path.join(HERE, "heavy_profile.py"), "teardown", "--manifest", manifest],
+                       capture_output=True, timeout=60, env=env)
+
+    def test_teardown_spares_a_reused_pid(self):
+        self.assertTrue(heavy_profile.stop_page_server(os.getpid(), "/nowhere").startswith("not running"))
 
 
 # ---- the ACP stand-in --------------------------------------------------------------------------------
