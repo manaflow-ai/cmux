@@ -28,9 +28,14 @@ struct CmdWOnReplacedStandInTests {
             let pageID = try #require(store.tab(surface: page.surface)).id
             pane.select(TabID(pageID))
 
-            // Cmd-T (AgentTabStore.open): the New Tab page shows as a stand-in, selected.
+            // The tab the daemon makes for Cmd-T's New Tab page, listed (its tab-added came first).
             let record = AgentSessionRef(host: AgentSessionRef.host(installID: "cn-cmdw-stand-in"), hostName: "This Mac",
                                          session: nil, harness: nil)
+            let made = try await connection.request(NewConversationTabRequest(agentSession: record, pane: handle))
+            try await PinnedPageTests.until({ store.tab(surface: made.surface).map { pane.orderedIDs.map(\.rawValue).contains($0.id) } == true })
+            let madeID = try #require(store.tab(surface: made.surface)).id
+
+            // Cmd-T (AgentTabStore.open): the New Tab page shows as a stand-in, selected.
             let standIn = ProvisionalTab()
             let transaction = ClientTransactionID.generate()
             store.intend(.createTab(pane: handle, provisional: standIn.conversation(ConversationTabRef(agentSession: record))),
@@ -38,19 +43,11 @@ struct CmdWOnReplacedStandInTests {
             pane.selectWhenReported(surface: standIn.surface)
             try #require(pane.stripModel.selectedID?.rawValue == standIn.id, "the stand-in is not selected")
 
-            // The daemon makes the tab. Its tab-added comes first, with no transaction: the store
-            // keeps it hidden behind the stand-in until the reply names it (ProvisionalTab.matched).
-            let made = try await connection.request(NewConversationTabRequest(agentSession: record, pane: handle))
-            try await PinnedPageTests.until({ store.intentLog.entries.contains { $0.transaction == transaction && $0.createdSurface == made.surface } },
-                                            report: { "the store did not pair the daemon's tab with the stand-in: \(store.pane(handle)?.tabs.map(\.id) ?? [])" })
-            try #require(pane.stripModel.selectedID?.rawValue == standIn.id)
-
-            // The reply's turn, as AgentTabStore.open runs it: the selection is asked to follow
-            // (moveSelection), then the store's tab replaces the stand-in.
-            pane.selectWhenReported(surface: made.surface)
+            // The reply's turn, as AgentTabStore.open runs it: the selection waits for the store's tab
+            // (moveSelection), then the reply names it and it replaces the stand-in in the records.
+            pane.pendingSelectSurface = made.surface
             ProvisionalTab.created(transaction, surface: made.surface, in: store)
             store.noteSettledAtNextSnapshot(transaction)
-            let madeID = try #require(store.tab(surface: made.surface), "the store does not list its tab after the reply").id
             #expect(store.tab(id: standIn.id) == nil, "the store still lists the stand-in")
             // The strip has not caught up yet (its observation runs in a later turn): Cmd-W now.
             try #require(pane.stripModel.selectedID?.rawValue == standIn.id,
