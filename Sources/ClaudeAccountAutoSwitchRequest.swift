@@ -10,9 +10,6 @@ import Foundation
 /// hook's second error event, which carries the attention notification, has no detail and never
 /// qualifies; neither does a nested session's, whose pane belongs to the outer agent.
 struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
-    /// The failure-class token ``ClaudeStopFailure/journalDetail`` uses for a usage limit.
-    static let usageLimitToken = "usage_limit"
-
     /// The journal event's id, so one report switches at most once.
     let eventId: String
     let workspaceId: UUID
@@ -44,7 +41,7 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
         guard draft.kind == .errorReported, draft.source == "claude", !draft.isSubagent,
               draft.unattributedReason == nil,
               let detail = draft.detail,
-              detail == Self.usageLimitToken || detail.hasPrefix(Self.usageLimitToken + ":"),
+              ClaudeAccountAutoSwitchPolicy.isUsageLimit(failureDetail: detail),
               let workspaceId = draft.workspaceId.flatMap(UUID.init(uuidString:)),
               let panelId = draft.surfaceId.flatMap(UUID.init(uuidString:)),
               isEnabled() else {

@@ -13,6 +13,17 @@ public enum ClaudeAccountAutoSwitchDecision: Equatable, Sendable {
 
 /// Pure policy choosing the next Claude account after a usage limit.
 public enum ClaudeAccountAutoSwitchPolicy {
+    /// The failure-class token ``ClaudeStopFailure/journalDetail`` writes for a usage limit.
+    public static let usageLimitToken = "usage_limit"
+
+    /// Whether a journal failure detail reports a usage limit: the token alone, or the token, a
+    /// colon and the message, as ``ClaudeStopFailure/journalDetail`` writes it. Another token
+    /// that merely starts with the same letters is not one.
+    public static func isUsageLimit(failureDetail: String?) -> Bool {
+        guard let failureDetail else { return false }
+        return failureDetail == usageLimitToken || failureDetail.hasPrefix(usageLimitToken + ":")
+    }
+
     public static func decide(
         failureDetail: String?,
         current: ClaudeAccount,
@@ -21,9 +32,7 @@ public enum ClaudeAccountAutoSwitchPolicy {
         isTrusted: (ClaudeAccount) -> Bool,
         homeDirectory: String
     ) -> ClaudeAccountAutoSwitchDecision {
-        guard let failureDetail, failureDetail.hasPrefix("usage_limit") else {
-            return .notUsageLimit
-        }
+        guard isUsageLimit(failureDetail: failureDetail) else { return .notUsageLimit }
         let accounts = registry.accounts
         let currentKey = current.exhaustionKey(homeDirectory: homeDirectory)
         let keys = accounts.map { $0.exhaustionKey(homeDirectory: homeDirectory) }
