@@ -226,7 +226,7 @@ try {
         (window as unknown as { __forced: typeof forced }).__forced = forced;
         // INSTRUMENT=1: scroll writes and layout reads the page makes, and the time each takes (a write
         // or read after a DOM change is where the browser lays out synchronously).
-        if (instrument) {
+        if (instrument === true) {
           const top = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
           Object.defineProperty(Element.prototype, "scrollTop", {
             ...top,
@@ -249,6 +249,26 @@ try {
             forced.reads += 1;
             forced.readMs += performance.now() - started;
             return box;
+          };
+        }
+        // TRACE=1: when the page made its socket and each fetch went out and came back, so an idle
+        // stretch before the socket names what it waited on (with the scripts' load times, below).
+        const trace: string[] = [];
+        (window as unknown as { __trace: string[] }).__trace = trace;
+        if (instrument === "trace") {
+          const Socket = window.WebSocket;
+          window.WebSocket = class extends Socket {
+            constructor(url: string | URL, protocols?: string | string[]) {
+              trace.push(`${performance.now().toFixed(0)} socket made`);
+              super(url, protocols);
+              this.addEventListener("open", () => trace.push(`${performance.now().toFixed(0)} socket open`));
+            }
+          } as typeof WebSocket;
+          const fetched = window.fetch;
+          window.fetch = (input, init) => {
+            const what = `${String(input instanceof Request ? input.url : input).replace(location.origin, "")} ${String(init?.body ?? "").slice(0, 60)}`;
+            trace.push(`${performance.now().toFixed(0)} fetch ${what}`);
+            return fetched(input, init).finally(() => trace.push(`${performance.now().toFixed(0)} fetched ${what}`));
           };
         }
         const state = { firstRow: 0, latest: 0, activity: 0, longTasks: 0, longMs: 0, shift: 0, top: -1, drift: 0 };
@@ -289,7 +309,7 @@ try {
         };
         requestAnimationFrame(tick);
       },
-      [LATEST, process.env.INSTRUMENT === "1"] as const,
+      [LATEST, process.env.TRACE === "1" ? "trace" : process.env.INSTRUMENT === "1"] as const,
     );
     attachedAt = 0;
     arrivals = new Map();
@@ -325,8 +345,14 @@ try {
         .filter(
           (r) => (r as PerformanceResourceTiming).initiatorType === "script" || r.name.endsWith(".js"),
         ) as PerformanceResourceTiming[];
+      const loads = (performance.getEntriesByType("resource") as PerformanceResourceTiming[]).map(
+        (r) => `${r.responseEnd.toFixed(0)} loaded ${r.name.split("/").pop()} (from ${r.startTime.toFixed(0)})`,
+      );
       return {
         ...state,
+        trace: [...(window as unknown as { __trace: string[] }).__trace, ...loads].sort(
+          (a, b) => Number.parseFloat(a) - Number.parseFloat(b),
+        ),
         origin: performance.timeOrigin,
         forced,
         dcl: nav.domContentLoadedEventEnd,
@@ -338,6 +364,10 @@ try {
     });
     await page.close();
     const attach = attachedAt ? attachedAt - got.origin : 0;
+    if (process.env.TRACE === "1") {
+      console.log(`trace of one load (ms from navigation): attach answered ${attach.toFixed(0)}, latest ${got.latest.toFixed(0)}`);
+      for (const line of got.trace as string[]) console.log(`  ${line}`);
+    }
     const at = (when: number | undefined) => (when ? when - got.origin : 0);
     void started;
     return {
