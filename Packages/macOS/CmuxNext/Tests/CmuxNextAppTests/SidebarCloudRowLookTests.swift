@@ -95,7 +95,8 @@ import Testing
     /// The front tab's label as the auto name gives it: a tab's own name, else an idle shell's folder, only while
     /// nobody named the workspace (`WorkspaceAutoName.label`).
     private static func folderLabel(_ workspace: WorkspaceModel, _ tab: TabModel, _: TabModel?) -> SidebarMapping.PageFace? {
-        let own = tab.name.flatMap { $0.isEmpty ? nil : $0 }
+        // A tab's own name, else its own title (OSC), as `NewWorkspaceName.forTab` gives them.
+        let own = tab.name.flatMap { $0.isEmpty ? nil : $0 } ?? (tab.titleText.isEmpty ? nil : tab.titleText)
         return .init(title: workspace.isUnnamed ? own ?? tab.cwd.map { String($0.split(separator: "/").last ?? "") } : nil, favicon: nil)
     }
 
