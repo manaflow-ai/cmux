@@ -326,6 +326,7 @@ import {
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
+import { FisheyeFilters } from "../../ui/glass/Fisheye";
 import { latestTurnCheckpointPair, readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
 import { registerAttachmentViewHost, registerComposerHost, useComposerSettings } from "./composerSettings";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
@@ -2620,8 +2621,12 @@ function restingAnchor(
   return atLatest || !row ? null : { rowId: row.id, offset: top - placed.tops[index] };
 }
 
+/// Jump to latest's diameter, CSS px (conversation.css .acpmux-jump-latest): its fisheye filter is
+/// drawn for it (ui/glass/Fisheye.tsx).
+const JUMP_LATEST_SIZE = 32;
 /// Jump to latest: a glass circle centered above the composer, shown while the reader is scrolled up
-/// from the latest message (ChatGPT and Codex style). While the agent works it stays a static arrow;
+/// from the latest message (ChatGPT and Codex style). The glass is a fisheye lens that magnifies the
+/// transcript under it (Leo 2026-10-21: "I want more fisheye!"). While the agent works it stays a static arrow;
 /// the working state is already represented by the shared transcript spinner. It stays mounted while
 /// hidden (inert) so it fades out as it fades in (conversation.css).
 function JumpToLatest({
@@ -2644,23 +2649,26 @@ function JumpToLatest({
   if (needsYou && needsYou.count > 0) return <NeedsYouPill {...needsYou} shown={shown} lift={lift} onJump={onJump} />;
   const label = t(working ? "transcript.jumpLatestWorking" : "transcript.jumpLatest");
   return (
-    <button
-      type="button"
-      className="ui-glass ui-glass-floats acpmux-jump-latest"
-      data-shown={shown ? "" : undefined}
-      style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
-      aria-label={label}
-      // The arrow says nothing by itself; working state is carried by the shared spinner in the transcript.
-      title={label}
-      // Hidden, it is inert: out of the tab order and the accessibility tree while it fades out.
-      inert={!shown}
-      // A click does not focus a button in WebKit, so focus on it means Return or Space.
-      onClick={(event) => onJump(event.currentTarget === document.activeElement)}
-    >
-      <span className="acpmux-jump-latest__arrow" aria-hidden="true">
-        <ArrowDown size={14} />
-      </span>
-    </button>
+    <>
+      <FisheyeFilters size={JUMP_LATEST_SIZE} />
+      <button
+        type="button"
+        className="ui-glass ui-glass-fisheye acpmux-jump-latest"
+        data-shown={shown ? "" : undefined}
+        style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
+        aria-label={label}
+        // The arrow says nothing by itself; working state is carried by the shared spinner in the transcript.
+        title={label}
+        // Hidden, it is inert: out of the tab order and the accessibility tree while it fades out.
+        inert={!shown}
+        // A click does not focus a button in WebKit, so focus on it means Return or Space.
+        onClick={(event) => onJump(event.currentTarget === document.activeElement)}
+      >
+        <span className="acpmux-jump-latest__arrow" aria-hidden="true">
+          <ArrowDown size={14} />
+        </span>
+      </button>
+    </>
   );
 }
 
