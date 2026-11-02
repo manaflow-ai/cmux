@@ -50,8 +50,14 @@ public final class QuitOriginTracker {
     /// `debug.app.terminate {reason}`: quits as REASON does, through the app's own path, for the reopen films
     /// (REOPEN VIDEO, 2026-11-02: the logout case without a quit Apple event, which needs an Automation consent
     /// the fleet never gives). Returns the refusal, or nil when the quit started.
+    /// `logout` (the only reason so far): a logout first posts `NSWorkspace.willPowerOffNotification`, then
+    /// terminates the app, so every observer of that notice (this tracker among them: the quit is `.powerOff` and
+    /// never asks) sees what it sees at a real logout.
     public func debugTerminate(reason: String?, terminate: @MainActor () -> Void) -> String? {
-        "debug.app.terminate is not implemented"
+        guard reason == "logout" else { return "reason must be \"logout\", not \(String(describing: reason))" }
+        center.post(name: NSWorkspace.willPowerOffNotification, object: NSWorkspace.shared)
+        terminate()
+        return nil
     }
     #endif
 }
