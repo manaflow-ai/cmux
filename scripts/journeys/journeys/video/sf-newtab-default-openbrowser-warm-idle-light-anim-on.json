@@ -1,0 +1,836 @@
+{
+ "id": "sf-newtab-default-openbrowser-warm-idle-light-anim-on",
+ "priority": "P0",
+ "title": "SHORTCUT FRAMES: cmd+t, shift+cmd+l (warm-idle-light-anim-on), real HID keys, recorded every frame",
+ "why": "Lawrence 2026-11-02: cmd+t and cmd shift l, literally all the keyboard shortcuts, open the new tab instantly, the frame of; videos, pixel perfect. The judge (scripts/cmux-next/shortcut-frames/judge.py) counts display refreshes from each HID key-down to the first changed frame and checks the frames after it.",
+ "source": "handoff/resize-videos/SHORTCUT-FRAMES.md (SHORTCUT FRAMES P0)",
+ "budget_seconds": 140,
+ "options": {
+  "key_path": "real"
+ },
+ "cases": [
+  {
+   "name": "newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip",
+   "stroke": "cmd+t",
+   "action": "newTab.default",
+   "effect": "new-tab",
+   "context": "any",
+   "arm": "warm",
+   "load": "idle",
+   "theme": "light",
+   "animations": "on",
+   "build": "feat-tip"
+  },
+  {
+   "name": "openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip",
+   "stroke": "shift+cmd+l",
+   "action": "openBrowser",
+   "effect": "new-tab",
+   "context": "any",
+   "arm": "warm",
+   "load": "idle",
+   "theme": "light",
+   "animations": "on",
+   "build": "feat-tip"
+  }
+ ],
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "settings_file",
+   "title": "set-up: theme Builtin Light, animations on, no close warning",
+   "set": {
+    "appearance": {
+     "theme": "Builtin Light",
+     "appTheme": "followTerminal"
+    },
+    "app": {
+     "warnBeforeClosingTab": false
+    },
+    "ui": {
+     "animations": {
+      "enabled": true
+     }
+    }
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "sf-newtab-default-warm-idle-light-anim-on",
+   "seconds": 34.5,
+   "lead": 1.5,
+   "title": "start the recording (sf-newtab-default-warm-idle-light-anim-on); its first 1.5 s are the judge's frames before the press"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/1",
+   "title": "the measured press cmd+t (newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/1)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/2",
+   "title": "the measured press cmd+t (newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/2)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/3",
+   "title": "the measured press cmd+t (newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/3)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/4",
+   "title": "the measured press cmd+t (newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/4)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/5",
+   "title": "the measured press cmd+t (newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/5)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/6",
+   "title": "the measured press cmd+t (newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/6)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/7",
+   "title": "the measured press cmd+t (newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/7)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/8",
+   "title": "the measured press cmd+t (newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/8)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/9",
+   "title": "the measured press cmd+t (newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/9)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/10",
+   "title": "the measured press cmd+t (newTab.default[cmd+t]/warm/idle/light/anim-on/feat-tip/10)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "video_stop",
+   "name": "sf-newtab-default-warm-idle-light-anim-on",
+   "tail": 0.6,
+   "title": "stop the recording (sf-newtab-default-warm-idle-light-anim-on); its files go to the result"
+  },
+  {
+   "do": "video_start",
+   "name": "sf-openbrowser-warm-idle-light-anim-on",
+   "seconds": 34.5,
+   "lead": 1.5,
+   "title": "start the recording (sf-openbrowser-warm-idle-light-anim-on); its first 1.5 s are the judge's frames before the press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/1",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/1)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/2",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/2)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/3",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/3)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/4",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/4)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/5",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/5)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/6",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/6)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/7",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/7)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/8",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/8)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/9",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/9)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/10",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/warm/idle/light/anim-on/feat-tip/10)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "video_stop",
+   "name": "sf-openbrowser-warm-idle-light-anim-on",
+   "tail": 0.6,
+   "title": "stop the recording (sf-openbrowser-warm-idle-light-anim-on); its files go to the result"
+  },
+  {
+   "do": "type",
+   "text": "echo sf-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "since": "done",
+   "timeout": 15,
+   "title": "after the presses the app still answers: the line shows in the app, the daemon and the frame",
+   "all": [
+    {
+     "app_text_contains": "sf-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "sf-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}
