@@ -310,7 +310,6 @@ fn logical_writes(pid: u32) -> Option<u64> {
 /// and the state folder size. Run it at the base and at the fix for the
 /// before/after.
 #[test]
-#[ignore = "measurement: run it with --ignored"]
 fn kill_all_heavy_load_disk_writes_per_pane() {
     const PANES: usize = 12;
     const WINDOW: Duration = Duration::from_secs(20);
