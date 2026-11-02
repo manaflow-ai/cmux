@@ -5,67 +5,6 @@ import CmuxNextDaemonService
 import CmuxNextSidebar
 import CmuxNextDesign
 
-/// When a personal workspace group ends (cx-rcby). The home daemon keeps a
-/// group until a client deletes it, so the client that moves workspaces
-/// owns the rule:
-/// - an unpinned group that loses its last live member is deleted (the
-///   daemon records the delete in closed history, so Reopen Closed brings it
-///   back); a pinned (saved) group stays empty;
-/// - New Group on workspaces that already are one whole group makes no
-///   second group;
-/// - a group made with no member is deleted when its name editor closes
-///   while it is still empty.
-/// "Live" members are the rows the sidebar can show: a closed workspace
-/// keeps its personal row (reopen restores its group) but holds no group open.
-nonisolated enum PersonalGroupLifecycle {
-    /// A session-qualified workspace, the personal rows' key.
-    struct Member: Hashable, Sendable {
-        var session: String
-        var key: String
-    }
-
-    struct Group: Sendable {
-        var id: WorkspaceGroupID
-        var pinned: Bool
-    }
-
-    static func member(_ row: PersonalWorkspace) -> Member {
-        Member(session: row.sessionID, key: row.workspaceKey.rawValue)
-    }
-
-    /// The unpinned groups that `leaving` leaves with no live member when
-    /// they move to `target` (nil: loose, or a new group).
-    static func emptied(groups: [Group], rows: [PersonalWorkspace], leaving: Set<Member>, into target: WorkspaceGroupID?,
-                        isLive: (Member) -> Bool) -> [WorkspaceGroupID] {
-        let sources = Set(rows.filter { leaving.contains(member($0)) }.compactMap(\.group))
-        return groups.filter { group in
-            !group.pinned && group.id != target && sources.contains(group.id)
-                && !rows.contains { $0.group == group.id && !leaving.contains(member($0)) && isLive(member($0)) }
-        }.map(\.id)
-    }
-
-    /// The group whose live members are exactly `members`, if any.
-    static func whole(groups: [Group], rows: [PersonalWorkspace], members: Set<Member>,
-                      isLive: (Member) -> Bool) -> WorkspaceGroupID? {
-        guard !members.isEmpty else { return nil }
-        return groups.first { group in
-            Set(rows.filter { $0.group == group.id }.map(member).filter(isLive)) == members
-        }?.id
-    }
-
-    /// Whether `group` has no live member.
-    static func isEmpty(_ group: WorkspaceGroupID, rows: [PersonalWorkspace], isLive: (Member) -> Bool) -> Bool {
-        !rows.contains { $0.group == group && isLive(member($0)) }
-    }
-
-    /// Closing a workspace can leave its personal row behind for Reopen
-    /// Closed. The group is still removable when no live row remains; pinned
-    /// groups are retained as an explicit saved container.
-    static func shouldDeleteAfterClose(_ group: Group, rows: [PersonalWorkspace], isLive: (Member) -> Bool) -> Bool {
-        !group.pinned && isEmpty(group.id, rows: rows, isLive: isLive)
-    }
-}
-
 /// The lifecycle rule over the home session's personal state and the
 /// machines' trees.
 @MainActor
@@ -73,8 +12,8 @@ struct PersonalGroupLife {
     let machines: MachineRegistry
 
     private var personal: PersonalStore { machines.local.store.personal }
-    private var groups: [PersonalGroupLifecycle.Group] {
-        personal.groups.map { PersonalGroupLifecycle.Group(id: $0.id, pinned: $0.pinned) }
+    private var rules: PersonalGroupLifecycle {
+        PersonalGroupLifecycle(groups: personal.groups.map { .init(id: $0.id, pinned: $0.pinned) }, rows: personal.workspaces)
     }
 
     /// A row is live when its session's tree holds the workspace. A session
@@ -93,19 +32,18 @@ struct PersonalGroupLife {
 
     /// Groups the move of `placements` into `target` empties.
     func emptied(by placements: [PersonalSidebarPlanner.Placement], into target: WorkspaceGroupID?) -> [WorkspaceGroupID] {
-        PersonalGroupLifecycle.emptied(groups: groups, rows: personal.workspaces, leaving: members(placements), into: target,
-                                       isLive: isLive)
+        rules.emptied(leaving: members(placements), into: target, isLive: isLive)
     }
 
     /// The group that already is exactly `placements`.
     func whole(_ placements: [PersonalSidebarPlanner.Placement]) -> WorkspaceGroupID? {
-        PersonalGroupLifecycle.whole(groups: groups, rows: personal.workspaces, members: members(placements), isLive: isLive)
+        rules.whole(members: members(placements), isLive: isLive)
     }
 
     /// Whether `group` exists, is unpinned and has no live member.
     func isEmptyUnpinned(_ group: WorkspaceGroupID) -> Bool {
         guard let model = personal.group(group), !model.pinned else { return false }
-        return PersonalGroupLifecycle.isEmpty(group, rows: personal.workspaces, isLive: isLive)
+        return rules.isEmpty(group, isLive: isLive)
     }
 
     /// Sends one organization command to the home session, then deletes
@@ -161,10 +99,7 @@ struct PersonalGroupLife {
 
     /// Deletes `group` when it is still an unpinned group with no live member.
     func deleteIfEmpty(_ group: WorkspaceGroupID, failed: @escaping @MainActor (ActionWorkFailure) -> Void) {
-        guard let model = personal.group(group),
-              PersonalGroupLifecycle.shouldDeleteAfterClose(
-                  PersonalGroupLifecycle.Group(id: model.id, pinned: model.pinned),
-                  rows: personal.workspaces, isLive: isLive) else { return }
+        guard isEmptyUnpinned(group) else { return }
         let life = self
         commit("delete-personal-group", ending: [group], recheck: { life.isEmptyUnpinned(group) ? [group] : [] }, failed: failed) { _ -> Void in }
     }
@@ -187,7 +122,7 @@ struct PersonalGroupLife {
         let closing = Set(ids.compactMap { id in
             WindowProfiles.qualified(id, machines: machines).flatMap { personal.workspace(session: $0.session, key: $0.key)?.group }
         })
-        return GroupCloseCleanup.prunable(closing, groups: groups.map { ($0.id, $0.pinned) })
+        return rules.prunable(closing)
     }
 
     /// Deletes `group` as `deleteIfEmpty` does, and returns whether the

@@ -7,7 +7,7 @@ public import Observation
 /// lands and the group is still an unpinned group with no live member;
 /// Undo either stops it before the delete goes, or waits for the delete in
 /// flight and then reopens exactly the record that delete made. The rule
-/// between the two (`step`, `record`, `prunable`) reads no app state.
+/// between the two (`step`, `record`) reads no app state.
 @MainActor @Observable
 public final class GroupCloseCleanup {
     /// Where the cleanup is.
@@ -43,12 +43,6 @@ public final class GroupCloseCleanup {
         case .cancelled, .kept: .nothing
         case .deleted(let before): .reopenRecord(after: before)
         }
-    }
-
-    /// The groups of the closing workspaces that a close may delete: unpinned ones only.
-    public nonisolated static func prunable(_ closing: Set<WorkspaceGroupID>,
-                                            groups: [(id: WorkspaceGroupID, pinned: Bool)]) -> Set<WorkspaceGroupID> {
-        closing.filter { id in groups.contains { $0.id == id && !$0.pinned } }
     }
 
     /// The record the delete of `group` made: the oldest record for it that
@@ -123,21 +117,21 @@ public final class GroupCloseCleanup {
     /// close's delete made, once it is in the history (at most `limit`), or
     /// nil when the close deleted nothing.
     public func undo(limit: Duration) async -> String? {
-        while true {
-            switch Self.step(state) {
-            case .cancel:
-                state = .cancelled
-                return nil
-            case .wait:
-                await withCheckedContinuation { finished.append($0) }
-            case .nothing:
-                return nil
-            case .reopenRecord(let before):
-                let home = home, group = group.rawValue
-                let found: @MainActor @Sendable () -> String? = { Self.record(of: group, after: before, newestFirst: home.history()) }
-                if found() == nil { await ObservationDeadline(owner: "group-close-cleanup-undo").until({ found() != nil }, limit: limit) }
-                return found()
-            }
+        if Self.step(state) == .wait { await withCheckedContinuation { finished.append($0) } }
+        switch Self.step(state) {
+        case .cancel, .wait:
+            // Not sent (a kept cleanup that a later settle started again counts too): it never will be.
+            state = .cancelled
+            return nil
+        case .nothing:
+            // A kept group never goes after Undo, even when a later settle of the batch would run it again.
+            if state == .kept { state = .cancelled }
+            return nil
+        case .reopenRecord(let before):
+            let home = home, group = group.rawValue
+            let found: @MainActor @Sendable () -> String? = { Self.record(of: group, after: before, newestFirst: home.history()) }
+            if found() == nil { await ObservationDeadline(owner: "group-close-cleanup-undo").until({ found() != nil }, limit: limit) }
+            return found()
         }
     }
 

@@ -6,36 +6,6 @@ import Foundation
 import Observation
 import Testing
 
-@Suite struct PersonalGroupCloseCleanupTests {
-    private static let group = WorkspaceGroupID(rawValue: "grp-agent")
-
-    private static func row(_ key: String, group: WorkspaceGroupID? = nil) -> PersonalWorkspace {
-        PersonalWorkspace(sessionID: "session", workspaceKey: WorkspaceKey(rawValue: key), index: 0, group: group ?? Self.group)
-    }
-
-    @Test func anUnpinnedGroupIsDeletableAfterItsLastLiveWorkspaceCloses() {
-        let rows = [Self.row("closed")]
-        let closed = Set(["closed"])
-        #expect(PersonalGroupLifecycle.shouldDeleteAfterClose(
-            .init(id: Self.group, pinned: false), rows: rows,
-            isLive: { !closed.contains($0.key) }))
-    }
-
-    @Test func aPinnedGroupSurvivesWhenItsLastWorkspaceCloses() {
-        let rows = [Self.row("closed")]
-        #expect(!PersonalGroupLifecycle.shouldDeleteAfterClose(
-            .init(id: Self.group, pinned: true), rows: rows,
-            isLive: { _ in false }))
-    }
-
-    @Test func aGroupWithAnotherLiveWorkspaceStays() {
-        let rows = [Self.row("closed"), Self.row("live")]
-        #expect(!PersonalGroupLifecycle.shouldDeleteAfterClose(
-            .init(id: Self.group, pinned: false), rows: rows,
-            isLive: { $0.key == "live" }))
-    }
-}
-
 /// A close's group cleanup and its Undo (`GroupCloseCleanup`): the cleanup's wait always ends and
 /// deletes only a group that emptied; Undo never races the delete, and reopens only the record this
 /// close's own delete made.
@@ -154,7 +124,8 @@ import Testing
     /// Finding (b): a pinned group is never a group a close may delete.
     @Test func aPinnedGroupIsNotPrunable() {
         let pinned = WorkspaceGroupID(rawValue: "pinned"), loose = WorkspaceGroupID(rawValue: "loose")
-        #expect(GroupCloseCleanup.prunable([pinned, loose], groups: [(pinned, true), (loose, false)]) == [loose])
+        let rules = PersonalGroupLifecycle(groups: [.init(id: pinned, pinned: true), .init(id: loose, pinned: false)], rows: [])
+        #expect(rules.prunable([pinned, loose]) == [loose])
     }
 
     /// Finding (b): a close that kept its group (pinned here) has no group Undo, even when a later,
