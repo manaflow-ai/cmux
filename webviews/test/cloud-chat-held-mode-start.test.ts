@@ -106,7 +106,8 @@ test("a held mode goes to the session its start made, even when another chat is 
     run.client.holdStartMode("bypassPermissions", new Promise((resolve) => (resolveTicket = resolve)));
     const started = run.client.ensureSession();
     // The start is made; the pick's gesture ticket is still pending. The person selects another chat.
-    for (let turn = 0; turn < 50 && !run.wire.includes("session/new"); turn += 1) await Promise.resolve();
+    for (let turn = 0; turn < 200 && run.client.selectedSession !== "cloud-1"; turn += 1) await Promise.resolve();
+    expect(run.client.selectedSession).toBe("cloud-1");
     void run.client.select("other-chat").catch(() => undefined);
     resolveTicket("gesture-2");
     expect(await started).toBe("cloud-1");
