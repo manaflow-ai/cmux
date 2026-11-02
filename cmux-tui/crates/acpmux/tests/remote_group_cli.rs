@@ -130,7 +130,10 @@ async fn remote_group_cli_opens_the_remote_id_locally_and_reuses_its_row() {
                 assert_eq!(&info["name"], prior_name);
                 assert_ne!(args[key_index + 1], prior_key);
             }
-            assert_eq!(info["name"].as_str().map(|name| format!("{peer}/{name}")).as_deref(), Some(args[4]));
+            assert_eq!(
+                info["name"].as_str().map(|name| format!("{peer}/{name}")).as_deref(),
+                Some(args[4])
+            );
             unnamed = Some((id.to_owned(), info["name"].clone(), args[key_index + 1].to_owned()));
         }
         if named {
