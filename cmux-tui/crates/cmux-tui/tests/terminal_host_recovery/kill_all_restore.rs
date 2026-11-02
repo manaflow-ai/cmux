@@ -583,6 +583,8 @@ fn scratch_cmd_d_four_times() {
     let _exclusive = exclusive_process_test();
     let mut harness = RecoveryHarness::start_unstarted("cmd-d-four");
     let trace_path = harness.dir.join("kitty-trace.log");
+    let spans_path = harness.dir.join("spans.jsonl");
+    harness.extra_env.push(("CMUX_TUI_DEBUG_SPANS".into(), spans_path.display().to_string()));
     harness.extra_env.push(("CMUX_TUI_TERMINAL_PERSISTENCE".into(), "snapshot".into()));
     harness
         .extra_env
@@ -643,7 +645,8 @@ fn scratch_cmd_d_four_times() {
     let parallel_ms = threads.into_iter().map(|t| t.join().unwrap()).collect::<Vec<_>>();
     let total_parallel = started.elapsed().as_micros() as f64 / 1000.0;
     std::thread::sleep(Duration::from_millis(500));
-    let trace = fs::read_to_string(&trace_path).unwrap_or_default();
+    let trace = fs::read_to_string(&trace_path).unwrap_or_default()
+        + &fs::read_to_string(&spans_path).unwrap_or_default();
     panic!(
         "cmd-d-four: {} TRACE-BEGIN\n{}TRACE-END",
         serde_json::json!({"sequential_ms": sequential_ms, "parallel_ms": parallel_ms, "parallel_total_ms": total_parallel, "first_answer": answers.first()}),

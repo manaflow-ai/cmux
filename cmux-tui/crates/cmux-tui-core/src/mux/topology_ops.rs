@@ -453,7 +453,9 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<PaneSurfaceCreation> {
+        crate::debug_spans::mark("split.handoff_wait");
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        crate::debug_spans::mark("split.handoff_held");
         let selectors = self
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;
@@ -676,9 +678,11 @@ impl Mux {
                 self.commit_ordinary_topology_operation_by(actor, operation, selectors, fields)?
             }
         };
+        crate::debug_spans::mark("split.committed");
         if !commit.replayed {
             self.emit_resource_topology_legacy_events(operation, &commit);
         }
+        crate::debug_spans::mark("split.events_emitted");
         let surface = self.ordinary_created_surface(&commit)?;
         Ok(PaneSurfaceCreation { surface, replayed: commit.replayed })
     }
