@@ -59,4 +59,30 @@ struct PaletteReopenRowsTests {
         let sameRows = Set(after.map { $0.id }) == Set(before.map { $0.id })
         #expect(sameRows, "the reopen lists other rows")
     }
+
+    /// The overrides each open served, in the order they ran.
+    private final class Served { var names: [String] = [] }
+
+    /// A row kept from an earlier open runs what the palette serves at this open: its override is decided when it
+    /// runs, from the newest open, never from the open that built it.
+    @Test func aKeptRowRunsTheNewestOpensOverride() throws {
+        let registry = ActionRegistry.standard()
+        try #require(registry.bind("newWindow") {})
+        let rows = RegistryPaletteRows()
+        let served = Served()
+        func open(_ name: String) throws -> (RegistryPaletteProvider, PaletteItem) {
+            let provider = RegistryPaletteProvider(registry: registry)
+            provider.rows = rows
+            provider.effectOverrides["newWindow"] = {
+                served.names.append(name)
+                return .perform {}
+            }
+            return (provider, try #require(provider.makeItems().first { $0.actionID == "newWindow" }))
+        }
+        _ = try open("first")
+        let (second, row) = try open("second")
+        #expect(second.builtRows == 0, "the reopen built \(second.builtRows) rows")
+        _ = row.primary.effect.resolved()
+        #expect(served.names == ["second"], "the kept row ran \(served.names)")
+    }
 }
