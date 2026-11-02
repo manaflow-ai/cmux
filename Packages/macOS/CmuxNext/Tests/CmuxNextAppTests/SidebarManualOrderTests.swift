@@ -45,7 +45,7 @@ struct SidebarManualOrderTests {
 
         let start = Self.sections([1, 2, 3, 4, 5])
         let model = SidebarModel(sections: [])
-        let rows = SidebarRows(model: model)
+        let rows = SidebarRows(model: model, document: { nil })
         rows.show(start)
         #expect(Self.order(model) == ["w1", "w2", "w3", "w4", "w5"])
 

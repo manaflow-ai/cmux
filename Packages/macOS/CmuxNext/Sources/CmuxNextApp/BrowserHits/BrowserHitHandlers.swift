@@ -98,15 +98,21 @@ enum BrowserHitHandlers {
             // holds the page, instead of the terminal workspace a switch to an
             // empty space opens.
             try RoomHandlers.create(invocation: ActionInvocation(), context, action: "browser.link.openInNewSpace") { [weak page] room, state in
-                state.enterProfile(room)
-                services.windows.recordSaver.stateDidChange(state)
-                if let page {
-                    services.cache.pageRequests.openInNewWorkspace(url, opener: page, newWindow: false, window: state.id, room: room)
-                } else {
-                    try? Self.openWorkspace(url, newWindow: false, window: state.id, room: room, services)
-                }
+                Self.openInNewSpace(url, opener: page, room: room, state: state, services)
             }
         })
+    }
+
+    /// Open Link in New Space, once the space is mirrored: the window enters it, and its new workspace
+    /// is claimed in this turn, so the window waits there for it (#31658).
+    static func openInNewSpace(_ url: URL, opener page: (any BrowserTab)?, room: ProfileID, state: WindowState, _ services: AppServices) {
+        state.enterProfile(room)
+        services.windows.recordSaver.stateDidChange(state)
+        if let page {
+            services.cache.pageRequests.openInNewWorkspace(url, opener: page, newWindow: false, window: state.id, room: room)
+        } else {
+            try? Self.openWorkspace(url, newWindow: false, window: state.id, room: room, services)
+        }
     }
 
     /// A new workspace whose only tab shows `url` on the default engine.

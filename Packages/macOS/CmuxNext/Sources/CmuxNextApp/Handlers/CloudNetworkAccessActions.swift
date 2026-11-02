@@ -12,8 +12,11 @@ enum CloudNetworkAccessActions {
     /// writes it back, so the machine's own ranges and domains stay. An agent's run that would
     /// choose anything but `none` is refused: an agent may close its machine off, never open it up. A CLI, agent
     /// or script run gets `machine_id`, `network_access`, `mode` and `applied` back; a person's run
-    /// reports a failure in a sheet.
+    /// reports a failure in a sheet. The GET and then the PUT can outlast `action.run`'s result
+    /// deadline, so a run still going after `pendingAfter` answers `machine_id`, the requested
+    /// `network_access` and `pending: true`, and the change goes on (#28855).
     static func set(_ invocation: ActionInvocation, _ context: AppActionContext,
+                    pendingAfter: Duration = CloudHandlers.answerWithin,
                     read: @escaping @MainActor (String) async throws -> CloudNetworkPolicyState,
                     write: @escaping @MainActor (String, CloudNetworkPolicy) async throws -> CloudNetworkPolicyState) throws {
         let session = try CloudHandlers.machine(invocation, context)
@@ -22,19 +25,15 @@ enum CloudNetworkAccessActions {
         let access = try level(invocation)
         // The run's effective origin counts: an action an MCP run nests carries a .user origin of its own.
         let machineID = session.machineID, isAgent = CloudStartSession.isAgent(invocation)
-        // An agent may only choose `none`: the PUT replaces the policy unconditionally, so a level
-        // judged against a read that a person's newer edit (the dashboard, another Mac) made stale
-        // could reopen what they closed. `none` is the narrowest whatever the server holds by then.
-        // Lifting this needs a conditional PUT on the server (#28706).
-        let work: @MainActor () async throws -> [String: ActionResultValue] = { try await context.services.cloud.networkAccess.serialized(machineID) {
-            if isAgent, access != .noInternet { throw ActionFailure(message: CloudStrings.networkAccessAgentWidens) }
-            let current = try await read(machineID)
-            let policy = access.applied(to: current.policy, presets: current.presets.map(\.id))
-            // The same policy is written again unless it is applied: a PUT retries a failed apply.
-            if policy == current.policy, current.applied?.state == "applied" { return fields(machineID, current) }
-            return fields(machineID, try await write(machineID, policy))
-        } }
-        guard CloudHandlers.origin(of: invocation) == .user else { return CloudHandlers.result("set network access", context, work) }
+        // An agent may only choose `none` (``CloudNetworkAccessQueue/set(_:on:refusal:read:write:)`` says why).
+        let refusal = isAgent ? ActionFailure(message: CloudStrings.networkAccessAgentWidens) : nil
+        let work: @MainActor () async throws -> [String: ActionResultValue] = {
+            fields(machineID, try await context.services.cloud.networkAccess.set(access, on: machineID, refusal: refusal, read: read, write: write))
+        }
+        guard CloudHandlers.origin(of: invocation) == .user else {
+            let pending: [String: ActionResultValue] = ["machine_id": .string(machineID), "network_access": .string(access.rawValue)]
+            return CloudHandlers.result("set network access", context, pendingAfter: pendingAfter, pending: pending, work)
+        }
         CloudHandlers.runTracked("set network access", context) { _ = try await work() }
     }
 

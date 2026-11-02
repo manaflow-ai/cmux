@@ -50,6 +50,28 @@ fn a_binarys_build_is_read_from_its_bytes() {
 }
 
 #[test]
+fn a_binarys_build_is_never_rustcs_own_version() {
+    // ELF keeps .rodata (the stamp) before .comment (rustc's line), but the
+    // stamp may also be missing or come after it.
+    let rustc = b"\x00rustc version 1.95.0 (59807616e 2026-04-14)\x00";
+    let llvm = b"\x00clang LLVM (rustc version 1.95.0 (59807616e 2026-04-14))\x00";
+    let stamp = b"\x00acpmux 0.1.0 (3bdf1d5d4 2026-11-02)\x00";
+    for (bytes, want) in [
+        ([&rustc[..], stamp].concat(), Some("3bdf1d5d4 2026-11-02")),
+        ([&stamp[..], rustc].concat(), Some("3bdf1d5d4 2026-11-02")),
+        ([&llvm[..], stamp].concat(), Some("3bdf1d5d4 2026-11-02")),
+        (rustc.to_vec(), None),
+        ([&rustc[..], b"rustc 1.94.0 (4a4ef493e 2026-03-02)"].concat(), None),
+        // A binary from before the `acpmux ` marker: its bare version line.
+        ([&rustc[..], b"0.1.0 (0db068d0e 2026-11-01)"].concat(), Some("0db068d0e 2026-11-01")),
+        // The marker wins over an earlier bare line.
+        ([&b"9 (aaaaaaa 2026-01-01)\x00"[..], stamp].concat(), Some("3bdf1d5d4 2026-11-02")),
+    ] {
+        assert_eq!(embedded_build(&bytes).as_deref(), want, "{}", String::from_utf8_lossy(&bytes));
+    }
+}
+
+#[test]
 fn only_the_daemons_own_turns_and_permission_prompts_make_it_busy() {
     let ls = json!({"sessions": [
         {"name": "mid-turn", "status": "idle", "turn": {"startedAt": 1}, "pendingPermissions": 0},

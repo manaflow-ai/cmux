@@ -147,7 +147,11 @@ fn process_cpu() -> Duration {
 fn uncached_rows(hub: &Hub, with_tools: bool) -> Built {
     let mut rows = Rows::default();
     for session in hub.sessions() {
-        let row = if with_tools { hub.session_summary(&session) } else { hub.session_list_summary(&session) };
+        let row = if with_tools {
+            hub.session_summary(&session)
+        } else {
+            hub.session_list_summary(&session)
+        };
         rows.push(&row);
     }
     rows.finish()
@@ -186,9 +190,7 @@ async fn measure_7828_full_idle_closed_summary_cache() {
     let (wall, cpu) = measure_rows(rounds, || {
         std::hint::black_box(Snapshot::build(&cached));
     });
-    eprintln!(
-        "7828 watch/list cached full build: {wall:.3} wall ms/cycle, {cpu:.3} CPU ms/cycle"
-    );
+    eprintln!("7828 watch/list cached full build: {wall:.3} wall ms/cycle, {cpu:.3} CPU ms/cycle");
 
     let baseline = scale_hub();
     let (wall, cpu) = measure_rows(rounds, || {
@@ -224,9 +226,7 @@ async fn measure_7828_full_idle_closed_summary_cache() {
     let (wall, cpu) = measure_rows(rounds, || {
         std::hint::black_box(cached.all_session_summaries());
     });
-    eprintln!(
-        "7828 peer sync cached summaries: {wall:.3} wall ms/cycle, {cpu:.3} CPU ms/cycle"
-    );
+    eprintln!("7828 peer sync cached summaries: {wall:.3} wall ms/cycle, {cpu:.3} CPU ms/cycle");
 }
 
 /// Same 7,828-record fixture used for the live-index before/after measurement. Each pair uses
