@@ -24,6 +24,7 @@ final class AgentTabStore {
     let host: any AgentPaneHostProviding
     /// The app-wide objects every agent pane view shares (``AgentPaneShared``: the made-ahead open panel, the posting-process table).
     private let paneShared: AgentPaneShared
+    private let attentionTabs: AgentPaneAttentionTabs?
     /// The page every agent tab loads: the bundled file, or in Debug builds
     /// the dev server `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the
     /// bundled page is missing).
@@ -283,7 +284,8 @@ final class AgentTabStore {
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
     /// `daemons` and `updates` are the app's (`AppServices`); a test's store has its own and updates no other machine.
     init(build: BuildIdentity?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
-         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil, paneShared: AgentPaneShared = AgentPaneShared(), defaults: UserDefaults = .standard,
+         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil, paneShared: AgentPaneShared = AgentPaneShared(),
+         attentionTabs: AgentPaneAttentionTabs? = nil, defaults: UserDefaults = .standard,
          daemons: AcpmuxLocalDaemons = AcpmuxLocalDaemons(), updates: DaemonUpdates? = nil, peerApprover: AgentPanePeerApprover? = nil) {
         (self.defaults, self.peerApprover) = (defaults, peerApprover)
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
@@ -291,6 +293,7 @@ final class AgentTabStore {
             adoptions = saved
         }
         self.paneShared = paneShared
+        self.attentionTabs = attentionTabs
         actionRegistry = registry
         self.linkScheme = linkScheme
         let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase, daemons: daemons, peerApprover: peerApprover)
@@ -351,10 +354,10 @@ final class AgentTabStore {
     /// Mac has an install id, and the daemon holds agent session tabs.
     func canHost(on daemon: DaemonService) -> Bool { canHostChat && localHost != nil && holdsTabs(daemon) }
 
-    /// The tab showing acpmux session `session` of `host` (default this Mac), if any.
-    func tab(showing session: String, host: String? = nil) -> String? {
+    /// The tab showing acpmux session `session` of `host` (default this Mac), if any; with `keep`, the first such tab it keeps.
+    func tab(showing session: String, host: String? = nil, where keep: (String) -> Bool = { _ in true }) -> String? {
         let host = host ?? localHost
-        return listTabs().first { $0.record.host == host && (sessions[$0.key] ?? $0.record.session) == session }?.key
+        return listTabs().first { $0.record.host == host && (sessions[$0.key] ?? $0.record.session) == session && keep($0.key) }?.key
     }
 
     /// The acpmux session agent tab `key` shows; nil for a new chat.
@@ -399,7 +402,7 @@ final class AgentTabStore {
         if kind == .local, (sessions[key] ?? record.session) == nil, daemonForTab(key)?.isLocal == false {
             let machine = daemonForTab(key).flatMap { remoteMachineName($0) } ?? ""
             let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: machine))
-            let model = AgentPaneModel(host: refused, allowsTabConversion: false)
+            let model = AgentPaneModel(host: refused, attentionTabs: attentionTabs, allowsTabConversion: false)
             // Its folder tools never act on this Mac either (cx-k21v).
             (model.remoteChat, model.neverPooled) = (true, true)
             guard let view = makeView(model) else { return nil }
@@ -448,6 +451,7 @@ final class AgentTabStore {
         }
         let model = AgentPaneModel(
             host: paneHost,
+            attentionTabs: attentionTabs,
             sessionId: sessions[key] ?? record.session,
             seed: seed,
             // A new chat this app opened on another machine shows the same New Tab page (cx-k21v).
@@ -490,7 +494,7 @@ final class AgentTabStore {
     /// A prewarmed new tab page (NewTabSparePool): loaded, rendered and
     /// connected before any tab exists; ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` adopts it.
     func makeSpare(_ page: AgentPaneNewTab) -> AgentPaneView? {
-        guard let view = makeView(AgentPaneModel(host: host, newTab: page)) else { return nil }
+        guard let view = makeView(AgentPaneModel(host: host, attentionTabs: attentionTabs, newTab: page)) else { return nil }
         standaloneViews.add(view)
         return view
     }
@@ -638,7 +642,7 @@ final class AgentTabStore {
     /// A chat outside any pane (onboarding's first task, Start Agent's panel), new or on `session`,
     /// on the same daemon and page as the tabs. The caller owns it and closes it.
     func standaloneView(seed: AgentPaneSeed, session: String? = nil) -> AgentPaneView? {
-        guard let view = makeView(AgentPaneModel(host: host, sessionId: session, seed: AgentPaneSeedSource(seed))) else { return nil }
+        guard let view = makeView(AgentPaneModel(host: host, attentionTabs: attentionTabs, sessionId: session, seed: AgentPaneSeedSource(seed))) else { return nil }
         standaloneViews.add(view)
         return view
     }

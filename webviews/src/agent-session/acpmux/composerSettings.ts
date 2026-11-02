@@ -36,7 +36,8 @@ import { useSyncExternalStore } from "react";
 // `symbols`: one row of harness symbols at the top of the model picker, each name on hover (Leo
 // 2026-10-30: "honestly we had a pretty good thing going with teh symbols of the harneses at the
 // top :("). The others stay as choices.
-export type HarnessPlacement = "symbols" | "left" | "top" | "compact";
+export type { HarnessPlacement } from "../../ui/harnessPlacement";
+import type { HarnessPlacement } from "../../ui/harnessPlacement";
 export type ReasoningSliderStyle = "accent" | "minimal";
 export type AttachmentView = "inline" | "strip" | "both";
 export type NewChatPlace = "local" | "cloud";

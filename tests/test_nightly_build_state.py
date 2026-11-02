@@ -152,6 +152,15 @@ class DedicatedBuilder(unittest.TestCase):
         self.assertEqual(self.build()[0], 'mode=clean')
         self.assertEqual(self.build()[0], 'mode=incremental')
 
+    def test_a_release_build_script_change_makes_it_clean(self):
+        # The workflow step only runs app-build-release.sh, so its xcodebuild flags live in the scripts.
+        for name in ('scripts/ci/nightly-steps/app-build-release.sh', 'scripts/cmux-next/lib/compilation-cache.sh'):
+            with self.subTest(name=name):
+                self.build()
+                self.commit({name: f'xcodebuild OTHER_SWIFT_FLAGS=-DCHANGED_{len(name)}\n'})
+                self.assertEqual(self.build()[0], 'mode=clean')
+                self.assertEqual(self.build()[0], 'mode=incremental')
+
     def test_a_toolchain_lockfile_or_submodule_change_makes_it_clean(self):
         self.build()
         self.assertEqual(self.build(toolchain='Xcode 26.7')[:2], ('mode=clean', False))
@@ -161,6 +170,15 @@ class DedicatedBuilder(unittest.TestCase):
         self.commit({'cmux-tui/rust-toolchain.toml': '[toolchain]\n'})
         self.assertEqual(self.build(toolchain='Xcode 26.7')[0], 'mode=clean')
 
+    def test_a_cargo_lock_change_stays_incremental(self):
+        # The Release build's cargo phases rerun on their own lockfile inputs and build separate executables,
+        # so a Cargo.lock change leaves the kept Swift objects valid.
+        self.build()
+        self.commit({'cmux-tui/Cargo.lock': '# changed\n', 'Native/DiffSidecar/Cargo.lock': '# changed\n'})
+        self.assertEqual(self.build()[0], 'mode=incremental')
+        self.commit({'cmux-tui/rust-toolchain.toml': '[toolchain]\n'})
+        self.assertEqual(self.build()[0], 'mode=clean')
+
     def test_a_module_or_link_structure_change_makes_it_clean(self):
         for name in ('Packages/macOS/CmuxNext/Package.swift', 'cmux.xcodeproj/project.pbxproj', 'Config/Release.xcconfig',
                      'Sources/module.modulemap'):
@@ -168,6 +186,14 @@ class DedicatedBuilder(unittest.TestCase):
                 self.build()
                 self.commit({name: f'changed {name}\n'})
                 self.assertEqual(self.build()[0], 'mode=clean')
+
+    def test_a_prototype_package_or_import_change_stays_incremental(self):
+        self.build()
+        self.commit({'Prototypes/Lab/Package.swift': '// swift-tools-version:5.9\n',
+                     'Prototypes/Lab/Sources/Lab/a.swift': 'import SwiftUI\n'})
+        self.assertEqual(self.build()[0], 'mode=incremental')
+        self.commit({'Prototypes/Lab/Package.swift': '// removed\n', 'Sources/a.swift': 'import Foundation\n'})
+        self.assertEqual(self.build()[0], 'mode=clean')
 
     def test_an_import_change_makes_it_clean(self):
         for name, text in (('Sources/a.swift', 'import Foundation\nlet a = 1\n'),
@@ -337,6 +363,18 @@ class DedicatedBuilder(unittest.TestCase):
         for value in ('false', '', 'True'):
             with mock.patch.dict(os.environ, {'NIGHTLY_ONLY_BUILDER': value}):
                 self.assertFalse(state.builder_label())
+
+    def test_kept_package_state_is_not_sanitized_away(self):
+        """The warm builder skips the R2 package restore, so its kept workspace-state.json names this
+        workspace; deleting it made xcodebuild re-fetch every package (up to 222 s, run 41439348303)."""
+        workflow = (ROOT / '.github/workflows/nightly.yml').read_text()
+        job = workflow[workflow.index('\n  build-nightly-app:\n'):workflow.index('\n  build-nightly-remote-daemon:\n')]
+        restore = job[job.index('      - name: Cache Swift packages\n'):]
+        restore = restore[:restore.index('\n      - name:', 1)]
+        sanitize = job[job.index('      - name: Sanitize Swift package cache\n'):]
+        sanitize = sanitize[:sanitize.index('\n      - name:', 1)]
+        self.assertIn("steps.release-derived-data.outputs.mode == ''", restore)
+        self.assertIn("steps.release-derived-data.outputs.mode == ''", sanitize)
 
 
 if __name__ == '__main__':

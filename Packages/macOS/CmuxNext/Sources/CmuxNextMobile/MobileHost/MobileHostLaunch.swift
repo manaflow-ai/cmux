@@ -44,9 +44,13 @@ public struct MobileHostLaunch: Sendable, Equatable {
     /// hostd serves `browser` and says `browser-stream-v1` (`CMUX_MOBILE_BROWSER_HOSTS=1`).
     /// Off, phones hide New Browser Tab for this Mac.
     public var browserHosts = false
-    /// This build streams the phone tabs' simulators (SimulatorKit loads): hostd
-    /// serves `surface` and says `surface-stream-v1` (`CMUX_MOBILE_SURFACE_HOSTS=1`).
+    /// This build streams surfaces (the phone tabs' simulators when SimulatorKit loads, the owner's
+    /// Cloud desktops): hostd serves `surface` and says `surface-stream-v1` and `cloud-desktop-v1`
+    /// (`CMUX_MOBILE_SURFACE_HOSTS=1`).
     public var surfaceHosts = false
+    /// The surface source streams phone tabs' simulators too; off (no SimulatorKit), hostd streams
+    /// Cloud desktops only and says no `surface-stream-v1` (`CMUX_MOBILE_SURFACE_SIMULATORS=0`).
+    public var simulatorSurfaces = true
 
     public init(executable: URL, baseURL: URL, teamID: String, userID: String, deviceID: String, deviceName: String,
                 daemonSocket: String, stateDirectory: URL, fileRoots: [String], stackProjectID: String,
@@ -116,6 +120,7 @@ public struct MobileHostLaunch: Sendable, Equatable {
         if let chiefSocket, !chiefSocket.isEmpty { environment["CMUX_MOBILE_CHIEF_SOCKET"] = chiefSocket }
         if browserHosts { environment["CMUX_MOBILE_BROWSER_HOSTS"] = "1" }
         if surfaceHosts { environment["CMUX_MOBILE_SURFACE_HOSTS"] = "1" }
+        if surfaceHosts, !simulatorSurfaces { environment["CMUX_MOBILE_SURFACE_SIMULATORS"] = "0" }
         return environment
     }
 

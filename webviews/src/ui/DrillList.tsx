@@ -150,9 +150,10 @@ export function DrillList<T>(props: DrillListProps<T>) {
       aria-setsize={style ? rows.length : undefined}
       {...itemAttributes?.(item)}
       onMouseDown={(event) => {
-        // A context-menu press must leave the native gesture and the active row alone.
-        if (event.button !== 0 || event.ctrlKey) return;
+        // Keeps focus in the search field for every press (a prevented mousedown still opens the
+        // context menu); only an unmodified primary press moves the highlight.
         event.preventDefault();
+        if (event.button !== 0 || event.ctrlKey) return;
         onHighlight(index);
       }}
       onMouseMove={() => index !== current && onHighlight(index)}

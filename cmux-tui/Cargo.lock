@@ -18,6 +18,7 @@ dependencies = [
  "cmux-codex-acp",
  "cmux-git",
  "cmux-host",
+ "cmux-host-budget",
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
@@ -999,6 +1000,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-bookmarks-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -1043,6 +1053,15 @@ dependencies = [
 [[package]]
 name = "cmux-cloud-cli"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-cloud-start-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
 
 [[package]]
 name = "cmux-cloud-wire"
@@ -1237,6 +1256,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-host-budget"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "cmux-json"
 version = "0.1.0"
 dependencies = [
@@ -1257,9 +1288,12 @@ dependencies = [
 name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
+ "cmux-motion",
  "proptest",
  "serde",
  "serde_json",
+ "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -1691,6 +1725,7 @@ dependencies = [
  "crossbeam-channel",
  "crossterm",
  "flate2",
+ "fs4",
  "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",
@@ -1759,6 +1794,7 @@ dependencies = [
  "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
+ "cmux-bookmarks-core",
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
@@ -1784,6 +1820,7 @@ dependencies = [
  "cmux-tui-remote-access",
  "cmux-tui-util",
  "cmux-unix-socket",
+ "cmux-url-input",
  "flate2",
  "fs4",
  "futures-util",
@@ -1914,6 +1951,10 @@ dependencies = [
  "libc",
  "tempfile",
 ]
+
+[[package]]
+name = "cmux-url-input"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-vm"

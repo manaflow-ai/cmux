@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (sample sessions, pull requests and commands), not shipped UI.
-// Session Info (Debug Settings `agent.inspector`, on by default) as the real SessionInfo renders it
+// Session Info (Debug Settings `agent.sessionInfo`, on by default) as the real SessionInfo renders it
 // in its panel at the right of a chat: a full chat with every section, its Context and Connectors
 // open, its Changes across repositories with line breakdowns, comments, failing checks and owners
 // (all of them after Show more), its running subagents and chats named one per line with the ended
@@ -219,10 +219,11 @@ const waveAgents: Subagent[] = Array.from({ length: RUNNING + 2 }, (_, index) =>
 }));
 
 /// Where the play holds every wave loop: one point on each loop's own timeline, past its delay (the
-/// delay is never positive, wave.css), so each icon's phase differs only by its index. At 560 ms
-/// the crest (20% of the 1.6 s period) is on the third line: the two before it fall from it, the
-/// two after it rise toward it, so a still reads dim, brighter, crest, brighter, dim.
-const WAVE_HOLD_MS = 560;
+/// delay is never positive, wave.css), so each icon's phase differs only by its index. At 840 ms
+/// the crest (20% of Session Info's 2.4 s period, SubagentsSection.css) is on the third line: the
+/// two before it fall from it, the two after it rise toward it, so a still reads dim, brighter,
+/// crest, brighter, dim.
+const WAVE_HOLD_MS = 840;
 
 /// The page's wave loops (CSS animations of `cmux-wave`).
 const waveLoops = (ctx: PlayContext) =>
@@ -722,7 +723,7 @@ export default componentEntry<Props>({
       },
     },
     "workflow-finished": {
-      note: "Labs: the same workflow finished. 1 finished; Workflow · Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop. Critique opened: its agents with a check and how long each took.",
+      note: "Labs: the same workflow finished. 1 finished; Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop. Critique opened: its agents with a check and how long each took.",
       props: workflowProps("finished"),
       play: openPhase(2),
     },

@@ -42,7 +42,7 @@ enum WorkspaceMetadataHandlers {
             return PinCommands(context: context).isWorkspacePinned(workspace) ? PinStrings.unpinWorkspace : PinStrings.pinWorkspace
         }
         // Add to Top / Remove from Top on the workspace row (P1): the same layout path as `sidebar.item.add`.
-        registry.bind("workspace.toggleTop", unavailable: { SidebarDocWiring.layoutUnavailableReason(context.services.sidebarLayout) }, run: { invocation in
+        registry.bind("workspace.toggleTop", unavailable: { context.services.sidebarDoc.layoutUnavailableReason(context.services.sidebarLayout) }, run: { invocation in
             try PinCommands(context: context).toggleWorkspaceOnTop(try context.workspace(invocation).model.id, origin: invocation.origin)
         })
         ActionTargetTitles.set("workspace.toggleTop", in: registry) { invocation in

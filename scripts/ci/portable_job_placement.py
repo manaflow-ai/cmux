@@ -44,8 +44,14 @@ LINUX_ONLY jobs (the nightly signer compiler emits a Linux executable) never
 take a mini. NIGHTLY_WAIT_FOR_FLEET=1 retries placement for at most three minutes
 before returning unplaced jobs to overflow. The process-wide deadline bounds
 reads too, and main always clears its alarm and restores the previous handler.
-REQUIRE_LIVE_CAPACITY=1 never emits an owned-mini label without a fresh live
-capacity observation, including after the admission wait expires.
+REQUIRE_LIVE_CAPACITY=1 never emits an owned-mini label without a fresh
+capacity observation, including after the admission wait expires. The trusted
+runner-state document supplies that observation when its source timestamp is at
+most five minutes old; otherwise the reader calls the live API. Its publisher
+waits 120 seconds between refresh attempts during a whole-fleet repair pass.
+Busy flags reflect that observation and do not reserve a runner. Workflow context captures the
+variable when the run starts, so a delayed picker may need the live fallback even
+when publication continues. REQUIRE_LIVE_CAPACITY keeps the same age bound.
 """
 from __future__ import annotations
 
@@ -148,6 +154,13 @@ def eligible(env: Mapping[str, str]) -> str:
     if refusal:
         return refusal
     label = (env.get("SIDE_LABEL") or "").strip()
+    jobs = set((env.get("JOBS") or "").split())
+    linux_only = set((env.get("LINUX_ONLY") or "").split())
+    # A Linux-only picker (for example the cmux-tui daemon marker) has no
+    # owned-Mac leg. It must still read the live Linux group even when the
+    # caller has no side-pool label to offer.
+    if jobs and jobs.issubset(linux_only):
+        return ""
     if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
         return f"`{label or 'no label'}` is not an owned side label"
     if label.startswith("glaeda-aws-"):
@@ -234,7 +247,7 @@ def delimited(jobs: Sequence[str]) -> str:
     return f" {' '.join(jobs)} " if jobs else ""
 
 
-def read(env: Mapping[str, str], now: dt.datetime
+def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
          ) -> tuple[Sequence[Mapping[str, Any]] | None, Mapping[str, Any] | None]:
     """The runners (routing App, then cmux-bot) and the janitor's pool snapshot; None when unread."""
     repo = env.get("GITHUB_REPOSITORY", "")
@@ -247,7 +260,8 @@ def read(env: Mapping[str, str], now: dt.datetime
         if not token:
             continue
         try:
-            runners = pool.GitHub(token, repo, retry_cap=side.SIDE_RETRY_CAP_SECONDS, retries=retries).runners()
+            client = pool.GitHub(token, repo, retry_cap=side.SIDE_RETRY_CAP_SECONDS, retries=retries)
+            runners = client.runners(use_state=use_state)
             break
         except Exception as error:  # noqa: BLE001 - fail open: every job keeps Blacksmith
             print(f"::warning title=portable placement::could not list runners with {name} ({error})")
@@ -304,8 +318,13 @@ def main(env: Mapping[str, str] = os.environ) -> int:
                 break
             time.sleep(min(30, remaining))
             now = dt.datetime.now(dt.timezone.utc)
-            runners, snapshot = read(env, now)
+            runners, snapshot = read(env, now, use_state=False)
             placed = decide(env, runners, snapshot, now)
+            # A re-read that can no longer see capacity (a refused or rate-limited
+            # API, a stale snapshot) ends the wait, as an unread first read does:
+            # waiting out the rest of the three minutes cannot place anything.
+            if runners is None or pool.snapshot_problem(snapshot, now):
+                break
         signal.setitimer(signal.ITIMER_REAL, 0)
         write(placed, env)
     except Deadline:

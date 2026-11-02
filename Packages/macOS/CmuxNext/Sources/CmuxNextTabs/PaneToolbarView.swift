@@ -25,7 +25,8 @@ public struct PaneToolbarItem: Equatable, Sendable {
 
 /// The pane's controls at the tab bar's trailing end (``PaneToolbar``; Leo 2026-10-12, Lawrence
 /// 2026-10-12): the pinned actions' buttons, then "…". They hide at rest (`tabs.restingControlOpacity`,
-/// 0 by default; Lawrence 2026-10-20) and fade in while the pointer is over the tab bar or these
+/// 0 by default; Lawrence 2026-10-20) while the tabs leave room, show muted at rest once the tabs fill
+/// the bar (`tabs.crowdedControls`; Leo 2026-10-20), and fade in while the pointer is over the tab bar or these
 /// controls (`HoverReveal`, like the strip's plus), while "…"'s menu is open and while one has keyboard
 /// focus, and stay shown, "…" and a pinned zoom button lit, while the pane is zoomed (the selected
 /// tab carries the zoom indicator, `TabStripModel.zoomsSelected`). Their width is kept while they are faded,
@@ -42,8 +43,14 @@ public final class PaneToolbarView: NSView {
     public var onNativeToolURL: ((String, String?, URL) -> Void)?
     /// Opens a validated native menu URL. Injectable for tests; production uses AppKit's workspace.
     public var openURL: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
-    /// The tab bar's frame in the superview: hovering it reveals the controls too.
-    public var stripFrame: (() -> NSRect?)?
+    /// The pane's tab bar, a sibling: hovering its frame reveals the controls too, and once its tabs
+    /// fill it (``TabStripView/isCrowded``) the controls show at rest (`tabs.crowdedControls`).
+    public weak var strip: TabStripView? {
+        didSet {
+            strip?.onCrowdedChange = { [weak self] _ in self?.applyRest() }
+            applyRest()
+        }
+    }
 
     public private(set) var hasMore = false
     public private(set) var lit = false
@@ -76,11 +83,19 @@ public final class PaneToolbarView: NSView {
         addSubview(moreButton)
         // Hidden at rest by default (Lawrence 2026-10-20; Leo's muted look is a value above 0); a Debug
         // Settings change applies at once. task-owner: this view (cancelled in deinit); event-driven.
-        reveal.restAlpha = TabTunables.restingControlOpacity.value
+        applyRest()
         _ = reveal.add(moreButton)
         restObservation = Task { [weak self] in
-            for await rest in ObservationStream({ TabTunables.restingControlOpacity.value }) { self?.reveal.restAlpha = rest }
+            for await _ in ObservationStream({
+                (TabTunables.restingControlOpacity.value, TabTunables.crowdedControls.value, TabTunables.crowdedControlOpacity.value)
+            }) { self?.applyRest() }
         }
+    }
+
+    /// Hidden at rest while the tabs leave room; muted once they fill the bar (Leo 2026-10-20: no
+    /// reservation of hidden icons, and no push or overlay that takes the rightmost tabs away).
+    private func applyRest() {
+        reveal.restAlpha = TabTunables.restingControlAlpha(crowded: strip?.isCrowded ?? false)
     }
 
     @available(*, unavailable)
@@ -347,7 +362,7 @@ public final class PaneToolbarView: NSView {
     /// `HoverRevealProbe`). Reads the pointer once, so a bar that moves under a still pointer is
     /// right before the next move.
     public func refreshCorner() {
-        let rect = stripFrame?().map { $0.union(frame) } ?? frame
+        let rect = strip.map { $0.frame.union(frame) } ?? frame
         // Any control that shows (Search Tabs with a chat selected has no "…") brightens on hover.
         let live = superview != nil && window != nil && (hasMore || !buttons.isEmpty || !nativeButtons.isEmpty) && !isHiddenOrHasHiddenAncestor
         if live, let corner, corner.rect == rect, cornerHost === superview { return }

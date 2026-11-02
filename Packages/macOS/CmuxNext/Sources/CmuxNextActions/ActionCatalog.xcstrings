@@ -2,6 +2,7 @@
   "sourceLanguage": "en",
   "strings": {
     "action.agent.jumpToNextNeedingInput": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Go to Next Agent Needing Input"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "الانتقال إلى الوكيل التالي الذي ينتظر إدخالًا"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Idi na sljedećeg agenta koji čeka unos"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Gå til næste agent, der venter på input"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Zum nächsten Agenten, der auf Eingabe wartet"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Ir al siguiente agente que necesita respuesta"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Aller à l’agent suivant en attente de réponse"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Vai al prossimo agente in attesa di input"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "入力待ちの次のエージェントへ移動"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ទៅកាន់ភ្នាក់ងារបន្ទាប់ដែលត្រូវការការបញ្ចូល"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "입력이 필요한 다음 에이전트로 이동"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Gå til neste agent som venter på svar"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Przejdź do następnego agenta czekającego na odpowiedź"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ir para o próximo agente aguardando resposta"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Перейти к следующему агенту, ожидающему ввода"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ไปยังเอเจนต์ถัดไปที่รอการตอบ"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Girdi bekleyen sonraki ajana git"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Перейти до наступного агента, що чекає на введення"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Đi tới tác tử tiếp theo cần phản hồi"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "前往下一个等待输入的智能体"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "前往下一個等待輸入的代理程式"}}}},
+    "action.artifacts.show": {"comment": "Command palette: opens the Artifacts page", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Show Artifacts"}}, "ar": {"stringUnit": {"state": "translated", "value": "إظهار العناصر المحفوظة"}}, "bs": {"stringUnit": {"state": "translated", "value": "Prikaži artefakte"}}, "da": {"stringUnit": {"state": "translated", "value": "Vis artefakter"}}, "de": {"stringUnit": {"state": "translated", "value": "Artefakte anzeigen"}}, "es": {"stringUnit": {"state": "translated", "value": "Mostrar artefactos"}}, "fr": {"stringUnit": {"state": "translated", "value": "Afficher les artefacts"}}, "it": {"stringUnit": {"state": "translated", "value": "Mostra artefatti"}}, "ja": {"stringUnit": {"state": "translated", "value": "アーティファクトを表示"}}, "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញវត្ថុបុរាណ"}}, "ko": {"stringUnit": {"state": "translated", "value": "아티팩트 보기"}}, "nb": {"stringUnit": {"state": "translated", "value": "Vis artefakter"}}, "pl": {"stringUnit": {"state": "translated", "value": "Pokaż artefakty"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar artefatos"}}, "ru": {"stringUnit": {"state": "translated", "value": "Показать артефакты"}}, "th": {"stringUnit": {"state": "translated", "value": "แสดงอาร์ติแฟกต์"}}, "tr": {"stringUnit": {"state": "translated", "value": "Yapıtları Göster"}}, "uk": {"stringUnit": {"state": "translated", "value": "Показати артефакти"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hiện tạo phẩm"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "显示制品"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "顯示成品"}}}},
     "action.cloudShareMachine": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Share Machine…"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "مشاركة الجهاز…"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Podijeli mašinu…"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Del maskine…"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Maschine teilen …"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Compartir máquina…"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Partager la machine…"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Condividi macchina…"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "マシンを共有…"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ចែករំលែកម៉ាស៊ីន…"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "기기 공유…"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Del maskin …"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Udostępnij maszynę…"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Compartilhar Máquina…"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Поделиться машиной…"}}, "th": {"stringUnit": {"state": "needs_review", "value": "แชร์เครื่อง…"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Makineyi Paylaş…"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Поділитися машиною…"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chia sẻ máy…"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "共享机器…"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "共享機器…"}}}},
     "argument.teammate": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Teammate"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "زميل الفريق"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Član tima"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Teammedlem"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Teammitglied"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Compañero de equipo"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Coéquipier"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Membro del team"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "チームメイト"}}, "km": {"stringUnit": {"state": "needs_review", "value": "សមាជិកក្រុម"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "팀원"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Teammedlem"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Członek zespołu"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Colega de equipe"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Участник команды"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เพื่อนร่วมทีม"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Ekip arkadaşı"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Учасник команди"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Đồng đội"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "队友"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "隊友"}}}},
     "argument.revoke": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Revoke"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "إلغاء"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Opozovi"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Tilbagekald"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Widerrufen"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Revocar"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Révoquer"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Revoca"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "取り消す"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ដកហូត"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "취소"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Tilbakekall"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Cofnij"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Revogar"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Отозвать"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เพิกถอน"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "İptal et"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Відкликати"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Thu hồi"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "撤销"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "撤銷"}}}},
@@ -99940,32 +99941,6 @@
         }
       }
     },
-    "action.help.setupGuide": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit":{"state":"translated","value":"Setup Guide"}},
-        "de": {"stringUnit":{"state":"translated","value":"Einrichtungsanleitung"}},
-        "fr": {"stringUnit":{"state":"translated","value":"Guide de configuration"}},
-        "ar": {"stringUnit":{"state":"translated","value":"دليل الإعداد"}},
-        "es": {"stringUnit":{"state":"translated","value":"Guía de configuración"}},
-        "zh-Hant": {"stringUnit":{"state":"translated","value":"設定指南"}},
-        "zh-Hans": {"stringUnit":{"state":"translated","value":"设置指南"}},
-        "ko": {"stringUnit":{"state":"translated","value":"설정 안내"}},
-        "ja": {"stringUnit":{"state":"translated","value":"セットアップガイド"}},
-        "bs": {"stringUnit":{"state":"translated","value":"Vodič za postavljanje"}},
-        "da": {"stringUnit":{"state":"translated","value":"Installationsvejledning"}},
-        "it": {"stringUnit":{"state":"translated","value":"Guida alla configurazione"}},
-        "km": {"stringUnit":{"state":"translated","value":"មគ្គុទ្ទេសក៍ដំឡើង"}},
-        "nb": {"stringUnit":{"state":"translated","value":"Installasjonsveiledning"}},
-        "pl": {"stringUnit":{"state":"translated","value":"Przewodnik konfiguracji"}},
-        "pt-BR": {"stringUnit":{"state":"translated","value":"Guia de configuração"}},
-        "ru": {"stringUnit":{"state":"translated","value":"Руководство по настройке"}},
-        "th": {"stringUnit":{"state":"translated","value":"คู่มือการตั้งค่า"}},
-        "tr": {"stringUnit":{"state":"translated","value":"Kurulum Kılavuzu"}},
-        "uk": {"stringUnit":{"state":"translated","value":"Посібник із налаштування"}},
-        "vi": {"stringUnit":{"state":"translated","value":"Hướng dẫn thiết lập"}}
-      }
-    },
   "action.help.troubleshooting": {
       "extractionState": "manual",
       "localizations": {
@@ -102268,6 +102243,399 @@
           "stringUnit": {
             "state": "translated",
             "value": "自訂右鍵選單…"
+          }
+        }
+      }
+    },
+    "action.attention.goTo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الانتقال إلى ما يحتاجني"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Idi na ono što me treba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gå til det, der kræver mig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zu dem, was mich braucht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go to What Needs Me"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ir a lo que me necesita"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aller à ce qui m’attend"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vai a ciò che richiede me"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自分の対応が必要な場所へ移動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទៅកាន់អ្វីដែលត្រូវការខ្ញុំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내가 필요한 곳으로 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gå til det som trenger meg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przejdź do tego, co mnie potrzebuje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ir para o que precisa de mim"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перейти к тому, что ждёт меня"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไปยังสิ่งที่ต้องการฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bana ihtiyaç duyulan yere git"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перейти до того, що чекає на мене"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đi tới việc cần tôi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "前往需要我处理的地方"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "前往需要我處理的地方"
+          }
+        }
+      }
+    },
+    "action.hostPressure.showWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Host Pressure Warning"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار تحذير ضغط المضيف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži upozorenje o opterećenju hosta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis advarsel om værtsbelastning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warnung zur Host-Auslastung anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar aviso de carga del host"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’avertissement de charge de l’hôte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra avviso di carico dell’host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホスト負荷の警告を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញការព្រមានអំពីបន្ទុកម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트 부하 경고 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis advarsel om vertsbelastning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż ostrzeżenie o obciążeniu hosta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar aviso de carga do host"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать предупреждение о нагрузке хоста"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงคำเตือนภาระของโฮสต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ana makine yükü uyarısını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати попередження про навантаження хоста"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện cảnh báo tải máy chủ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示主机负载警告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示主機負載警告"
+          }
+        }
+      }
+    },
+    "action.hostPressure.hideWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Host Pressure Warning"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء تحذير ضغط المضيف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakrij upozorenje o opterećenju hosta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul advarsel om værtsbelastning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warnung zur Host-Auslastung ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar aviso de carga del host"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer l’avertissement de charge de l’hôte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi avviso di carico dell’host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホスト負荷の警告を非表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់ការព្រមានអំពីបន្ទុកម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트 부하 경고 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul advarsel om vertsbelastning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukryj ostrzeżenie o obciążeniu hosta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar aviso de carga do host"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть предупреждение о нагрузке хоста"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนคำเตือนภาระของโฮสต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ana makine yükü uyarısını gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховати попередження про навантаження хоста"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn cảnh báo tải máy chủ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏主机负载警告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏主機負載警告"
           }
         }
       }

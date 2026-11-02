@@ -53,7 +53,7 @@
 // a new message does, leaves on a kept snapshot, its list opens and folds on the shared fold
 // (conversation/fold.ts), a line that joins it rises in, and its header's words tick. What runs
 // turns the shared spinner, never a breathing dot.
-import { memo, type ReactElement, useCallback, useId, useLayoutEffect, useRef, useState } from "react";
+import { memo, type ReactElement, useCallback, useContext, useId, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { foldMotion, useFold } from "../conversation/fold";
@@ -67,10 +67,12 @@ import { StopButton as ProcessStopButton } from "../session-info/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
 import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentLine } from "./AgentLine";
+import { SUBAGENT_FALLBACK } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
+import { subagentDisplayName } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
-import { elapsed, StopButton, useNow } from "./SubagentGroup";
+import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
 import { toolDetail } from "./trayDetail";
 import { trayPanelLook, trayRowLook } from "./trayPanel.experiment";
@@ -154,6 +156,8 @@ export const SubagentTray = memo(function SubagentTray({
 }) {
   const t = useT();
   const language = usePaneLanguage();
+  // The chat's harness, for a subagent that names none (SubagentGroup.tsx `Avatar`).
+  const chatHarness = useContext(SubagentHarnessContext);
   const listId = useId();
   const now = useNow(items.length > 0);
   const trayNode = useRef<HTMLElement | null>(null);
@@ -381,7 +385,7 @@ export const SubagentTray = memo(function SubagentTray({
           >
             <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
           </span>
-          <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} />
+          <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} steadyCounts />
           {/* Quiet meta right after the counts, never a column of its own far from them. */}
           <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
             {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
@@ -455,10 +459,11 @@ export const SubagentTray = memo(function SubagentTray({
     if (item.kind === "agent")
       return menu(
         <AgentLine
-          name={item.agent.name}
+          name={subagentDisplayName(t, item.agent)}
           progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
           progressAgent={item.agent}
-          mark={item.agent.harness}
+          icon={SUBAGENT_FALLBACK}
+          mark={item.agent.harness ?? chatHarness}
           tone={agentTone(item.agent.id)}
           status={subagentStatus(item.agent, waiting)}
           working={subagentStatus(item.agent, waiting) === "running"}
@@ -469,7 +474,7 @@ export const SubagentTray = memo(function SubagentTray({
           // Its kind and what it does now are off the line (Leo, 2026-10-31: "a lot of these
           // subtitles are bad"); the tooltip keeps them under its task.
           title={agentTooltip(t, item.agent)}
-          label={t("subagents.open", { name: item.agent.name })}
+          label={t("subagents.open", { name: subagentDisplayName(t, item.agent) })}
           chevron
           trayColumns
           // A narrow tray's second line is its time and controls: the stats wrap under the title.
@@ -485,8 +490,11 @@ export const SubagentTray = memo(function SubagentTray({
         stop &&
           item.agent.state === "running" &&
           !item.agent.command &&
-          stopItem(stopKey(item)!, item.agent.name, t("subagents.stop", { name: item.agent.name }), () =>
-            stop(item.agent.id),
+          stopItem(
+            stopKey(item)!,
+            subagentDisplayName(t, item.agent),
+            t("subagents.stop", { name: subagentDisplayName(t, item.agent) }),
+            () => stop(item.agent.id),
           ),
       );
     if (item.kind === "command") {

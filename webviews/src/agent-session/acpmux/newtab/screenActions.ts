@@ -142,7 +142,7 @@ export function newTabScreenActions(deps: {
     },
     // A chat opens in a new workspace (the host's Open Chat path), so this page stays the New
     // Tab page instead of turning into an empty chat.
-    onOpenChat: (key) => ignore(callNative("chats.open", { key })),
+    onOpenChat: (key) => callNative("chats.open", { key }).then(() => undefined),
     onOpenChatInTerminal: (key) => ignore(callNative("chats.openInTerminal", { key })),
     onViewChat: (key) => ignore(callNative("chats.watch", { key })),
     loadChatsPage: (params) => callNative("chats.page", params) as Promise<AllChatsPage | undefined>,

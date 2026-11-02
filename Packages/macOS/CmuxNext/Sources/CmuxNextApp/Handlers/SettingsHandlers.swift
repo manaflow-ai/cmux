@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextCompat
 import CmuxNextErrorJournal
 import CmuxNextSettings
@@ -54,7 +55,6 @@ enum SettingsHandlers {
         UpdateHandlers.bind(into: registry, updater: context.services.updater,
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false },
                             stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
-        SetupGuidePage.bind(into: registry, services: context.services)
         OnboardingHandlers.bind(into: registry, context: context)
         // Keep the App Store out of menus and the palette while Labs is off (What's New is not
         // behind Labs). Compose this with the browser import gate installed above so unrelated

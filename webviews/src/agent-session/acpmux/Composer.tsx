@@ -124,6 +124,8 @@ import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
+import { SLASH_MAX_VIEWPORT_PX, slashActiveAfterScroll, slashScrollForActive, slashViewport } from "./slashViewport";
+import { compactingUsage } from "./usageStats";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -207,8 +209,9 @@ export const COMPOSER_LABELS = {
 export type ComposerHandle = {
   /// Reads the current prompt and attachments before the composer is swapped out.
   draft(): { text: string; attachments: ComposerAttachment[] };
-  /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
-  restore(text: string, attachments: ComposerAttachment[]): void;
+  /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest
+  /// (`behind`: after them, for prompts sent after one already given back).
+  restore(text: string, attachments: ComposerAttachment[], behind?: boolean): void;
   /// Snapshot the unsent text without attachment markers or taking it out of this chat.
   draftText(): string;
   /// Prevent ordinary session-switch attachment handoff for text-only recovery.
@@ -632,7 +635,7 @@ export function Composer({
   // (composerLook.ts; Leo 2026-11-01: "we already have a good version").
   const look = useComposerLook();
   const quietActions = plainFooter;
-  const usage = snapshot.summary?.usage;
+  const usage = compactingUsage(snapshot.summary?.usage, snapshot.summary?.usageStats);
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
@@ -825,7 +828,7 @@ export function Composer({
       clearAttachmentCarrySuppression() {
         suppressedAttachmentCarry.current = undefined;
       },
-      restore(restoredText, restoredAttachments) {
+      restore(restoredText, restoredAttachments, behind = false) {
         // A prompt coming back (refused, taken back, edited from the queue) went with a Codex skill
         // as `/$name`: it is typed `/name` here, and send writes the `$` again. Its skills are the
         // draft's picks; with nothing typed it is the whole draft, and they replace the old ones.
@@ -839,9 +842,15 @@ export function Composer({
         attachmentsRef.current = appendAttachments(attachmentsRef.current, restoredAttachments);
         // Put back, not typed: the Enter that sent it says nothing about this change.
         notTyped();
-        // What comes back goes first; what was typed or attached since stays after it.
+        // What comes back goes first; what was typed or attached since stays after it. `behind`: it
+        // goes after what is there (prompts a folder's trust held, sent after one already given
+        // back: trustHeld.ts).
         const typed = field.current?.value() ?? "";
-        const next = typed.trim() ? `${restoredText}\n\n${typed}` : restoredText;
+        const next = !typed.trim()
+          ? restoredText
+          : behind
+            ? `${typed}\n\n${restoredText}`
+            : `${restoredText}\n\n${typed}`;
         // A field whose editor is still starting (the chat composer that mounts as a New Tab page
         // leaves) takes it as its value, which becomes the editor's first content.
         if (!field.current?.type(next)) {
@@ -849,10 +858,12 @@ export function Composer({
           setCaret(next.length);
         }
         if (restoredAttachments.length)
-          setAttachments((current) => [
-            ...restoredAttachments,
-            ...current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id)),
-          ]);
+          setAttachments((current) => {
+            const others = current.filter(
+              (attachment) => !restoredAttachments.some((back) => back.id === attachment.id),
+            );
+            return behind ? [...others, ...restoredAttachments] : [...restoredAttachments, ...others];
+          });
       },
       attach(attachment) {
         // A pick past the most the composer holds says so, as a dropped file does.
@@ -1182,12 +1193,13 @@ export function Composer({
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   const slashNames = useSlashNames(commands);
 
-  // The row the arrows chose: Return picks it whatever was typed (returnPicks).
+  // The row the arrows chose: Return picks it whatever was typed (returnPicks). A new word, a cleared
+  // draft or the list closing forgets it, so the same word typed again picks only by its spelling.
   const [arrowed, setArrowed] = useState(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     setActive(0);
     setArrowed(false);
-  }, [query]);
+  }, [query, open]);
   // Typing @ at a word start lists other chats, then the chat's folders and files that match what
   // follows (cx-ncc.68, mentionItems.ts).
   const chatId = snapshot.summary?.sessionId;
@@ -2401,6 +2413,7 @@ export function Composer({
             {open && (
               <ComposerListLayer>
                 <SlashMenu
+                  key={query}
                   matches={matches}
                   active={selected}
                   empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
@@ -2532,7 +2545,7 @@ function SlashMenu({
   matches: SlashMatch[];
   active: number;
   empty: string;
-  /// The chat's fast mode, which the `/fast` row's sentence follows (undefined: not reported).
+  /// The chat's fast mode, which the /fast row's sentence follows (undefined: not reported).
   fast?: "on" | "off";
   onHover(index: number): void;
   onPick(command: SlashCommand): void;
@@ -2542,6 +2555,16 @@ function SlashMenu({
   // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
   const box = useComposerListBox();
+  // The full match list owns keyboard ranking. Only a bounded viewport gets DOM nodes.
+  const virtual = matches.length > 40;
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportPx, setViewportPx] = useState(SLASH_MAX_VIEWPORT_PX);
+  const wantedTop = virtual ? slashScrollForActive(active, matches.length, scrollTop, viewportPx) : 0;
+  const view = slashViewport(matches.length, wantedTop, viewportPx);
+  const start = virtual ? view.start : 0;
+  const end = virtual ? view.end : matches.length;
+
+  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
   const escape = useEscapingList("top", 6, undefined, box);
   const setList = useCallback(
     (node: HTMLDivElement | null) => {
@@ -2550,9 +2573,35 @@ function SlashMenu({
     },
     [escape],
   );
+  // The menu may be squeezed below its CSS 296px cap in a short pane.
   useLayoutEffect(() => {
-    list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
-  }, [active]);
+    const node = list.current;
+    if (!node || !virtual) return;
+    const measure = () => {
+      if (node.clientHeight <= 0) return;
+      const css = node.ownerDocument.defaultView?.getComputedStyle(node);
+      const padding = (parseFloat(css?.paddingTop ?? "0") || 0) + (parseFloat(css?.paddingBottom ?? "0") || 0);
+      const height = Math.max(1, node.clientHeight - padding);
+      setViewportPx((old) => (old === height ? old : height));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [virtual]);
+
+  useLayoutEffect(() => {
+    const node = list.current;
+    if (!node) return;
+    if (virtual) {
+      if (Math.abs(node.scrollTop - view.scrollTop) > 0.5) node.scrollTop = view.scrollTop;
+      return;
+    }
+    // Keep the existing behavior for ordinary short command lists.
+    node.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [active, virtual, view.scrollTop]);
+
   // A native select or datalist cannot hold the matched-name bolding and descriptions.
   if (matches.length === 0)
     return (
@@ -2574,11 +2623,25 @@ function SlashMenu({
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"
       aria-label={t(COMPOSER_LABELS.commands)}
+      data-matched-count={matches.length}
+      onScroll={
+        virtual
+          ? (event) => {
+              const top = event.currentTarget.scrollTop;
+              setScrollTop(top);
+              const next = slashViewport(matches.length, top, viewportPx);
+              const selected = slashActiveAfterScroll(active, matches.length, next);
+              if (selected !== active) onHover(selected);
+            }
+          : undefined
+      }
     >
-      {/* Virtual focus: the prompt keeps focus and names the row through aria-activedescendant. */}
-      {matches.map((match, index) => {
-        // The harness's `/fast` reads as ChatGPT's Fast row (Leo 2026-10-22): the bolt, the plain
-        // name, and what picking it does now. Picking it still writes `/fast ` (applyCommand).
+      {/* Keep the full-list scrollbar without creating offscreen options. */}
+      {virtual && <div aria-hidden="true" style={{ height: view.topSpace }} />}
+      {/* Virtual focus: the prompt's aria-activedescendant always names a mounted row. */}
+      {matches.slice(start, end).map((match, offset) => {
+        const index = start + offset;
+        // The harness's /fast reads as ChatGPT's Fast row: bolt, name, current mode.
         const fastRow = isFastCommand(match.command);
         const fastName = t("picker.tierFast");
         return (
@@ -2589,6 +2652,8 @@ function SlashMenu({
             role="option"
             tabIndex={-1}
             aria-selected={index === active}
+            aria-posinset={index + 1}
+            aria-setsize={matches.length}
             className={
               (index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row") +
               (fastRow ? " acpmux-slash-fast" : "")
@@ -2597,6 +2662,7 @@ function SlashMenu({
               if (index !== active) onHover(index);
             }}
             onMouseDown={(event) => {
+              if (event.button !== 0) return;
               event.preventDefault();
               onPick(match.command);
             }}
@@ -2646,6 +2712,7 @@ function SlashMenu({
           </div>
         );
       })}
+      {virtual && <div aria-hidden="true" style={{ height: view.bottomSpace }} />}
     </div>
   );
 }

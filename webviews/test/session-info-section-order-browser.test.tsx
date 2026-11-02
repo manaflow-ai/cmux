@@ -188,7 +188,8 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
     test("hovering a section shows its handle in the right padding, right of its title, and nothing moves", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
-        await show(page);
+        // The handle's width and the body's insets are grid tokens since #27570.
+        await show(page, { grid: true });
         const before = await boxes(page);
         const opacity = () =>
           page.evaluate(
@@ -227,7 +228,9 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
           clearOfScrollbar: true,
           afterSection: true,
           rightOfTitle: true,
-          titleAtTextColumn: 8,
+          // design/grid.md section 3: text = lead + box + 8 (8 + 16 + 8); a head without an icon still
+          // starts its title on that column (#27570).
+          titleAtTextColumn: 32,
         });
       } finally {
         await page.close();

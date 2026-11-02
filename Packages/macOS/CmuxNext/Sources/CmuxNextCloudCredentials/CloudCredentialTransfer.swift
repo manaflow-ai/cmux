@@ -45,6 +45,14 @@ public import Foundation
     /// The guest check this transfer runs before and after the login.
     var preflight: String { allowsCreatorTeamGuest ? CloudCredentialInstaller.creatorTeamPreflight : CloudCredentialInstaller.preflight }
 
+    /// The guest-kind line of the chat restart after this transfer (the app's credential recovery):
+    /// the kinds the transfer installs on, an owner guest, or with ``allowsCreatorTeamGuest`` (DEV and
+    /// dogfood builds, cloud.startChat's own gate; production keeps requiring an owner guest) a team
+    /// guest as well, so a team guest it installed on restarts too.
+    public var restartGuestCheck: String {
+        #"case "$(cat /etc/cmux/vm-kind 2>/dev/null)" in "# + (allowsCreatorTeamGuest ? "owner|team" : "owner") + ") ;; *) exit 1 ;; esac"
+    }
+
     /// `callerOwnsVM`: the signed-in caller owns the machine, from the platform (the classic attach
     /// answer's `vmKind == "owner"`, which #28788 gives a team machine's creator, or a Worker
     /// machine's owner link), never from a guest file (the app's `CloudService.callerOwnsVM`).

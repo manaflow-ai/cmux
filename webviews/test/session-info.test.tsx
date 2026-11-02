@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture chat titles, not shipped UI.
-// Session Info (Debug Settings `agent.inspector`, on by default; Claude Code desktop's session
+// Session Info (Debug Settings `agent.sessionInfo`, on by default; Claude Code desktop's session
 // panel): with the flag on, the header's top-right toggle opens a
 // panel at the right of the chat with where it runs (Environment), how much of the context window
 // it used (Context), its MCP servers (Connectors), the pull requests it opened or touched
@@ -51,6 +51,7 @@ import { NativeError } from "../src/agent-session/acpmux/nativeError";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
 import { withCloudMachineSummary } from "../src/agent-session/acpmux/cloudSummary";
+import { SummaryCard } from "../src/agent-session/acpmux/summary/SummaryCard";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -65,7 +66,7 @@ function installDom(sessionInfo: boolean): HTMLElement {
     url: "http://localhost/",
     pretendToBeVisual: true,
   });
-  // The App pushes Debug Settings `agent.inspector` with the header state.
+  // The App pushes Debug Settings `agent.sessionInfo` with the header state.
   setHeaderState({ inspector: sessionInfo });
   observers = [];
   class FakeResizeObserver {
@@ -403,6 +404,44 @@ test("Session Info derives Cloud from the host handshake when the summary has no
   });
   expect(section(container, "environment")?.textContent).not.toContain("Add repository…");
   expect(section(container, "environment")?.textContent).not.toContain("Default");
+});
+
+test("Summary card and Session Info expose Add repository for the real Cloud shape", async () => {
+  const container = installDom(true);
+  const summaryWithoutMachineKind = { ...chat([]).summary! };
+  delete summaryWithoutMachineKind.hostKind;
+  delete summaryWithoutMachineKind.peer;
+  delete summaryWithoutMachineKind.host;
+  const realCloudShape: AcpmuxSnapshot = {
+    ...chat([]),
+    summary: { ...summaryWithoutMachineKind, sessionId: "cloud-session" },
+  };
+  const card = {
+    shown: true,
+    column: true,
+    reserve: false,
+    collapsed: false,
+    toggle: noop,
+    show: noop,
+    close: noop,
+    fold: noop,
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <SummaryCard
+        card={card}
+        environment={{
+          summary: withCloudMachineSummary(realCloudShape.summary, "cloud-machine-id"),
+          machineName: "Studio",
+          cloudRepositoryAvailable: true,
+        }}
+        rows={[]}
+        subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen: noop }}
+      />,
+    );
+  });
+  expect(container.querySelector('button[data-action="add-repository"]')?.textContent).toContain("Add repository…");
 });
 
 test("Session Info keeps a summary without a Cloud machine id local", async () => {

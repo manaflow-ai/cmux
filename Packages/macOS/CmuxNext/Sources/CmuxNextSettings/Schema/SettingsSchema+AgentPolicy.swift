@@ -73,6 +73,7 @@ extension SettingsSchema {
         "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
         "app.showMenuBarIcon", // the menu bar item; looks only, ends no work
         "tabs.overflow",
+        "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover", // how tabs are listed (looks only)
         "tabs.swapCmdTAndCmdN",
         "tabs.commandDigits",
         "palette.scopes.tabs.prefix",
@@ -112,6 +113,7 @@ extension SettingsSchema {
         "appearance.wallpaperTint",
         "appearance.background",
         "appearance.backgroundRotation",
+        "appearance.displayBackgrounds", "appearance.displayBackgroundRotations", // per-display background and cadence (looks only)
         "appearance.paneBackgrounds",
         "ui.reducedBackgrounds",
         "appearance.experimentalControls",
@@ -233,6 +235,7 @@ extension SettingsSchema {
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
         "notifications.attention.moveToTop",
+        "notifications.attention.moveToTopOnAgentFinish",
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
@@ -389,6 +392,11 @@ extension SettingsSchema {
         "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxRunning": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
+        // Whether and how often a failed turn is sent again spends the person's usage: their call,
+        // as `sessions.resumeAgents` is.
+        "agents.autoRetry.enabled": .userOnly,
+        "agents.autoRetry.intervalSeconds": .userOnly,
+        "agents.autoRetry.attempts": .userOnly,
         // Which folders an agent may open without asking is the person's call: an agent must not
         // widen what it may open without asking.
         "agents.trust.autoTrust": .userOnly,
@@ -403,6 +411,7 @@ extension SettingsSchema {
         "phone.keepAwake": .userOnly,
         // Workspace names leave this Mac for the Cloud service: only the person turns it on.
         "phone.cloudReplica": .privacy,
+        "phone.cloudDesktop": .privacy,
         // On, a phone signed in to the same account can open this Mac's terminals and agents.
         "mobile.allowIPhoneConnections": .userOnly,
         // Which device sizes a terminal shown on this Mac and a phone; the person sets it here or on the phone.
