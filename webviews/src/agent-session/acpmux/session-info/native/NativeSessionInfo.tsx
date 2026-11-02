@@ -38,7 +38,7 @@ import { panelAction } from "./panelActions";
 import { usageSection } from "./usage";
 import type { AccessGrant } from "../EnvironmentSection";
 import type { AcpmuxSessionEntry } from "../../sessionList";
-import { byUsage, type UsageSort } from "../../usageStats";
+import { byUsage, compactingUsage, type UsageSort } from "../../usageStats";
 import { sourcesSection } from "./sources";
 import { subagentsSection } from "./subagents";
 import { tasksSection, useNativeWorkflowPhases } from "./tasks";
@@ -176,6 +176,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const language = usePaneLanguage();
   const state = useSessionInfoState();
   const { shown, summary, onShowUsage } = props;
+  const contextUsage = props.usage ?? compactingUsage(summary?.usage, summary?.usageStats);
   const environmentEditor = useSyncExternalStore(subscribeCloudEnvironment, cloudEnvironmentRequest);
   const cloudSession =
     props.cloudRepositoryAvailable && machineOf(summary, props.machineName, props.peerKinds).kind === "cloud"
@@ -297,7 +298,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       ),
       contextSection(
         {
-          usage: props.usage,
+          usage: contextUsage,
           breakdown: summary?.contextBreakdown,
           agent: props.agent,
           language,
