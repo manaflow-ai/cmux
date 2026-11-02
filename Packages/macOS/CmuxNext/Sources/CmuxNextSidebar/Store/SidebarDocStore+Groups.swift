@@ -4,8 +4,9 @@ import Foundation
 /// Group edits and adopt-then-move on the sidebar document
 /// (`group.create|update|ungroup`, `adopt` + `move` in one `sidebar.apply`).
 extension SidebarDocStore {
-    /// The `sidebar.apply` ops of a group intent, or nil for another intent.
-    func groupOps(_ intent: SidebarIntent, items: ([WorkspaceID]) -> [String]) -> (ops: [[String: Any]], undoable: Bool)? {
+    /// The `sidebar.apply` ops of a group intent, or nil for another intent. `room`: the window's space, stored on a
+    /// new group (`profile`) so it lists only there while no workspace of it lists (spaces.md).
+    func groupOps(_ intent: SidebarIntent, room: String? = nil, items: ([WorkspaceID]) -> [String]) -> (ops: [[String: Any]], undoable: Bool)? {
         func update(_ group: GroupID, _ patch: [String: Any]) -> [[String: Any]] {
             [["op": "group.update", "id": item(group: group), "patch": patch]]
         }
@@ -22,6 +23,7 @@ extension SidebarDocStore {
         case let .createGroup(group, name, color, workspaces, anchor, collapsed, _):
             var op: [String: Any] = ["op": "group.create", "id": group.rawValue, "name": SidebarGroup.named(name), "color": color.rawValue,
                                      "items": items(workspaces)]
+            if let room { op["profile"] = room }
             if let anchor, let item = items([anchor]).first, let section = records.items[item]?.section {
                 op["to"] = ["section": section, "before": item]
             }

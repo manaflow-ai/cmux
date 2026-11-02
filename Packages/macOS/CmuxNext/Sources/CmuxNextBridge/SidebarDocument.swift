@@ -22,10 +22,23 @@ public final class SidebarDocument {
 
     /// This document over the machines' daemon stores.
     public var docMachines: SidebarDocMachines { SidebarDocMachines(document: { [weak self] in self?.store }, stores: stores, machine: machine) }
+    /// The drag half for a window on space `room`: what it lists follows the window's space and the spaces that exist.
+    public func drag(room: String?) -> SidebarDocDrag? {
+        var drag = docMachines.drag()
+        drag?.room = room
+        drag?.spaces = spaces
+        return drag
+    }
     /// The document is shown: band edits go to it, not to the older layout owner.
     public var isActive: Bool { store.map { $0.isActive && $0.shown != nil } ?? false }
     /// The store while it is shown (`isActive`), else nil.
     public var activeStore: SidebarDocStore? { isActive ? store : nil }
+    /// The home session's spaces (`SidebarDocItem.owningRoom`): an item of a space that is gone lists in the default
+    /// space. Nil until the home store mirrors its spaces (every stored space counts meanwhile, so none hides at launch).
+    public var spaces: Set<String>? {
+        guard let profiles = stores().first?.profiles, !profiles.isEmpty else { return nil }
+        return Set(profiles.map(\.id.rawValue))
+    }
     /// The document item that places sidebar workspace `id`.
     public func item(workspace id: String) -> String? { docMachines.item(workspace: id) }
 

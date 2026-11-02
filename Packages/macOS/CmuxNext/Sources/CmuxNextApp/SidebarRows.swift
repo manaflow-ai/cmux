@@ -26,8 +26,8 @@ final class SidebarRows {
     /// The rows of creates the daemon has not reported yet, at their slots
     /// over the edits (`PendingWorkspaceRows`), and the home workspace.
     private var creating: (rows: [PendingWorkspaceRows.Row], home: String?) = ([], nil)
-    /// The band groups another window lists (`SidebarDocProjection.bandGroupsListedElsewhere`) as last shown:
-    /// a move of a workspace to another window changes them with no row of this one (#25776).
+    /// The band groups this window leaves out (`SidebarDocProjection.bandGroupsNotListedHere`) as last shown:
+    /// a move of a workspace to another window changes them with no row of this one (#25776), a space switch too.
     private var elsewhere: Set<String>?
     /// Preview-only App Store rows are kept in the stored document but are
     /// removed from every rendered placement, including machine and group
@@ -61,15 +61,16 @@ final class SidebarRows {
         return visible
     }
 
-    /// The layout `window` draws, the model's (the one rule: its tests compare with it): `visibleLayout` (App
-    /// Store only under Preview Features) without the band's workspaces another window owns or its space hides,
-    /// so a new window starts clean. Only on the sidebar document, whose band moves anchor on a drawn neighbour;
-    /// the older owner's index ops count the stored layout; the bridge translates visible item indexes back.
+    /// The layout `window` draws, the model's (the one rule: its tests compare with it): `visibleLayout` (App Store
+    /// only under Preview Features) without the band's workspaces another window owns or its space hides, nor another
+    /// space's groups and Pinned items (`room`): a new window starts clean. Only on the sidebar document, whose band
+    /// moves anchor on a drawn neighbour; the older owner's index ops count the stored layout; the bridge maps back.
     static func visibleLayout(_ services: AppServices, window: WindowState) -> SidebarLayoutDocument {
         let visible = visibleLayout(services.sidebarLayout.document, showAppStore: services.settings?.snapshot.previewFeatures == true)
         guard services.sidebarDoc.isActive else { return visible }
         return visible.scopedToWindow(ownedElsewhere: bandHides(window: window.id, profile: window.profileID, machines: services.machines,
-                                                                 registry: services.windows.registry.value))
+                                                                 registry: services.windows.registry.value),
+                                      room: window.profileID.rawValue, spaces: services.sidebarDoc.spaces)
     }
 
     /// Whether window `windowID`'s band leaves out the workspace item a layout ref value names: another

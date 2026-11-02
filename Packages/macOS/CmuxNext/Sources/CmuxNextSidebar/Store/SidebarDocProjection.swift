@@ -40,6 +40,19 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         public var depth = 0
         /// The open workspace members (rows that are not a closed one's, dimmed): the window listing one owns the group.
         public var openMembers: [SidebarDocWorkspaceRef] = []
+        /// The space it was made in (`SidebarDocItem.room`); nil: made before groups carried one.
+        public var room: String?
+
+        /// Whether a window on space `room` lists this group when it lists none of its workspaces (an empty
+        /// group, a kept group whose members closed): only in its own space (spaces.md). A group with no stored space
+        /// is the default space's, unless an open workspace of it says otherwise (it lists where that one lists).
+        /// `room` nil: no space filter (every group lists, as before spaces owned them). `spaces`: the spaces that
+        /// exist; a group of one that is gone is the default space's (`SidebarDocItem.owningRoom`).
+        public func lists(inRoom room: String?, spaces: Set<String>? = nil) -> Bool {
+            guard let room else { return true }
+            if let own = self.room { return SidebarDocItem.owningRoom(own, spaces: spaces) == room }
+            return room == SidebarDocItem.defaultRoom && openMembers.isEmpty
+        }
 
         /// A url, tab or app member and the workspace member's item it follows (nil: first).
         public struct Listed: Hashable, Sendable {
@@ -130,6 +143,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
                 // A nested group (remote-groups-DESIGN.md R1) lists after its parent, with its own members.
                 var group = Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [], section: record.id,
                                   pinned: record.kind == .pinned)
+                group.room = item.room
                 group.parent = row.depth > 0 ? row.parent ?? item.parent : nil
                 group.depth = row.depth
                 bandGroups.append(group)
@@ -138,7 +152,10 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
                 bandGroups[at].add(id, item) // a workspace, link, tab or app member: a member row in the list
                 if let ref = item.body.workspace, !row.dimmed { bandGroups[at].openMembers.append(ref) }
             } else if row.depth == 0 {
-                sections[index].items.append(Self.layoutItem(item))
+                var layoutItem = Self.layoutItem(item)
+                // A Pinned link, tab or app is its space's (a pinned workspace's space is its own, `bandHides`).
+                if record.kind == .pinned, item.body.belongsToASpace { layoutItem.room = item.room ?? SidebarDocItem.defaultRoom }
+                sections[index].items.append(layoutItem)
             }
         }
         if !placedList {
@@ -171,6 +188,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             }
         case let .group(name, color, icon, collapsed):
             var group = Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [], section: row.section)
+            group.room = item.room
             group.parent = row.depth > 0 ? row.parent ?? item.parent : nil
             group.depth = row.depth
             machines.append(group, session: session)

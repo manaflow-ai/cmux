@@ -42,6 +42,7 @@ enum RoomMoveHandlers {
             let group = try context.personalGroup(invocation)
             let id = group.id, target = room.id
             context.services.machines.local.send("update-personal-group") { try await $0.updatePersonalGroup(id, room: target) }
+            context.services.sidebarDoc.store?.moveGroup(id.rawValue, toSpace: target.rawValue)
         }
     }
 
