@@ -40,6 +40,23 @@ import Testing
         #expect(store.exhaustedUntil(now: now).keys.sorted() == ["b"])
     }
 
+    /// Each write reads the file, changes one entry and replaces the file, so writes that
+    /// overlapped would drop each other's entries.
+    @Test func concurrentMarksAllPersist() async throws {
+        let url = tempFile()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = ClaudeAccountExhaustionStore(fileURL: url, clock: { Date(timeIntervalSince1970: 1_000_000) })
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let keys = (0..<32).map { "/u/.claude-\($0)" }
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for key in keys {
+                group.addTask { try await store.markExhausted(accountKey: key, until: now.addingTimeInterval(60)) }
+            }
+            try await group.waitForAll()
+        }
+        #expect(await store.exhaustedUntil(now: now).keys.sorted() == keys.sorted())
+    }
+
     @Test func corruptStoreReadsEmpty() throws {
         let url = tempFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
