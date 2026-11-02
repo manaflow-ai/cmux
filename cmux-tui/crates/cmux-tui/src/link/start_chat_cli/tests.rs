@@ -537,6 +537,36 @@ fn cached_chat_refuses_changed_project_subfolder_origin_and_environment() {
 }
 
 #[test]
+fn origin_changed_during_a_guest_push_cannot_be_recorded_as_a_ready_chat() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let folder = dir.path().join("project");
+    std::fs::create_dir_all(folder.join(".git")).unwrap();
+    let config = folder.join(".git/config");
+    std::fs::write(&config, "[remote \"origin\"]\n url = https://github.com/one/project\n")
+        .unwrap();
+    let copy = copy_of(folder.to_str().unwrap(), "");
+    let first = copy.run(&path, &|_, _, _| {
+        std::fs::write(&config, "[remote \"origin\"]\n url = https://github.com/two/project\n")
+            .unwrap();
+        Ok(json!({}))
+    });
+    assert_eq!(first["error_code"], json!("checkout.source_changed"), "{first}");
+    assert_eq!(first["checkout_state"], json!("unverified"));
+    assert!(first["error"].as_str().unwrap().contains("start a new chat"));
+    let pin = Ledger::update(&path, |pins| {
+        (pins.copied_chat(&send(&copy.key), "vm-a"), pins.copy_place(&send(&copy.key), "vm-a"))
+    }).unwrap();
+    assert_eq!(pin.0, None, "the changed project must not be opened");
+    let original_place = pin.1.expect("incomplete copy is kept for the original project");
+    std::fs::write(&config, "[remote \"origin\"]\n url = https://github.com/one/project\n")
+        .unwrap();
+    let resumed = copy.run(&path, &|_, _, _| Ok(json!({})));
+    assert_eq!(resumed["ok"], json!(true), "{resumed}");
+    assert_eq!(resumed["folder"], json!(copy.remote("/home/cmux/work", &original_place).0));
+}
+
+#[test]
 fn interrupted_copy_refuses_changed_source_and_resumes_the_original_folder() {
     let dir = scratch();
     let path = ledger_in(dir.path());
