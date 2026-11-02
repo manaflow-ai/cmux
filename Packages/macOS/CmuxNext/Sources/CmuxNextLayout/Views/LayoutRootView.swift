@@ -131,7 +131,7 @@ public final class LayoutRootView: NSView {
     public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
 
     /// Everything the view reads from the model, observed as one value.
-    private struct Snapshot: Equatable, Sendable {
+    struct Snapshot: Equatable, Sendable {
         var screens: [LayoutScreen]
         var activeScreen: ScreenID?
         var focused: PaneID?
@@ -334,12 +334,8 @@ public final class LayoutRootView: NSView {
 
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
 
-    /// A model change, applied with the window's avoider re-checks batched as in a frame (``advanceFrame(_:)``).
-    private func sync(_ snapshot: Snapshot) {
-        WindowControlsAvoiders.batching(in: window) { syncBatched(snapshot) }
-    }
-
-    private func syncBatched(_ snapshot: Snapshot) {
+    /// ``sync(_:)``'s body (`LayoutRootView+AvoiderBatch`).
+    func syncBatched(_ snapshot: Snapshot) {
         let previous = lastSnapshot
         lastSnapshot = snapshot
         // Chrome (focus ring, dim) fades whenever motion is allowed; pane frames, the strip's
@@ -509,13 +505,8 @@ public final class LayoutRootView: NSView {
         setLayoutInMotion(false)
     }
 
-    /// One display frame of the layout. Every pane that moves in it tells its content, which may ask the window to
-    /// re-check its traffic-light avoiders: they re-check once, at the frame's end (`WindowControlsAvoiders.batching`).
-    func advanceFrame(_ dt: Double) -> Bool {
-        WindowControlsAvoiders.batching(in: window) { advanceFrameBatched(dt) }
-    }
-
-    private func advanceFrameBatched(_ dt: Double) -> Bool {
+    /// ``advanceFrame(_:)``'s body (`LayoutRootView+AvoiderBatch`).
+    func advanceFrameBatched(_ dt: Double) -> Bool {
         // A released resize drag whose layout the observation has not applied yet: apply it before this
         // frame, so the frame that ends the drag for the pane contents is the release's (`ScreenContentView+ResizeGesture`).
         if !model.isGestureActive, screenViews.values.contains(where: { $0.resizeGesture == .releasing }) {
