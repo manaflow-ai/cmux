@@ -1,0 +1,280 @@
+{
+  "id": "routing-switch-workspace",
+  "priority": "P1",
+  "title": "Routing F: Cmd-1..9 workspace switch, then a line at once: it runs in the shown workspace's terminal",
+  "why": "wrong-pane typing after a switch (keys to the old workspace's terminal)",
+  "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
+  "budget_seconds": 160,
+  "options": {
+    "key_path": "real"
+  },
+  "continue_not_judged": true,
+  "finally": [
+    {
+      "do": "rpc",
+      "method": "debug.focus",
+      "title": "the focus and key-hold state at the end (records only)"
+    },
+    {
+      "do": "app_log",
+      "seconds": 90,
+      "grep": "newTab|closeTab|creation.hold|focus|firstResponder|keyRouter",
+      "title": "the app log of the last 90 s (records only)"
+    },
+    {
+      "do": "smoke_close_all"
+    }
+  ],
+  "steps": [
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "smoke_remember_workspaces"
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "setup-f1-ws"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: Cmd-N makes the workspace of f1",
+      "since": "setup-f1-ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "setup-f1"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo f1home-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the terminal of f1 ran its line",
+      "since": "setup-f1",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "f1home-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "f1home-${nonce}",
+      "as": "f1"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "setup-f2-ws"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: Cmd-N makes the workspace of f2",
+      "since": "setup-f2-ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "setup-f2"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo f2home-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the terminal of f2 ran its line",
+      "since": "setup-f2",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "f2home-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "f2home-${nonce}",
+      "as": "f2"
+    },
+    {
+      "do": "routing_select_workspace",
+      "pane": "f1",
+      "mark": "f1"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo RF1-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "F1: Cmd-<number> to the workspace of f1, then a line at once: it ran in f1 only",
+      "since": "f1",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RF1-${nonce}-42",
+            "on": "f1",
+            "attempt": "F1"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RF1-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "routing_select_workspace",
+      "pane": "f2",
+      "mark": "f2"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo RF2-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "F2: Cmd-<number> to the workspace of f2, then a line at once: it ran in f2 only",
+      "since": "f2",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RF2-${nonce}-42",
+            "on": "f2",
+            "attempt": "F2"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RF2-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "routing_select_workspace",
+      "pane": "f1",
+      "mark": "f3"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo RF3-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "F3: Cmd-<number> to the workspace of f1, then a line at once: it ran in f1 only",
+      "since": "f3",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RF3-${nonce}-42",
+            "on": "f1",
+            "attempt": "F3"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RF3-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "routing_select_workspace",
+      "pane": "f2",
+      "mark": "f4"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo RF4-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "F4: Cmd-<number> to the workspace of f2, then a line at once: it ran in f2 only",
+      "since": "f4",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RF4-${nonce}-42",
+            "on": "f2",
+            "attempt": "F4"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RF4-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,260 @@
+{
+  "id": "routing-click-during-split",
+  "priority": "P1",
+  "title": "Routing E: a click into a pane while a split animates, then a line at once: it runs in the clicked pane",
+  "why": "#29262 (only the pane AppKit gives a press to takes the focus); the creation hold must not keep keys a click sent elsewhere",
+  "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
+  "budget_seconds": 160,
+  "options": {
+    "key_path": "real"
+  },
+  "continue_not_judged": true,
+  "finally": [
+    {
+      "do": "rpc",
+      "method": "debug.focus",
+      "title": "the focus and key-hold state at the end (records only)"
+    },
+    {
+      "do": "app_log",
+      "seconds": 90,
+      "grep": "newTab|closeTab|creation.hold|focus|firstResponder|keyRouter",
+      "title": "the app log of the last 90 s (records only)"
+    },
+    {
+      "do": "smoke_close_all"
+    }
+  ],
+  "steps": [
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "smoke_remember_workspaces"
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "setup-e0-ws"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: Cmd-N makes the workspace of e0",
+      "since": "setup-e0-ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "setup-e0"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo e0home-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the terminal of e0 ran its line",
+      "since": "setup-e0",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "e0home-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "e0home-${nonce}",
+      "as": "e0"
+    },
+    {
+      "do": "smoke_key",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "e1-split"
+    },
+    {
+      "do": "routing_click",
+      "pane": "e0",
+      "mark": "e1"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo RE1-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "E1: Cmd-D, a click into the first pane during the split animation, then a line at once: it ran in the clicked pane only",
+      "since": "e1",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RE1-${nonce}-42",
+            "on": "e0",
+            "attempt": "E1"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RE1-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "e2-split"
+    },
+    {
+      "do": "routing_click",
+      "pane": "e0",
+      "mark": "e2"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo RE2-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "E2: Cmd-D, a click into the first pane during the split animation, then a line at once: it ran in the clicked pane only",
+      "since": "e2",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RE2-${nonce}-42",
+            "on": "e0",
+            "attempt": "E2"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RE2-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "e3-split"
+    },
+    {
+      "do": "routing_click",
+      "pane": "e0",
+      "mark": "e3"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo RE3-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "E3: Cmd-D, a click into the first pane during the split animation, then a line at once: it ran in the clicked pane only",
+      "since": "e3",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RE3-${nonce}-42",
+            "on": "e0",
+            "attempt": "E3"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RE3-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "e4-split"
+    },
+    {
+      "do": "routing_click",
+      "pane": "e0",
+      "mark": "e4"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo RE4-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "E4: Cmd-D, a click into the first pane during the split animation, then a line at once: it ran in the clicked pane only",
+      "since": "e4",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RE4-${nonce}-42",
+            "on": "e0",
+            "attempt": "E4"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RE4-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

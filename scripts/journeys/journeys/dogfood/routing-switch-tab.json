@@ -1,0 +1,277 @@
+{
+  "id": "routing-switch-tab",
+  "priority": "P1",
+  "title": "Routing G: tab switch in a pane (Shift-Cmd-[ and ]), then a line at once: it runs in the selected tab",
+  "why": "wrong-pane typing after a tab switch",
+  "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
+  "budget_seconds": 160,
+  "options": {
+    "key_path": "real"
+  },
+  "continue_not_judged": true,
+  "finally": [
+    {
+      "do": "rpc",
+      "method": "debug.focus",
+      "title": "the focus and key-hold state at the end (records only)"
+    },
+    {
+      "do": "app_log",
+      "seconds": 90,
+      "grep": "newTab|closeTab|creation.hold|focus|firstResponder|keyRouter",
+      "title": "the app log of the last 90 s (records only)"
+    },
+    {
+      "do": "smoke_close_all"
+    }
+  ],
+  "steps": [
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "smoke_remember_workspaces"
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "setup-g1-ws"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: Cmd-N makes the workspace of g1",
+      "since": "setup-g1-ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "setup-g1"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo g1home-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the terminal of g1 ran its line",
+      "since": "setup-g1",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "g1home-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "g1home-${nonce}",
+      "as": "g1"
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "setup-g2"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo g2home-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the split terminal of g2 ran its line",
+      "since": "setup-g2",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "g2home-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "g2home-${nonce}",
+      "as": "g2"
+    },
+    {
+      "do": "smoke_key",
+      "key": "[",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "mark": "g1"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo RG1-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "G1: Shift-Cmd-[ to the tab of g1, then a line at once: it ran in g1 only",
+      "since": "g1",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RG1-${nonce}-42",
+            "on": "g1",
+            "attempt": "G1"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RG1-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "]",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "mark": "g2"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo RG2-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "G2: Shift-Cmd-] to the tab of g2, then a line at once: it ran in g2 only",
+      "since": "g2",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RG2-${nonce}-42",
+            "on": "g2",
+            "attempt": "G2"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RG2-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "[",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "mark": "g3"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo RG3-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "G3: Shift-Cmd-[ to the tab of g1, then a line at once: it ran in g1 only",
+      "since": "g3",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RG3-${nonce}-42",
+            "on": "g1",
+            "attempt": "G3"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RG3-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "]",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "mark": "g4"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo RG4-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "G4: Shift-Cmd-] to the tab of g2, then a line at once: it ran in g2 only",
+      "since": "g4",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RG4-${nonce}-42",
+            "on": "g2",
+            "attempt": "G4"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RG4-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
