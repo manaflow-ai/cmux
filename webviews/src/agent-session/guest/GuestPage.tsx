@@ -42,6 +42,7 @@ const ENDED_TEXT = {
 export function endedBy(error: RedeemError): GuestEnded | undefined {
   if (error === "share.expired") return "expired";
   if (error === "share.revoked") return "revoked";
+  if (error === "share.closed") return "closed";
   if (error === "share.kicked") return "kicked";
   if (error === "share.used" || error === "share.left") return "used";
   return undefined;
