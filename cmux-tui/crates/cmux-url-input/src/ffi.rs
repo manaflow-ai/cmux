@@ -1,6 +1,6 @@
 //! The C ABI of the typed policy (`include/cmux_url_input.h`, Swift module
 //! `CCmuxUrlInputFFI`), for the macOS app through cmux-app-ffi (which links it
-//! in the move PR, with the app FFI repin and the Swift call). The
+//! in step A of the FFI move; step B makes the Swift call). The
 //! omnibox calls it on every key, so it is a typed ABI, not a JSON op: the
 //! caller owns the output buffer, nothing is allocated across the boundary and
 //! nothing needs a free. Every function is pure, thread-safe and never panics

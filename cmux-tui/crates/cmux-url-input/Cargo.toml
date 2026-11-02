@@ -9,7 +9,7 @@ description = "Normalization of typed browser addresses (scheme inference, loopb
 
 [features]
 # The C ABI (src/ffi.rs, include/cmux_url_input.h). Only cmux-app-ffi is to enable it
-# (it links the crate in the move PR, with the app FFI repin), so the daemon binaries
+# (it links the crate in step A of the FFI move), so the daemon binaries
 # export no C symbols of this crate.
 ffi = []
 
