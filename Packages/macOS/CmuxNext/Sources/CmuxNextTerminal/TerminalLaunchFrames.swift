@@ -73,7 +73,7 @@ public final class TerminalLaunchFrames {
 
     /// The launch mark of the last of the launch's terminals to show its frame (the reopen number: the max over the
     /// visible terminals, never the first).
-    public static let visibleTerminalsDrawn = "launch.visible_terminals_drawn"
+    public nonisolated static let visibleTerminalsDrawn = "launch.visible_terminals_drawn"
 
     /// A saved frame, decoded, with its point size and scale.
     private nonisolated struct Frame: Sendable {
