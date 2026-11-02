@@ -8,7 +8,6 @@ import { newTabHeadline } from "../agent-session/acpmux/newtab/headline.experime
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
-import { autoScopeLook } from "../agent-session/acpmux/autoScope.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/height.experiment";
@@ -52,7 +51,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   questionPreviewLayout,
   toolErrorLook,
   cloudStartLook,
-  autoScopeLook,
   agentStartLook,
   trayPanelLook,
   trayRowLook,

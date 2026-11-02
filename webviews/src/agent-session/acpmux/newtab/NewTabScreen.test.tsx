@@ -661,13 +661,6 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
       />,
     );
   });
-  // Picked on this page: Cloud the tab came with is only a default, which Auto may not follow.
-  await act(async () =>
-    container.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button')!.click(),
-  );
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  const cloudRow = document.querySelector<HTMLElement>('.acpmux-env-popover [data-mode="cloud"]')!;
-  await act(async () => (cloudRow.closest<HTMLElement>('[role="option"]') ?? cloudRow).click());
   await typePrompt("fix the flaky test");
   answer = "A Cloud chat takes text only for now.";
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
@@ -701,13 +694,6 @@ test("with Cloud picked and Do not work in a project, a send names no folder: no
       />,
     );
   });
-  // Picked on this page: Cloud the tab came with is only a default, which Auto may not follow.
-  await act(async () =>
-    container.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button')!.click(),
-  );
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  const cloudRow = document.querySelector<HTMLElement>('.acpmux-env-popover [data-mode="cloud"]')!;
-  await act(async () => (cloudRow.closest<HTMLElement>('[role="option"]') ?? cloudRow).click());
   // Do not work in a project, from the card's chooser (the tab inherited /repo/A).
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
   const noProject = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>

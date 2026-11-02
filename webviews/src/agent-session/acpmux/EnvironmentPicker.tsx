@@ -128,7 +128,6 @@ export function EnvironmentPicker({
   onOpen,
   offload,
   onOffload,
-  auto,
   runMode,
   closeOnTrustAsk = false,
   faceStyle = "label",
@@ -155,8 +154,6 @@ export function EnvironmentPicker({
   /// A started chat's move, run by `onOffload`.
   offload?: OffloadKind;
   onOffload?(kind: OffloadKind): void;
-  /// A new chat's automatic destination. It stays at the top of the picker until an explicit row is picked.
-  auto?: { detail: string; selected: boolean; onPick(): void };
   /// A new chat's Run as (hq#3367): Persistent (a chat, as before) or Sandboxed (the
   /// first message runs once on a throwaway Cloud VM).
   runMode?: RunModeRows;
@@ -168,7 +165,7 @@ export function EnvironmentPicker({
   faceStyle?: EnvironmentFaceStyle;
 }) {
   // A picked saved environment is the current row: every machine row is then a change.
-  const currentRow = auto?.selected ? ACTION + "auto" : saved?.current !== undefined ? SAVED + saved.current : current;
+  const currentRow = saved?.current !== undefined ? SAVED + saved.current : current;
   const [query, setQuery] = useState("");
   // Which list is open: This Mac and Cloud, or every machine (Machines… on the right-click menu).
   const [list, setList] = useState<"main" | "machines">("main");
@@ -195,9 +192,8 @@ export function EnvironmentPicker({
     setList("main");
   }, [closeOnTrustAsk, open, setPopoverOpen]);
   // Sandboxed or Cloud is the pick: no machine row is checked, and a machine pick goes back to Persistent.
-  // Under Auto, Cloud is the folder's default (Auto's row is the one checked), not a pick.
   const sandboxed = runMode?.mode === "sandboxed";
-  const clouded = runMode?.mode === "cloud" && !auto?.selected;
+  const clouded = runMode?.mode === "cloud";
   const checkedRow = sandboxed || clouded ? undefined : currentRow;
   const persistent = () => {
     if (runMode && runMode.mode !== "persistent") runMode.onMode("persistent");
@@ -466,11 +462,6 @@ export function EnvironmentPicker({
           <span className="acpmux-location-check" aria-hidden="true">
             {clouded && <CheckIcon />}
           </span>
-          {action.kind === "auto" && (
-            <span className="acpmux-location-check" aria-hidden="true">
-              {value === checkedRow && <CheckIcon />}
-            </span>
-          )}
         </span>
       );
     }

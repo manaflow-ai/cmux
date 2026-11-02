@@ -192,8 +192,6 @@
 /* A folder's name cuts in the middle (ComposerContext.tsx splitForMiddleTruncation): the head
    takes the ellipsis, the tail always shows. */
 .acpmux-location-label[data-middle] { display: inline-flex; min-width: 0; }
-/* Auto's quiet tag after the destination it chose (ComposerContext `auto-scope-look` arm `tag`). */
-.acpmux-location-tag { flex: none; color: var(--agent-muted); white-space: nowrap; }
 .acpmux-location-head { flex: 0 1 auto; min-width: 1ch; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
 .acpmux-location-tail { flex: none; white-space: pre; }
 /* The strip's steps (compact-composer verdict 4) are pane widths, at or under. They are literals
@@ -204,7 +202,7 @@
    At 460: the computer shows its laptop icon alone, its name in its tooltip and accessible label,
    so the folder and the branch keep theirs (never "This…"). */
 @media (max-width: 460px) {
-  .acpmux-location-picker[data-kind="computer"] :is(.acpmux-location-label, .acpmux-location-tag) { display: none; }
+  .acpmux-location-picker[data-kind="computer"] .acpmux-location-label { display: none; }
 }
 /* At 340: the folder takes a short cap and cuts in the middle (its head takes the ellipsis, its
    last word stays; splitForMiddleTruncation never splits a character), so the branch keeps its
@@ -366,7 +364,7 @@
 .acpmux-location-readonly {
   border-radius: 7px;
 }
-.acpmux-composer-context :is(.acpmux-location-label, .acpmux-location-tag) {
+.acpmux-composer-context .acpmux-location-label {
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
 }

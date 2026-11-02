@@ -616,7 +616,6 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: {
         ...baseProps,
         environments: true,
-        auto: { detail: "This Mac", kind: "local", selected: true, onPick: () => undefined },
         peers: ["gpu-box", "Cloud machine"],
         peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
         peerConnected: { "gpu-box": true, "Cloud machine": false },

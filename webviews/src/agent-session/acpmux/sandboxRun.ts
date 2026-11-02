@@ -10,8 +10,7 @@ import type { StringKey } from "./i18n";
 export type RunMode = "persistent" | "sandboxed" | "cloud";
 
 /// The picker's Run as rows (EnvironmentPicker `runMode`).
-/// `onDefault`: no pick, so the mode goes back to the folder's default (App), as Auto asks.
-export type RunModeRows = { mode: RunMode; onMode(mode: RunMode): void; onDefault?(): void };
+export type RunModeRows = { mode: RunMode; onMode(mode: RunMode): void };
 
 /// The parts of a receipt the chat shows; every field may be missing from an older server.
 export type SandboxReceipt = {
