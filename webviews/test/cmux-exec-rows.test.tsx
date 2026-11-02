@@ -12,7 +12,12 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
-import { cmuxTitle, execParts, execView, scriptCalls } from "../src/agent-session/acpmux/conversation/cmuxExec";
+import {
+  cmuxTitle,
+  execParts,
+  execView,
+  scriptCalls,
+} from "../src/agent-session/acpmux/conversation/cmuxExec";
 import { mcpCall } from "../src/agent-session/acpmux/conversation/mcpCalls";
 import { jsTokens } from "../src/agent-session/acpmux/conversation/jsHighlight";
 import { treeText, valueTree } from "../src/agent-session/acpmux/conversation/valueTree";
@@ -66,7 +71,8 @@ const titleOf = (item: AcpmuxActivity) => {
   return cmuxTitle(t, [call], [item.tool!]);
 };
 
-const LIST_SCRIPT = 'const d = await cmux.call("workspace_list", {});\nreturn d.items.map((w) => w.title);';
+const LIST_SCRIPT =
+  'const d = await cmux.call("workspace_list", {});\nreturn d.items.map((w) => w.title);';
 const OPEN_SCRIPT = [
   "const { items } = await cmux.workspace_list({});",
   'const leads = items.find((w) => w.title === "Leads");',
@@ -80,7 +86,14 @@ const log = (name: string, n: number, ok = true) => Array.from({ length: n }, ()
 
 test("a finished script's title says what its call_log did", () => {
   expect(
-    titleOf(exec(LIST_SCRIPT, { calls: 1, call_log: log("workspace_list", 1), logs: [], result: ["Leads"] })),
+    titleOf(
+      exec(LIST_SCRIPT, {
+        calls: 1,
+        call_log: log("workspace_list", 1),
+        logs: [],
+        result: ["Leads"],
+      }),
+    ),
   ).toBe("Listed workspaces");
   // A change outranks the lookup that found its workspace; twelve calls are counted, and the
   // workspace is named by the title the script looked it up by.
@@ -92,9 +105,9 @@ test("a finished script's title says what its call_log did", () => {
   });
   expect(titleOf(opened)).toBe("Opened 12 agent sessions in Leads");
   // docs searches are not calls (code_mode.rs records none): the script's own search names it.
-  expect(titleOf(exec(DOCS_SCRIPT, { calls: 0, call_log: [], logs: [], result: { tools: [] } }))).toBe(
-    "Searched cmux tools for browser tab",
-  );
+  expect(
+    titleOf(exec(DOCS_SCRIPT, { calls: 0, call_log: [], logs: [], result: { tools: [] } })),
+  ).toBe("Searched cmux tools for browser tab");
 });
 
 test("a running script's title comes from the calls in its source", () => {
@@ -103,18 +116,30 @@ test("a running script's title comes from the calls in its source", () => {
   expect(titleOf(exec(OPEN_SCRIPT))).toBe("Opening an agent session in Leads");
   expect(titleOf(exec(DOCS_SCRIPT))).toBe("Searching cmux tools for browser tab");
   expect(titleOf(exec("return 1 + 1;"))).toBe("Running cmux script");
-  expect(titleOf(exec('await cmux.call("layout_apply_magic", {});'))).toBe("Running cmux script: layout apply magic");
+  expect(titleOf(exec('await cmux.call("layout_apply_magic", {});'))).toBe(
+    "Running cmux script: layout apply magic",
+  );
 });
 
 test("calls the table has no words for fall back to the script line, naming the first call", () => {
-  const answer = { calls: 3, call_log: [...log("layout_apply_magic", 2), ...log("sidebar_shuffle", 1)], logs: [] };
+  const answer = {
+    calls: 3,
+    call_log: [...log("layout_apply_magic", 2), ...log("sidebar_shuffle", 1)],
+    logs: [],
+  };
   expect(titleOf(exec("await cmux.layout_apply_magic({});", answer))).toBe(
     "Ran cmux script (3 calls): layout apply magic",
   );
   // A generic `<noun>_<verb>` name reads in the MCP rows' words.
-  expect(titleOf(exec("x", { calls: 1, call_log: log("workspace_get", 1), logs: [] }))).toBe("Read workspace");
+  expect(titleOf(exec("x", { calls: 1, call_log: log("workspace_get", 1), logs: [] }))).toBe(
+    "Read workspace",
+  );
   // Other steps of the main step's kind are counted after it.
-  const both = { calls: 3, call_log: [...log("tab_close", 2), ...log("workspace_create", 1)], logs: [] };
+  const both = {
+    calls: 3,
+    call_log: [...log("tab_close", 2), ...log("workspace_create", 1)],
+    logs: [],
+  };
   expect(titleOf(exec("x", both))).toBe("Closed 2 tabs and 1 more step");
 });
 
@@ -125,11 +150,16 @@ test("a cut call log never gives a count: the title says the script's total call
   // A log shorter than the count it reports is cut too, even without the flag.
   const short = { calls: 250, call_log: log("tab_close", 200), logs: [] };
   expect(titleOf(exec("x", short))).toBe("Ran cmux script (250 calls): tab close");
-  expect(titleOf(exec("x", { calls: 200, call_log: log("tab_close", 200), logs: [] }))).toBe("Closed 200 tabs");
+  expect(titleOf(exec("x", { calls: 200, call_log: log("tab_close", 200), logs: [] }))).toBe(
+    "Closed 200 tabs",
+  );
 });
 
 test("a failed call counts only when none of its kind went through", () => {
-  const mixed = { calls: 3, call_log: [...log("tab_close", 2), { name: "tab_close", ok: false, state: "not_run" }] };
+  const mixed = {
+    calls: 3,
+    call_log: [...log("tab_close", 2), { name: "tab_close", ok: false, state: "not_run" }],
+  };
   expect(titleOf(exec("x", mixed))).toBe("Closed 2 tabs");
   const failed = {
     calls: 1,
@@ -140,10 +170,14 @@ test("a failed call counts only when none of its kind went through", () => {
 });
 
 test("a malformed or missing response still names the script by its calls", () => {
-  expect(titleOf(exec(LIST_SCRIPT, "cmux_exec: the server went away"))).toBe("Ran cmux script: workspace list");
+  expect(titleOf(exec(LIST_SCRIPT, "cmux_exec: the server went away"))).toBe(
+    "Ran cmux script: workspace list",
+  );
   expect(titleOf(exec(LIST_SCRIPT, "{not json"))).toBe("Ran cmux script: workspace list");
   expect(titleOf(exec("return 1;", '{"content":[]}'))).toBe("Ran cmux script");
-  expect(execView(exec(LIST_SCRIPT, "{not json").tool!, { script: LIST_SCRIPT }).answer).toBeUndefined();
+  expect(
+    execView(exec(LIST_SCRIPT, "{not json").tool!, { script: LIST_SCRIPT }).answer,
+  ).toBeUndefined();
 });
 
 test("the cmux server's own tools called directly say what they did; other servers' keep their row", () => {
@@ -154,10 +188,12 @@ test("the cmux server's own tools called directly say what they did; other serve
       items.map((item) => item.tool!),
     );
   expect(titles([codexCmux("workspace_list", {})])).toBe("Listed workspaces");
-  expect(titles([codexCmux("tab_close", { tab: "tab_1" }), codexCmux("tab_close", { tab: "tab_2" })])).toBe(
-    "Closed 2 tabs",
+  expect(
+    titles([codexCmux("tab_close", { tab: "tab_1" }), codexCmux("tab_close", { tab: "tab_2" })]),
+  ).toBe("Closed 2 tabs");
+  expect(titles([codexCmux("cmux_docs", { query: "split" })])).toBe(
+    "Searched cmux tools for split",
   );
-  expect(titles([codexCmux("cmux_docs", { query: "split" })])).toBe("Searched cmux tools for split");
   // A folded server's tool (computer use, sub-sessions) is not the cmux server's own.
   expect(titles([codexCmux("cua_click", { x: 1 })])).toBeUndefined();
   expect(titles([codexCmux("subsessions_start_session", {})])).toBeUndefined();
@@ -168,7 +204,9 @@ test("a direct call's title names its workspace once the run's names resolve it"
   const call = mcpCall(item.tool!)!;
   // Drawn first before the run's names are known, then again with them: the title is not stuck.
   expect(cmuxTitle(t, [call], [item.tool!], new Map())).toBe("Opened 1 agent session");
-  expect(cmuxTitle(t, [call], [item.tool!], new Map([["ws_leads", "Leads"]]))).toBe("Opened 1 agent session in Leads");
+  expect(cmuxTitle(t, [call], [item.tool!], new Map([["ws_leads", "Leads"]]))).toBe(
+    "Opened 1 agent session in Leads",
+  );
   expect(cmuxTitle(t, [call], [item.tool!], new Map())).toBe("Opened 1 agent session");
 });
 
@@ -176,7 +214,8 @@ test("an integer a double would round, in any JSON layer, shows the response as 
   const answer = (id: string) =>
     `{"calls":1,"call_log":[{"name":"workspace_list","ok":true}],"logs":[],"result":{"id":${id}}}`;
   // Only in the text block: the outer JSON holds it inside a string, so only the inner layer loses it.
-  const nested = (id: string) => exec(LIST_SCRIPT, JSON.stringify({ content: [{ type: "text", text: answer(id) }] }));
+  const nested = (id: string) =>
+    exec(LIST_SCRIPT, JSON.stringify({ content: [{ type: "text", text: answer(id) }] }));
   const parts = (item: AcpmuxActivity) => {
     const call = mcpCall(item.tool!)!;
     return execParts(execView(item.tool!, call.args), (text) => text);
@@ -201,7 +240,12 @@ test("the script's tokens keep every character and color its keywords, strings a
 });
 
 test("a result reads as a key/value tree with its text unescaped", () => {
-  const value = { workspaces: [{ id: "ws_1", title: "Leads" }], docs: "line one\nline two", count: 2, json: '{"a":1}' };
+  const value = {
+    workspaces: [{ id: "ws_1", title: "Leads" }],
+    docs: "line one\nline two",
+    count: 2,
+    json: '{"a":1}',
+  };
   expect(treeText(valueTree(value))).toBe(
     [
       "workspaces:",
@@ -219,7 +263,14 @@ test("a result reads as a key/value tree with its text unescaped", () => {
 
 // The rows as the transcript draws them.
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "customElements",
+  "IS_REACT_ACT_ENVIRONMENT",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
 let host: HTMLElement;
@@ -245,7 +296,13 @@ afterAll(() => {
   }
 });
 
-const row = (items: AcpmuxActivity[]): AcpmuxRow => ({ id: "activity", version: 1, at: 1, kind: "activity", items });
+const row = (items: AcpmuxActivity[]): AcpmuxRow => ({
+  id: "activity",
+  version: 1,
+  at: 1,
+  kind: "activity",
+  items,
+});
 
 async function render(items: AcpmuxActivity[]) {
   const { createRoot } = await import("react-dom/client");
@@ -255,7 +312,8 @@ async function render(items: AcpmuxActivity[]) {
   await act(async () => root!.render(<ToolRows row={row(items)} />));
 }
 
-const labels = () => [...host.querySelectorAll(".cv-tool__text")].map((node) => node.textContent?.trim());
+const labels = () =>
+  [...host.querySelectorAll(".cv-tool__text")].map((node) => node.textContent?.trim());
 const click = async (button: Element) =>
   act(async () => {
     button.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -265,12 +323,19 @@ const DOCS_ANSWER = {
   calls: 0,
   call_log: [],
   logs: ["found 2"],
-  result: { tools: [{ name: "tab_create_browser", description: "Opens a browser tab.\nTakes url." }] },
+  result: {
+    tools: [{ name: "tab_create_browser", description: "Opens a browser tab.\nTakes url." }],
+  },
 };
 
 test("three scripts in a row are three rows, each saying what it did", async () => {
   await render([
-    exec(LIST_SCRIPT, { calls: 1, call_log: log("workspace_list", 1), logs: [], result: ["Leads"] }),
+    exec(LIST_SCRIPT, {
+      calls: 1,
+      call_log: log("workspace_list", 1),
+      logs: [],
+      result: ["Leads"],
+    }),
     exec(OPEN_SCRIPT, {
       calls: 13,
       call_log: [...log("workspace_list", 1), ...log("app_agent_open_tab", 12)],

@@ -23,7 +23,14 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const call = (tool: Partial<Tool> & { id: string }): AcpmuxActivity => ({
   kind: "tool",
   text: "",
-  tool: { title: "", kind: "execute", status: "completed", startedAt: 1000, endedAt: 3000, ...tool },
+  tool: {
+    title: "",
+    kind: "execute",
+    status: "completed",
+    startedAt: 1000,
+    endedAt: 3000,
+    ...tool,
+  },
 });
 const CmuxExecGallery = await cmuxExecGallery.load();
 
@@ -38,7 +45,8 @@ const blocked = call({
 const failed = call({
   id: "failed",
   status: "failed",
-  command: "bun test fixture/alpha.test.ts fixture/beta.test.ts fixture/gamma.test.ts --timeout 20000",
+  command:
+    "bun test fixture/alpha.test.ts fixture/beta.test.ts fixture/gamma.test.ts --timeout 20000",
   output: "Exit code 1\nerror: expected 3 to be 4 in fixture/alpha.test.ts",
 });
 const background = call({
@@ -85,9 +93,18 @@ function App() {
     >
       <div className="cv-tools" data-fixture-column>
         <ToolRow item={lone} />
-        <ToolGroupRow kind="commands" items={[blocked, failed, background]} disclosureKey="fixture-group" />
+        <ToolGroupRow
+          kind="commands"
+          items={[blocked, failed, background]}
+          disclosureKey="fixture-group"
+        />
         <CommandRow item={loneFailed} />
-        <CommandRow item={{ ...blocked, tool: { ...blocked.tool!, id: "blocked-lone", description: undefined } }} />
+        <CommandRow
+          item={{
+            ...blocked,
+            tool: { ...blocked.tool!, id: "blocked-lone", description: undefined },
+          }}
+        />
       </div>
     </main>
   );

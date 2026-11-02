@@ -24,7 +24,11 @@
   --cv-codeblock-ring: color-mix(in srgb, var(--cv-fg) 11.5%, transparent); /* #3f403b */
   --cv-codeblock-text: color-mix(in srgb, var(--cv-fg) 90%, transparent); /* #e5e5df */
   --cv-codeblock-actions: color-mix(in srgb, var(--cv-fg) 78%, transparent); /* #c8c8c3 */
-  --cv-strong-rule: color-mix(in srgb, var(--cv-fg) 16%, transparent); /* #484943: quote bar, table head */
+  --cv-strong-rule: color-mix(
+    in srgb,
+    var(--cv-fg) 16%,
+    transparent
+  ); /* #484943: quote bar, table head */
   --cv-faint-rule: color-mix(in srgb, var(--cv-fg) 4.5%, transparent); /* #30312b: table rows */
   --cv-check-fill: color-mix(in srgb, var(--cv-fg) 9%, transparent); /* #3a3b34 */
   --cv-check-ring: color-mix(in srgb, var(--cv-fg) 23%, transparent); /* #575852 */
@@ -75,7 +79,9 @@
   --cv-footer-gap: 0px;
   --cv-tool-run-bottom-gap: 0px;
   --cv-tool-run-top-gap: 0px;
-  --cv-action-overhang: calc((var(--grid-transcript-action-control) - var(--grid-transcript-icon-box)) / 2);
+  --cv-action-overhang: calc(
+    (var(--grid-transcript-action-control) - var(--grid-transcript-icon-box)) / 2
+  );
   /* A reply footer's buttons, as ChatGPT's (design/transcript-spacing.md "Reply footer"; Leo,
      2026-11-02: "didn't i always say we can do it like chatgpt"): a 20 glyph in a 32 button, the
      buttons touching, the first glyph's box on the prose's left edge. */
@@ -181,7 +187,8 @@
 .cv-user__bubble {
   box-sizing: border-box;
   max-width: 70%;
-  padding: max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2) calc(4 * var(--grid-base));
+  padding: max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2)
+    calc(4 * var(--grid-base));
   border-radius: var(--grid-cards-radius);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
@@ -483,8 +490,16 @@
   overflow: hidden;
 }
 .cv-user__text.is-faded {
-  -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
-  mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    currentColor calc(100% - var(--cv-line-height)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    currentColor calc(100% - var(--cv-line-height)),
+    transparent
+  );
 }
 .cv-user__more {
   display: block;
@@ -873,7 +888,8 @@
 .cv-received-actions:has([aria-haspopup="menu"][data-popup-open]) {
   opacity: 1;
 }
-.cv-received-actions :is([aria-haspopup="menu"][aria-expanded="true"], [aria-haspopup="menu"][data-popup-open]) {
+.cv-received-actions
+  :is([aria-haspopup="menu"][aria-expanded="true"], [aria-haspopup="menu"][data-popup-open]) {
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
 }
@@ -1202,7 +1218,9 @@
    in space the block leaves free at the column's edge (a wider table scrolls), so it never covers
    a header's text or catches a click meant for a cell. */
 .cv-table-block {
-  --cv-table-tools-width: calc(var(--cmux-control-height, 24px) * 2 + var(--cv-action-gap, 4px) * 2);
+  --cv-table-tools-width: calc(
+    var(--cmux-control-height, 24px) * 2 + var(--cv-action-gap, 4px) * 2
+  );
   position: relative;
   width: fit-content;
   max-width: calc(100% - var(--cv-table-tools-width));
@@ -1356,7 +1374,11 @@
   min-height: 0;
   padding: 0;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--cv-fg) 7.5%, var(--cmux-surface-solid, var(--agent-page-bg, var(--acpmux-base))));
+  background: color-mix(
+    in srgb,
+    var(--cv-fg) 7.5%,
+    var(--cmux-surface-solid, var(--agent-page-bg, var(--acpmux-base)))
+  );
   opacity: 0;
 }
 /* The corner actions take the transcript's shared hover fade (transcript-hover-fade.test.ts):
@@ -1386,7 +1408,9 @@
    line stops 4px short of the strip. model.ts codeCardHeight estimates the same room. */
 .cv-codeblock--corner {
   --cv-code-corner-actions: 1;
-  --cv-code-corner-reserve: calc(var(--cv-code-corner-actions) * (26px + var(--cv-action-gap)) + 5px);
+  --cv-code-corner-reserve: calc(
+    var(--cv-code-corner-actions) * (26px + var(--cv-action-gap)) + 5px
+  );
 }
 .cv-codeblock--corner:has(.cv-codeblock__actions > :nth-child(2)) {
   --cv-code-corner-actions: 2;
@@ -1479,7 +1503,9 @@
   --cv-lane: 0px;
 }
 .cv-edit-diff__body[data-preview="cut"] {
-  --cv-block-cut: calc(8 * var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px)) + var(--cv-lane));
+  --cv-block-cut: calc(
+    8 * var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px)) + var(--cv-lane)
+  );
   max-height: var(--cv-block-cut);
 }
 .cv-edit-diff > .cv-output-more {
@@ -1885,7 +1911,11 @@ pre.cv-math-source {
 /* ---------- Turn rows (TurnRows.tsx) ---------- */
 
 :root {
-  --cv-tool-strong: color-mix(in srgb, var(--cv-fg) 60%, transparent); /* #a5a5a0 settled tool rows */
+  --cv-tool-strong: color-mix(
+    in srgb,
+    var(--cv-fg) 60%,
+    transparent
+  ); /* #a5a5a0 settled tool rows */
   --cv-card-ring: color-mix(in srgb, var(--cv-fg) 10%, transparent);
   --cv-card-fill: color-mix(in srgb, var(--cv-fg) 4%, transparent);
 }
@@ -2258,21 +2288,31 @@ pre.cv-math-source {
    (ui/spinnerClock.ts), so many rows move as one, and holds still under Reduce Motion and the
    static look (the mark stopped). The mark's own default (dot hidden, the mark turning) lives in
    spinner.css, which `Spinner` imports, so it holds on every page that draws one. */
-:root:is([data-working-look="breathe"], [data-working-look="shimmer"]) .cv-spinner[data-working] :is(.cv-spinner__track, .cv-spinner__sweep) {
+:root:is([data-working-look="breathe"], [data-working-look="shimmer"])
+  .cv-spinner[data-working]
+  :is(.cv-spinner__track, .cv-spinner__sweep) {
   display: none;
 }
-:root:is([data-working-look="breathe"], [data-working-look="shimmer"]) .cv-spinner[data-working] .cv-spinner__dot {
+:root:is([data-working-look="breathe"], [data-working-look="shimmer"])
+  .cv-spinner[data-working]
+  .cv-spinner__dot {
   display: inline;
 }
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-status-indicators="static"])[data-working-look="breathe"] .cv-spinner[data-working] {
+  :root:not([data-status-indicators="static"])[data-working-look="breathe"]
+    .cv-spinner[data-working] {
     animation: cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite;
   }
   :root:not([data-status-indicators="static"])[data-working-look="shimmer"]
     .cv-tool:has(> .cv-tool__icon .cv-spinner[data-working])
     .cv-tool__text {
-    background: linear-gradient(100deg, var(--cv-text-dim) 30%, var(--cv-text) 50%, var(--cv-text-dim) 70%) 0 0 / 250%
-      100%;
+    background: linear-gradient(
+        100deg,
+        var(--cv-text-dim) 30%,
+        var(--cv-text) 50%,
+        var(--cv-text-dim) 70%
+      )
+      0 0 / 250% 100%;
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -2839,7 +2879,7 @@ button.cv-video-frames__frame:focus-visible {
 /* An opened run of commands, reads or searches (ToolGroupRow.tsx): the thought that led into the
    run first in full, then a row per step. By default each step is a normal tool row in the
    transcript's one column: its glyph in the header's glyph column, its words at the header's text
-   start, its mark at the right edge, with no card, inset or hairlines around it (Leo, 2026-10-31:
+   start, its mark at the right edge, with no card or inset (Leo, 2026-10-31:
    "WHY IS IT ALGINED SO [...] SHIT" and "why are these indented for no reason"). A line under a
    step (a thought's text, a failure's cause) starts at the same text column.
    Leo, 2026-10-29, asked for the capability of Claude Code desktop's organization ("we want to have
@@ -2851,6 +2891,26 @@ button.cv-video-frames__frame:focus-visible {
   /* Where a step's under-line (a thought's text, a cause) starts. */
   --cv-step-text: var(--cv-tool-text-inset);
 }
+/* A quiet guide outside the shared columns makes the opened run's extent visible without
+   indenting its child rows. The comparison gallery's card/tree/zebra looks keep their own rules. */
+:root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not(
+    [data-tool-steps-look="zebra"]
+  )
+  .cv-tool-group.is-flat.cv-steps {
+  position: relative;
+}
+:root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not(
+    [data-tool-steps-look="zebra"]
+  )
+  .cv-tool-group.is-flat.cv-steps::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(-1 * var(--grid-gap));
+  width: 1px;
+  background: var(--cv-rule);
+  pointer-events: none;
+}
 /* Inner calls in an opened group keep their disclosure slot, but the quiet chevron only appears
    when that row is under the pointer (Leo, 2026-11-01). The group header keeps its own disclosure.
    A focused or opened row stays revealed while its menu or body is open. */
@@ -2858,30 +2918,41 @@ button.cv-video-frames__frame:focus-visible {
   opacity: 0;
   transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
 }
-.cv-steps > .cv-step > .cv-tool:is(
-  :hover,
-  :focus-within,
-  [aria-expanded="true"],
-  [data-popup-open],
-  :has([aria-expanded="true"]),
-  :has([data-popup-open])
-) {
+.cv-steps
+  > .cv-step
+  > .cv-tool:is(
+    :hover,
+    :focus-within,
+    [aria-expanded="true"],
+    [data-popup-open],
+    :has([aria-expanded="true"]),
+    :has([data-popup-open])
+  ) {
   color: var(--cv-text);
 }
-.cv-steps > .cv-step > .cv-tool:is(
-  :hover,
-  :focus-within,
-  [aria-expanded="true"],
-  [data-popup-open],
-  :has([aria-expanded="true"]),
-  :has([data-popup-open])
-)
+.cv-steps
+  > .cv-step
+  > .cv-tool:is(
+    :hover,
+    :focus-within,
+    [aria-expanded="true"],
+    [data-popup-open],
+    :has([aria-expanded="true"]),
+    :has([data-popup-open])
+  )
   > :is(.cv-tool__icon, .cv-tool__text, .cv-command__text, .cv-tool__chevron) {
   color: var(--cv-text);
 }
 .cv-steps > .cv-step > .cv-tool:hover > .cv-tool__chevron,
 .cv-steps > .cv-step > .cv-tool:has([data-popup-open]) > .cv-tool__chevron,
-.cv-steps > .cv-step > .cv-tool:is(:focus-within, [aria-expanded="true"], [data-popup-open], :has([aria-expanded="true"]))
+.cv-steps
+  > .cv-step
+  > .cv-tool:is(
+    :focus-within,
+    [aria-expanded="true"],
+    [data-popup-open],
+    :has([aria-expanded="true"])
+  )
   > .cv-tool__chevron {
   opacity: 1;
   transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
@@ -2892,43 +2963,100 @@ button.cv-video-frames__frame:focus-visible {
 .cv-step > .cv-tool-error {
   padding-left: var(--cv-step-text);
 }
-:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-steps {
+:root:is(
+    [data-tool-steps-look="card"],
+    [data-tool-steps-look="tree"],
+    [data-tool-steps-look="zebra"]
+  )
+  .cv-steps {
   --cv-step-inset: 12px;
   --cv-step-text: 0px;
   margin: 2px 0 6px;
-  border: var(--cmux-hairline, .5px) solid var(--cv-card-ring);
+  border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
   border-radius: 12px;
   overflow: hidden;
 }
-:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step {
+:root:is(
+    [data-tool-steps-look="card"],
+    [data-tool-steps-look="tree"],
+    [data-tool-steps-look="zebra"]
+  )
+  .cv-step {
   padding: 4px var(--cv-step-inset);
 }
-:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step + .cv-step {
-  border-top: var(--cmux-hairline, .5px) solid var(--cv-rule);
+:root:is(
+    [data-tool-steps-look="card"],
+    [data-tool-steps-look="tree"],
+    [data-tool-steps-look="zebra"]
+  )
+  .cv-step
+  + .cv-step {
+  border-top: var(--cmux-hairline, 0.5px) solid var(--cv-rule);
 }
-:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool {
+:root:is(
+    [data-tool-steps-look="card"],
+    [data-tool-steps-look="tree"],
+    [data-tool-steps-look="zebra"]
+  )
+  .cv-step
+  > .cv-tool {
   display: grid;
   grid-template-columns: minmax(0, max-content) var(--cv-disclosure-slot) minmax(0, 1fr) auto;
   gap: var(--cv-disclosure-gap);
 }
-:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool > .cv-tool__icon {
+:root:is(
+    [data-tool-steps-look="card"],
+    [data-tool-steps-look="tree"],
+    [data-tool-steps-look="zebra"]
+  )
+  .cv-step
+  > .cv-tool
+  > .cv-tool__icon {
   display: none;
 }
 /* Every child names row 1: the meta comes before the chevron in the markup, and sparse
    auto-placement would otherwise move the chevron to a second row. */
-:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool > * {
+:root:is(
+    [data-tool-steps-look="card"],
+    [data-tool-steps-look="tree"],
+    [data-tool-steps-look="zebra"]
+  )
+  .cv-step
+  > .cv-tool
+  > * {
   grid-row: 1;
 }
-:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool > :is(.cv-tool__text, .cv-command__text) {
+:root:is(
+    [data-tool-steps-look="card"],
+    [data-tool-steps-look="tree"],
+    [data-tool-steps-look="zebra"]
+  )
+  .cv-step
+  > .cv-tool
+  > :is(.cv-tool__text, .cv-command__text) {
   grid-column: 1;
 }
-:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool > .cv-tool__chevron {
+:root:is(
+    [data-tool-steps-look="card"],
+    [data-tool-steps-look="tree"],
+    [data-tool-steps-look="zebra"]
+  )
+  .cv-step
+  > .cv-tool
+  > .cv-tool__chevron {
   grid-column: 2;
   margin-inline-start: 0;
   justify-self: start;
   justify-content: flex-start;
 }
-:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool > .cv-command__meta {
+:root:is(
+    [data-tool-steps-look="card"],
+    [data-tool-steps-look="tree"],
+    [data-tool-steps-look="zebra"]
+  )
+  .cv-step
+  > .cv-tool
+  > .cv-command__meta {
   grid-column: 4;
 }
 /* A thought step: muted words, one line closed; open, its whole text with the disclosure at the
@@ -2945,10 +3073,21 @@ button.cv-video-frames__frame:focus-visible {
 .cv-step-thought.is-open > .cv-tool__chevron {
   margin-inline-start: 0;
 }
-:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step-thought.is-open {
+:root:is(
+    [data-tool-steps-look="card"],
+    [data-tool-steps-look="tree"],
+    [data-tool-steps-look="zebra"]
+  )
+  .cv-step-thought.is-open {
   grid-template-columns: var(--cv-disclosure-slot);
 }
-:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step-thought.is-open > .cv-tool__chevron {
+:root:is(
+    [data-tool-steps-look="card"],
+    [data-tool-steps-look="tree"],
+    [data-tool-steps-look="zebra"]
+  )
+  .cv-step-thought.is-open
+  > .cv-tool__chevron {
   grid-column: 1;
 }
 .cv-step-thought__body {
@@ -2975,7 +3114,9 @@ button.cv-video-frames__frame:focus-visible {
   display: inline-flex;
 }
 :root[data-tool-steps-look="tree"] .cv-step > .cv-tool {
-  grid-template-columns: var(--cv-glyph-slot) minmax(0, max-content) var(--cv-disclosure-slot) minmax(0, 1fr) auto;
+  grid-template-columns: var(--cv-glyph-slot) minmax(0, max-content) var(
+      --cv-disclosure-slot
+    ) minmax(0, 1fr) auto;
 }
 :root[data-tool-steps-look="tree"] .cv-step > .cv-tool > :is(.cv-tool__text, .cv-command__text) {
   grid-column: 2;
@@ -3321,7 +3462,8 @@ button.cv-video-frames__frame:focus-visible {
 /* Pointing at the sender's name lights only the name (its own pill below), never the whole line. */
 .cv-received > .cv-disclosure__line:hover:not(:has(.cv-agent-tag.is-open:hover)),
 .cv-received > .cv-disclosure__line:focus-within:not(:has(.cv-agent-tag.is-open:focus)),
-.cv-received > .cv-disclosure__line:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
+.cv-received
+  > .cv-disclosure__line:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-received .cv-disclosure__toggle {
@@ -3370,7 +3512,9 @@ button.cv-video-frames__frame:focus-visible {
   pointer-events: auto;
 }
 /* Pointing at the sender's open chip is not pointing at the line: its actions stay hidden. */
-.cv-received > .cv-disclosure__line:has(.cv-agent-tag.is-open:hover):not(:has([data-popup-open])) .cv-received__hover {
+.cv-received
+  > .cv-disclosure__line:has(.cv-agent-tag.is-open:hover):not(:has([data-popup-open]))
+  .cv-received__hover {
   opacity: 0;
   pointer-events: none;
 }
@@ -3466,7 +3610,9 @@ button.cv-video-frames__frame:focus-visible {
   -webkit-user-select: text;
 }
 /* Pointing at the sender's open chip lights the chip alone: the line keeps its tone. */
-.cv-received:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) {
+.cv-received:is(:hover, :active, :focus-within):not(
+    :has(.cv-agent-tag.is-open:is(:hover, :focus))
+  ) {
   color: var(--cv-text);
 }
 .cv-received:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus)))
@@ -3599,7 +3745,13 @@ a.cv-sha:focus-visible {
   font-family: var(--cv-mono);
 }
 .cv-cmux-exec__raw {
-  margin: 2px 0 0 2px;
+  margin: 2px 0 0;
+}
+.cv-cmux-exec__raw > .cv-subsession__raw {
+  padding-inline-start: 0;
+}
+.cv-cmux-exec__raw .cv-subsession__toggle {
+  gap: var(--cv-tool-gap);
 }
 /* The card's box holds the fill and ring, so the output's fades (below) cut the text, not them. */
 .cv-tool-output__box {
@@ -3656,8 +3808,16 @@ a.cv-sha:focus-visible {
    cut preview's bottom fades (below), never a hard cut mid-line; scrolled to the end, the edge is
    hard again. No transition. */
 :is(.cv-mcp-call__body, .cv-tool-output__markdown)[data-more-below] {
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--cv-output-fade, 28px)), transparent);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--cv-output-fade, 28px)), transparent);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - var(--cv-output-fade, 28px)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - var(--cv-output-fade, 28px)),
+    transparent
+  );
 }
 .cv-tool-output__controls {
   display: flex;
@@ -3855,10 +4015,14 @@ a.cv-sha:focus-visible {
   border-radius: 8px;
 }
 /* Continue is a labelled button (its own width, .cv-turn-continue below) and keeps its small arrow. */
-.cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn:not(.cv-turn-retry-menu, .cv-turn-continue) {
+.cv-turn-actions:not(.cv-turn-actions--empty)
+  .cv-iconbtn:not(.cv-turn-retry-menu, .cv-turn-continue) {
   width: var(--cv-footer-button);
 }
-.cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row .cv-iconbtn:not(.cv-turn-continue) > svg {
+.cv-turn-actions:not(.cv-turn-actions--empty)
+  .cv-message-footer-row
+  .cv-iconbtn:not(.cv-turn-continue)
+  > svg {
   width: var(--cv-footer-glyph);
   height: var(--cv-footer-glyph);
 }
@@ -3879,10 +4043,16 @@ a.cv-sha:focus-visible {
    starts on the column (inset-inline below), so the ink lands on it exactly. Nothing comes before the
    buttons (Leo, 2026-11-02: "those buttons should always just be there left aligned"). */
 .cv-reply-actions > .cv-turn-action-group:first-child > .cv-iconbtn:first-child,
-.cv-turn-actions:not(.cv-turn-actions--empty) .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child {
+.cv-turn-actions:not(.cv-turn-actions--empty)
+  .cv-turn-footer-row
+  > .cv-turn-action-group:first-child
+  > .cv-iconbtn:first-child {
   margin-inline-start: calc(-1 * var(--cv-footer-overhang));
 }
-.cv-turn-actions--empty .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child {
+.cv-turn-actions--empty
+  .cv-turn-footer-row
+  > .cv-turn-action-group:first-child
+  > .cv-iconbtn:first-child {
   margin-inline-start: calc((var(--cv-glyph-slot) - var(--cv-meta-row)) / 2);
 }
 /* That button's hover pill overhangs its row, which paint containment (styles.css .acpmux-row) would
@@ -4702,7 +4872,8 @@ a.cv-sha:focus-visible {
   border-radius: 9px;
   overflow: hidden;
   background: var(--agent-page-bg);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong, var(--agent-border));
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px)
+    var(--agent-border-strong, var(--agent-border));
 }
 .acpmux-render-card-head {
   display: flex;
@@ -4898,7 +5069,10 @@ a.cv-sha:focus-visible {
   padding: 0;
   border: 0;
   border-radius: 50%;
-  --glass-edge: var(--acpmux-jump-latest-rim, color-mix(in srgb, var(--agent-text) 18%, transparent));
+  --glass-edge: var(
+    --acpmux-jump-latest-rim,
+    color-mix(in srgb, var(--agent-text) 18%, transparent)
+  );
   --glass-elevation: var(--elevation-2);
   color: var(--agent-text);
   opacity: 0;
@@ -4984,12 +5158,8 @@ a.cv-sha:focus-visible {
     #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px)),
     transparent var(--acpmux-view-foot)
   );
-  -webkit-mask-image:
-    var(--acpmux-view-mask),
-    linear-gradient(#000, #000);
-  mask-image:
-    var(--acpmux-view-mask),
-    linear-gradient(#000, #000);
+  -webkit-mask-image: var(--acpmux-view-mask), linear-gradient(#000, #000);
+  mask-image: var(--acpmux-view-mask), linear-gradient(#000, #000);
   -webkit-mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%;
@@ -5013,13 +5183,8 @@ a.cv-sha:focus-visible {
    really get affected by most other layout things"). */
 .acpmux-scroll:has(> .acpmux-minimap):is([data-fade-top], [data-fade-bottom], [data-docked]) {
   -webkit-mask-image:
-    var(--acpmux-view-mask),
-    linear-gradient(#000, #000),
-    linear-gradient(#000, #000);
-  mask-image:
-    var(--acpmux-view-mask),
-    linear-gradient(#000, #000),
-    linear-gradient(#000, #000);
+    var(--acpmux-view-mask), linear-gradient(#000, #000), linear-gradient(#000, #000);
+  mask-image: var(--acpmux-view-mask), linear-gradient(#000, #000), linear-gradient(#000, #000);
   -webkit-mask-size:
     100% 100%,
     var(--acpmux-scrollbar-lane, 16px) 100%,
@@ -5037,7 +5202,11 @@ a.cv-sha:focus-visible {
     100% 0,
     0 0;
 }
-.acpmux-scroll:has(> .acpmux-minimap [data-side="right"]):is([data-fade-top], [data-fade-bottom], [data-docked]) {
+.acpmux-scroll:has(> .acpmux-minimap [data-side="right"]):is(
+    [data-fade-top],
+    [data-fade-bottom],
+    [data-docked]
+  ) {
   -webkit-mask-position:
     0 0,
     100% 0,
@@ -5437,7 +5606,8 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 }
 /* One over a prompt sits in the middle of the turn gap under its reply (#29860). One over more of the
    same agent, or one ending the chat, stays centred in the block gap (transcriptGrid.ts restBand). */
-.acpmux-row.acpmux-turnSummary:not(.acpmux-row--last-footer, .acpmux-row--continuation-footer) .cv-turn-actions--empty {
+.acpmux-row.acpmux-turnSummary:not(.acpmux-row--last-footer, .acpmux-row--continuation-footer)
+  .cv-turn-actions--empty {
   top: calc((var(--grid-gap-turn) - var(--grid-transcript-action-control)) / 2 - 1.5px);
 }
 
@@ -5602,7 +5772,8 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
 }
 /* Markdown is one block stack. Text metrics stay independent of the spacing grid. */
-.cv-md > :is(.cv-p, .cv-h, .cv-list, .cv-quote, .cv-code, .cv-pre, .cv-table-wrap, .cv-math-display, hr),
+.cv-md
+  > :is(.cv-p, .cv-h, .cv-list, .cv-quote, .cv-code, .cv-pre, .cv-table-wrap, .cv-math-display, hr),
 .cv-md > :first-child,
 .cv-md > :last-child {
   margin-block: 0;
@@ -5612,7 +5783,9 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   flex-direction: column;
   gap: var(--grid-gap-inner);
 }
-.cv-list > li { margin-block: 0; }
+.cv-list > li {
+  margin-block: 0;
+}
 .cv-tool-run {
   display: flex;
   flex-direction: column;
@@ -5633,17 +5806,25 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   font-variant-numeric: tabular-nums;
 }
 /* One ordinary space between the verb and its subject: never a flex gap, never padding spaces. */
-.cv-tool-label__space { flex: none; }
+.cv-tool-label__space {
+  flex: none;
+}
 /* A count summary's verb takes its own width, not the column's (ToolVerb.tsx `tight`). */
-.cv-tool__verb.is-tight::after { content: none; }
-.cv-tool__verb { flex: none; }
+.cv-tool__verb.is-tight::after {
+  content: none;
+}
+.cv-tool__verb {
+  flex: none;
+}
 /* The action row sits in .cv-user__body (display: contents) since the pending-steer footer slot.
    Under a bubble it is laid in the turn gap with no layout height, a waiting steer's (Send now
    first) as a sent prompt's, so sending a steer moves nothing (#27580 left the steer's row in flow:
    the row lost 28px on send and the transcript shifted). A waiting prompt of images alone has no
    bubble, so its row stays in flow (model.ts userMetaHeight). */
 .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__actions,
-.cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
+.cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble))
+  > .cv-user__body
+  > .cv-user__actions {
   position: absolute;
   right: calc(-1 * var(--cv-action-overhang));
   top: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
@@ -5653,11 +5834,15 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 /* Over the live line the gap is the block gap (24), not the turn gap (transcriptGrid.ts waiting
    rule), so the row is centred in that: its 28 hit box overhangs the gap by 2 on each side
    (grid.md Rule 6 allows 6), and its 16 glyphs keep 4 to the bubble and 4 to the live line. */
-article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__actions,
-article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
+article.acpmux-row--before-indicator
+  .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble))
+  > .cv-user__actions,
+article.acpmux-row--before-indicator
+  .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble))
+  > .cv-user__body
+  > .cv-user__actions {
   top: calc(100% + (var(--grid-gap-block) - var(--cv-meta-row)) / 2);
 }
-
 
 .cv-repo-recovery {
   /* The repository choices are a <fieldset> (a named group): no fieldset border, padding or min width. */
@@ -5672,9 +5857,15 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   color: color-mix(in srgb, var(--agent-text) 72%, transparent);
   font-size: var(--text-detail);
 }
-.cv-repo-recovery--quiet { color: color-mix(in srgb, var(--agent-text) 55%, transparent); }
-.cv-repo-recovery--error { color: var(--agent-error, #d66); }
-.cv-repo-recovery--done { color: var(--agent-success, #5aaf83); }
+.cv-repo-recovery--quiet {
+  color: color-mix(in srgb, var(--agent-text) 55%, transparent);
+}
+.cv-repo-recovery--error {
+  color: var(--agent-error, #d66);
+}
+.cv-repo-recovery--done {
+  color: var(--agent-success, #5aaf83);
+}
 .cv-repo-recovery button {
   border: 0;
   border-radius: 5px;
@@ -5682,4 +5873,6 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   color: var(--agent-text);
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
 }
-.cv-repo-recovery button:hover { background: color-mix(in srgb, var(--agent-text) 15%, transparent); }
+.cv-repo-recovery button:hover {
+  background: color-mix(in srgb, var(--agent-text) 15%, transparent);
+}

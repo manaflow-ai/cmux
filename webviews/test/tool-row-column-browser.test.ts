@@ -35,17 +35,24 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
   for (const theme of ["dark", "light"] as const)
     for (const width of [760, 420] as const) {
       test(`${theme} ${width}px: tool rows share one glyph and text column, and a hook's block reads plainly`, async () => {
-        const page = await browser.newPage({ viewport: { width, height: 700 }, deviceScaleFactor: 2 });
+        const page = await browser.newPage({
+          viewport: { width, height: 700 },
+          deviceScaleFactor: 2,
+        });
         try {
           const errors: string[] = [];
           page.on("pageerror", (error) => errors.push(error.message));
           const port = (vite.httpServer!.address() as { port: number }).port;
-          await page.goto(`http://127.0.0.1:${port}/test/browser/tool-row-column.html?theme=${theme}&width=${width}`);
+          await page.goto(
+            `http://127.0.0.1:${port}/test/browser/tool-row-column.html?theme=${theme}&width=${width}`,
+          );
           await page.locator(".cv-steps .cv-tool").nth(2).waitFor();
           await page.evaluate(() => document.fonts.ready);
           const m = await page.evaluate(() => {
             const column = document.querySelector("[data-fixture-column]")!.getBoundingClientRect();
-            const rows = [...document.querySelectorAll<HTMLElement>("[data-fixture-column] .cv-tool")].map((row) => {
+            const rows = [
+              ...document.querySelectorAll<HTMLElement>("[data-fixture-column] .cv-tool"),
+            ].map((row) => {
               const icon = row.querySelector(".cv-tool__icon")!.getBoundingClientRect();
               const words = row.querySelector(".cv-tool__text, .cv-command__text")!;
               // The words' first glyph: a range over the first text, so a span's padding never counts.
@@ -64,18 +71,23 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
                 textLeft: range.getBoundingClientRect().left - column.left,
                 right: box.right - column.right,
                 status: status?.textContent?.trim(),
-                statusClipped: statusBox ? statusBox.right > box.right + 0.5 || statusBox.width < 1 : false,
+                statusClipped: statusBox
+                  ? statusBox.right > box.right + 0.5 || statusBox.width < 1
+                  : false,
                 wordsClipped: (() => {
                   const statusParent = status?.closest(".cv-tool__text, .cv-command__text");
                   return statusParent
                     ? statusParent.scrollWidth > statusParent.clientWidth + 0.5 &&
-                        status!.getBoundingClientRect().right > statusParent.getBoundingClientRect().right + 0.5
+                        status!.getBoundingClientRect().right >
+                          statusParent.getBoundingClientRect().right + 0.5
                     : false;
                 })(),
               };
             });
             // "Ran <command>": the command starts one space after the verb, never in a wide column.
-            const verbGaps = [...document.querySelectorAll<HTMLElement>(".cv-command__text")].flatMap((words) => {
+            const verbGaps = [
+              ...document.querySelectorAll<HTMLElement>(".cv-command__text"),
+            ].flatMap((words) => {
               const code = words.querySelector(".cv-command__line");
               if (!code) return [];
               const walker = document.createTreeWalker(words, NodeFilter.SHOW_TEXT);
@@ -87,15 +99,24 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
               return [code.getBoundingClientRect().left - range.getBoundingClientRect().right];
             });
             // A line under a row (a failure's cause) starts at the row's words.
-            const under = [...document.querySelectorAll<HTMLElement>("[data-fixture-column] .cv-tool-error")].map(
+            const under = [
+              ...document.querySelectorAll<HTMLElement>("[data-fixture-column] .cv-tool-error"),
+            ].map(
               (line) =>
-                line.getBoundingClientRect().left + parseFloat(getComputedStyle(line).paddingLeft) - column.left,
+                line.getBoundingClientRect().left +
+                parseFloat(getComputedStyle(line).paddingLeft) -
+                column.left,
             );
             return {
               guide: (() => {
                 const group = document.querySelector(".cv-tool-group.is-flat.cv-steps")!;
                 const style = getComputedStyle(group, "::before");
-                return { content: style.content, width: parseFloat(style.width), left: parseFloat(style.left), color: style.backgroundColor };
+                return {
+                  content: style.content,
+                  width: parseFloat(style.width),
+                  left: parseFloat(style.left),
+                  color: style.backgroundColor,
+                };
               })(),
               rows,
               verbGaps,
@@ -136,7 +157,9 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
           // Opened, the blocked call shows the hook's words as its output, without the envelope.
           await page.locator('[data-tool-id="blocked-lone"]').click();
           await page.locator(".cv-shell, pre").first().waitFor();
-          const opened = await page.evaluate(() => document.querySelector("[data-fixture-column]")!.textContent ?? "");
+          const opened = await page.evaluate(
+            () => document.querySelector("[data-fixture-column]")!.textContent ?? "",
+          );
           expect(opened).toContain("the fixture guard needs a passing review");
           expect(opened).not.toContain("PreToolUse");
           expect(opened).not.toContain("hook error");
@@ -146,7 +169,10 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
       });
     }
   test("the script gallery uses natural word spacing and aligns Raw with the tool icon column", async () => {
-    const page = await browser.newPage({ viewport: { width: 640, height: 820 }, deviceScaleFactor: 2 });
+    const page = await browser.newPage({
+      viewport: { width: 640, height: 820 },
+      deviceScaleFactor: 2,
+    });
     try {
       const port = (vite.httpServer!.address() as { port: number }).port;
       await page.goto(`http://127.0.0.1:${port}/test/browser/tool-row-column.html?fixture=script`);
@@ -171,7 +197,10 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
         const icon = raw.querySelector(".cv-tool__icon");
         return {
           gap: wordBox("workspaces").left - wordBox("Listed").right,
-          iconOffset: icon ? icon.getBoundingClientRect().left - row.querySelector(".cv-tool__icon")!.getBoundingClientRect().left : null,
+          iconOffset: icon
+            ? icon.getBoundingClientRect().left -
+              row.querySelector(".cv-tool__icon")!.getBoundingClientRect().left
+            : null,
         };
       });
       expect(m.gap).toBeGreaterThan(0);
@@ -179,7 +208,9 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
       expect(m.iconOffset).not.toBeNull();
       expect(Math.abs(m.iconOffset!)).toBeLessThanOrEqual(0.5);
       await page.locator(".cv-cmux-exec__raw button").click();
-      expect(await page.locator(".cv-cmux-exec__raw .cv-mcp-call__name").textContent()).toContain("cmux_exec");
+      expect(await page.locator(".cv-cmux-exec__raw .cv-mcp-call__name").textContent()).toContain(
+        "cmux_exec",
+      );
     } finally {
       await page.close();
     }
