@@ -1,7 +1,7 @@
 //! A display model built from acpmux events. Shared by the CLI stream view
 //! and the TUI so both render the same thing.
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
@@ -52,6 +52,9 @@ pub enum Item {
 #[derive(Debug, Default, Clone)]
 pub struct Transcript {
     pub items: Vec<Item>,
+    /// Event records currently represented by `items`. Keeping these records lets the TUI
+    /// rebuild the display when an older page is prepended without reordering live updates.
+    pub(crate) raw_events: Vec<Value>,
     /// Earliest item whose layout may have changed since the TUI consumed it.
     /// Streaming invalidates the mutable tail, not the entire conversation.
     pub(crate) layout_dirty_from: usize,
@@ -253,6 +256,13 @@ impl Transcript {
             }
             self.last_seq = seq;
         }
+        // Kept so a prepended older page can rebuild the transcript with this update in place.
+        let seq = params.pointer("/_meta/acpmux/seq").cloned().unwrap_or(Value::Null);
+        self.raw_events.push(json!({"seq": seq, "dir": "update", "params": params}));
+        self.apply_update_inner(params);
+    }
+
+    fn apply_update_inner(&mut self, params: &Value) {
         let Some(update) = params.get("update") else { return };
         // A subagent's words are its own view's, never the chat's reply.
         if crate::subagents::is_subagents(params) && is_words(update) {
@@ -509,6 +519,11 @@ impl Transcript {
             }
             self.last_seq = seq;
         }
+        self.raw_events.push(ev.clone());
+        self.apply_event_inner(ev);
+    }
+
+    fn apply_event_inner(&mut self, ev: &Value) {
         let dir = ev.get("dir").and_then(Value::as_str).unwrap_or("");
         let kind = ev.get("kind").and_then(Value::as_str).unwrap_or("");
         let msg = ev.get("msg").unwrap_or(&Value::Null);
@@ -809,6 +824,74 @@ impl Transcript {
             }),
             _ => {}
         }
+    }
+
+    /// Prepend an older event page and rebuild the transcript in sequence order. Only records
+    /// older than every record already held are taken, so a page that overlaps what is shown
+    /// (or arrives after live records) adds each record once and keeps live ones in place.
+    /// Returns the number of display items added before the old ones: the items already shown
+    /// are the rebuilt transcript's tail, so per-item state moves down by that count.
+    pub fn prepend_events(&mut self, older: &[Value]) -> usize {
+        let seq_of = |e: &Value| e.get("seq").and_then(Value::as_u64);
+        let oldest = self.oldest_seq();
+        let mut page: Vec<Value> = older
+            .iter()
+            .filter(|e| seq_of(e).is_some_and(|s| oldest.is_none_or(|o| s < o)))
+            .cloned()
+            .collect();
+        if page.is_empty() {
+            return 0;
+        }
+        page.sort_by_key(|e| seq_of(e).unwrap_or(0));
+        page.dedup_by(|a, b| seq_of(a) == seq_of(b));
+        let previous_items = self.items.len();
+        let mut rebuilt = Transcript::default();
+        for event in page.iter().chain(self.raw_events.iter()) {
+            rebuilt.apply_record(event);
+        }
+        // Messages sent but not yet echoed stay last, as they were shown.
+        rebuilt.items.extend(self.optimistic.iter().map(|text| Item::User {
+            text: text.clone(),
+            steer: false,
+            queued: false,
+        }));
+        rebuilt.optimistic = std::mem::take(&mut self.optimistic);
+        // State the TUI sets from the session detail after attach, and the newest values the
+        // live records already gave, are the old transcript's.
+        rebuilt.last_seq = rebuilt.last_seq.max(self.last_seq);
+        rebuilt.status = std::mem::take(&mut self.status);
+        rebuilt.mode = self.mode.take();
+        rebuilt.model = self.model.take();
+        rebuilt.usage = self.usage.take().or(rebuilt.usage);
+        if !self.available_commands.is_empty() {
+            rebuilt.available_commands = std::mem::take(&mut self.available_commands);
+        }
+        // A rebuild names every row afresh: folds move by the prepended count, not by
+        // removals the replay made along the way.
+        rebuilt.removed_items.clear();
+        rebuilt.layout_dirty_from = 0;
+        *self = rebuilt;
+        self.items.len().saturating_sub(previous_items)
+    }
+
+    /// Re-apply one stored record during a rebuild: a mux event, or a live `session/update`
+    /// that `apply_update` stored as one.
+    fn apply_record(&mut self, ev: &Value) {
+        if let Some(seq) = ev.get("seq").and_then(Value::as_u64) {
+            self.last_seq = self.last_seq.max(seq);
+        }
+        self.raw_events.push(ev.clone());
+        if ev.get("dir").and_then(Value::as_str) == Some("update")
+            && let Some(params) = ev.get("params")
+        {
+            self.apply_update_inner(params);
+        } else {
+            self.apply_event_inner(ev);
+        }
+    }
+
+    pub fn oldest_seq(&self) -> Option<u64> {
+        self.raw_events.iter().filter_map(|e| e.get("seq").and_then(Value::as_u64)).min()
     }
 
     pub fn pending_permission(&self) -> Option<&Item> {

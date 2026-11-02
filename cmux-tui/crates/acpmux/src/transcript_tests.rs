@@ -433,3 +433,71 @@ fn a_hibernation_and_its_wake_draw_no_row() {
     t.apply_event(&mux(6, "resumed", json!({"level": "exact", "wake": false})));
     assert_eq!(t.items.len(), 2, "{:?}", t.items);
 }
+
+fn user(seq: u64, text: &str) -> Value {
+    json!({"seq": seq, "at": 1_000 + seq, "dir": "mux", "kind": "user_message", "msg": {"text": text}})
+}
+
+fn user_texts(t: &Transcript) -> Vec<&str> {
+    t.items
+        .iter()
+        .filter_map(|i| match i {
+            Item::User { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// An older page goes before what is shown, each record once, and keeps the state the TUI
+/// set from the session detail after attach.
+#[test]
+fn prepend_keeps_order_dedupes_and_keeps_session_state() {
+    let mut t = Transcript::default();
+    for e in [user(20, "three"), user(21, "four")] {
+        t.apply_event(&e);
+    }
+    // A live update after attach, kept with its place.
+    t.apply_update(&json!({"sessionId": SID, "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "content": {"type": "text", "text": "reply"},
+    }, "_meta": {"acpmux": {"seq": 22}}}));
+    t.status = "running".into();
+    t.mode = Some("plan".into());
+    t.model = Some("m1".into());
+    t.usage = Some((5, 10));
+    t.available_commands = vec!["review".into()];
+    t.optimistic.push("sent".into());
+    t.items.push(Item::User { text: "sent".into(), steer: false, queued: false });
+    t.layout_dirty_from = usize::MAX;
+    let before = t.items.len();
+
+    // The page overlaps the oldest shown record (20) and arrives out of order.
+    let added = t.prepend_events(&[user(11, "two"), user(10, "one"), user(20, "three")]);
+
+    assert_eq!(added, 2);
+    assert_eq!(t.items.len(), before + 2);
+    assert_eq!(user_texts(&t), ["one", "two", "three", "four", "sent"]);
+    assert!(
+        matches!(t.items.get(4), Some(Item::Assistant { text }) if text == "reply"),
+        "{:?}",
+        t.items
+    );
+    assert_eq!(t.oldest_seq(), Some(10));
+    assert_eq!(t.last_seq, 22);
+    assert_eq!(t.status, "running");
+    assert_eq!(t.mode.as_deref(), Some("plan"));
+    assert_eq!(t.model.as_deref(), Some("m1"));
+    assert_eq!(t.usage, Some((5, 10)));
+    assert_eq!(t.available_commands, ["review"]);
+    assert_eq!(t.optimistic, ["sent"]);
+    assert_eq!(t.layout_dirty_from, 0, "the rebuild lays every row out again");
+    assert!(t.removed_items.is_empty());
+
+    // A page of records already shown adds nothing.
+    assert_eq!(t.prepend_events(&[user(10, "one"), user(21, "four")]), 0);
+    assert_eq!(user_texts(&t), ["one", "two", "three", "four", "sent"]);
+    // A live record after the rebuild still lands once, at the end.
+    t.apply_event(&user(22, "dup"));
+    t.apply_event(&user(23, "five"));
+    assert_eq!(user_texts(&t), ["one", "two", "three", "four", "sent", "five"]);
+}
