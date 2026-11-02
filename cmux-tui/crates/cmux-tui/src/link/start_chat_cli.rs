@@ -1125,14 +1125,20 @@ impl StartCopy {
         // first read and the lease (and let it go) is the send's copy now,
         // and its folder may hold a chat; it is never pushed over.
         match Ledger::update(ledger, |pins| {
+            if let Some(refusal) =
+                Self::source_refusal(pins.copy_source(&send, &self.machine), &source)
+            {
+                return Err(refusal);
+            }
             let finished = pins.copied_chat(&send, &self.machine);
             if finished.is_none() {
-                pins.start_copy(&send, &self.machine, &place);
+                pins.start_copy(&send, &self.machine, &place, &source);
             }
-            finished
+            Ok(finished)
         }) {
-            Ok(Some(chat)) => return self.cached_chat(chat, probe),
-            Ok(None) => {}
+            Ok(Ok(Some(chat))) => return self.cached_chat(chat, probe),
+            Ok(Ok(None)) => {}
+            Ok(Err(refusal)) => return refusal,
             Err(error) => return refused("ledger_failed", format!("{error:#}")),
         }
         let mut last = ("sync_failed".to_string(), "no work root to copy to".to_string());
