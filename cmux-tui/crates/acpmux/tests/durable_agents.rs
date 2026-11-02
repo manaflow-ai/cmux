@@ -33,6 +33,8 @@ mod restart_fence;
 mod restart_reattach;
 #[path = "durable_agents/retry_restore.rs"]
 mod retry_restore;
+#[path = "durable_agents/retry_settings.rs"]
+mod retry_settings;
 #[path = "durable_agents/stalled_turn.rs"]
 mod stalled_turn;
 #[path = "durable_agents/stop_if_idle_unadopted.rs"]
