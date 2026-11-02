@@ -97,6 +97,39 @@ class NewReds(unittest.TestCase):
         self.assertEqual(done.returncode, 1)
 
 
+class TipAndRedStepLines(unittest.TestCase):
+    """A feat-cmux-next push that touches what the guards read is judged at its tip (--tip): every red step fails.
+    Judged against the previous tip, a red that persists stayed green, and 18 guard steps sat red on the branch
+    unseen until #31366. Each red step is also printed as a plain `guard red step (KIND): STEP` line, the one
+    scripts/ci/base_red_excuse.py compares a pull request's red steps with (GitHub drops annotation titles)."""
+
+    def run_tip(self, head):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "head.json"
+            path.write_text(json.dumps(head))
+            return subprocess.run([sys.executable, str(SCRIPT), "--tip", str(path)], capture_output=True, text=True)
+
+    def test_every_red_step_at_the_tip_fails(self):
+        done = self.run_tip({"lint": False, "wired": True, "fleet": False})
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::error title=Guard red at the tip::lint", done.stdout)
+        self.assertIn("guard red step (tip): fleet", done.stdout)
+        self.assertNotIn("wired", done.stdout)
+        self.assertIn("2 guard steps red at the tip", done.stdout)
+
+    def test_a_green_tip_passes(self):
+        done = self.run_tip({"lint": True})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("0 guard steps red at the tip", done.stdout)
+
+    def test_a_comparison_names_each_red_step_with_its_kind(self):
+        done = NewReds.run_it(self, {"new": False, "old": False, "ok": True}, {"new": True, "old": False, "ok": True})
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("guard red step (new): new", done.stdout)
+        self.assertIn("guard red step (base): old", done.stdout)
+        self.assertNotIn("step (new): old", done.stdout)
+
+
 class OneCheckCannotMaskAnother(unittest.TestCase):
     """tests/test_ci_self_hosted_guard.sh runs ~30 runner checks as one CI step. When one check went red on
     the base (chief-evals.yml's hosted ubuntu-24.04, 2026-10-26) the whole step was a base warning, and under

@@ -118,7 +118,7 @@ class APushRunsEveryRoutedGroup(unittest.TestCase):
     to feat-cmux-next runs every routed group, judged against the previous tip, so the red shows on the push
     that caused it. The "Changed files" step writes no routing list for a push, and keeps the base."""
 
-    def run_step(self, event: str) -> tuple[bool, str]:
+    def run_step(self, event: str, changed: str = "Packages/x.swift") -> tuple[bool, str]:
         workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
         step = next(s for s in workflow["jobs"]["ci-guard-group"]["steps"] if s.get("name") == "Changed files")
         with tempfile.TemporaryDirectory(prefix="guard-push-") as temp:
@@ -135,11 +135,15 @@ class APushRunsEveryRoutedGroup(unittest.TestCase):
 
             git("init", "--quiet")
             (repo / "a.txt").write_text("a\n", encoding="utf-8")
+            # The step runs the checkout's router; it is in the base, so the push does not change it.
+            (repo / "scripts/ci").mkdir(parents=True)
+            for script in ("detect_linux_guard_changes.py", "workflow_guard_groups.py", "workload_entrypoints.py"):
+                shutil.copy(ROOT / "scripts/ci" / script, repo / "scripts/ci" / script)
             git("add", "-A")
             git("commit", "--quiet", "-m", "base")
             before = git("rev-parse", "HEAD")
-            (repo / "Packages").mkdir()
-            (repo / "Packages" / "x.swift").write_text("x\n", encoding="utf-8")
+            (repo / changed).parent.mkdir(parents=True, exist_ok=True)
+            (repo / changed).write_text("x\n", encoding="utf-8")
             git("add", "-A")
             git("commit", "--quiet", "-m", "head")
             # The push path fetches the previous tip; this repository already has it.
@@ -163,8 +167,51 @@ class APushRunsEveryRoutedGroup(unittest.TestCase):
         self.assertFalse(listed, "a push must run every routed group (no changed-files list)")
 
     def test_a_pull_request_is_routed_by_its_changed_files(self):
-        listed, _ = self.run_step("pull_request")
+        listed, outputs = self.run_step("pull_request")
         self.assertTrue(listed)
+        self.assertNotIn("tip=", outputs)
+
+    def test_a_product_push_is_judged_against_the_previous_tip(self):
+        _, outputs = self.run_step("push")
+        self.assertIn("tip=false", outputs)
+
+
+class APushThatTouchesTheGuardsIsJudgedAtItsTip(unittest.TestCase):
+    """Judged only against the previous tip, a guard red that persists stays green on every later push: the
+    workflow guard profile sat red on 18 steps of feat-cmux-next, unseen, until #31366. A push that touches what the
+    guards read (.github/, tests/, scripts/ci/) is judged at its tip, with no base comparison, so the red shows."""
+
+    def test_the_router_picks_the_tip_for_guard_inputs_only(self):
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import detect_linux_guard_changes as router  # noqa: PLC0415
+        for paths, tip in (
+            ([".github/workflows/cmux-next-guards.yml"], True),
+            (["tests/test_x.py"], True),
+            (["scripts/ci/run_ci_guards.py"], True),
+            ([".github/runners.json"], True),
+            (["Packages/x.swift", "tests/test_x.py"], True),
+            ([], True),
+            (["Packages/x.swift"], False),
+            (["webviews/src/a.ts", "scripts/build.sh", "docs/x.md"], False),
+        ):
+            with self.subTest(paths=paths):
+                self.assertIs(router.feat_push_judges_tip(paths), tip)
+
+    def test_the_changed_files_step_says_tip_for_a_guard_push(self):
+        for changed in (".github/workflows/x.yml", "tests/test_x.py", "scripts/ci/x.py"):
+            with self.subTest(changed=changed):
+                listed, outputs = APushRunsEveryRoutedGroup.run_step(
+                    APushRunsEveryRoutedGroup("test_a_push_writes_no_routing_list_but_keeps_its_base"), "push", changed)
+                self.assertFalse(listed)
+                self.assertIn("tip=true", outputs)
+
+    def test_a_tip_push_skips_the_base_and_fails_on_every_red(self):
+        workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
+        steps = {step.get("name"): step for step in workflow["jobs"]["ci-guard-group"]["steps"]}
+        self.assertIn("steps.changes.outputs.tip != 'true'", steps["Checkout the base"]["if"])
+        run = steps["Run the ci guard group and the routed groups"]
+        self.assertEqual(run["env"]["GUARDS_AT_TIP"], "${{ steps.changes.outputs.tip }}")
+        self.assertIn('python3 scripts/ci/guards_new_reds.py --tip "$RUNNER_TEMP/guards-head.json"', run["run"])
 
 
 class TheRoutedGroupsHaveTheirTools(unittest.TestCase):
