@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 553,
+  "count": 555,
   "sections": [
     {
       "id": "general",
@@ -502,7 +502,7 @@
         },
         {
           "key": "computerUse.enabled",
-          "title": "Computer Use",
+          "title": "Side by Side",
           "help": "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
           "kind": "toggle",
           "default": false,
@@ -1307,6 +1307,22 @@
           "help": "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.",
           "kind": "toggle",
           "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.verticalTabs",
+          "title": "Use Vertical Tabs for All Workspaces",
+          "help": "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.verticalTabsExpandOnHover",
+          "title": "Expand Collapsed Vertical Tabs on Hover",
+          "help": "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it.",
+          "kind": "toggle",
+          "default": true,
           "group": "Tabs"
         },
         {

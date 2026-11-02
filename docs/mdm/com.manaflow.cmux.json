@@ -1903,7 +1903,7 @@
     "computerUse.enabled" : {
       "default" : false,
       "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
-      "title" : "Computer Use",
+      "title" : "Side by Side",
       "type" : "boolean"
     },
     "computerUse.livePreview" : {
@@ -4818,6 +4818,18 @@
       },
       "title" : "Tab Bar Buttons",
       "type" : "array"
+    },
+    "tabs.verticalTabs" : {
+      "default" : false,
+      "description" : "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu.",
+      "title" : "Use Vertical Tabs for All Workspaces",
+      "type" : "boolean"
+    },
+    "tabs.verticalTabsExpandOnHover" : {
+      "default" : true,
+      "description" : "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it.",
+      "title" : "Expand Collapsed Vertical Tabs on Hover",
+      "type" : "boolean"
     },
     "tasks.layout" : {
       "default" : "inbox",
