@@ -367,6 +367,20 @@ int32_t cmux_close_focus_live_openers(const uint32_t *children, const uint32_t *
 #define CMUX_CURSOR_VISIBLE 0u
 #define CMUX_CURSOR_HIDDEN 1u
 #define CMUX_CURSOR_NOT_DRAWN 2u
+/* CmuxCursorVisibility.anchor */
+#define CMUX_CURSOR_ANCHOR_TAB_CHIP 0u
+#define CMUX_CURSOR_ANCHOR_TAB_STRIP 1u
+#define CMUX_CURSOR_ANCHOR_COLUMN_EDGE_LEADING 2u
+#define CMUX_CURSOR_ANCHOR_COLUMN_EDGE_TRAILING 3u
+#define CMUX_CURSOR_ANCHOR_COLUMN_EDGE_TOP 4u
+#define CMUX_CURSOR_ANCHOR_COLUMN_EDGE_BOTTOM 5u
+#define CMUX_CURSOR_ANCHOR_WORKSPACE_ROW 6u
+#define CMUX_CURSOR_ANCHOR_WINDOW_EDGE 7u
+/* CmuxCursorVisibility.reason */
+#define CMUX_CURSOR_REASON_TAB_CLOSED 0u
+#define CMUX_CURSOR_REASON_NOT_IN_ANY_WINDOW 1u
+#define CMUX_CURSOR_REASON_MINIMIZED 2u
+#define CMUX_CURSOR_REASON_OTHER_SPACE 3u
 
 typedef struct {
     double x, y, w, h;
@@ -413,11 +427,10 @@ typedef struct {
     const CmuxCursorKeyedRect *chips; size_t chips_count;
 } CmuxCursorSnapshot;
 
-/* kind VISIBLE: window, viewport, clip, zoom, scale. HIDDEN: window, anchor, rect.
- * NOT_DRAWN: reason. anchor: 0 tabChip 1 tabStrip 2..5 columnEdge leading,
- * trailing, top, bottom 6 workspaceRow 7 windowEdge. reason: 0 tabClosed
- * 1 notInAnyWindow 2 minimized 3 otherSpace. Non-finite rect numbers pass
- * through as they are. */
+/* kind CMUX_CURSOR_VISIBLE: window, viewport, clip, zoom, scale.
+ * CMUX_CURSOR_HIDDEN: window, anchor (CMUX_CURSOR_ANCHOR_*), rect.
+ * CMUX_CURSOR_NOT_DRAWN: reason (CMUX_CURSOR_REASON_*). Non-finite rect
+ * numbers pass through as they are. */
 typedef struct {
     uint32_t kind;
     uint32_t window;
