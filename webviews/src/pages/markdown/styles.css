@@ -63,6 +63,17 @@ body,
   height: 100%;
 }
 
+/* The viewer is a reading surface: its page is opaque, also over a see-through window, where
+   pageBase.css paints `--cmux-surface-background` transparent and faint text from behind the
+   window read through the document (user 2026-10-31). `--cmux-surface-solid` is the same page
+   color made opaque (WebTheme.swift). The native theme bootstrap forces
+   `html{background:var(--cmux-surface-background) !important}` (WebTheme.bootstrapScript), so these
+   page backgrounds are `!important` too: `:root` outranks `html`. The `markdown.theme` paper
+   (light, dark) below, at `:root[...]`, still wins over this one. */
+:root {
+  background: var(--cmux-surface-solid, var(--cmux-surface-background, Canvas)) !important;
+}
+
 /* R139: the page selects nothing by default (shared/desktop.css); the document (.md-doc) is
    `.selectable` and the source textarea is a field. */
 body {
@@ -1228,7 +1239,7 @@ body {
   --page-hover: rgb(0 0 0 / 0.05); /* theme-fixed: markdown.theme paper, the same whatever the app theme */
   --page-selection: rgb(0 0 0 / 0.08); /* theme-fixed: markdown.theme paper, the same whatever the app theme */
   --page-elevated: #ffffff; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
-  background: #ffffff; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  background: #ffffff !important; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
 }
 
 :root[data-cmux-md-theme="dark"] {
@@ -1241,7 +1252,7 @@ body {
   --page-hover: rgb(255 255 255 / 0.06); /* theme-fixed: markdown.theme paper, the same whatever the app theme */
   --page-selection: rgb(255 255 255 / 0.1); /* theme-fixed: markdown.theme paper, the same whatever the app theme */
   --page-elevated: #2a2a2a; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
-  background: #1c1c1e; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  background: #1c1c1e !important; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
 }
 
 /* Obsidian syntax (obsidian.ts, MARKDOWN-OBSIDIAN-PARITY): Live Preview style. The file keeps the

@@ -29,7 +29,9 @@ import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
+import type { Subagent } from "./subagentFold";
 import { TonedIcon } from "./TonedIcon";
+import { useAgentProgress } from "./agentProgressStore";
 import { Tick } from "./trayMotion";
 
 const ROW_ICON = rowIconSize(12);
@@ -38,6 +40,7 @@ export function AgentLine({
   name,
   detail,
   progress,
+  progressAgent,
   status,
   state,
   time,
@@ -67,6 +70,7 @@ export function AgentLine({
   detail?: string;
   /// Reported agent counts, warnings and usage; separate from the current action.
   progress?: string;
+  progressAgent?: Subagent;
   status: SubagentStatus;
   /// Its state in words ("Running", "Waiting", "Done").
   state: string;
@@ -116,6 +120,8 @@ export function AgentLine({
   /// line under the title (`below`, every other consumer's place).
   progressAt?: "meta" | "below";
 }) {
+  const liveProgress = useAgentProgress(progressAgent);
+  progress = liveProgress ?? progress;
   const shimmer = waveProps(wave);
   const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
   const glyph = <TonedIcon name={icon} size={iconSize} tone={tone} row />;
@@ -185,7 +191,7 @@ export function AgentLine({
             {time}
           </span>
           {/* Stop's track (the stop slot, outside this button, lies over it), then the chevron's,
-              last at the line's end: the column the header's and View all's chevrons end in. */}
+              last at the line's end: the column the header's chevron ends in. */}
           <span className="acpmux-agent-line__stop-track" aria-hidden="true" />
           {chevron && onOpen ? (
             <span className="acpmux-agent-line__chevron" aria-hidden="true">

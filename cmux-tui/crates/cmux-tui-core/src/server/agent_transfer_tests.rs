@@ -264,6 +264,57 @@ fn a_mac_receive_forwards_web_control_rooted_at_the_given_folder() {
     );
 }
 
+/// A Cloud machine that has run no chat has no acpmux up: a chat moved to it (Move to Cloud of a
+/// running turn) starts it once, as a first chat would, instead of the move stopping there with
+/// "this daemon has no acpmux or host to move chats with". Nothing else a move sends starts it.
+#[test]
+fn a_receive_on_a_machine_whose_acpmux_is_down_starts_it_once() {
+    use std::sync::atomic::AtomicUsize;
+    let fake = FakeAcpmux::start("xstart");
+    let home = Home::new("start");
+    let mux = transfer_mux(&fake, "atx-start", &home, true);
+    // acpmux is not up yet: nothing listens on the daemon's socket until the starter runs.
+    let down = home.path.join("acpmux.sock");
+    mux.set_acpmux_socket(Some(down.clone()));
+    let starts = Arc::new(AtomicUsize::new(0));
+    let (counted, target) = (starts.clone(), fake.socket.clone());
+    mux.set_acpmux_starter(Some(Arc::new(move || {
+        counted.fetch_add(1, Ordering::SeqCst);
+        std::os::unix::fs::symlink(&target, &down).map_err(|e| e.to_string())
+    })));
+    let mut client = Client::connect(&mux, "xstart");
+    let reply = receive(&mut client, &home.text("work/project"));
+    assert_eq!(ok_data(&reply)["receive_id"], json!("rcv_1"));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/transfer_receive"));
+    assert_eq!(starts.load(Ordering::SeqCst), 1);
+    // Up now: the next receive connects without starting it again.
+    ok_data(&receive(&mut client, &home.text("work/project")));
+    assert_eq!(starts.load(Ordering::SeqCst), 1);
+}
+
+/// A move under way never starts acpmux: its finish on a daemon whose acpmux went away is
+/// unavailable, and the pump runs it again.
+#[test]
+fn a_finish_never_starts_acpmux() {
+    use std::sync::atomic::AtomicUsize;
+    let fake = FakeAcpmux::start("xnostart");
+    let home = Home::new("nostart");
+    let mux = transfer_mux(&fake, "atx-nostart", &home, true);
+    let mut client = Client::connect(&mux, "xnostart");
+    ok_data(&receive(&mut client, &home.text("work/project")));
+    let _ = fake.frame();
+    mux.set_acpmux_socket(Some(home.path.join("gone.sock")));
+    let starts = Arc::new(AtomicUsize::new(0));
+    let counted = starts.clone();
+    mux.set_acpmux_starter(Some(Arc::new(move || {
+        counted.fetch_add(1, Ordering::SeqCst);
+        Err("a finish must not start acpmux".into())
+    })));
+    let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"}));
+    assert_code(&finish, "agent_transfer.unavailable");
+    assert_eq!(starts.load(Ordering::SeqCst), 0);
+}
+
 #[test]
 fn write_and_finish_forward_the_receive_and_finish_uses_its_folder() {
     let fake = FakeAcpmux::start("xfinish");

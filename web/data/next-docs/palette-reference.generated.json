@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1265,
+    "entries": 1267,
     "shortcuts": 189
   },
   "sections": [
@@ -5506,6 +5506,12 @@
           "command": null
         },
         {
+          "id": "agent.jumpToNextNeedingInput",
+          "title": "Go to Next Agent Needing Input",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "notifications.importSound",
           "title": "Import Notification Sound…",
           "shortcut": null,
@@ -7298,6 +7304,12 @@
           "title": "Set Density…",
           "shortcut": null,
           "command": "cmux density set"
+        },
+        {
+          "id": "help.setupGuide",
+          "title": "Setup Guide",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "app.shareCmux",

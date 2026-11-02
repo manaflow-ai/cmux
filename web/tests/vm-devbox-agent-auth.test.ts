@@ -972,6 +972,42 @@ describe("cr use", () => {
     expect(openCodeRefused.stdout).not.toContain("args=");
   });
 
+  test("a team machine runs Claude on its creator's transferred login, and only on that", async () => {
+    // What the app's credential transfer (CloudCredentialInstaller) leaves for the machine's creator:
+    // the choice `own`, the token in ~/.claude/settings.json's env and the standard login marker.
+    const transferred = (m: Machine) => {
+      choose(m, "own");
+      signIn(m);
+      writeFileSync(path.join(m.home, ".claude/settings.json"), JSON.stringify({ env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-creator" } }));
+    };
+    const m = machine();
+    writeFileSync(m.kind, "team\n");
+    transferred(m);
+    const claude = await launch(m, "claude", { FAKE_ACCESS: ALL });
+    expect(claude.ANTHROPIC_BASE_URL).toBe("<unset>");
+    expect(claude.ANTHROPIC_API_KEY).toBe("<unset>");
+    expect(claude.CLAUDE_CONFIG_DIR).toBe("<unset>");
+    expect((await cr(m, ["claude", "--json"], { FAKE_ACCESS: ALL })).stdout)
+      .toBe('{"agents":[{"agent":"claude","mode":"own","reason":"login","chosen":false}]}\n');
+    // Codex and OpenCode stay shared: only Claude's login is transferred at a start.
+    expect((await launch(m, "codex", { FAKE_ACCESS: ALL })).CODEX_HOME).toBe(path.join(m.home, ".config/cmux/codex-team"));
+
+    // Without the transfer's token, or with a choice other than own, the team machine stays shared.
+    for (const partial of [
+      (n: Machine) => { choose(n, "own"); signIn(n); },
+      (n: Machine) => { transferred(n); choose(n, "team"); },
+      (n: Machine) => { transferred(n); writeFileSync(path.join(n.home, ".claude/settings.json"), JSON.stringify({ env: { CLAUDE_CODE_OAUTH_TOKEN: " " } })); },
+      (n: Machine) => { transferred(n); writeFileSync(path.join(n.home, ".claude/settings.json"), "not json"); },
+    ]) {
+      const n = machine();
+      writeFileSync(n.kind, "team\n");
+      partial(n);
+      const shared = await launch(n, "claude", { FAKE_ACCESS: ALL });
+      expect(shared.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+      expect(shared.CLAUDE_CONFIG_DIR).toBe(path.join(n.home, ".config/cmux/claude-team"));
+    }
+  });
+
   test("an agent argument limits the change to that agent", async () => {
     const m = machine();
     expect((await cr(m, ["own", "codex"])).status).toBe(0);

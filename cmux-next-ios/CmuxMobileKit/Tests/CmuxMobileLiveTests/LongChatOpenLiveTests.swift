@@ -45,7 +45,8 @@ import Testing
     /// ones exist. `maxBytes` is honoured as acpmux does (whole records, at least one).
     /// `pageLimit`: the most records any page holds, whatever the request's `limit` (pages that
     /// start inside a turn).
-    nonisolated static func fakeAcpmux(_ log: [(seq: Int, json: String)], _ requests: Requests, pageLimit: Int = .max) -> MockMacLink {
+    nonisolated static func fakeAcpmux(_ log: [(seq: Int, json: String)], _ requests: Requests, pageLimit: Int = .max,
+                                   emptyOlderPageOnce: Bool = false) -> MockMacLink {
         MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let method = object["method"] as? String else { return [] }
@@ -78,6 +79,10 @@ import Testing
                 return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},\#(page())}"#)]
             case "_acpmux/events":
                 requests.append(method, params)
+                if emptyOlderPageOnce, requests.count("_acpmux/events") == 1,
+                   params["beforeSeq"] != nil {
+                    return [reply(#"{"events":[],"hasMore":true}"#)]
+                }
                 return [reply("{\(page())}")]
             default:
                 return [reply("{}")]
@@ -92,9 +97,11 @@ import Testing
         }
     }
 
-    static func open(_ log: [(seq: Int, json: String)], _ requests: Requests, pageLimit: Int = .max) async throws -> (AcpmuxHub, AgentChatStore) {
+    static func open(_ log: [(seq: Int, json: String)], _ requests: Requests, pageLimit: Int = .max,
+                     emptyOlderPageOnce: Bool = false) async throws -> (AcpmuxHub, AgentChatStore) {
         let hub = AcpmuxHub()
-        await hub.bind(try await fakeAcpmux(log, requests, pageLimit: pageLimit).openChannel(service: "acpmux", args: [:]))
+        await hub.bind(try await fakeAcpmux(log, requests, pageLimit: pageLimit,
+                                            emptyOlderPageOnce: emptyOlderPageOnce).openChannel(service: "acpmux", args: [:]))
         let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: summary))
         return (hub, store)
     }
@@ -184,6 +191,30 @@ import Testing
         #expect((older?.params["beforeSeq"] as? NSNumber)?.intValue == 921 * 5 + 1)
     }
 
+    /// A malformed or transient empty _acpmux/events page with hasMore:true
+    /// is a failed read, not proof that the chat has reached its first turn.
+    @Test func anEmptyOlderPageWithHasMoreKeepsHistoryRetryable() async throws {
+        let requests = Requests()
+        let log = (0..<100).flatMap(Self.turnRecords)
+        let (hub, store) = try await Self.open(log, requests, pageLimit: 398, emptyOlderPageOnce: true)
+        _ = hub
+        await Self.waitUntil { store.turns.last?.id == "t99" }
+        #expect(store.hasEarlierHistory)
+        let before = store.turns.map(\.id)
+
+        store.loadEarlier()
+        await Self.waitUntil { !store.isLoadingEarlier }
+        #expect(store.hasEarlierHistory, "an empty page with hasMore erased the old-history cursor")
+        #expect(store.turns.map(\.id) == before)
+
+        // The same cursor succeeds when the transient bad page is gone.
+        store.loadEarlier()
+        await Self.waitUntil { store.turns.first?.id == "t0" }
+        #expect(store.turns.map(\.id) == (0..<100).map { "t\($0)" })
+        #expect(!store.hasEarlierHistory)
+        #expect(requests.count("_acpmux/events") >= 2)
+    }
+
     /// Scrolling to the start: the last page says nothing older remains.
     @Test func scrollingToTheStartEndsEarlierHistory() async throws {
         let requests = Requests()
@@ -200,5 +231,31 @@ import Testing
         store.loadEarlier()
         try await Task.sleep(for: .milliseconds(100))
         #expect(requests.count("_acpmux/events") == reads, "read again past the start")
+    }
+
+    /// A message steered into a running turn is a `user_message` too, but starts no turn:
+    /// pages are never cut at one, and a long turn's opener is its real prompt.
+    @Test func steeredMessagesAreNotTurnStarts() async throws {
+        let steer = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"seq":9,"dir":"mux","kind":"user_message","msg":{"text":"also check x","steer":true,"promptId":"ps","turnId":"t0"}}"#.utf8))
+        let prompt = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"seq":1,"dir":"mux","kind":"user_message","msg":{"text":"go","promptId":"p0","turnId":"t0"}}"#.utf8))
+        #expect(!AcpmuxSessionSource.isPrompt(steer))
+        #expect(AcpmuxSessionSource.isPrompt(prompt))
+
+        // One long turn with a steer near its end: the open shows the turn under its prompt.
+        let requests = Requests()
+        let first = (seq: 1, json: #"{"sessionId":"s1","seq":1,"at":1,"dir":"mux","kind":"user_message","msg":{"text":"keep going","promptId":"p0","turnId":"t0"}}"#)
+        var log = [first]
+        for seq in 2...3000 {
+            if seq == 2990 {
+                log.append((seq, #"{"sessionId":"s1","seq":2990,"at":2,"dir":"mux","kind":"user_message","msg":{"text":"also check x","steer":true,"promptId":"ps","turnId":"t0"}}"#))
+            } else {
+                log.append((seq, #"{"sessionId":"s1","seq":\#(seq),"at":3,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"w\#(seq) "}}}}}"#))
+            }
+        }
+        let (hub, store) = try await Self.open(log, requests)
+        _ = hub
+        await Self.waitUntil { store.turns.first?.id == "t0" }
+        #expect(store.turns.map(\.id) == ["t0"])
+        #expect(store.turns.first?.prompt == "keep going")
     }
 }

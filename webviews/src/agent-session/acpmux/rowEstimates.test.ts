@@ -6,16 +6,25 @@
 //     line that the footer takes the place of: its text and the 4px meta gap, with no 34px floor;
 //   - a task's result (`.cv-received`): its 26px line and the 8px message gap;
 //   - another agent's message: its one disclosure line, however long the message;
-//   - a turn's footer: its 24px line and the 16px turn gap, including the chat's last one
-//     (`.acpmux-row--last-footer`), so the composer uses the same rhythm as the transcript.
+//   - a reply's footer: its 32 line of buttons (ChatGPT's), 8 under the reply, including the chat's
+//     last one (`.acpmux-row--last-footer`); the running turn's line under a reply takes that slot.
 //
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
 import { expect, test } from "bun:test";
-import { hasReplyActions, layoutConversation, placeRows, statusEdge, type AcpmuxRow } from "./model";
+import {
+  codeCardHeight,
+  hasReplyActions,
+  keepsReplyRoom,
+  layoutConversation,
+  placeRows,
+  statusEdge,
+  type AcpmuxRow,
+} from "./model";
 import { turnView } from "./conversation/turns";
 import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
+import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "./transcriptGrid";
 
 const reply = (id: string, text: string) => ({ id, version: 1, at: 0, kind: "assistant", text });
 // A footer carries its answer's text, for Copy (conversation/turns.ts), so the estimate never reads it.
@@ -30,15 +39,15 @@ const footer = (id: string) => ({
 const prompt = (id: string) => ({ id, version: 1, at: 0, kind: "user", text: "Next" });
 const heightsOf = (rows: unknown[]) => [...layoutConversation(rows as never, 720).heights];
 
-test("a reply over its footer is its text and the 4px meta gap, with no 34px floor", () => {
+test("a reply over its footer is its text alone, with no 34px floor", () => {
   const long = "A longer answer that wraps. ".repeat(40);
   const [alone] = heightsOf([reply("a", long)]);
   const [over, summary] = heightsOf([reply("a", long), footer("f"), prompt("p")]);
   // The same text: 8px below it alone, 4px over its footer.
-  expect(alone! - over!).toBeCloseTo(4, 5);
-  // The footer always keeps its 24px line and the 16px turn gap, including the last one.
-  expect(summary).toBe(40);
-  expect(heightsOf([reply("a", long), footer("f")])[1]).toBe(40);
+  expect(alone! - over!).toBeCloseTo(0, 5);
+  // The footer is its 32 line of buttons, including the last one.
+  expect(summary).toBe(TRANSCRIPT_FOOTER_CONTROL);
+  expect(heightsOf([reply("a", long), footer("f")])[1]).toBe(TRANSCRIPT_FOOTER_CONTROL);
   // A one-line reply over its footer is shorter than a row's 34px floor.
   const [short] = heightsOf([reply("b", "Done."), footer("g")]);
   expect(short!).toBeLessThan(34);
@@ -49,24 +58,27 @@ test("a reply over its running turn's line is estimated as over the footer that 
   const long = "A longer answer that wraps. ".repeat(40);
   // The running turn's line as its last row (conversation/turns.ts `below`): the footer's height.
   const line = { id: "live", version: 1, at: 0, kind: "thinking", below: true };
-  const [running, lineHeight] = heightsOf([reply("a", long), line]);
-  const [ended, footerHeight] = heightsOf([reply("a", long), footer("f")]);
-  // The turn's end swaps the line for the footer and moves nothing above it.
-  expect(lineHeight).toBe(footerHeight);
-  expect(running).toBe(ended);
+  const live = layoutConversation([reply("a", long), line] as never, 720);
+  const ended = layoutConversation([reply("a", long), footer("f")] as never, 720);
+  // The turn's end swaps the line for the footer and moves nothing: same place, same height, same tail.
+  expect(live.heights[1]).toBe(TRANSCRIPT_FOOTER_CONTROL);
+  expect(ended.heights[1]).toBe(TRANSCRIPT_FOOTER_CONTROL);
+  expect(live.heights[0]).toBe(ended.heights[0]);
+  expect(live.tops[1]).toBe(ended.tops[1]);
+  expect(live.totalHeight + (live.tailGap ?? 0)).toBe(ended.totalHeight + (ended.tailGap ?? 0));
 });
 
 test("a reply estimated alone, then with its footer after it, is estimated again", () => {
   const rows = [reply("a", "Done.")];
   const first = layoutConversation(rows as never, 720);
-  expect(first.heights[0]).toBe(34);
+  expect(first.heights[0]).toBe(currentChatMetrics().lineHeight);
   const next = [...rows, footer("f")];
   const second = layoutConversation(next as never, 720, undefined, undefined, undefined, {
     rows,
     layout: first,
   });
   expect(second.heights[0]).toBeLessThan(34);
-  expect(second.tops[1]).toBe(second.heights[0]);
+  expect(second.tops[1]).toBe(second.heights[0]! + gridLength("gap-footer"));
 });
 
 test("a live footer slot keeps short, long, and tool-ending turns at the settled height", () => {
@@ -89,8 +101,10 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
     );
     expect(live.at(-1)).toMatchObject({ below: true });
     expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
-    expect(layoutConversation(live, 720).heights.at(-1)).toBe(40);
-    expect(layoutConversation(settled, 720).heights.at(-1)).toBe(40);
+    const [running, ended] = [layoutConversation(live, 720), layoutConversation(settled, 720)];
+    expect(running.heights.at(-1)).toBe(TRANSCRIPT_FOOTER_CONTROL);
+    expect(ended.heights.at(-1)).toBe(TRANSCRIPT_FOOTER_CONTROL);
+    expect(running.tops.at(-1)).toBe(ended.tops.at(-1));
   }
 
   const liveSource = [
@@ -128,8 +142,8 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
   });
   expect(live.at(-1)).toMatchObject({ kind: "activityLine", below: true });
   expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
-  expect(layoutConversation(live, 720).heights.at(-1)).toBe(40);
-  expect(layoutConversation(settled, 720).heights.at(-1)).toBe(40);
+  expect(layoutConversation(live, 720).heights.at(-1)).toBe(TRANSCRIPT_FOOTER_CONTROL);
+  expect(layoutConversation(settled, 720).heights.at(-1)).toBe(TRANSCRIPT_FOOTER_CONTROL);
 
   const legacy = turnView(liveSource as never, new Set(), {
     now: 5_000,
@@ -140,21 +154,21 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
   });
   expect(legacy.at(-1)).toMatchObject({ kind: "activityLine" });
   expect(legacy.at(-1)?.below).toBeUndefined();
-  expect(layoutConversation(legacy, 720).heights.at(-1)).toBe(34);
+  expect(layoutConversation(legacy, 720).heights.at(-1)).toBe(28);
 });
 
 test("the chat's last footer is placed again when a prompt follows it", () => {
   const rows = [reply("a", "Done."), footer("f")];
   const first = layoutConversation(rows as never, 720);
-  expect(first.heights[1]).toBe(40);
+  expect(first.heights[1]).toBe(TRANSCRIPT_FOOTER_CONTROL);
   const second = layoutConversation([...rows, prompt("p")] as never, 720, undefined, undefined, undefined, {
     rows,
     layout: first,
   });
-  expect(second.heights[1]).toBe(40);
+  expect(second).toEqual(layoutConversation([...rows, prompt("p")] as never, 720));
 });
 
-test("a footer over another agent's line or a task's result keeps the turn gap", () => {
+test("a footer over another agent's line or a task's result has the block gap under it, a prompt the turn gap", () => {
   const result = { id: "r", version: 1, at: 0, kind: "user", text: "Done", received: { offerId: "o", title: "Tests" } };
   const message = {
     id: "m",
@@ -165,19 +179,23 @@ test("a footer over another agent's line or a task's result keeps the turn gap",
     incoming: { kind: "message", message: { name: "deputy-2", text: "Not idle.", raw: "Not idle." } },
   };
   const notice = { id: "n", version: 1, at: 0, kind: "user", text: "Done", incoming: { kind: "notice", text: "Done" } };
-  for (const line of [result, message, notice]) expect(heightsOf([reply("a", "Done."), footer("f"), line])[1]).toBe(40);
+  for (const line of [result, message, notice]) {
+    const layout = layoutConversation([reply("a", "Done."), footer("f"), line] as never, 720);
+    expect(layout.tops[2]! - layout.tops[1]! - layout.heights[1]!).toBe(gridLength("gap-block"));
+  }
   // The person's prompt after it still starts a turn of its own.
-  expect(heightsOf([reply("a", "Done."), footer("f"), prompt("p")])[1]).toBe(40);
+  const turn = layoutConversation([reply("a", "Done."), footer("f"), prompt("p")] as never, 720);
+  expect(turn.tops[2]! - turn.tops[1]! - turn.heights[1]!).toBe(gridLength("gap-turn"));
 });
 
 test("a task's result is its 26px line and the 8px message gap", () => {
   const [height] = heightsOf([
     { id: "r", version: 1, at: 0, kind: "user", text: "Run the tests", received: { offerId: "o", title: "Tests" } },
   ]);
-  expect(height).toBe(34);
+  expect(height).toBe(28);
 });
 
-test("a footer shaped by turnView, which carries its answer's text, is its 24px line and gap", () => {
+test("a footer shaped by turnView, which carries its answer's text, is its 32 line", () => {
   const answer = "A longer answer that wraps. ".repeat(40);
   const source = [
     { id: "u1", version: 1, at: 1_000, kind: "user", text: "First" },
@@ -192,8 +210,8 @@ test("a footer shaped by turnView, which carries its answer's text, is its 24px 
   expect(footers.length).toBe(2);
   expect(rows[footers[0]!]!.text).toBe(answer);
   const { heights } = layoutConversation(rows, 720);
-  expect(heights[footers[0]!]).toBe(40);
-  expect(heights[footers[1]!]).toBe(40);
+  expect(heights[footers[0]!]).toBe(TRANSCRIPT_FOOTER_CONTROL);
+  expect(heights[footers[1]!]).toBe(TRANSCRIPT_FOOTER_CONTROL);
 });
 
 test("a latest history turn without a summary keeps the turn gap at the composer", () => {
@@ -210,7 +228,7 @@ test("a latest history turn without a summary keeps the turn gap at the composer
   expect(final.lastTurn).toBe(true);
   const { heights } = layoutConversation(rows, 720);
   // The terminal assistant has the same 16px bottom rhythm as a footer, without a row underneath.
-  expect(heights.at(-1)).toBe(42);
+  expect(heights.at(-1)).toBe(currentChatMetrics().lineHeight);
 });
 
 test("specialized latest rows reserve the same no-summary turn gap before mounting", () => {
@@ -244,19 +262,22 @@ test("specialized latest rows reserve the same no-summary turn gap before mounti
       720,
     ).heights.at(-1)!;
     if (final.items?.[0]?.kind === "thought") expect(withGap).toBe(0);
-    else if (final.kind === "activity") expect(withGap - withoutMarker).toBe(12);
-    else expect(withGap - withoutMarker).toBe(8);
+    else if (final.kind === "activity") expect(withGap - withoutMarker).toBe(0);
+    else expect(withGap - withoutMarker).toBe(0);
   }
 });
 
 test("a hidden row after the chat's last footer leaves it the last one", () => {
   const hidden = { id: "h", version: 1, at: 0, kind: "user", text: "", incoming: { kind: "hidden" } };
-  const heights = heightsOf([reply("a", "Done."), footer("f"), hidden]);
-  expect(heights[1]).toBe(40);
-  expect(heights[2]).toBe(0);
+  const layout = layoutConversation([reply("a", "Done."), footer("f"), hidden] as never, 720);
+  expect(layout.heights[1]).toBe(TRANSCRIPT_FOOTER_CONTROL);
+  expect(layout.heights[2]).toBe(0);
+  expect(layout.tailGap).toBe(gridLength("gap-block"));
 });
 
-test("another agent's message is its one 26px line in 2px margins and the 8px message gap, however long", () => {
+// Every one-line row takes a one-call tool run's frame: 2px over the 22px tool line, the 4px run gap
+// under it (model.ts LINE_ROW, conversation.css `.acpmux-row--line`).
+test("another agent's message is one 22px tool line in the one-line rows' frame, however long", () => {
   const row = (id: string, text: string) => ({
     id,
     version: 1,
@@ -266,15 +287,31 @@ test("another agent's message is its one 26px line in 2px margins and the 8px me
     incoming: { kind: "message", message: { name: "cmux16/glass-lens", text, raw: text } },
   });
   const [short, long] = heightsOf([row("m1", "Draft is up."), row("m2", "Line of the report.\n".repeat(40))]);
-  expect(short).toBe(2 + 26 + 2 + 8);
+  expect(short).toBe(22);
   expect(long).toBe(short);
 });
 
-test("a task notice is a tool row's line, 2px under the row's top, and the 8px message gap", () => {
+test("a message this agent sent another one is one 22px tool line in the one-line rows' frame", () => {
+  const send = {
+    kind: "tool",
+    text: "SendMessage",
+    tool: {
+      id: "send",
+      title: "SendMessage",
+      kind: "other",
+      status: "completed",
+      inputSummary: JSON.stringify({ to: "gcp-a-lane", message: "Rebase, then land." }),
+    },
+  };
+  const [height] = heightsOf([{ id: "s", version: 1, at: 0, kind: "activity", items: [send] }]);
+  expect(height).toBe(22);
+});
+
+test("a task notice is a tool row's line in the one-line rows' frame", () => {
   const [height] = heightsOf([
     { id: "n", version: 1, at: 0, kind: "user", text: "Task done", incoming: { kind: "notice", text: "Task done" } },
   ]);
-  expect(height).toBe(2 + 26 + 8);
+  expect(height).toBe(22);
 });
 
 // A waiting steer's Send now leads the existing action row, so it adds no height to a text prompt.
@@ -309,7 +346,7 @@ test("a 2,000-line prompt is estimated at its collapsed height, at most ten line
   const { lineHeight } = currentChatMetrics();
   const text = Array.from({ length: 2000 }, (_, index) => `line ${index + 1}`).join("\n");
   const [long] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
-  expect(long).toBeCloseTo(16 + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT + 4 + 24 + 8, 5);
+  expect(long).toBeCloseTo(16 + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT, 5);
   expect(long!).toBeLessThan(16 + 10.5 * lineHeight + 24 + 28 + 8);
 });
 
@@ -329,7 +366,7 @@ test("a prompt with a 2,300-line paste is its typed line and one chip", () => {
   const text = `${typed}\n${paste}`;
   const pasted = [{ start: typed.length + 1, end: text.length }];
   const [height] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, pasted }]);
-  expect(height).toBeCloseTo(16 + lineHeight + PASTE_CHIP_HEIGHT + 28 + 8, 5);
+  expect(height).toBeCloseTo(16 + lineHeight + PASTE_CHIP_HEIGHT, 5);
 });
 
 // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx), so it is
@@ -365,7 +402,7 @@ test("a step of only quiet thoughts takes no room, estimated or drawn", () => {
   expect(placed.tops[1]).toBe(0);
 });
 
-test("a status row between two replies is estimated in the middle of the gap", () => {
+test("a status row between two replies is estimated under the reply's kept room", () => {
   // Leo, 2026-10-30: "see how claude code has those centered tool calls / id like more alignment too".
   // The reply over the run ends at its action row (its 4px meta gap and 24px line, no message gap);
   // the run (2px over its 22px row) ends 30px over the next reply, the action row's room and the
@@ -386,10 +423,12 @@ test("a status row between two replies is estimated in the middle of the gap", (
     // The same reply over a prompt: its own action row, then the message gap.
     expect(reply).toBe(overPrompt! - 8);
   } else {
-    // No reply draws its own action row (a turn's copy lives in its footer): the plain 12px each
-    // side, the reply's 8px message gap plus 2 over the run's 2px top margin.
-    expect(step).toBe(2 + 22 + 12);
-    expect(reply).toBe(overPrompt! + 2);
+    // No reply draws its own action row (a turn's copy lives in its footer). On the grid (grid.md
+    // 5.5) the stack's block gap above and below the run centres it, so neither row adds room: the
+    // run is its one 22 line (design/chat-transcript.md "One-line row pitch") and the reply is as tall
+    // as it is over a prompt.
+    expect(step).toBe(22);
+    expect(reply).toBe(overPrompt!);
   }
   expect(alone).toBeGreaterThan(0);
 });
@@ -449,7 +488,9 @@ test("a folded run with messages to other agents is estimated as the lines it dr
   const run = (items: unknown[]) => [
     { id: "run", version: 1, at: 0, kind: "activity", settled: true, foldRun: true, items },
   ];
-  const lines = (n: number) => 2 + n * 22 + 4;
+  // A run adds no margin of its own (grid.md 5.5): its lines are flush 22px lines, one apart top to top
+  // (design/chat-transcript.md "One-line row pitch", #29965).
+  const lines = (n: number) => n * 22;
   // Plain work still folds to its one summary line.
   expect(heightsOf(run([shell("a", "git status"), read]))[0]).toBe(lines(1));
   // A send between two commands: a line each.
@@ -466,4 +507,48 @@ test("a folded run with messages to other agents is estimated as the lines it dr
   // A sub-session message alone is one tool row, folded or not.
   expect(heightsOf(run([sendMessage]))[0]).toBe(lines(1));
   expect(heightsOf([{ id: "one", version: 1, at: 0, kind: "activity", items: [sendMessage] }])[0]).toBe(lines(1));
+});
+
+test("a turn's end keeps a reply's room: a folded reply to the person keeps it, a folded note does not", () => {
+  const reply = { id: "r", kind: "assistant", text: "The build passed.", version: 1 } as AcpmuxRow;
+  const next = { id: "n", kind: "user", text: "next", version: 1 } as AcpmuxRow;
+  expect(keepsReplyRoom(reply, next)).toBe(true);
+  // turns.ts marks a finished turn's earlier replies settled inside its open "Worked for"; a reply
+  // to the person there is `foldedReply`, so the end moves nothing (agent-pane-stream-jitter).
+  expect(keepsReplyRoom({ ...reply, settled: true, foldedReply: true }, next)).toBe(true);
+  expect(keepsReplyRoom({ ...reply, settled: true }, next)).toBe(false);
+  expect(keepsReplyRoom({ ...reply, streaming: true }, next)).toBe(false);
+});
+
+// A code card's estimate (model.ts codeCardHeight) follows what the card draws.
+const codeWidth = 600;
+const codeChars = (room: number) => Math.floor(room / currentChatMetrics().codeCharWidth);
+
+test("a code card estimate reads a fence's first word, as the renderer does (cmux#30836)", () => {
+  // Markdown.tsx keeps only the info string's first word, so `text title="tree"` draws unlabeled.
+  const tree = "root\n├─ a\n└─ b";
+  expect(codeCardHeight(tree, 'text title="tree"', codeWidth)).toBe(codeCardHeight(tree, "text", codeWidth));
+  expect(codeCardHeight("a\nb\nc", 'text title="tree"', codeWidth)).toBe(codeCardHeight("a\nb\nc", "", codeWidth));
+  const python = codeCardHeight("x = 1", "python", codeWidth);
+  expect(codeCardHeight("x = 1", "python  {.numberLines}", codeWidth)).toBe(python);
+});
+
+test("a code card scrolls against its text's width, not the card's (cmux#30690)", () => {
+  // The body's 13px and 1px margins and the plain card's 8px and 12px padding leave width - 34
+  // for text: a line 20px short of the card's edge still scrolls.
+  const scrollbar = (code: string) =>
+    codeCardHeight(code, "python", codeWidth) - codeCardHeight("x", "python", codeWidth);
+  expect(scrollbar("x".repeat(codeChars(codeWidth - 20)))).toBe(15);
+  expect(scrollbar("x".repeat(codeChars(codeWidth - 34)))).toBe(0);
+});
+
+test("an unlabeled card's first line keeps room for its corner actions (cmux#30689)", () => {
+  // A first line that fits the text but not the strip's room after it scrolls; as a later line it fits.
+  const line = "x".repeat(codeChars(codeWidth - 34 - 10));
+  const scrollbar = (code: string, lang: string) =>
+    codeCardHeight(code, lang, codeWidth) - codeCardHeight(code.replace(/x+/, "x"), lang, codeWidth);
+  expect(scrollbar(`${line}\nshort`, "")).toBe(15);
+  expect(scrollbar(`short\n${line}`, "")).toBe(0);
+  // A labeled card's actions sit in its header row, so its first line has the full width.
+  expect(scrollbar(`${line}\nshort`, "python")).toBe(0);
 });

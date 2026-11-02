@@ -15,13 +15,13 @@ extension SidebarBridge {
         guard let state else { return }
         // A group's fold is view state: this window shows it now, on that group's rows only, then tells the
         // document (its owner of record) the value. No round trip and no rebuild (state-ownership-DESIGN.md).
-        if case let .toggleCollapse(.group(group)) = intent, SidebarDocWiring.isActive, let doc = SidebarDocStore.current,
+        if case let .toggleCollapse(.group(group)) = intent, let doc = services.sidebarDoc.activeStore,
            let shown = model.group(group)?.isCollapsed {
             rows.edits.foldShown(group, collapsed: !shown)
             doc.setGroupCollapsed(group.rawValue, !shown) { [weak self] in self?.rows.edits.dropFold(group) }
             return
         }
-        if CloudCreationRows.handle(intent, bridge: self, state: state) || SidebarDocWiring.handle(intent, bridge: self) { return }
+        if CloudCreationRows.handle(intent, bridge: self, state: state) || services.sidebarDoc.handle(intent, bridge: self) { return }
         // A section's collapse is window view state (sidebar snapshot), never a daemon command.
         if case .toggleCollapse(.section) = intent {
             model.apply(intent)
@@ -196,9 +196,9 @@ extension SidebarBridge {
     /// Puts daemon truth back after a refused or rejected intent.
     func resync() {
         guard let state else { return }
-        model.ungroupedFirst = !SidebarDocWiring.isActive && !usesMixedOrder
-        let shownAt = SidebarDocStore.current?.shownChanges
-        var sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
+        model.ungroupedFirst = !services.sidebarDoc.isActive && !usesMixedOrder
+        let shownAt = services.sidebarDoc.store?.shownChanges
+        var sections = Self.sections(services.machines, doc: services.sidebarDoc, members: services.windows.registry.members(of: state.id), profile: state.profileID,
                                      hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
                                      newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces,
                                      harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
@@ -207,7 +207,7 @@ extension SidebarBridge {
         // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         rows.show(sections, shownAt: shownAt)
-        model.profiles = SidebarSpaceBar.profiles(services.machines.local)
+        model.profiles = SidebarSpaceBar.profiles(services.machines.local, window: state.id, windows: services.windows)
         groupFlow.openPendingEditor()
     }
 
