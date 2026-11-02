@@ -6299,8 +6299,9 @@ jobs:
   # the DEV run the dispatcher later starts for that commit reuses it instead of compiling.
   # Placement follows the routing order (scripts/ci/dev_landing_place.py): the free owned Mac
   # whose host tree last compiled the nearest commit (its cmux-next-dev-cas-holder-<host>
-  # record), else any free owned Mac, and only when none is free for about two minutes
-  # Blacksmith macOS (cold there: a VM keeps no cache).
+  # record), else any free owned Mac. With none free for about two minutes there is no landing
+  # compile: it only warms a host tree, which a Blacksmith macOS VM does not keep, so the DEV run
+  # compiles that commit on its own route.
   # Each landing's compile is its own run's job and is never cancelled. The tree probe is the DEV
   # run's: this commit's published cmux-tui tree, else the newest published one.
   # vars.CMUX_NEXT_DEV_LANDING_COMPILE=0 turns both jobs off.
@@ -6355,7 +6356,6 @@ jobs:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           SHA: ${{ github.sha }}
           SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}
-          OVERFLOW_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
           WAIT_SECONDS: "120"
           POLL_SECONDS: "30"
           GAP_REPO: ${{ runner.temp }}/dev-landing-history
@@ -6370,7 +6370,7 @@ jobs:
 
   dev-landing-compile:
     needs: dev-landing-place
-    if: ${{ !cancelled() && needs.dev-landing-place.result == 'success' && needs.dev-landing-place.outputs.tree_state == 'ready' }}
+    if: ${{ !cancelled() && needs.dev-landing-place.result == 'success' && needs.dev-landing-place.outputs.tree_state == 'ready' && needs.dev-landing-place.outputs.runs_on != '' }}
     name: cmux NEXT DEV Release compile (landing)
     concurrency:
       group: ${{ format('cmux-next-dev-landing-{0}', github.run_id) }}
