@@ -1654,6 +1654,7 @@ class Journey:
         frames.start()
         status, reason = "pass", ""
         not_judged = []
+        self.known_gaps = []
         try:
             for index, step in enumerate(self.spec["steps"]):
                 if now() > self.deadline:
@@ -1666,6 +1667,8 @@ class Journey:
                     # The terminals on screen before an input: `focused_terminal` waits for one not among them.
                     self.known_views |= {p.get("terminal_id") for p in self.app.panes() if p.get("terminal_id")}
                 t = now()
+                evidence_before = len(self.evidence)
+                gap_fallback = None
                 try:
                     record["result"] = handler(step)
                     record["ok"] = True
@@ -1685,7 +1688,21 @@ class Journey:
                             self.known_views.add(view["terminal_id"])
                 except StepError as error:
                     record["ok"], record["error"] = False, str(error)[-600:]
-                    raise
+                    gap = self.known_gap_of(step)
+                    if not gap:
+                        raise
+                    # A KNOWN GAP (the spec's `known_gap`): this check failed for a reason that is open and named, on
+                    # the key path the gap is about. It is not a result: the step is recorded as the gap (ok None, so
+                    # no later reader takes it as the round's failure), its evidence is set aside, and the journey goes
+                    # on through the gap's fallback steps, so a new failure in any later step is still caught. A
+                    # journey with a gap is never a pass.
+                    text = f"KNOWN GAP: {gap['name']} ({gap['ref']}), not a result"
+                    record["ok"], record["known_gap"] = None, text
+                    for row in self.evidence[evidence_before:]:
+                        row["known_gap"] = text
+                    self.known_gaps.append({"step": index + 1, "title": step.get("title", ""), "text": text,
+                                            "error": str(error)[-300:]})
+                    gap_fallback = gap.get("fallback") or []
                 except NotRun as error:
                     # A journey with `continue_not_judged` (the dogfood smoke gate) records a check it cannot judge
                     # (a hidden view, a host prompt) and goes on, so one run has data for every later step; the
@@ -1697,6 +1714,8 @@ class Journey:
                 finally:
                     record["seconds"] = round(now() - t, 3)
                     self.steps.append(record)
+                if gap_fallback is not None:
+                    self.run_gap_fallback(gap_fallback, index)
                 if record.get("ok") and step["do"] == "relaunch":
                     # Not now: later steps measure from the relaunch's own mark (review at 1548fb29ce5 and
                     # f8de46b2f79). The sample waits until the last step whose `since` is that mark has finished,
@@ -1715,13 +1734,21 @@ class Journey:
                     self.sample_daemons(f"after step {index + 1} ({step['do']})")
             if not_judged:
                 raise NotRun(f"{len(not_judged)} checks not judged: " + " | ".join(not_judged))
+            if self.known_gaps:
+                # Every step after the gap ran and passed; the gap itself is open, so this is no pass.
+                raise NotRun("; ".join(f"step {g['step']}: {g['text']}" for g in self.known_gaps)
+                             + "; every later step passed")
         except (Deadline, NotRun) as error:
             status, reason = "not run", str(error)
             earlier = [n for n in not_judged if n not in reason]
             if earlier:
                 reason += f" (and {len(earlier)} checks not judged before it: " + " | ".join(earlier) + ")"
         except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
-            status, reason = "fail", f"step {len(self.steps)} ({self.steps[-1]['do'] if self.steps else '?'}): {error}"
+            failed = next((st for st in reversed(self.steps) if st.get("ok") is False), None)
+            where = f"step {failed['index']}" if failed and failed.get("index") else f"step {len(self.steps)}"
+            status, reason = "fail", f"{where} ({self.steps[-1]['do'] if self.steps else '?'}): {error}"
+            if self.known_gaps:
+                reason += " (after " + "; ".join(f"step {g['step']}: {g['text']}" for g in self.known_gaps) + ")"
         finally:
             # `finally` steps put the app back for the next journey (leave full screen, close a second
             # window), whatever happened; their errors are recorded and never change the status.
@@ -1745,7 +1772,7 @@ class Journey:
             missing = [k for k in REQUIRED_KINDS if k not in kinds]
             if missing:
                 status, reason = "fail", "not enough evidence: no passing " + ", ".join(missing) + " check"
-            elif not all(e["pass"] for e in self.evidence):
+            elif not all(e["pass"] for e in self.evidence if not e.get("known_gap")):
                 status, reason = "fail", "a check failed"
         # The daemons this journey ran against (lead 01:2xZ): proven skew in any sample is not run; an owner that
         # cannot be verified at the end makes a pass not run and keeps a fail (apply_daemon_verdict).
@@ -1765,6 +1792,40 @@ class Journey:
                   "frames": frames.count, "clip_frames": clip, "steps": self.steps, "evidence": self.evidence}
         (self.out / "result.json").write_text(json.dumps(result, indent=1, default=str) + "\n")
         return result
+
+    def known_gap_of(self, step):
+        """The step's `known_gap` when it applies now: {"name", "ref", "key_path", "fallback"}. It applies only when the
+        step before it took the gap's key path (default "real_hid"): the same check on another path is a real result."""
+        gap = step.get("known_gap")
+        if not isinstance(gap, dict) or not self.steps:
+            return None
+        before = self.steps[-1]
+        if before.get("ok") is not True or before.get("key_path") != gap.get("key_path", "real_hid"):
+            return None
+        return gap
+
+    def run_gap_fallback(self, steps, gap_index):
+        """The known gap's fallback steps (the app's own action path for what the gap's key could not do), recorded
+        with `fallback_of`. A step marked `optional` (closing what the stray key opened) is recorded and never fails
+        the journey; any other failure is a real result (StepError), and a step that cannot be judged is not run."""
+        for sub in steps:
+            record = {"index": gap_index + 1, "do": sub["do"], "title": sub.get("title", ""), "fallback_of": gap_index + 1}
+            t = now()
+            try:
+                record["result"] = getattr(self, "step_" + sub["do"])(sub)
+                record["ok"] = True
+                path = record["result"].get("key_path") if isinstance(record["result"], dict) else None
+                if path:
+                    record["key_path"] = path
+            except (StepError, NotRun) as error:
+                record["ok"], record["error"] = (None if sub.get("optional") else False), str(error)[-600:]
+                if not sub.get("optional"):
+                    self.steps.append(dict(record, seconds=round(now() - t, 3)))
+                    if isinstance(error, NotRun):
+                        raise
+                    raise StepError(f"the known gap's fallback step {sub['do']} ({sub.get('title', '')[:60]}): {error}")
+            record["seconds"] = round(now() - t, 3)
+            self.steps.append(record)
 
     def sample_daemons(self, at):
         """One sample of the daemons (App.daemon_facts), kept in self.daemon_samples with where it was taken."""

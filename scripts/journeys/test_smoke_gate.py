@@ -48,6 +48,20 @@ if status == "gap":
 if status == "fail":
     json.dump({"steps": [{"do": "smoke_type_now", "ok": False, "error": "keys lost"}]},
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
+GAP = "KNOWN GAP: New Column real key (STATUS 1712/1724), not a result"
+if status == "newcol-gap":  # the driver's record of a round whose only fault is the known gap (every later step passed)
+    row["status"], row["reason"] = "not run", f"step 43: {GAP}; every later step passed"
+    json.dump({"steps": [{"index": 42, "do": "smoke_key", "ok": True, "key_path": "real_hid"},
+                         {"index": 43, "do": "expect", "ok": None, "known_gap": GAP, "error": "smoke_same_widths never held"},
+                         {"index": 43, "do": "action", "ok": True, "fallback_of": 43},
+                         {"index": 46, "do": "expect", "ok": True}]},
+              open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
+if status == "newcol-gap-then-fail":  # ... and a new failure after it
+    row["status"], row["reason"] = "fail", f"step 49 (expect): split down broke (after step 43: {GAP})"
+    json.dump({"steps": [{"index": 42, "do": "smoke_key", "ok": True, "key_path": "real_hid"},
+                         {"index": 43, "do": "expect", "ok": None, "known_gap": GAP, "error": "smoke_same_widths never held"},
+                         {"index": 49, "do": "expect", "ok": False, "error": "smoke_same_widths {\"since\": \"cols3\"} never held"}]},
+              open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
 opts = [args[i + 1] for i, a in enumerate(args) if a == "--journey-option"]
 real = "key_path=real" in opts and os.environ.get("SMOKE_REAL_PATH", "real_hid") != "none"
 if status == "pass" and not [o for o in opts if o != "key_path=real"]:
@@ -157,7 +171,7 @@ class Verdicts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             code, summary = gate(["pass"] * 9 + ["fail"], tmp, ("--diagnostic",))
             self.assertEqual((code, summary["verdict"], summary["gate_run"]), (1, "DIAGNOSTIC (NOT JUDGED)", False))
-            self.assertEqual(summary["expects"]["Cmd-D twice fast"], {"reached": 10, "passed": 9, "failed": 1,
+            self.assertEqual(summary["expects"]["Cmd-D twice fast"], {"reached": 10, "passed": 9, "failed": 1, "known_gap": 0,
                                                                       "not_judged": 0, "errors": ["round 10: no new pane"]})
             with open(os.path.join(tmp, "out", "round-01", "options.txt")) as f:
                 self.assertEqual(f.read(), "smoke_mode=diagnostic")
@@ -208,6 +222,36 @@ class Verdicts(unittest.TestCase):
                 self.assertEqual((code, summary["verdict"], summary["passed"]), (1, "FAIL", 0), r3)
                 self.assertIn(want, summary["rounds_detail"][0]["reason"], r3)
                 self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+
+    def test_the_new_column_known_gap_is_its_own_line_and_never_a_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(["newcol-gap"] + ["pass"] * 9, tmp)
+            self.assertEqual((code, summary["verdict"], summary["passed"]), (75, "NOT JUDGED", 9))
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+            text = open(os.path.join(tmp, "out", "summary.txt")).read()
+            self.assertIn("KNOWN GAP: New Column real key (STATUS 1712/1724), not a result: rounds 1 (step 43)", text)
+            self.assertIsNone(summary["rounds_detail"][0]["failing_step"])
+
+    def test_a_failure_after_the_new_column_known_gap_is_the_round_s_named_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(["newcol-gap-then-fail"] + ["pass"] * 9, tmp)
+            self.assertEqual((code, summary["verdict"]), (1, "FAIL"))
+            r = summary["rounds_detail"][0]
+            self.assertEqual(r["failing_step"]["do"], "expect")
+            self.assertIn("cols3", r["failing_step"]["error"])
+            text = open(os.path.join(tmp, "out", "summary.txt")).read()
+            self.assertIn("first failure after the KNOWN GAP at step 43: expect:", text)
+
+    def test_every_real_new_column_key_check_has_the_known_gap_and_a_fallback(self):
+        with open(HERE / "journeys" / "dogfood" / "smoke-dogfood.json") as f:
+            steps = json.load(f)["steps"]
+        keyed = [i for i, st in enumerate(steps) if st.get("do") == "smoke_key" and st.get("command") == "newColumn"]
+        self.assertEqual(len(keyed), 2)
+        for i in keyed:
+            gap = steps[i + 1].get("known_gap")
+            self.assertTrue(gap and gap["key_path"] == "real_hid" and gap["ref"] == "STATUS 1712/1724", i)
+            self.assertEqual([s["do"] for s in gap["fallback"]], ["smoke_key", "wait", "action", "expect"])
+            self.assertEqual(gap["fallback"][2]["action"], "newColumn")
 
     def test_a_passed_round_with_a_key_gap_is_not_run(self):
         with tempfile.TemporaryDirectory() as tmp:

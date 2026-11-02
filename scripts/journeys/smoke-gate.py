@@ -18,7 +18,10 @@ Verdict:
     round's lease and results, and this gate's own git commit. A gate with uncommitted changes never writes it.
   - FAIL when any round failed: the summary names each failing round, its step and the reason.
   - NOT JUDGED when no round failed but some did not run (no lease, a known gap, no memory pressure): no .pass
-    file. A round whose type-at-once step could not make the window key (`known gap: ...`) is never a pass, and
+    file. A round with a step the driver recorded as a named KNOWN GAP (the New Column real key until KEY SET A or B is
+    picked, STATUS 1712/1724) is never a pass: the summary names the gap on its own line, the round goes on with the
+    gap's fallback (New Column through the app's action), and a round that failed after it names that later failure.
+    A round whose type-at-once step could not make the window key (`known gap: ...`) is never a pass, and
     a passed journey counts only when the round's hog log shows memory pressure (pressure() below). Such a round
     is run again in its slot (at most --rounds replacements per run; see the note at PRESSURE_SAMPLES), so the verdict
     stands on --rounds rounds under pressure; the summary names the replaced rounds.
@@ -199,6 +202,17 @@ def failing_step(out):
     return None
 
 
+def known_gap_steps(out):
+    """The journey steps recorded as a named KNOWN GAP (driver `known_gap`: the New Column real key until KEY SET A or
+    B is picked, STATUS 1712/1724): [(step, text)]. Such a step is no result; the round went on past it."""
+    path = out / JOURNEY / "result.json"
+    try:
+        steps = json.loads(path.read_text()).get("steps", []) if path.is_file() else []
+    except ValueError:
+        return []
+    return [(st.get("index"), st["known_gap"]) for st in steps if st.get("known_gap") and not st.get("finally")]
+
+
 def required_checks(out):
     """{required title: [ok of each expect step with exactly that title]} from the round's result.json."""
     found = {title: [] for title in REQUIRED_CHECKS}
@@ -258,7 +272,7 @@ def step_results(out):
         return []
     return [{"index": st.get("index"), "do": st.get("do"), "title": st.get("title"), "ok": st.get("ok"),
              "finally": bool(st.get("finally")), "error": (st.get("error") or st.get("not_judged") or "")[:300],
-             "not_judged": bool(st.get("not_judged"))} for st in steps]
+             "not_judged": bool(st.get("not_judged")), "known_gap": st.get("known_gap") or ""} for st in steps]
 
 
 def frames(out):
@@ -273,8 +287,11 @@ def expect_table(rounds):
             if st["do"] != "expect" or st["finally"]:
                 continue
             row = table.setdefault(st["title"] or f"step {st['index']}",
-                                   {"reached": 0, "passed": 0, "failed": 0, "not_judged": 0, "errors": []})
+                                   {"reached": 0, "passed": 0, "failed": 0, "not_judged": 0, "known_gap": 0, "errors": []})
             row["reached"] += 1
+            if st.get("known_gap"):  # a named KNOWN GAP is neither a pass nor a failure
+                row["known_gap"] += 1
+                continue
             row["not_judged" if st.get("not_judged") else "passed" if st["ok"] else "failed"] += 1
             if not st["ok"] and len(row["errors"]) < 3:
                 row["errors"].append(f"round {r['round']}: {st['error'][:200]}")
@@ -551,6 +568,7 @@ def main(argv=None):
                   "frames": frames(round_out), "hog_logs": sorted(p.name for p in round_out.glob("hog-*.jsonl")), "pressure": hog, "hosts_offered": hosts, "exclusive": exclusive,
                   "required_checks": checks, "required_missing": missing,
                   "known_gap": "known gap" in str(row.get("reason") or ""),
+                  "known_gap_steps": known_gap_steps(round_out),
                   "key_gaps": gaps, "leases": leases,
                   "go": {"host": go["host"], "go": go["go"], "until": go["until"]} if go else None,
                   "key_path": "real_hid" if slot in real_rounds else "debug.key", "key_paths": paths, "slot": slot}
@@ -596,17 +614,27 @@ def main(argv=None):
                 f"{GATE_REAL_KEY_ROUNDS} real-key rounds, so no .pass file")
              + f"; real HID keys in rounds {real_rounds}"
              + (f"; rounds {replaced_rounds} showed no memory pressure and were run again" if replaced_rounds else "")]
+    gap_rounds = [(r["round"], r.get("known_gap_steps") or []) for r in rounds if r.get("known_gap_steps")]
+    if gap_rounds:
+        texts = sorted({t for _, steps in gap_rounds for _, t in steps})
+        lines.append(" | ".join(texts) + ": rounds " + ", ".join(
+            f"{n} (step {', '.join(str(i) for i, _ in steps)})" for n, steps in gap_rounds)
+            + "; each round went on with New Column through the app's action path, so a failure after it is still a result")
     if summary["known_gap_rounds"]:
         lines.append(f"KNOWN GAP in rounds {summary['known_gap_rounds']}: the capture lease could not make the window key, "
                      "so keys typed into a new terminal while it is made were not checked; not a pass")
     if opts.diagnostic:
         lines.append("DIAGNOSTIC: no type-at-once where the slot has no key window; no .pass file. Each check:")
         for title, row in summary["expects"].items():
-            lines.append(f"  {row['passed']}/{row['reached']} passed, {row.get('not_judged', 0)} not judged "
+            lines.append(f"  {row['passed']}/{row['reached']} passed, {row.get('not_judged', 0)} not judged, "
+                         f"{row.get('known_gap', 0)} known gap "
                          f"(of {opts.rounds} rounds): {title}"
                          + (f" -- {row['errors'][0]}" if row["errors"] else ""))
     for r in rounds:
         detail = r["failing_step"] and f"{r['failing_step']['do']}: {r['failing_step']['error'][:200]}"
+        if detail and r.get("known_gap_steps"):
+            # The first failure AFTER the known gap (the gap step itself is never the failing step).
+            detail = f"first failure after the KNOWN GAP at step {r['known_gap_steps'][0][0]}: " + detail
         hog = r["pressure"]
         lines.append(f"  round {r['round']:2d} (slot {r.get('slot')}) on {r['host']} ({r.get('key_path')}): "
                      + ("replaced" if r.get("replaced") else r["status"]) + (f" -- {detail}" if detail else "")

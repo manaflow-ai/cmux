@@ -143,7 +143,7 @@ how long it may take (it plans the leases). Copy `journeys/p0/type.json` (the sm
 | `key` | `key`, `modifiers`, `mark` | one `debug.key` (`modifiers`: `control`, `shift`, `option`, `cmd`; named keys: `return`, `escape`, `tab`, `space`, `up`, `down`, `left`, `right`, `delete`, `pageup`, ...) |
 | `rpc` | `method`, `params` | one control-socket request (set-up the person does through UI the driver cannot click yet) |
 | `wait` | `seconds` | only when nothing observable can be waited on |
-| `expect` | `all`, `since`, `within`, `timeout`, `settle`, `title` | polls every condition in `all` (about every 50 ms plus the reads) until all hold or `timeout` seconds pass; `settle`: the negative conditions must keep holding that many more seconds |
+| `expect` | `all`, `since`, `within`, `timeout`, `settle`, `title`, `known_gap`? | polls every condition in `all` (about every 50 ms plus the reads) until all hold or `timeout` seconds pass; `settle`: the negative conditions must keep holding that many more seconds |
 | `mouse` | `action`, `dx`, `dy`, `phase`, `modifiers`, `button`, `count`, `interval`, `mark` | `debug.mouse` at the center of the journey's pane, `count` times: `scroll` (default; `dy` > 0 is a wheel turned up, toward older rows), `click`, `double_click` |
 | `select_text` | `text`, `how`, `occurrence`, `mark` | selects TEXT where the pane shows it, with the pointer: `drag` (default: press on its first cell, drag to its last) or `double_click` (a word); the cells come from the pane's viewport text and grid (`debug.surfaces`) |
 | `clipboard_set` | `text` or `lines` (`format`, `count`, `start`) | set-up: puts the text on the Mac's general pasteboard (what Cmd+V reads; `pbcopy`) and reads it back; binds `${clip_sha}` (sha256) and `${clip_lines}` |
@@ -514,3 +514,13 @@ live resize broken because no agent typed in a terminal or resized a window befo
 over; v2 dropped both fixes; many PASS results were pixels-changed, blank frames or fixture text;
 and the author judged its own work. Each P0 journey and the gate exist to make those mistakes
 impossible to repeat.
+
+### A named known gap (`known_gap` on a step)
+
+A step may carry `known_gap: {name, ref, why, key_path (default real_hid), fallback: [steps]}`. When that step fails
+right after a step that took `key_path`, the driver records it as `KNOWN GAP: <name> (<ref>), not a result` (ok
+null, its evidence set aside), runs the `fallback` steps (a step with `optional: true` may fail; any other fallback
+failure is a real result), and goes on. The journey is then never a pass: with no later failure it is `not run`
+naming the gap; with one, it is `fail` naming that later step. On any other key path the step is an ordinary check.
+Used by the smoke journey for the New Column real key (STATUS 1712/1724) until KEY SET A (#29866) or B (#29867).
+
