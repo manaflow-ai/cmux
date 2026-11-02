@@ -169,3 +169,63 @@ fn a_mutation_that_routes_nothing_keeps_the_key_off_the_session_lock() {
     );
     mux.shutdown();
 }
+
+/// Runs `f` and counts the session lock acquisitions it made on this thread: a path proven to take none never waits
+/// behind automation, with no timing in the test.
+fn session_locks_of<R>(f: impl FnOnce() -> R) -> (R, u64) {
+    let before = crate::mux::state_locks_taken_on_this_thread();
+    let result = f();
+    (result, crate::mux::state_locks_taken_on_this_thread() - before)
+}
+
+/// TYPING FIX 2 (follow-up A of #31940): the kept terminal is dropped only when its own route changes. A tab created
+/// or closed in another workspace routes nothing this client types into; it must not send the person's next key back
+/// to the session lock. Before, any routing write anywhere moved one process-wide generation, so every attached
+/// client's next key took the lock again (O(clients) per tab create, during the agents' tab storms).
+#[cfg(unix)]
+#[test]
+fn a_tab_created_or_closed_elsewhere_keeps_the_key_off_the_session_lock() {
+    let mux = test_mux();
+    let (typing, client, writer) = attached_terminal(&mux);
+    handle_command(&mux, client, key(typing.id, b'a'), &writer).unwrap();
+
+    // Automation: a new workspace, a tab in it, and that tab closed again.
+    let other = mux.new_workspace(Some("automation".into()), Some((80, 24))).unwrap();
+    let pane = mux.with_state(|state| state.pane_of(other.id).unwrap());
+    let tab = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+    assert!(mux.close_surface(tab.id).unwrap(), "the automation tab did not close");
+
+    let (sent, locks) =
+        session_locks_of(|| handle_command(&mux, client, key(typing.id, b'b'), &writer));
+    sent.unwrap();
+    assert_eq!(
+        locks, 0,
+        "a tab created and closed in another workspace sent the person's next key to the session lock"
+    );
+    mux.shutdown();
+}
+
+/// TYPING FIX 2 (follow-up B of #31940): a workspace size default must not put the session lock back on the person's
+/// keys. A key notes its view's activity in the sizing engine; that re-expanded the host policy, which asks whether
+/// the terminal follows a workspace default, which looked the terminal's workspace up under the session lock (and
+/// could walk every surface for its placements) on every key, as soon as any workspace had a default.
+#[cfg(unix)]
+#[test]
+fn a_workspace_size_default_keeps_the_key_off_the_session_lock() {
+    let mux = test_mux();
+    let (typing, client, writer) = attached_terminal(&mux);
+    // The settings owner's host policy, and a size default on the typing terminal's workspace.
+    let host = crate::mux::host_policy::HostSizePolicy {
+        mode: crate::mux::host_policy::HostSizeMode::Latest,
+        order: Vec::new(),
+    };
+    mux.adopt_host_size_policy(host, 1);
+    mux.pin_latest_size_policy_for_test(typing.id);
+    handle_command(&mux, client, key(typing.id, b'a'), &writer).unwrap();
+
+    let (sent, locks) =
+        session_locks_of(|| handle_command(&mux, client, key(typing.id, b'b'), &writer));
+    sent.unwrap();
+    assert_eq!(locks, 0, "with a workspace size default the person's key took the session lock");
+    mux.shutdown();
+}

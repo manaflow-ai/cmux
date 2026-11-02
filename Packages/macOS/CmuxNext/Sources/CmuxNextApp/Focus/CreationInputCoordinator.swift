@@ -45,7 +45,6 @@ final class CreationInputCoordinator {
 
     /// Whether `window`'s keys wait in a creation hold now (tests: a key typed meanwhile is replayed later).
     func isHolding(in window: NSWindow?) -> Bool { window.map { buffers[$0.windowNumber] != nil } ?? false }
-
     init(router: KeyRouter, replay: @escaping HeldKeyReplay) { (self.router, self.replay) = (router, replay) }
 
     /// Holds `controller`'s keys for the person's new workspace's terminal under a new intent, and claims its keyboard;
@@ -65,15 +64,15 @@ final class CreationInputCoordinator {
         claimHolds(in: window) || buffers[window.windowNumber]?.ownsKeyboard(generation: generation) == true
     }
 
-    /// The person acted in `window` (a click, one of their actions), answering input `event`: their claim there ends.
+    /// The person acted in `window` (a click, one of their actions), answering input `event`: their claim there ends, and the
+    /// keys typed after it are no longer their new workspace's (``CreationInputBuffer/personMovedOn()``).
     func personActed(in window: NSWindow?, event: NSEvent?) {
-        guard let window, !claims.isEmpty else { return }
-        claims.personActed(inWindow: (router?.focus(for: window).0?.window ?? window).windowNumber, input: event?.timestamp)
+        guard let window, !claims.isEmpty, case let number = (router?.focus(for: window).0?.window ?? window).windowNumber else { return }
+        if claims.personActed(inWindow: number, input: event?.timestamp) { buffers[number]?.personMovedOn() }
     }
 
     /// `window` closes: its claim goes with it.
     func windowClosed(_ window: NSWindow?) { if let window { claims.end(inWindow: window.windowNumber); asking[window.windowNumber] = nil } } // its questions go with it
-
     /// Whether `window`'s claim holds now (``CreationKeyboardClaims/holds(in:shows:intents:lastInput:)``).
     private func claimHolds(in window: NSWindow) -> Bool {
         guard !claims.isEmpty else { return false }
@@ -216,7 +215,7 @@ final class CreationInputCoordinator {
         if asking[shell.windowNumber] != nil { return false } // a close's question is up: a key typed now is its own, the held keys wait for its answer
         // The focus names a terminal whose surface is not shown yet (a reopened window, a workspace shown
         // cold): the key waits for it, at most `holdLimit`, and goes to that terminal (REOPEN-F4); a second one gets its own lane.
-        if buffers[shell.windowNumber].map({ $0.awaitedTab != nil }) ?? true, kind == .content, let controller, ActionRunScope.viewChangeAllowed(),
+        if buffers[shell.windowNumber].map({ $0.awaitedTab != nil || $0.personLeftEveryCreation }) ?? true, kind == .content, let controller, ActionRunScope.viewChangeAllowed(),
            let awaited = Self.awaitedContent(controller), buffers[shell.windowNumber]?.awaitedTab != awaited.tab, awaited.hasTerminalLane || !holdEnds.pageExpired.contains(awaited.tab) {
             buffer(in: shell).awaitContent(awaited, machine: controller.content?.daemon.machineID)
         }
@@ -225,6 +224,7 @@ final class CreationInputCoordinator {
         // A key typed while the person's new workspace's terminal is on its way and they have not moved on is that terminal's.
         // Automation's focus move (a new generation) does not take the key from it: the claim decides first.
         let forNewWorkspace = claimHolds(in: shell) || controller.map { buffer.newestGeneration == $0.focus.state.generation } ?? false
+        if kind == .content, let controller, buffer.passesOn(focusedTab: controller.focus.state.typingTab), Self.responderTakesKeys(controller, window: shell) { return false } // moved on
         // A close key (Cmd-W) acts now on what it closes; held, it ran later with the other keys.
         let closes = controller.map { Self.closes(event, in: shell, controller: $0, router: router) } ?? false
         // A close of a pending creation of this hold (the focus it asked for is still on its way):
