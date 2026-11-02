@@ -36,7 +36,7 @@ USAGE
   cmux workspace [<selector>] checklist remove <item>
   cmux workspace placement list
   cmux workspace group list [--room <room>]
-  cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
+  cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse] [--reuse]
   cmux workspace group create --remote <host> [--name <value>]
   cmux workspace group create --parent <group> --name <value>
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]

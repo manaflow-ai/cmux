@@ -349,7 +349,7 @@ fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
 /// person deadline here too: the CLI must not give up before the app does.
 #[test]
 fn every_app_action_that_waits_for_a_person_gets_the_person_timeout() {
-    let catalog = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let catalog = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog");
     let Ok(entries) = std::fs::read_dir(&catalog) else { return };
     let mut checked = 0;
