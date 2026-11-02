@@ -15620,10 +15620,12 @@ struct VerticalTabsSidebar: View, Equatable {
                 WorkspaceTodoActions.hideStatus(for: workspaces)
             },
             applyClaudeDifficulty: { difficulty, ids in
-                SessionPriorityActions.applyDifficulty(difficulty, to: ids.compactMap { id in tabManager.tabs.first { $0.id == id } })
+                let workspacesById = tabManager.workspacesById
+                SessionPriorityActions.applyDifficulty(difficulty, to: ids.compactMap { workspacesById[$0] })
             },
             setSessionPriorityManual: { on, ids in
-                SessionPriorityActions.setManual(on, for: ids.compactMap { id in tabManager.tabs.first { $0.id == id } })
+                let workspacesById = tabManager.workspacesById
+                SessionPriorityActions.setManual(on, for: ids.compactMap { workspacesById[$0] })
             },
             requestChecklistAdd: {
                 WorkspaceTodoActions.requestChecklistAddField(workspaceId: tabId)
