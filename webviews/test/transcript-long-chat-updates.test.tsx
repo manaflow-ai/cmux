@@ -4,7 +4,7 @@
 // that row's drawn height, and turns shaped as a fresh look at the same rows shapes them.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { isLineRow, isStatusRow, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { type TurnView, turnView, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
 import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 import { rowMark, transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
@@ -108,7 +108,9 @@ const shownById = new Map<string, AcpmuxRow>();
 /// plus the one stack gap the pair takes (transcriptGrid.ts transcriptGap: turn 32 next to a prompt,
 /// block 24 otherwise). On the layout grid a row keeps no gap of its own; the gap belongs to the
 /// stack (leo-workspace design/grid.md Rule 5, "A gap belongs to its container", and 5.5 Vertical
-/// rhythm; #27580). `off` is how far a row sits from there. A fast scroll mounts separate runs of
+/// rhythm; #27580). `off` is how far a row sits from there. Two consecutive one-line rows keep their
+/// own pitch (#29965), not a block gap; this fixture has no such pair, and the check says so rather
+/// than hold one to transcriptGap. A fast scroll mounts separate runs of
 /// rows, so only rows next to each other are compared.
 function placement() {
   const rows = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")].map((node) => ({
@@ -118,6 +120,16 @@ function placement() {
     top: Number.parseFloat(node.style.top) + (Number.parseFloat(node.style.marginTop) || 0) - 16,
   }));
   rows.sort((a, b) => a.index - b.index);
+  const oneLine = (id: string) => {
+    const shown = shownById.get(id)!;
+    return isLineRow(shown) || isStatusRow(shown);
+  };
+  for (let index = 1; index < rows.length; index += 1)
+    if (rows[index]!.index === rows[index - 1]!.index + 1)
+      expect({ pair: [rows[index - 1]!.id, rows[index]!.id], oneLine: oneLine(rows[index - 1]!.id) && oneLine(rows[index]!.id) }).toEqual({
+        pair: [rows[index - 1]!.id, rows[index]!.id],
+        oneLine: false,
+      });
   const pairs = rows
     .slice(1)
     .flatMap((next, index) =>
