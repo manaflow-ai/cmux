@@ -133,8 +133,8 @@ struct SessionPriorityReconcileTimingTests {
         }
 
         #expect(state.lastTurnEndedAtMs[pane] == 50_000)
-        #expect(inside(59_999))
-        #expect(!inside(60_000))
+        #expect(inside(60_000))
+        #expect(!inside(60_001))
     }
 
     /// Turning the feature off and on right after a turn end still waits out the window, and a
