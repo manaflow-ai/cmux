@@ -840,7 +840,7 @@ async fn of_two_first_messages_at_once_only_one_runs_as_the_prompt() {
     assert_eq!(reply[&ran]["stopReason"], "end_turn", "{}", reply[&ran]);
 }
 
-/// Labs team messaging (`meshRelay.teamMessaging`) is off here, as on most daemons: a chat's agent
+/// Team messaging (`meshRelay.teamMessaging`) is off here (no team hub): a chat's agent
 /// still reads every word of its inbox. `inbox_read` reads it, and so do the team mailbox's inbox,
 /// read and ack, which an agent started before the inbox has instead of `inbox_read`, and which
 /// `acpmux inbox` calls (`hub/inbox_team_page.rs`). Three helpers saw only a notice's

@@ -233,7 +233,7 @@ pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
 }
 
 /// Send a team-scoped message through the daemon's hub client. The daemon owns the
-/// caller token and Labs gate, so this MCP surface cannot bypass either one.
+/// caller token and team-messaging gate, so this MCP surface cannot bypass either one.
 async fn team_send(daemon: &Arc<Client>, args: &Value) -> Value {
     let (Some(to), Some(body)) = (arg(args, "to"), args.get("body").and_then(Value::as_str)) else {
         return error_result("to and body are required".to_owned());
