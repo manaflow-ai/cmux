@@ -12,6 +12,9 @@ const folders = [
   { id: "/Users/you/src/cmux", label: "cmux" },
 ];
 
+// Keep this host in the machine list so the open picker exercises its width cap.
+const longHost = "gpu-box-with-a-long-machine-name-for-the-host-picker";
+
 const browseError: ComponentProps<typeof SavedEnvironmentPanel> = {
   initial: { kind: "local", folder: folders[0]!.id },
   folders,
@@ -29,7 +32,7 @@ const baseProps: ComponentProps<typeof SavedEnvironmentPanel> = {
   initial: { kind: "local", folder: folders[0]!.id },
   folders,
   onBrowse: async () => undefined,
-  machines: ["gpu-box", "build-server"],
+  machines: ["gpu-box", "build-server", longHost],
   machineFolders: (machine) =>
     machine === "gpu-box" ? [{ id: "/home/dev/model", label: "model" }] : [{ id: "/srv/ci", label: "ci" }],
   onConnectSSH: () => undefined,
@@ -65,7 +68,7 @@ const sshEnvironment = {
 
 const longHostEnvironment = {
   ...sshEnvironment,
-  host: "gpu-box-with-a-long-machine-name-for-the-host-picker",
+  host: longHost,
 } as const;
 
 export default componentEntry<ComponentProps<typeof SavedEnvironmentPanel>>({
