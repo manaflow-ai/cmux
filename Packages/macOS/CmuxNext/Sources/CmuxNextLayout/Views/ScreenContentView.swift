@@ -35,6 +35,8 @@ final class ScreenContentView: NSView {
     var scrollRidesFrames = false
     /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false
+    /// Panes a key turn resized whose content waits for the first tick to lay out (`releaseKeyTurnHolds`).
+    var heldUntilTick: Set<PaneID> = []
     /// A split's or a close's panes spring to their new sizes: their terminals keep their grids
     /// until every pane landed (`LayoutViewContext.gridHoldScreens`, the PTY resizes once at rest).
     /// A press during the motion (rapid Cmd-D) keeps the hold, so the grids go once for the whole chain.
@@ -162,6 +164,7 @@ final class ScreenContentView: NSView {
     /// A pane spring left mid-flight could park its pane off screen. Column and row camera
     /// springs may resume when the workspace shows (Lucas 2026-10-19).
     func settleMotion() {
+        releaseKeyTurnHolds() // no tick comes: the held content lays out now, at the final layout
         defer { if resizeGesture == .landing { finishResizeGesture() } }
         defer { context.releaseRetired(of: screenID) }
         guard hasMotion else { return }

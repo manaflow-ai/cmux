@@ -104,6 +104,20 @@ final class PaneHostView: NSView, RestingPlacement {
         }
     }
 
+    /// Set in a key turn that resizes this host (the lead frame of a split or a close): the content keeps the size it has,
+    /// pinned and clipped as on a held spring, so the turn lays nothing out; the first display tick lets it go and the
+    /// content lays out there, once per frame from then on (RESIZE VIDEOS F1 part 2, Chrome's begin-frame layout).
+    var holdsContentUntilTick = false {
+        didSet {
+            guard oldValue != holdsContentUntilTick else { return }
+            tickHoldSize = holdsContentUntilTick && content.frame.width >= 1 && content.frame.height >= 1 ? content.frame.size : nil
+            if !holdsContentUntilTick { layoutClip() }
+        }
+    }
+
+    /// The content's size while ``holdsContentUntilTick``; nil for content with no size yet (it lays out to show).
+    private var tickHoldSize: CGSize?
+
     /// The host's size at rest (its spring rect's target), set with ``restOffset`` on every
     /// presented frame; nil before the screen first places it.
     var restSize: CGSize?
@@ -120,6 +134,7 @@ final class PaneHostView: NSView, RestingPlacement {
     /// chat keeps its width under it until the spring lands.
     /// A host at its rest place and size holds nothing, whatever its spring flag says.
     private func contentFrame(in clip: CGRect) -> CGRect {
+        if let hold = tickHoldSize { return pinned(hold, in: clip) }
         guard let held = heldContentSize, let restSize, restOffset != .zero || frame.size != restSize else { return clip }
         // The clip at rest, from the rest cell itself: a frame narrower than twice the padding
         // (a new pane's first frames) has a zero clip, and the clip's growth then is no measure of
@@ -134,10 +149,19 @@ final class PaneHostView: NSView, RestingPlacement {
                       width: size.width, height: size.height)
     }
 
+    /// `size` in `clip`, at the edges nearer the host's rest (the same rule as a held spring).
+    private func pinned(_ size: CGSize, in clip: CGRect) -> CGRect {
+        let rest = restSize ?? frame.size
+        let trailing = abs(restOffset.dx + rest.width - frame.width) < abs(restOffset.dx) - 0.5
+        let bottom = heldAnchor.map { $0 == .bottom } ?? (abs(restOffset.dy + rest.height - frame.height) < abs(restOffset.dy) - 0.5)
+        return CGRect(x: trailing ? clip.maxX - size.width : clip.minX, y: bottom == isFlipped ? clip.maxY - size.height : clip.minY,
+                      width: size.width, height: size.height)
+    }
+
     /// A host taken out of the layout mid-spring is at rest: its content reports what it holds.
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
-        if superview == nil { isOnLayoutSpring = false }
+        if superview == nil { isOnLayoutSpring = false; holdsContentUntilTick = false }
         // Another screen (or none) places it now: its clip and overlay are computed afresh.
         stripClipInput = nil
         overlaySyncKey = nil
@@ -202,7 +226,7 @@ final class PaneHostView: NSView, RestingPlacement {
         super.setFrameSize(newSize)
         // `frame =` with only a new origin calls this too: the clip and content keep their size
         // (held content is pinned by the rest offset, which a move changes: it lays out).
-        if changed || heldContentSize != nil { layoutClip() }
+        if changed || heldContentSize != nil || tickHoldSize != nil { layoutClip() }
     }
 
     /// Clip and content layouts this host ran, cumulative (PaneMotionWorkTests: a pane that only

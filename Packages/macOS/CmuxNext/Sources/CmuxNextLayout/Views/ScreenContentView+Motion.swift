@@ -112,6 +112,7 @@ extension ScreenContentView {
     /// ticks (``panTickTail`` frames after its last event).
     func displayFrameBegan() -> Bool {
         panPresentedInFrame = false
+        releaseKeyTurnHolds()
         if panPresentationPending { applyPresentation() }
         guard panTicksLeft > 0, isUserScrolling else {
             panTicksLeft = 0
@@ -119,6 +120,15 @@ extension ScreenContentView {
         }
         panTicksLeft -= 1
         return true
+    }
+
+    /// The first tick after a key turn's lead frame (or a settle): the content held at its size follows the clip again.
+    func releaseKeyTurnHolds() {
+        guard !heldUntilTick.isEmpty else { return }
+        // The clip takes the content to the shown size now; this tick's step lays it out with the frame it resizes,
+        // or the commit does: one layout in this frame.
+        for pane in heldUntilTick { context.hosts[pane]?.holdsContentUntilTick = false }
+        heldUntilTick.removeAll()
     }
 
     /// Sets `frame`'s target (opaque); without animation it snaps there. During a pointer gesture (a divider drag)
@@ -176,6 +186,11 @@ extension ScreenContentView {
             if springing { host.isOnLayoutSpring = true }
             defer { if !springing { host.isOnLayoutSpring = false } }
             if host.frame.size != placed.size {
+                // A key turn's lead frame (not a tick's): the resized content keeps its size until the first tick.
+                if springing, !context.inFrameTick, laysOutNow, !host.holdsContentUntilTick {
+                    host.holdsContentUntilTick = true
+                    heldUntilTick.insert(pane)
+                }
                 host.frame = placed
                 // Its tab strip and content lay out in this frame's step, with the frame: never a
                 // layout pass behind it (`PaneContentView.layout` sizes the strip). Only at a real size in a
@@ -183,7 +198,9 @@ extension ScreenContentView {
                 // frames come from an empty viewport, and laying every pane out there broke Auto Layout
                 // constraints in each one (4.77 s for moveWorkspaceToNewWindow in STRESS); the window's
                 // layout pass lays them out once the root has its size.
-                if laysOutNow, placed.width >= 1, placed.height >= 1 { host.layoutSubtreeIfNeeded() }
+                if laysOutNow, placed.width >= 1, placed.height >= 1, !host.holdsContentUntilTick || host.content.frame.width < 1 {
+                    host.layoutSubtreeIfNeeded()
+                }
                 changed = true
             } else if host.frame.origin != placed.origin {
                 // A pane that only moves (the strip camera, a column opening beside it) keeps its

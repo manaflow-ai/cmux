@@ -520,6 +520,8 @@ public final class LayoutRootView: NSView {
             return false
         }
         defer { onFramePlaced?() }
+        context.inFrameTick = true
+        defer { context.inFrameTick = false }
         // One motion policy per frame (it reads the animation settings), not one per spring.
         let policy = Motion.panes.policy
         var moving = false, panning = false
