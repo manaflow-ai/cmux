@@ -157,7 +157,7 @@ def step_load_stop(j, step):
                 proc.kill()
     j.load = None
     # Every profile that ran (L6: its five children) must have kept the focus and been stopped by this step, not by its
-    # own timer (review must-fix 1 and 2 at e19d42d215a); the tool runs with --duration 0, so only SIGTERM ends it.
+    # own timer (review must-fix 1 and 2 at e19d42d215a); the journeys give the tool --duration 400, longer than the typing, so only this SIGTERM ends it.
     top = load["out"] / load["profile"]
     names = [load["profile"]] if load["profile"] != "L6" else ["L1", "L2", "L3", "L4", "L5"]
     parts, stopped_ok = {}, True
