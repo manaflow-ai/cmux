@@ -29,6 +29,7 @@ import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextPalette
 import CmuxNextAccounts
+import CmuxNextAppCore
 import CmuxNextPages
 import CmuxNextPopups
 import CmuxNextBrowserImport
