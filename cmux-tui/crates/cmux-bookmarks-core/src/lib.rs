@@ -33,10 +33,11 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+pub mod mirror;
 pub mod preview;
 mod tree;
 
-pub use tree::{Applied, Tree};
+pub use tree::{Applied, Delta, OrderStep, Tree};
 
 /// The Bookmarks Bar root.
 pub const BOOKMARKS_BAR: &str = "bar";

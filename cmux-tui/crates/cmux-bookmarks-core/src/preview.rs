@@ -63,7 +63,7 @@ pub fn respond(request: Request) -> Response {
 
 /// Well-formed bookmark ids from a seed (splitmix64), so a preview is
 /// reproducible and needs no random source.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct IdMint {
     state: u64,
 }

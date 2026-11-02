@@ -22,6 +22,30 @@ int32_t cmux_layout_reducer_json(
     size_t *output_len);
 
 /*
+ * The bookmark mirror (bookmarks-v1, cmux-bookmarks-core `mirror`): each
+ * profile's confirmed tree and shown tree (confirmed + pending edits) kept in
+ * Rust. One handle per app, used from one thread at a time. A call takes UTF-8
+ * JSON and returns a newly allocated NUL-terminated JSON string; free it with
+ * cmux_bookmark_mirror_string_free. Null only for a null handle or call name,
+ * or a null input with a non-zero length. A malformed call answers
+ * {"error": "..."}.
+ *
+ *   load    {browser_profile_id, bookmarks:[Bookmark]} -> {tree:[Bookmark], dropped:[key]}
+ *   apply   {browser_profile_id, key, op, now_ms} -> {result, changed, delta} | {error_code, reason, message}
+ *           delta = {upserted:[Bookmark], deleted:[id], order:[{parent, insert, at} | {parent, remove} | {clear}]}
+ *   settle  {browser_profile_id, key} -> {ok}
+ *   reject  {browser_profile_id, key} -> {tree}
+ *   view    {browser_profile_id} -> {tree}
+ *   forget  {browser_profile_id} -> {ok}
+ */
+typedef struct CmuxBookmarkMirror CmuxBookmarkMirror;
+
+CmuxBookmarkMirror *cmux_bookmark_mirror_new(uint64_t seed);
+void cmux_bookmark_mirror_free(CmuxBookmarkMirror *mirror);
+void cmux_bookmark_mirror_string_free(char *text);
+char *cmux_bookmark_mirror_call(CmuxBookmarkMirror *mirror, const char *call, const uint8_t *json, size_t json_len);
+
+/*
  * The sidebar document mirror (sidebar-doc-v1). One handle per client, used
  * from one thread. Every call takes UTF-8 JSON (`json`, `json_len`) and
  * returns a newly allocated NUL-terminated JSON string, which the caller

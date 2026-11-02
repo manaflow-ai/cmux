@@ -14,6 +14,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::{
@@ -38,6 +39,45 @@ pub struct Tree {
     profile: String,
     nodes: HashMap<String, Bookmark>,
     children: HashMap<String, Vec<String>>,
+    /// What the op being applied changed, while ``Tree::apply_with_delta`` runs.
+    journal: Option<Journal>,
+}
+
+/// What one op changed, as the app's read model applies it: O(the changed
+/// items), never the whole tree.
+///
+/// - `upserted`: nodes created or changed (fields, parent), parents first.
+///   A node's `index` is its position then; the order of a parent's
+///   children follows from `order`, which other nodes' `index` does not
+///   repeat.
+/// - `deleted`: removed nodes (a deleted folder's subtree too); drop their
+///   children lists.
+/// - `order`: the steps on parents' child lists, in the order they ran.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Delta {
+    pub upserted: Vec<Bookmark>,
+    pub deleted: Vec<String>,
+    pub order: Vec<OrderStep>,
+}
+
+/// One step on a parent's child list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OrderStep {
+    /// `insert` goes in at position `at` of `parent`'s children.
+    Insert { parent: String, insert: String, at: usize },
+    /// `remove` leaves `parent`'s children.
+    Remove { parent: String, remove: String },
+    /// `clear`'s children all leave (a replacing import refills a folder).
+    Clear { clear: String },
+}
+
+#[derive(Debug, Clone, Default)]
+struct Journal {
+    nodes: Vec<String>,
+    seen: HashSet<String>,
+    deleted: Vec<String>,
+    order: Vec<OrderStep>,
 }
 
 /// Two trees are equal when they list the same nodes in the same order.
@@ -146,6 +186,39 @@ impl Tree {
             ordered.extend(ids.iter().filter_map(|id| self.nodes.get(id)).cloned());
         }
         ordered
+    }
+
+    /// ``Tree::apply`` that also says what changed, for a read model fed by
+    /// changes (the app's bookmark mirror). The extra cost is the changed
+    /// items only.
+    pub fn apply_with_delta(
+        &mut self,
+        op: BookmarkOp,
+        now_ms: u64,
+        mint: &mut dyn FnMut() -> String,
+    ) -> Result<(Applied, Delta), BookmarkError> {
+        self.journal = Some(Journal::default());
+        let applied = self.apply(op, now_ms, mint);
+        let journal = self.journal.take().unwrap_or_default();
+        let applied = applied?;
+        let deleted = journal.deleted.iter().collect::<HashSet<_>>();
+        let upserted = journal
+            .nodes
+            .iter()
+            .filter(|id| !deleted.contains(id))
+            .filter_map(|id| self.nodes.get(id).cloned())
+            .collect();
+        let order = journal
+            .order
+            .into_iter()
+            .filter(|step| match step {
+                OrderStep::Insert { parent, .. } | OrderStep::Remove { parent, .. } => {
+                    !deleted.contains(parent)
+                }
+                OrderStep::Clear { clear } => !deleted.contains(clear),
+            })
+            .collect();
+        Ok((applied, Delta { upserted, deleted: journal.deleted, order }))
     }
 
     /// Applies one op, or refuses it and changes nothing. `now_ms` is the
@@ -287,6 +360,7 @@ impl Tree {
         let changed = after != before;
         if changed {
             self.nodes.insert(id.to_string(), after.clone());
+            self.note_node(id);
         }
         Ok((after, changed))
     }
@@ -311,9 +385,16 @@ impl Tree {
             let last = order.len().saturating_sub(1);
             let old = node.index.min(last);
             let new = index.min(last);
-            if new != old && old < order.len() {
-                let moved = order.remove(old);
-                order.insert(new.min(order.len()), moved);
+            let moved = new != old && old < order.len();
+            if moved {
+                let child = order.remove(old);
+                order.insert(new.min(order.len()), child);
+                self.note_order(OrderStep::Remove { parent: parent.into(), remove: id.into() });
+                self.note_order(OrderStep::Insert {
+                    parent: parent.into(),
+                    insert: id.into(),
+                    at: new,
+                });
             }
             self.reindex(parent);
             new != old
@@ -341,6 +422,7 @@ impl Tree {
         for value in &deleted {
             self.nodes.remove(value);
             self.children.remove(value);
+            self.note_deleted(value);
         }
         Ok(deleted)
     }
@@ -392,11 +474,14 @@ impl Tree {
             for value in old.iter().filter(|value| **value != folder) {
                 self.nodes.remove(value);
                 self.children.remove(value);
+                self.note_deleted(value);
             }
             self.children.remove(&folder);
+            self.note_order(OrderStep::Clear { clear: folder.clone() });
             if let Some(node) = self.nodes.get_mut(&folder) {
                 node.title = root_title;
             }
+            self.note_node(&folder);
             self.insert_import_nodes(&folder, 0, root_children, None, now_ms, &mut ids);
             let mut root_ids = vec![folder];
             if !rest.is_empty() {
@@ -573,8 +658,12 @@ impl Tree {
     /// caller reindexes the parent.
     fn insert_child(&mut self, node: Bookmark, index: usize) {
         let siblings = self.children.entry(node.parent.clone()).or_default();
-        siblings.insert(index.min(siblings.len()), node.id.clone());
+        let at = index.min(siblings.len());
+        siblings.insert(at, node.id.clone());
+        let (parent, id) = (node.parent.clone(), node.id.clone());
         self.nodes.insert(node.id.clone(), node);
+        self.note_order(OrderStep::Insert { parent, insert: id.clone(), at });
+        self.note_node(&id);
     }
 
     /// Takes `id` out of its parent's children; its later siblings close the gap.
@@ -582,7 +671,30 @@ impl Tree {
         if let Some(siblings) = self.children.get_mut(parent) {
             siblings.retain(|value| value != id);
         }
+        self.note_order(OrderStep::Remove { parent: parent.into(), remove: id.into() });
         self.reindex(parent);
+    }
+
+    // MARK: Journal (apply_with_delta)
+
+    fn note_node(&mut self, id: &str) {
+        if let Some(journal) = &mut self.journal
+            && journal.seen.insert(id.to_string())
+        {
+            journal.nodes.push(id.to_string());
+        }
+    }
+
+    fn note_deleted(&mut self, id: &str) {
+        if let Some(journal) = &mut self.journal {
+            journal.deleted.push(id.to_string());
+        }
+    }
+
+    fn note_order(&mut self, step: OrderStep) {
+        if let Some(journal) = &mut self.journal {
+            journal.order.push(step);
+        }
     }
 
     /// Every child of `parent` gets its position as its `index`.

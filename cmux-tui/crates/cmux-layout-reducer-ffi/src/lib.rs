@@ -3,6 +3,8 @@
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
+//! the bookmark mirror (`cmux_bookmark_mirror_*`, [`bookmark_mirror`]: the
+//! app's trees kept in Rust, each edit answered with its delta),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`) and agent cursor visibility
 //! (`agent_cursor_visibility`), the window focus machine (`cmux_focus_*`,
@@ -15,6 +17,7 @@ use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_layout};
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+pub mod bookmark_mirror;
 pub mod focus;
 pub mod sidebar_face;
 pub mod sidebar_mirror;
