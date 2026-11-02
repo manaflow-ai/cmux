@@ -35,8 +35,10 @@ first terminal frame. --profile stress seeds one priming launch with the standar
 STRESS session (scripts/cmux-next/perf-stress-session.py: 60 workspaces, the shown
 one 14 panes of 6 tabs with a terminal selected in each, 10 of them printing), so
 the measured launch restores 14 visible terminals; its runs wait for the first
-terminal frame. Per-pane launch marks (launch.visible_terminals_drawn, the LAST
-visible terminal's saved frame) are reported when the build has them.
+terminal frame. Its pages' local server is closed once the session is built, so
+every run restores the same pages with no server (like for like across runs). Per-pane launch marks (launch.visible_terminals_drawn, the LAST
+visible terminal's saved frame) are reported when the build has them: a run that
+showed a saved frame waits up to VISIBLE_GRACE_S more for it.
 
 Several tags run interleaved (A run 1, B run 1, A run 2, ...), so machine
 load affects them alike. Prints the load average and, per tag and mode, one
@@ -65,6 +67,9 @@ from bench_launch import account_home, finder_limits, limits_line, require_gui_s
 
 DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 FINAL_MARK = "first_terminal_frame"
+# The reopen number (#31621): every visible terminal's saved frame shown, the last pane's time.
+VISIBLE_MARK = "launch.visible_terminals_drawn"
+VISIBLE_GRACE_S = 1.5
 AGENT_MARK = "agent_pane.handshake_end"
 
 # Rows in launch order; a mark a build does not emit is left out.
@@ -865,7 +870,13 @@ def seed_stress(tag, scratch, timeout):
             raise SystemExit(f"tag {tag}: the seeding launch never drew a terminal")
         app_client(tag).close()  # the control socket answers
         socket_path = next(path for path in socket_candidates(tag) if os.path.exists(path))
-        summary = stress.Stress(stress.socket_rpc(socket_path)).build()
+        session = stress.Stress(stress.socket_rpc(socket_path))
+        try:
+            summary = session.build()
+        finally:
+            # The page server lives only in this process: close it now, so every measured run (this invocation's
+            # and a later one's, which finds the marker) restores the same pages with no server behind them.
+            session.close()
         print("BENCH-STRESS " + json.dumps(summary), flush=True)
     finally:
         prime.quit()
@@ -953,6 +964,10 @@ def one_run(tag, mode, timeout, profile=None):
     daemons = None
     try:
         reached = launch.wait_for(final, timeout, any_of=any_of)
+        if reached and "terminal.launch_frame_shown" in launch.marks:
+            # The last visible terminal's saved frame can land after the first live frame: wait briefly for it, so a
+            # run never drops the reopen number (a build without the per-pane mark waits this long and has none).
+            launch.wait_for(VISIBLE_MARK, VISIBLE_GRACE_S)
         daemons = read_daemons(tag)  # while the app runs: the daemons that served this launch
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
