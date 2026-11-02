@@ -334,7 +334,6 @@ test("a frame drawn before a slow attach shows the chat's listed title, harness 
   }
 });
 
-
 // Leo ask-5470c36d23: "EVERYTHING IS JUST SO DELAYED". A local chat's attach and
 // rows do not depend on another machine's status. The release timer simulates one slow
 // status reply in the same harness on base and head; the assertion is ordering, not a

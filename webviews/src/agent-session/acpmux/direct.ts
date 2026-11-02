@@ -2404,7 +2404,7 @@ export class AcpmuxDirectClient {
         .then((status) => {
           // A late read belongs only to this connection. A closed or replaced socket must not
           // replace the next connection's peer state or emit a connected snapshot.
-          if (this.closed || openingSocket !== this.socket) return;
+          if (this.closed || openingSocket !== this.socket || openingSocket.readyState !== WebSocket.OPEN) return;
           this.readPeers(status, peersSince);
           if (!this.opening && !this.snapshotHold) this.emit();
         });
