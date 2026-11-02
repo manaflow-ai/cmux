@@ -19,6 +19,8 @@ mod daemon_env;
 mod grant_cleared;
 #[path = "durable_agents/idle_adopted.rs"]
 mod idle_adopted;
+#[path = "durable_agents/late_hello_adoption.rs"]
+mod late_hello_adoption;
 #[path = "durable_agents/queue_edit_parts.rs"]
 mod queue_edit_parts;
 #[path = "durable_agents/queue_restore.rs"]
