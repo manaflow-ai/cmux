@@ -67,6 +67,7 @@ members = [
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-bookmarks-core",
     "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
@@ -138,6 +139,7 @@ default-members = [
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-bookmarks-core",
     "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
@@ -206,6 +208,7 @@ cmux-git = { path = "crates/cmux-git" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
+cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-panic-log = { path = "crates/cmux-panic-log" }
 cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }

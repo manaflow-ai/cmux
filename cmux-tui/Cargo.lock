@@ -1000,6 +1000,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-bookmarks-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -1773,6 +1782,7 @@ dependencies = [
  "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
+ "cmux-bookmarks-core",
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",

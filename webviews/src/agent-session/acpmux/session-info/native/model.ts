@@ -10,6 +10,9 @@ import type { SessionInfoSectionId } from "../sessionInfoState";
 /// How a row or a section's value reads: running rows draw a spinner, failed ones the error ink.
 export type NativeInfoTone = "running" | "waiting" | "failed" | "done" | "muted" | "accent";
 
+/// A clicked native row in page CSS pixels, used by existing page popovers.
+export type NativeInfoRect = { left: number; top: number; right: number; bottom: number };
+
 /// A button at a row's trailing edge (Stop, Reconnect, the limit's − and +).
 export type NativeInfoButton = {
   /// Its accessible name and tooltip; shown as text when it has no symbol.
@@ -25,10 +28,14 @@ export type NativeInfoRow = {
   /// An SF Symbol name.
   symbol?: string;
   title: string;
+  /// The row's existing harness mark, when it is an agent.
+  harness?: string;
   /// Dimmer text after the title on the same line (a command's folder, a subagent's prompt).
   detail?: string;
   /// A second line under the title.
   subtitle?: string;
+  /// Per-agent state marks in a workflow phase, in the page's current order.
+  marks?: readonly NativeInfoTone[];
   /// Right-aligned text (a time, a count, a state).
   trailing?: string;
   tone?: NativeInfoTone;
@@ -41,6 +48,14 @@ export type NativeInfoRow = {
   buttons?: readonly NativeInfoButton[];
   /// A native switch; the row's action requests the opposite value in the page.
   toggle?: boolean;
+  /// Terminal-theme color token, resolved by the native view's palette.
+  symbolColor?: string;
+  /// The context window's colored parts, already measured by the page.
+  segments?: readonly { share: number; color: string }[];
+  /// The row's overflow menu, with the same actions as the web row.
+  menu?: readonly NativeInfoButton[];
+  menuLabel?: string;
+  hover?: { title: string; detail?: string };
   /// The row's tooltip (a full path, a full prompt).
   help?: string;
 };
@@ -56,6 +71,8 @@ export type NativeInfoSection = {
   metaTone?: NativeInfoTone;
   /// 0...1: the meter beside the title (Context).
   meter?: number;
+  /// The context window's measured segments, drawn in its header's meter.
+  segments?: readonly { share: number; color: string }[];
   /// No title row: the rows alone (Environment heads the panel bare).
   bare?: boolean;
   /// Unfolded; a folded section shows its title row only.
@@ -64,6 +81,7 @@ export type NativeInfoSection = {
   foldable: boolean;
   /// The section's grip may send `move:<id>:<before-id>` (or `end`). The page owns the order.
   reorderable?: boolean;
+  reorderLabel?: string;
   rows: readonly NativeInfoRow[];
   /// A last row that lists more or fewer (Sources' View all N / Show fewer).
   more?: { label: string; action: string };
@@ -88,6 +106,9 @@ export type NativeSessionInfo = {
   title?: string;
   /// A subagent breadcrumb's back action.
   back?: string;
+  backLabel?: string;
+  /// Scroll the named section into view once for this request.
+  reveal?: { section: string; at: number };
   /// In the person's order (sectionOrder.ts), blocks first: where it runs, what it made, what it runs.
   sections: readonly NativeInfoSection[];
 };
@@ -116,19 +137,19 @@ function boundedId(id: string): string {
 /// stable across updates, e.g. `tasks.stop:<processId>`) and returns the id the row sends, bounded so
 /// the App can always hand it back.
 export class NativeInfoActions {
-  private readonly runs = new Map<string, () => unknown>();
-  add(id: string, run: () => unknown): string {
+  private readonly runs = new Map<string, (rect?: NativeInfoRect) => unknown>();
+  add(id: string, run: (rect?: NativeInfoRect) => unknown): string {
     const key = boundedId(id);
     this.runs.set(key, run);
     return key;
   }
   /// Runs the action the App's click named; false when this model has none by that id (an update
   /// raced the click).
-  run(id: string): boolean {
+  run(id: string, rect?: NativeInfoRect): boolean {
     const run = this.runs.get(id);
     if (!run) return false;
     void Promise.resolve()
-      .then(run)
+      .then(() => run(rect))
       .catch(() => undefined);
     return true;
   }

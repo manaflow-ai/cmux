@@ -266,7 +266,7 @@ import Foundation
     private static func model(of provisional: ProvisionalPane, in store: DaemonStore) -> PaneModel {
         if let model = store.provisionalPanes[provisional.paneID] { return model }
         let tab = provisional.tab ?? TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.tabID),
-                                                 terminalID: TerminalID(rawValue: provisional.terminalID))
+                                                 terminalID: TerminalID(rawValue: provisional.terminalID), kind: .pty, cwd: provisional.cwd)
         let model = PaneModel(PaneSnapshot(id: provisional.handle, resourceID: ResourceID(rawValue: provisional.paneID),
                                            tabs: [tab]))
         store.provisionalPanes[provisional.paneID] = model
