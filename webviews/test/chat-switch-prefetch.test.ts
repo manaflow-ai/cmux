@@ -138,7 +138,9 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
       port: 0,
       hostname: "127.0.0.1",
       fetch(request, server) {
-        return server.upgrade(request, { data: { page: currentPage } }) ? undefined : new Response("acpmux", { status: 426 });
+        return server.upgrade(request, { data: { page: currentPage } })
+          ? undefined
+          : new Response("acpmux", { status: 426 });
       },
       websocket: {
         message(ws, raw) {
