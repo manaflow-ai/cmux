@@ -41,7 +41,25 @@ extension CEFTab {
         return PageBackground.themeARGB(in: container)
     }
 
-    /// The committed document painted content (`CEFFirstPaintBridge`), or its
+    /// The committed document painted content (`CEFFirstPaintBridge`). The paint signal comes before that frame is
+    /// on screen, so the base must change only to a color the page itself has: the document's own background is
+    /// read first (`pageBackdropScript`) and the document settles on it, white only for a page with no background
+    /// (BROWSER VIDEO F4: settling on white at once showed the whole page area white for 3 frames before a dark
+    /// page's first frame). A failed read, or the pageBackdrop tunable off, settles as before; a navigation in
+    /// between leaves the next document to its own paint.
+    func documentDidPaint() {
+        guard pastFirstRealPage, !documentSettled else { return }
+        guard BrowserResizeTunables.pageBackdrop.value, browserID != nil, !isClosed else { return documentDidSettle() }
+        let document = pageBackdropDocument
+        Task { [weak self] in
+            let value = try? await self?.evaluate(Self.pageBackdropScript, world: .page, gesture: .cmux)
+            guard let self, document == self.pageBackdropDocument, !self.isClosed else { return }
+            if let value, let argb = Self.backdropARGB(from: value) { self.pageBackdropARGB = argb }
+            self.documentDidSettle()
+        }
+    }
+
+    /// The committed document painted content (`documentDidPaint`), or its
     /// load ended with nothing painted: it owns the page area from now on, so
     /// the base stops standing in for it.
     func documentDidSettle() {
