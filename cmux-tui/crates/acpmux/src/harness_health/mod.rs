@@ -206,8 +206,11 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
         "codex" if program.contains("codex") && home_named("CODEX_HOME") => {
             // A project config can select a provider/profile the home-level probe cannot see.
             // Leave that target inconclusive so a stale OpenAI refusal never blocks its chat.
-            if cwd.is_some_and(codex_project_config) {
-                return None;
+            if let Some(cwd) = cwd {
+                match codex_project_config(cwd) {
+                    None | Some(true) => return None,
+                    Some(false) => {}
+                }
             }
             let env = crate::login_env::effective_for(Some("codex"), &s.env);
             match codex_provider::provider_auth(&env) {
@@ -287,15 +290,16 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
 /// Whether a Codex launch can inherit a project configuration from `cwd` or
 /// one of its ancestors. The home-level login probe cannot account for a
 /// provider selected by any of those files.
-fn codex_project_config(cwd: &Path) -> bool {
-    let mut dir = Some(cwd);
+fn codex_project_config(cwd: &Path) -> Option<bool> {
+    let cwd = std::fs::canonicalize(cwd).ok()?;
+    let mut dir = Some(cwd.as_path());
     while let Some(current) = dir {
         if current.join(".codex/config.toml").is_file() {
-            return true;
+            return Some(true);
         }
         dir = current.parent();
     }
-    false
+    Some(false)
 }
 
 /// Whether Codex keeps its login in `<CODEX_HOME>/auth.json`, so `codex
@@ -833,7 +837,31 @@ mod tests {
         std::fs::create_dir_all(&nested).unwrap();
         std::fs::write(root.join(".codex/config.toml"), "model_provider = \"local\"\n").unwrap();
 
-        assert!(codex_project_config(&nested));
+        assert_eq!(codex_project_config(&nested), Some(true));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_project_config_resolves_symlinked_directories_and_unknown_paths() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "amx-codex-project-symlink-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let project = root.join("project");
+        let source = project.join("src/deep");
+        let alias = root.join("alias");
+        std::fs::create_dir_all(project.join(".codex")).unwrap();
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(project.join(".codex/config.toml"), "model_provider = \"local\"\n").unwrap();
+        symlink(project.join("src"), &alias).unwrap();
+
+        assert_eq!(codex_project_config(&alias.join("deep")), Some(true));
+        assert_eq!(codex_project_config(&root.join("missing")), None);
 
         let _ = std::fs::remove_dir_all(root);
     }
