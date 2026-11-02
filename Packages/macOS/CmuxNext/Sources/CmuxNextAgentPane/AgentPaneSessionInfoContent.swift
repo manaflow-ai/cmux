@@ -726,13 +726,11 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
         for item in line.menu {
-            let menuItem = NSMenuItem(title: item.label, action: #selector(menuItemPressed(_:)), keyEquivalent: "")
-            menuItem.target = self
-            menuItem.representedObject = item.action
+            // The row runs the line's own session-info action, the one its buttons run (`ink.act`).
+            let action = item.action
+            let menuItem = AgentPaneMenuAction.item(item.label, symbol: item.symbol ?? "") { [weak self] in self?.runMenuAction(action) }
+            menuItem.image = item.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: item.label) }
             menuItem.isEnabled = item.disabled != true
-            if let symbol = item.symbol {
-                menuItem.image = NSImage(systemSymbolName: symbol, accessibilityDescription: item.label)
-            }
             menu.addItem(menuItem)
         }
         menu.delegate = self
@@ -745,8 +743,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         ink.flush()
     }
 
-    @objc private func menuItemPressed(_ sender: NSMenuItem) {
-        guard let action = sender.representedObject as? String else { return }
+    private func runMenuAction(_ action: String) {
         ink.act(action, ink.rect(self))
         ink.flush()
     }
