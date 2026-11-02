@@ -62,6 +62,10 @@ struct ColdBrowserFocusKeysTests {
             let content = try #require(controller.workspaceContent)
             let ordered = terminals().sorted { $0.pane.view.frame.minX < $1.pane.view.frame.minX }
             let left = ordered[0].pane, leftTab = ordered[0].tab, leftSurface = ordered[0].surface, right = ordered[1].pane
+            let leftEntry: TerminalEntry = try #require({
+                guard case .terminal(let entry)? = left.currentContent else { return nil }
+                return entry
+            }(), "the left terminal has no live entry")
             PaneHandlers.focus(left.layoutPaneID, in: content)
             try await PinnedPageTests.until({ controller.focus.state.resolved == .terminal(pane: left.paneKey, tab: leftTab)
                     && (window.firstResponder as? NSView)?.isDescendant(of: left.view) == true },
@@ -105,8 +109,16 @@ struct ColdBrowserFocusKeysTests {
 
             // The page comes; the keys went to it (or wait for it), never to the left terminal's shell.
             try await PinnedPageTests.until({ services.cache.existingBrowser(browser) != nil }, report: { "the browser tab's page never came: \(describe())" })
-            try await Task.sleep(for: .seconds(2))
+            // Use the same ordered terminal IO as the key path for an output-driven barrier. The barrier command
+            // is admitted after any queued key bytes; waiting for its echo proves the PTY processed those bytes
+            // before checking that the browser's line did not reach this shell. A control-connection read alone
+            // does not establish that ordering because attachment input is fire-and-forget.
+            let barrier = "n5x-barrier-\(nonce)"
+            await leftEntry.io.write(Data("echo \(barrier)\r".utf8))
+            let barrierSeen = try? await connection.request(
+                WaitForTextRequest(surface: leftSurface, pattern: barrier, timeoutMs: 20_000), timeout: .seconds(25))
             let screen = (try? await connection.request(ReadScreenRequest(surface: leftSurface), timeout: .seconds(5)))?.text ?? "unreadable"
+            #expect(barrierSeen?.matched == true, "the left shell never reached the ordered barrier: \(screen)")
             #expect(!screen.contains("n5x\(nonce)"), "keys typed for the browser tab reached the terminal that had the keyboard: \(screen)\nkey paths: \(paths)")
         }
     }

@@ -28,7 +28,8 @@ public final class AgentUnsentDrafts {
     private var undelivered: [String: String]
     /// The file exists but could not be read: the first save that runs sets it aside first.
     private let unreadable: UnreadableFile
-    /// The window tab `key` shows in, for its new chat's leftover (``leave(_:inWindow:)``).
+    /// The window tab `key` shows in (its workspace's window), for its new chat's leftover
+    /// (``leave(_:inWindow:)``): the window's next New Tab page takes it (cmux#32276).
     public var windowOfTab: (String) -> String? = { _ in nil }
 
     /// - Parameter files: The app's state files (`AppServices`), so the file has one writer.
@@ -102,7 +103,9 @@ public final class AgentUnsentDrafts {
         set(drafts[slot].map { $0 + "\n\n" + text } ?? text, for: slot)
     }
 
-    /// What new chats of `window` left, for the New Tab page about to show there. It stays in the
+    /// What new chats of `window` left, for the New Tab page about to show there: the page's field
+    /// shows it as a draft. A Cmd-T or split page reads it as the app makes it (`NewTabPage.open`,
+    /// `NewTabPage.split`); any other reads it through ``AgentPaneModel/newTabForPage``. It stays in the
     /// slot until a page reports it showed it (``tookLeftover(_:inWindow:)``): a page that never shows (its
     /// tab failed to open) leaves it for the next one.
     public func leftover(inWindow window: String) -> String? { drafts[Self.leftoverKey(window)] }

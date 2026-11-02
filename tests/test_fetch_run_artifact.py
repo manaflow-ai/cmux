@@ -185,14 +185,14 @@ class FetchRunArtifact(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertFalse(dest.exists())
 
-    def test_a_range_that_never_finishes_fails_within_the_budget(self):
+    def test_a_range_that_never_finishes_fails_instead_of_hanging(self):
+        # The failure names the stalled range (its tries ran out), not the join's
+        # "still running past the deadline", so the fetch ended on its own bound.
         fake = self.fake()
         size = -(-len(self.blob) // 4)
         fake.stall_once.update({size, 2 * size, 3 * size})
-        started = time.monotonic()
-        with self.assertRaises(fra.Failed):
+        with self.assertRaisesRegex(fra.Failed, r"range \d+-\d+ stopped at byte"):
             self.run_fetch(fake, attempts=1, budget=10.0)
-        self.assertLess(time.monotonic() - started, 15)
 
     def test_backend_ids_come_from_the_runtime_token(self):
         self.assertEqual(fra.backend_ids(TOKEN), ("run-backend", "job-backend"))

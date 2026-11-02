@@ -6386,10 +6386,12 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
     if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.build_only != 'true'
     continue-on-error: true
+    # The environment build-nightly-app gives its own in-job Sentry upload.
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && fromJSON(vars.RUNNER_POOLS).linux_4 || 'ubuntu-24.04' }}
     timeout-minutes: 45
     steps:
       - *checkout-publication-tooling-a
@@ -7806,7 +7808,7 @@ jobs:
           SPAN_SINCE: ${{ steps.span.outputs.since }}
           # --pr-media: each highlight's picture from its pull request's body (read only).
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/ci/nightly-steps/release-notes-build-sign.sh
+        run: bash scripts/ci/nightly-steps/release-notes-sign.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-notes
