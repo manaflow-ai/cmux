@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 
 from workflow_guard_groups import (
     GROUPS, GUARD_WORKFLOW, PATH_OWNERS, ROUTING_POLICY_PATHS,
@@ -182,7 +183,31 @@ def classify_feat(paths: list[str]) -> tuple[str, ...]:
     return tuple(name for name in FEAT_ROUTED if name in selected)
 
 
+# What the workflow guard profile reads: the workflows and the rest of .github/ (runners.json, warm-sources.json),
+# the guard tests, and scripts/ci. A push to feat-cmux-next judged only against the previous tip stays green while a
+# red persists, so the guard profile sat red on 18 steps of the branch, unseen, until #31366. A push that touches
+# these paths is judged on its own instead (guards_new_reds.py --tip): every red step at the tip fails the job. A
+# push that touches none keeps the comparison with the previous tip, which still names the push that turned a step red.
+FEAT_PUSH_TIP_INPUTS = (".github/", "tests/", "scripts/ci/")
+
+
+def feat_push_judges_tip(paths: list[str]) -> bool:
+    """Whether a feat-cmux-next push with these changed paths is judged at its tip (no base comparison).
+
+    No diff (a new branch, an unreadable previous tip) is judged at its tip too.
+    """
+    paths = [path for path in paths if path]
+    return not paths or any(path.startswith(FEAT_PUSH_TIP_INPUTS) for path in paths)
+
+
 def main() -> None:
+    if len(sys.argv) == 3 and sys.argv[1] == "--feat-push-tip":
+        try:
+            paths = Path(sys.argv[2]).read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError):
+            paths = []
+        print("true" if feat_push_judges_tip([path.strip() for path in paths]) else "false")
+        return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--event-name", required=True)
     parser.add_argument("--macos", required=True)

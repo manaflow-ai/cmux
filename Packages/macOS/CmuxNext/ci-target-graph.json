@@ -1915,6 +1915,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalTests",
       "targets": [
         "CmuxNextCompat",
+        "CmuxNextDesign",
         "CmuxNextTerminal",
         "CmuxNextTestSupport"
       ],

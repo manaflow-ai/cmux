@@ -324,7 +324,9 @@ impl ProcessTable {
             None => 0,
         };
         let end = start.saturating_add(limit).min(self.processes.len());
-        Ok((self.processes[start..end].to_vec(), end < self.processes.len()))
+        // start <= len (an ID's slot + 1) and start <= end <= len, so the range is always in bounds.
+        let window = self.processes.get(start..end).unwrap_or_default().to_vec();
+        Ok((window, end < self.processes.len()))
     }
 
     /// Every running process ends `lost` for `reason`; returns them.
@@ -333,7 +335,8 @@ impl ProcessTable {
         let mut lost = Vec::new();
         // The ordered slots retain the original oldest-first notification order.
         for index in std::mem::take(&mut self.running) {
-            let p = &mut self.processes[index];
+            // A running slot always names a row (`insert`); a missing one has nothing to end.
+            let Some(p) = self.processes.get_mut(index) else { continue };
             self.stopping.remove(&p.id);
             p.state = ProcessState::Lost;
             p.ended_at = Some(at);
@@ -379,12 +382,13 @@ fn process_page_values(
         let mut bytes = row.to_string().len();
         if bytes.saturating_add(cursor_bytes).saturating_add(64) > budget {
             let full_bytes = bytes;
+            // `get` serializes a missing field as null, as an index did.
             row = json!({
-                "id": row["id"], "sessionId": row["sessionId"],
-                "toolCallId": row["toolCallId"], "taskId": row["taskId"],
-                "harness": row["harness"], "command": "",
-                "startedAt": row["startedAt"], "endedAt": row["endedAt"],
-                "state": row["state"], "origin": row["origin"],
+                "id": row.get("id"), "sessionId": row.get("sessionId"),
+                "toolCallId": row.get("toolCallId"), "taskId": row.get("taskId"),
+                "harness": row.get("harness"), "command": "",
+                "startedAt": row.get("startedAt"), "endedAt": row.get("endedAt"),
+                "state": row.get("state"), "origin": row.get("origin"),
                 "omitted": {"reason": "too_large", "bytes": full_bytes}
             });
             bytes = row.to_string().len();
@@ -574,6 +578,19 @@ impl Hub {
     pub(super) fn running_processes_read(&self, session: &Session) -> usize {
         let table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
         table.running.len()
+    }
+
+    /// The heaviest known build or test the session's running background processes run
+    /// (`host_load::classify_command`), from a table this daemon has read already, as
+    /// [`Self::running_processes_read`].
+    pub(super) fn running_heavy_read(&self, session: &Session) -> Option<crate::host_load::Heavy> {
+        let table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
+        table.running.iter().filter_map(|&at| table.processes.get(at)).fold(None, |best, p| {
+            match crate::host_load::classify_command(&p.command) {
+                Some(heavy) => crate::host_load::heavier(best, heavy),
+                None => best,
+            }
+        })
     }
 
     /// `_acpmux/process/list`: the session's processes; without one, those of
