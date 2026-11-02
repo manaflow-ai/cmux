@@ -59,6 +59,9 @@ extension LayoutRootView {
     /// Holds `work` until `pane`, which left the layout in a close that still springs, goes when the motion lands (or
     /// comes back), then runs it after that frame's commit. False, holding nothing, when `pane` is not closing.
     /// What a closing pane showed is torn down then, not in the motion's frames (RESIZE VIDEOS F1).
+    /// Whether `pane` left the layout in a close whose motion has not landed (its host waits, hidden, for the landing).
+    public func isClosing(_ pane: PaneID) -> Bool { context.isClosing(pane) }
+
     public func afterClosing(_ pane: PaneID, id: String, _ work: @escaping @MainActor () -> Void) -> Bool {
         context.afterClosing(pane, id: id, work)
     }

@@ -394,7 +394,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// got a new view leaves the window. Live views come from `existingContent(for:)`, the one
     /// lookup of every content kind, so a kind that parks (a page tab) is never dropped as closed.
     private func dropClosedParked(_ snapshot: Snapshot) {
-        guard !view.parked.isEmpty else { return }
+        guard !view.parked.isEmpty, workspace?.layoutView.isClosing(layoutPaneID) != true else { return } // a closing pane's views go at its landing (F1)
         let live = Set(snapshot.items.compactMap { existingContent(for: $0.id.rawValue)?.view }.map(ObjectIdentifier.init))
         view.prunePark { live.contains(ObjectIdentifier($0)) }
     }
@@ -430,7 +430,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     // MARK: Content
 
     func showSelected() {
-        guard !isSuspended else { return } // `resume`'s apply shows the selection then
+        guard !isSuspended, workspace?.layoutView.isClosing(layoutPaneID) != true else { return } // `resume`'s apply shows the selection then; a closing pane keeps what it shows until its landing tears it down (F1)
         let key = stripModel.selectedID?.rawValue, shownBefore = currentTabKey
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
