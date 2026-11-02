@@ -161,9 +161,15 @@ pub fn call(op: &str, request: &Value) -> Result<Value, i32> {
             Ok(json!({"frame": frame}))
         }
         "raw_id" => Ok(json!({"id": request.get("value").and_then(raw_id)})),
+        // A pane's own op without a pane.
+        op if PANE_OPS.contains(&op) => Err(ERR_NULL),
         _ => Err(ERR_UNKNOWN_OP),
     }
 }
+
+/// The ops of [`Pane::call`]: without a pane they answer [`ERR_NULL`].
+pub const PANE_OPS: [&str; 6] =
+    ["add", "sent", "contains", "is_unstarted", "question_keys", "is_deny"];
 
 /// The `policy` op's reply.
 pub fn policy_json() -> Value {
