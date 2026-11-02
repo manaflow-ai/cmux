@@ -50,7 +50,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     private let driver: TerminalAttachDriver<TerminalAttachment>
     private let creatingInput: CreatingTerminalInput?
     /// The target's surface id for the typing probe (0: not resolved at init, a terminal still being made).
-    private let probeSurface: UInt64
+    let probeSurface: UInt64
     /// The burst bench's grid echo and first-output marks (nil: none; a Release build compiles them out).
     private let burstTrace: BurstTrace?
     /// The app's grid sender (`AppServices.resizes`): next frame, one in flight, a final grid now.
@@ -67,7 +67,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// `resizes`: the app's grid sender (``ResizeCoordinator``), from its composition root.
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
          creatingInput: CreatingTerminalInput? = nil,
-         burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
+         burstTrace: BurstTrace? = nil, launchTerminals: TerminalLaunchTimeline? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         self.resizes = resizes
         probeSurface = target.attachment.surface.rawValue
@@ -100,7 +100,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             onReattach: { attempt in
                 logger.info("terminal \(surface) fell behind; reattaching for a fresh replay (open \(attempt))")
             },
-            observer: InputJournal.shared.isEnabled ? InputJournal.attachObserver(surface: String(surface)) : nil,
+            observer: TerminalLaunchTimeline.observing(launchTerminals, InputJournal.shared.isEnabled ? InputJournal.attachObserver(surface: String(surface)) : nil, surface: surface) { if case .replayDelivered = $0, case .live = $1.phase { true } else { false } },
             cursorDefault: target.cursorDefault,
             backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed); if policyBlocked() { throw CancellationError() } },
             // Marked where the grid really goes to the PTY: the machine sends nothing for a resize

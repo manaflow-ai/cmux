@@ -20,8 +20,9 @@ public struct TerminalTimings {
     /// "first live terminal frame" mark.
     public static var onContentApplied: (() -> Void)?
 
-    static func contentApplied() {
+    static func contentApplied(_ session: TerminalSession) {
         onContentApplied?()
+        session.launchMark?(.liveContent)
     }
 
     /// Phases of the libghostty runtime's one-time start (`ghostty_init`,

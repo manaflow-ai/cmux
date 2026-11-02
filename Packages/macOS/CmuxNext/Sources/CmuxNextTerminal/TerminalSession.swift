@@ -151,6 +151,8 @@ public final class TerminalSession {
     /// True once the current surface received a replay or output; a later
     /// replay then needs a fresh surface.
     private(set) var surfaceHasContent = false
+    /// The launch timeline's marks of this terminal while it waits for them (``TerminalLaunchTimeline``).
+    var launchMark: ((TerminalLaunchTimeline.Mark) -> Void)?
     let frameHold = TerminalFrameHold()
     /// READY snapshots restored in place, and surfaces swapped in for a
     /// later VT replay (diagnostics: a snapshot attach never swaps).
@@ -398,7 +400,7 @@ public final class TerminalSession {
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
             frameHold.contentQueued()
-            TerminalTimings.contentApplied()
+            TerminalTimings.contentApplied(self)
         case .kittyReplay(let replay):
             // GhosttyNextKit restores Kitty graphics through GHOSTSNP snapshots
             // (terminal-snapshot-v1), not the desktop fork's kitty replay. Until
@@ -409,7 +411,7 @@ public final class TerminalSession {
             surfaceView.lane?.processOutput(replay.vt)
             surfaceHasContent = true
             frameHold.contentQueued()
-            TerminalTimings.contentApplied()
+            TerminalTimings.contentApplied(self)
         case .snapshot(let data, let phase):
             // The same surface takes the owner's state: no swap.
             let restored = await restoreSnapshot(data, phase: phase)
@@ -417,7 +419,7 @@ public final class TerminalSession {
             restoredSnapshots += 1
             surfaceHasContent = true
             frameHold.contentQueued()
-            TerminalTimings.contentApplied()
+            TerminalTimings.contentApplied(self)
         case .output(let data):
             TypingLatencyProbe.shared.mark(.outputReceived, source: io.typingProbeSource,
                                            next: surfaceView.lane.map { .object(ObjectIdentifier($0)) })
@@ -428,7 +430,7 @@ public final class TerminalSession {
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
             frameHold.contentQueued()
-            TerminalTimings.contentApplied()
+            TerminalTimings.contentApplied(self)
         case .resize(let columns, let rows):
             guard columns > 0, rows > 0 else { return }
             await applyCanonicalGrid(TerminalGridSize(columns: columns, rows: rows))

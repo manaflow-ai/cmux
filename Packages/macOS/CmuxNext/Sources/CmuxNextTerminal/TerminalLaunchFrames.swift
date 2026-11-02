@@ -146,6 +146,7 @@ public final class TerminalLaunchFrames {
               content.window.map({ abs(CGFloat(frame.scale) - $0.backingScaleFactor) < 0.01 }) ?? true,
               TerminalLaunchFrame(frame.image).show(on: session) else { return false }
         reveal.release(content)
+        session.launchMark?(.savedFrame)
         return true
     }
 

@@ -146,7 +146,7 @@ final class AppControl {
                 .value(DebugMotion.handle(call.params, services, commitProbe: probe))
             },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
-            .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
+            .mainActor("debug.timings") { [weak services] call in .value(DebugTimings.handle(call.params, launchTerminals: services?.launchTerminals)) },
             // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).
             .mainActor("debug.tab_switch") { call in .value(DebugTabSwitch.timer.handle(call.params, key: "switches")) },
             // Each pane focus move's own time: intent to settled, and to the next frame (perf-gate.py pane_focus).

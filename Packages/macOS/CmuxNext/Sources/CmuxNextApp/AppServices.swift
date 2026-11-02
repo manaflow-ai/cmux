@@ -527,6 +527,7 @@ final class AppServices {
     let agentPaneStateLoss: AgentPaneStateLoss
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
+    let launchTerminals = TerminalLaunchTimeline() // each launch terminal's frames and link (`debug.timings`)
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
     let vscodeServeWeb = VSCodeServeWebService(
         planner: VSCodeServeWebLaunchPlanner(homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
