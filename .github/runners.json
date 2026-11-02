@@ -190,7 +190,7 @@
     },
     "cmux-next-cua-helper-identity.yml#helper-identity": {
       "class": "macos-runtime-tests",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
     "cmux-next-daemon-macos-shadow.yml#cmux-next-daemon-macos-shadow": {
       "class": "macos-runtime-tests",
@@ -223,7 +223,7 @@
     },
     "cmux-next-shell-integration.yml#zsh-head-watch": {
       "class": "macos-runtime-tests",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
     "cmux-next-source-archive.yml#archive": {
       "class": "apple-app-build",
