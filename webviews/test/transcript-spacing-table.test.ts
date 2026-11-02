@@ -127,7 +127,18 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
       const glyphs = actions ? [...actions.querySelectorAll<SVGElement>("button svg")].filter(shown) : [];
       const buttons = actions ? [...actions.querySelectorAll<HTMLElement>("button")].filter(shown) : [];
       const glyph = glyphs[0]?.getBoundingClientRect() ?? null;
-      const inboxes = everyLine("inbox thread");
+      /** The first line of the element holding `text`, only inside a row of kind `kind` (its
+       * `acpmux-<kind>` class): a mark found in the wrong row kind measures as missing. */
+      const lineIn = (text: string, kind: string) => {
+        const element = holding(text);
+        return element?.closest(`.acpmux-${kind}`) ? (lines(element)[0] ?? null) : null;
+      };
+      const inboxes = everyLine("inbox thread").filter((line) =>
+        [...document.querySelectorAll(".acpmux-laneNoticeBatch")].some((row) => {
+          const box = row.getBoundingClientRect();
+          return line.top >= box.top && line.bottom <= box.bottom;
+        }),
+      );
       const prompt = bubble("Hand the three polish lanes");
       /** The drawn lines of the transcript row that holds `text`, top to bottom. */
       const rowLines = (text: string) => lines(holding(text)?.closest(".acpmux-row"));
@@ -135,8 +146,8 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
       const sends = rowLines("Take the one-line row pitch");
       const short = paragraph("Briefs are out");
       const commands = rowLines("gh pr checks 2210").length ? rowLines("gh pr checks 2210") : rowLines("Checked #2210");
-      const live = lineOf("Sending message to");
-      const waiting = lineOf("2 messages from 2 sessions");
+      const live = lineIn("Sending message to", "thinking");
+      const waiting = lineIn("2 messages from 2 sessions", "pendingMessages");
 
       const diff = (a: number | null | undefined, b: number | null | undefined) =>
         a == null || b == null ? null : Math.round((b - a) * 100) / 100;

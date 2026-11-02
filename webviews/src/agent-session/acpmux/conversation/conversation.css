@@ -172,14 +172,16 @@
 .cv-user__body {
   display: contents;
 }
-/* A prompt's bubble: a small radius, and text inset evenly, 12px from each side (8px of padding
-   plus the line's half-leading above and below). model.ts measures it. Its look is the glass rule
-   below. */
+/* A prompt's bubble, as ChatGPT and Claude draw it (leo-workspace design/transcript-spacing.md
+   "Prompt bubble"; transcriptSpacing.ts BUBBLE): one line is 44 tall (chatgpt.com 44, claude.ai 45),
+   so the block padding is what the line leaves, (44 - line) / 2, at least the 4 base; 16 at the
+   sides (both apps); the cards' 12 radius (claude.ai 12). Was 8 by 12 with a 10 radius (38.75 tall).
+   model.ts measures it. Its look is the glass rule below. */
 .cv-user__bubble {
   box-sizing: border-box;
   max-width: 70%;
-  padding: var(--grid-gap) var(--grid-cards-padding);
-  border-radius: 10px;
+  padding: max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2) calc(4 * var(--grid-base));
+  border-radius: var(--grid-cards-radius);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);

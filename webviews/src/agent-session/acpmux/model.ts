@@ -1,3 +1,4 @@
+import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
   gridLength,
@@ -1070,9 +1071,10 @@ export type ConversationLayout = {
 /// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
 const metrics = () => currentChatMetrics();
-/// Vertical padding of a user bubble (`.cv-user__bubble`).
-/// The bubble's vertical padding (`.cv-user__bubble`: `--grid-gap` above and below), scaled per pass.
-const userBubblePadding = () => 2 * gridLength("gap") * chromeScale;
+/// The bubble's vertical padding, both sides (`.cv-user__bubble`): what its line leaves of a 44px
+/// one-line bubble (transcriptSpacing.ts `BUBBLE.oneLine`), at least the 4px base each side.
+const userBubblePadding = () =>
+  2 * Math.max(gridLength("base") * chromeScale, (BUBBLE.oneLine * chromeScale - metrics().lineHeight) / 2);
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
 const USER_STATUS_HEIGHT = 20;
 /// The transcript's rhythm (`--cv-meta-gap`, `--cv-meta-row`, `--cv-message-gap` and `--cv-turn-gap`
@@ -1231,7 +1233,7 @@ const chromeHeight = (row: AcpmuxRow, _actions: boolean) =>
     : 0; // Reply controls overlay the container gap.
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;
-const userBubbleSides = () => 2 * gridLength("cards-padding") * chromeScale;
+const userBubbleSides = () => 2 * BUBBLE.paddingInline * chromeScale;
 /// Space between a row's markdown blocks, the list indent and the quote's bar and padding.
 const blockGap = () => TRANSCRIPT_INNER_GAP * chromeScale;
 const LIST_INDENT = 28;

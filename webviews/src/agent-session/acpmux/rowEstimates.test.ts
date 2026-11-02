@@ -25,6 +25,7 @@ import { turnView } from "./conversation/turns";
 import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
 import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "./transcriptGrid";
+import { BUBBLE } from "./transcriptSpacing";
 
 const reply = (id: string, text: string) => ({ id, version: 1, at: 0, kind: "assistant", text });
 // A footer carries its answer's text, for Copy (conversation/turns.ts), so the estimate never reads it.
@@ -338,23 +339,24 @@ test("a Chief's waiting steer keeps Send now in its existing action row", () => 
 });
 
 // A long prompt opens collapsed (conversation/UserBubble.tsx, promptCollapse.ts): its first ten
-// lines over the 24px Show more line, inside the bubble's 16px of padding, with its 28px hover row
-// under it and the 8px message gap. Estimated any taller, the row shrinks once drawn and the
-// rows below jump up.
+// lines over the 24px Show more line, inside the bubble's block padding (what a 44px one-line
+// bubble leaves its line, transcriptSpacing.ts BUBBLE), with its 28px hover row under it and the
+// 8px message gap. Estimated any taller, the row shrinks once drawn and the rows below jump up.
 // Before: a prompt was estimated at its whole text, 2,000 lines tall.
 test("a 2,000-line prompt is estimated at its collapsed height, at most ten lines", () => {
   const { lineHeight } = currentChatMetrics();
+  const padding = BUBBLE.oneLine - lineHeight;
   const text = Array.from({ length: 2000 }, (_, index) => `line ${index + 1}`).join("\n");
   const [long] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
-  expect(long).toBeCloseTo(16 + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT, 5);
-  expect(long!).toBeLessThan(16 + 10.5 * lineHeight + 24 + 28 + 8);
+  expect(long).toBeCloseTo(padding + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT, 5);
+  expect(long!).toBeLessThan(padding + 10.5 * lineHeight + 24 + 28 + 8);
 });
 
 test("a prompt of ten lines or fewer is estimated whole, with no Show more line", () => {
   const { lineHeight } = currentChatMetrics();
   const text = Array.from({ length: 3 }, (_, index) => `line ${index + 1}`).join("\n\n");
   const [short] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
-  expect(short!).toBeLessThan(16 + COLLAPSED_PROMPT_LINES * lineHeight + 28 + 8);
+  expect(short!).toBeLessThan(BUBBLE.oneLine - lineHeight + COLLAPSED_PROMPT_LINES * lineHeight + 28 + 8);
 });
 
 // A pasted block (`pasted` ranges, the chip in UserBubble.tsx) is one chip line, however long the
@@ -366,7 +368,7 @@ test("a prompt with a 2,300-line paste is its typed line and one chip", () => {
   const text = `${typed}\n${paste}`;
   const pasted = [{ start: typed.length + 1, end: text.length }];
   const [height] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, pasted }]);
-  expect(height).toBeCloseTo(16 + lineHeight + PASTE_CHIP_HEIGHT, 5);
+  expect(height).toBeCloseTo(BUBBLE.oneLine + PASTE_CHIP_HEIGHT, 5);
 });
 
 // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx), so it is
