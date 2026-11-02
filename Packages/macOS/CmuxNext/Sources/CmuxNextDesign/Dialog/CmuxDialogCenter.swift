@@ -114,6 +114,23 @@ public final class CmuxDialogCenter {
         entries[id]?.view?.handle(key, modifiers: modifiers) ?? false
     }
 
+    /// Some dialog is on screen: one read, so every key-down can skip the dialog lookup.
+    public var showsDialog: Bool { entries.values.contains { $0.view != nil } }
+
+    /// A key-down that missed the dialog blocking keys in `host` (its overlay did not have the
+    /// keyboard): the dialog keyboard answers it (`CmuxDialogKeys`: Return presses the default
+    /// button, Tab moves focus), and the view under the dialog never gets it (QA chrome-parity-v2-1:
+    /// a Return and a typed line under the paste confirm reached the terminal it blocks). Command and
+    /// Control chords keep their routes, Escape has the caller's missed-modal route, and a key while
+    /// `keyWindow`'s keyboard is in the dialog itself is AppKit's to deliver. True when it took the key.
+    public func answersMissedKey(_ event: NSEvent, in host: NSWindow, focusedArea: NSView?, keyWindow: NSWindow) -> Bool {
+        guard event.modifierFlags.isDisjoint(with: [.command, .control]), event.keyCode != 53,
+              let id = dialogBlockingKeys(in: host, focusedArea: focusedArea), let view = entries[id]?.view else { return false }
+        if let responder = keyWindow.firstResponder as? NSView, responder === view || responder.isDescendant(of: view) { return false }
+        if let key = CmuxDialogView.key(event) { view.handle(key, modifiers: CmuxDialogView.modifiers(event)) }
+        return true
+    }
+
     /// Ends dialog `id` as its cancel answer (tab closed, app quitting,
     /// the asking page navigated away).
     @discardableResult
