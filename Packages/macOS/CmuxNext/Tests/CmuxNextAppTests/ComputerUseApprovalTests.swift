@@ -1,0 +1,422 @@
+import CryptoKit
+import Darwin
+import Foundation
+import Testing
+@testable import CmuxNextComputerUse
+@testable import CmuxNextMacScreen
+import CmuxNextDesign
+import CmuxNextSettings
+
+/// Computer Use app approvals on the Mac (docs/computer-use-approvals.md): the request checks,
+/// the host link lines, the per-client saved list, the broker's single-use decisions from the
+/// card and the phone, and the card's dialog.
+@MainActor
+struct ComputerUseApprovalTests {
+    static let client = "com.cmuxterm.app.debug.cu1"
+    static let nowMs: Int64 = 1_793_400_000_000
+
+    /// A request object as the worker sends it (digest over the canonical JSON).
+    static func requestObject(client: String = client, bundleID: String = "com.apple.Safari", nonce: String = String(repeating: "a", count: 32),
+                              answerableUntil: Int64 = nowMs + 600_000) -> [String: Any] {
+        var object: [String: Any] = [
+            "v": 1, "nonce": nonce, "client": client, "machine": "mac-1", "session": "s-1",
+            "agent": "Claude", "workspace": "api-server",
+            "target": ["bundle_id": bundleID, "executable": NSNull(), "name": "Safari"] as [String: Any],
+            "tool": "click", "risk": "R1",
+            "created_ms": nowMs, "wait_until_ms": nowMs + 120_000, "answerable_until_ms": answerableUntil,
+        ]
+        object["digest"] = ComputerUseApprovalRequest.digest(of: ComputerUseCanonicalJSON(foundation: object)!)
+        return object
+    }
+
+    static func request(_ object: [String: Any] = requestObject()) throws -> ComputerUseApprovalRequest {
+        try #require(ComputerUseApprovalRequest(object))
+    }
+
+    static func json(_ line: Data) throws -> [String: Any] {
+        try #require(try JSONSerialization.jsonObject(with: line) as? [String: Any])
+    }
+
+    static func temporaryFile(client: String = client) -> ComputerUseApprovalFile {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "cu-approvals-\(UUID().uuidString)")
+        return .standard(client: client, support: root)
+    }
+
+    // MARK: Request
+
+    @Test func canonicalJSONMatchesSerdeBytes() {
+        let value = ComputerUseCanonicalJSON(foundation: ["b": [1, true, NSNull()] as [Any], "a": "x\"\\\n\u{1}é/", "A": -2] as [String: Any])
+        #expect(value?.canonicalText == #"{"A":-2,"a":"x\"\\\n\u0001é/","b":[1,true,null]}"#)
+        #expect(ComputerUseCanonicalJSON(foundation: ["x": 1.5]) == nil)
+    }
+
+    @Test func aRequestCountsOnlyWithItsOwnDigest() throws {
+        let request = try Self.request()
+        #expect(request.target == ComputerUseApprovalApp(bundleID: "com.apple.Safari", executable: nil, name: "Safari"))
+        #expect(request.id == String(request.digest.prefix(16)))
+        var tampered = Self.requestObject()
+        tampered["agent"] = "Someone else"
+        #expect(ComputerUseApprovalRequest(tampered) == nil)
+        var badDigest = Self.requestObject()
+        badDigest["digest"] = String(repeating: "0", count: 64)
+        #expect(ComputerUseApprovalRequest(badDigest) == nil)
+        var noTarget = Self.requestObject()
+        noTarget["target"] = ["name": "Safari"]
+        noTarget["digest"] = nil
+        noTarget["digest"] = ComputerUseApprovalRequest.digest(of: ComputerUseCanonicalJSON(foundation: noTarget)!)
+        #expect(ComputerUseApprovalRequest(noTarget) == nil)
+    }
+
+    // MARK: Host link
+
+    @Test func approvalLinesParseAndAnswer() throws {
+        let object = Self.requestObject()
+        #expect(ComputerUseApprovalWire.parse(["type": "app_approval", "id": 7, "request": object]) == .question(id: 7, request: try Self.request(object)))
+        #expect(ComputerUseApprovalWire.parse(["type": "app_approval", "id": 8, "request": ["v": 1]]) == .malformed(id: 8))
+        #expect(ComputerUseApprovalWire.parse(["type": "app_approval_cancel", "id": 7]) == .cancel(id: 7))
+        #expect(ComputerUseApprovalWire.parse(["type": "machine_consent", "id": 7]) == nil)
+
+        let answer = try Self.json(ComputerUseApprovalWire.answer(id: 7, decision: .session, digest: "d", via: .phone))
+        #expect(answer["type"] as? String == "app_approval")
+        #expect(answer["id"] as? Int == 7)
+        #expect(answer["ok"] as? Bool == true)
+        #expect(answer["decision"] as? String == "session")
+        #expect(answer["digest"] as? String == "d")
+        #expect(answer["via"] as? String == "phone")
+        #expect(try Self.json(ComputerUseApprovalWire.unanswered(id: 9)) as NSDictionary == ["type": "app_approval", "id": 9, "ok": false])
+        let apps = try Self.json(ComputerUseApprovalWire.approvedApps([.init(bundleID: "com.apple.Notes", executable: nil, name: "Notes"),
+                                                                       .init(bundleID: nil, executable: "/usr/bin/xterm", name: "xterm")]))
+        #expect(apps["type"] as? String == "approved_apps")
+        #expect((apps["apps"] as? [[String: String]]) == [["bundle_id": "com.apple.Notes", "name": "Notes"], ["executable": "/usr/bin/xterm", "name": "xterm"]])
+        #expect(try Self.json(ComputerUseApprovalWire.revoke(nil)) as NSDictionary == ["type": "revoke", "scope": "all"])
+        let one = try Self.json(ComputerUseApprovalWire.revoke(.init(bundleID: "com.apple.Notes", executable: nil, name: "Notes")))
+        #expect(one["scope"] as? String == "app")
+        #expect((one["app"] as? [String: String])?["bundle_id"] == "com.apple.Notes")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func withoutABrokerEveryQuestionIsRefused() async throws {
+        let (lines, sink) = AsyncStream<Data>.makeStream()
+        let handled = ComputerUseHelperV2Consent.handle(["type": "app_approval", "id": 4, "request": Self.requestObject()],
+                                                        send: { sink.yield($0) }, consent: { nil }, refused: { _ in })
+        #expect(handled)
+        var iterator = lines.makeAsyncIterator()
+        let line = try #require(await iterator.next())
+        #expect(try Self.json(line) as NSDictionary == ["type": "app_approval", "id": 4, "ok": false])
+    }
+
+    // MARK: Store
+
+    @Test(.timeLimit(.minutes(1))) func savedApprovalsArePerClientAndPrivate() async throws {
+        let file = Self.temporaryFile()
+        let store = ComputerUseApprovalStore(file: file)
+        await store.load()
+        store.add(.init(bundleID: "com.apple.Safari", executable: nil, name: "Safari"), via: .mac, nowMs: 5)
+        store.add(.init(bundleID: "com.apple.Safari", executable: nil, name: "Safari 2"), via: .mac, nowMs: 6)
+        store.add(.init(bundleID: nil, executable: "/usr/bin/xterm", name: "xterm"), via: .phone, nowMs: 7)
+        await store.flush()
+        #expect(store.apps.count == 2)
+        var info = stat()
+        #expect(stat(file.url.path, &info) == 0)
+        #expect(info.st_mode & 0o777 == 0o600)
+        #expect(file.read().map(\.app.name) == ["Safari", "xterm"])
+
+        // Another client (another build) at the same path reads nothing.
+        #expect(ComputerUseApprovalFile(url: file.url, client: "com.cmuxterm.app.nightly").read().isEmpty)
+        // A fresh store of the same client sees the list; one of another client does not.
+        let again = ComputerUseApprovalStore(file: file)
+        await again.load()
+        #expect(again.apps.map(\.app.name) == ["Safari", "xterm"])
+        let other = ComputerUseApprovalStore(file: Self.temporaryFile(client: "com.cmuxterm.app"))
+        await other.load()
+        #expect(other.apps.isEmpty)
+
+        #expect(again.revoke(.init(bundleID: "com.apple.Safari", executable: nil, name: "")) == 1)
+        await again.flush()
+        #expect(file.read().map(\.app.name) == ["xterm"])
+        #expect(again.revoke(nil) == 1)
+        await again.flush()
+        #expect(file.read().isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aRevokeBeforeTheFirstReadIsKept() async throws {
+        let file = Self.temporaryFile()
+        file.write([ComputerUseSavedApproval(app: .init(bundleID: "com.apple.Notes", executable: nil, name: "Notes"), addedMs: 1, via: .mac)])
+        let store = ComputerUseApprovalStore(file: file)
+        store.revoke(nil)
+        await store.load()
+        await store.flush()
+        #expect(store.apps.isEmpty)
+        #expect(file.read().isEmpty)
+    }
+
+    @Test func aFileOthersCanReadCountsAsEmpty() throws {
+        let file = Self.temporaryFile()
+        file.write([ComputerUseSavedApproval(app: .init(bundleID: "com.apple.Notes", executable: nil, name: "Notes"), addedMs: 1, via: .mac)])
+        #expect(file.read().count == 1)
+        chmod(file.url.path, 0o644)
+        #expect(file.read().isEmpty)
+    }
+
+    // MARK: Broker
+
+    final class FakePresenter: ComputerUseApprovalPresenting {
+        var shown: [String] = []
+        var withdrawn: [String] = []
+        func show(_ pending: ComputerUseApprovalPending, broker: ComputerUseApprovalBroker) { shown.append(pending.id) }
+        func withdraw(_ id: String) { withdrawn.append(id) }
+    }
+
+    final class FakePhone: ComputerUseApprovalPhoneRelay {
+        var asked: [(String, Bool)] = []
+        var finished: [String] = []
+        func ask(_ request: ComputerUseApprovalRequest, allowsAlways: Bool) { asked.append((request.digest, allowsAlways)) }
+        func done(digest: String) { finished.append(digest) }
+    }
+
+    struct Rig {
+        let broker: ComputerUseApprovalBroker
+        let presenter: FakePresenter
+        let phone: FakePhone
+        let link: Int
+        var lines: AsyncStream<Data>.AsyncIterator
+
+        mutating func next() async throws -> [String: Any] {
+            try ComputerUseApprovalTests.json(try #require(await lines.next()))
+        }
+    }
+
+    func makeRig(nowMs: Int64 = nowMs) async -> Rig {
+        let store = ComputerUseApprovalStore(file: Self.temporaryFile())
+        await store.load()
+        let broker = ComputerUseApprovalBroker(store: store, nowMs: { nowMs })
+        let presenter = FakePresenter()
+        let phone = FakePhone()
+        broker.presenter = presenter
+        broker.phone = phone
+        let (lines, sink) = AsyncStream<Data>.makeStream()
+        let link = broker.attach(sink)
+        return Rig(broker: broker, presenter: presenter, phone: phone, link: link, lines: lines.makeAsyncIterator())
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aCardPressAnswersOnceAndOnlyOnce() async throws {
+        var rig = await makeRig()
+        #expect(try await rig.next()["type"] as? String == "approved_apps")
+        let request = try Self.request()
+        rig.broker.receive(.question(id: 7, request: request), link: rig.link)
+        #expect(rig.presenter.shown == [request.id])
+        #expect(rig.phone.asked.map(\.0) == [request.digest])
+        #expect(rig.phone.asked.first?.1 == false)
+        // The same question again (a parallel call) joins it.
+        rig.broker.receive(.question(id: 8, request: request), link: rig.link)
+        #expect(rig.broker.pending.count == 1)
+
+        #expect(rig.broker.decide(request.id, decision: .session))
+        #expect(!rig.broker.decide(request.id, decision: .always))
+        let answer = try await rig.next()
+        #expect(answer["id"] as? Int == 7)
+        #expect(answer["decision"] as? String == "session")
+        #expect(answer["digest"] as? String == request.digest)
+        #expect(answer["via"] as? String == "mac")
+        #expect(rig.presenter.withdrawn == [request.id])
+        #expect(rig.phone.finished == [request.digest])
+        #expect(rig.broker.store.apps.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func alwaysOnTheCardSavesTheAppAndTellsTheWorker() async throws {
+        var rig = await makeRig()
+        _ = try await rig.next()
+        let request = try Self.request()
+        rig.broker.receive(.question(id: 1, request: request), link: rig.link)
+        #expect(rig.broker.decide(request.id, decision: .always))
+        let saved = try await rig.next()
+        #expect(saved["type"] as? String == "approved_apps")
+        #expect((saved["apps"] as? [[String: String]]) == [["bundle_id": "com.apple.Safari", "name": "Safari"]])
+        let answer = try await rig.next()
+        #expect(answer["decision"] as? String == "always")
+        #expect(rig.broker.store.apps.map(\.via) == [.mac])
+
+        #expect(rig.broker.revoke(request.target) == 1)
+        #expect(try await rig.next()["apps"] as? [Any] != nil)
+        let revoke = try await rig.next()
+        #expect(revoke["type"] as? String == "revoke")
+        #expect(revoke["scope"] as? String == "app")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func questionsOutsideThisClientOrTimeAreRefused() async throws {
+        var rig = await makeRig()
+        _ = try await rig.next()
+        rig.broker.receive(.question(id: 2, request: try Self.request(Self.requestObject(client: "com.cmuxterm.app"))), link: rig.link)
+        #expect(try await rig.next() as NSDictionary == ["type": "app_approval", "id": 2, "ok": false])
+        rig.broker.receive(.question(id: 3, request: try Self.request(Self.requestObject(answerableUntil: Self.nowMs - 1))), link: rig.link)
+        #expect(try await rig.next() as NSDictionary == ["type": "app_approval", "id": 3, "ok": false])
+        rig.broker.receive(.malformed(id: 4), link: rig.link)
+        #expect(try await rig.next() as NSDictionary == ["type": "app_approval", "id": 4, "ok": false])
+        #expect(rig.broker.pending.isEmpty)
+        #expect(rig.presenter.shown.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func expiryAndCancelWithdrawWithoutADecision() async throws {
+        var rig = await makeRig()
+        _ = try await rig.next()
+        let first = try Self.request()
+        let second = try Self.request(Self.requestObject(bundleID: "com.apple.Notes", nonce: String(repeating: "b", count: 32)))
+        rig.broker.receive(.question(id: 1, request: first), link: rig.link)
+        rig.broker.receive(.question(id: 2, request: second), link: rig.link)
+        rig.broker.expire(first.id)
+        #expect(try await rig.next() as NSDictionary == ["type": "app_approval", "id": 1, "ok": false])
+        rig.broker.receive(.cancel(id: 2), link: rig.link)
+        #expect(rig.broker.pending.isEmpty)
+        #expect(Set(rig.presenter.withdrawn) == [first.id, second.id])
+        #expect(!rig.broker.decide(first.id, decision: .once))
+        // A lost link ends its questions.
+        let third = try Self.request(Self.requestObject(nonce: String(repeating: "c", count: 32)))
+        rig.broker.receive(.question(id: 5, request: third), link: rig.link)
+        rig.broker.detach(rig.link)
+        #expect(rig.broker.pending.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func promptShowsTheCardAgainAndNeverDecides() async throws {
+        var rig = await makeRig()
+        _ = try await rig.next()
+        let request = try Self.request()
+        rig.broker.receive(.question(id: 1, request: request), link: rig.link)
+        #expect(rig.broker.prompt(request.id))
+        #expect(rig.broker.prompt(request.digest))
+        #expect(!rig.broker.prompt("nope"))
+        #expect(rig.presenter.shown == [request.id, request.id, request.id])
+        #expect(rig.broker.pending.count == 1)
+    }
+
+    // MARK: Phone
+
+    static func signed(_ key: P256.Signing.PrivateKey, phone: String = "phone-1", digest: String, decision: ComputerUseApprovalDecision,
+                       expiresAt: Int64 = nowMs / 1000 + 120) throws -> ComputerUseApprovalPhoneAnswer {
+        let message = ComputerUseApprovalPhoneAnswer.message(phone: phone, digest: digest, decision: decision, expiresAt: expiresAt)
+        let signature = try key.signature(for: message).rawRepresentation.map { String(format: "%02x", $0) }.joined()
+        return ComputerUseApprovalPhoneAnswer(phoneDeviceID: phone, digest: digest, decision: decision, expiresAt: expiresAt, signature: signature)
+    }
+
+    static func hex(_ key: P256.Signing.PrivateKey) -> String {
+        key.publicKey.x963Representation.map { String(format: "%02x", $0) }.joined()
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aPhoneAllowCountsOnlyWithThatPhonesFaceIDSignature() async throws {
+        var rig = await makeRig()
+        _ = try await rig.next()
+        let key = P256.Signing.PrivateKey()
+        let stranger = P256.Signing.PrivateKey()
+        rig.broker.phoneApprovalKey = { $0 == "phone-1" ? Self.hex(key) : nil }
+        let request = try Self.request()
+        rig.broker.receive(.question(id: 1, request: request), link: rig.link)
+
+        var unsigned = try Self.signed(key, digest: request.digest, decision: .once)
+        unsigned.signature = nil
+        #expect(!rig.broker.phoneAnswered(unsigned))
+        #expect(!rig.broker.phoneAnswered(try Self.signed(stranger, digest: request.digest, decision: .once)))
+        #expect(!rig.broker.phoneAnswered(try Self.signed(key, phone: "phone-2", digest: request.digest, decision: .once)))
+        #expect(!rig.broker.phoneAnswered(try Self.signed(key, digest: request.digest, decision: .once, expiresAt: Self.nowMs / 1000 - 1)))
+        #expect(!rig.broker.phoneAnswered(try Self.signed(key, digest: request.digest, decision: .once, expiresAt: Self.nowMs / 1000 + 301)))
+        var forged = try Self.signed(key, digest: request.digest, decision: .once)
+        forged.decision = .session
+        #expect(!rig.broker.phoneAnswered(forged))
+        #expect(rig.broker.pending.count == 1)
+
+        #expect(rig.broker.phoneAnswered(try Self.signed(key, digest: request.digest, decision: .session)))
+        #expect(!rig.broker.phoneAnswered(try Self.signed(key, digest: request.digest, decision: .once)))
+        let answer = try await rig.next()
+        #expect(answer["decision"] as? String == "session")
+        #expect(answer["via"] as? String == "phone")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aPhoneDenyNeedsNoSignature() async throws {
+        var rig = await makeRig()
+        _ = try await rig.next()
+        let request = try Self.request()
+        rig.broker.receive(.question(id: 1, request: request), link: rig.link)
+        #expect(rig.broker.phoneAnswered(ComputerUseApprovalPhoneAnswer(phoneDeviceID: "phone-9", digest: request.digest, decision: .deny,
+                                                                        expiresAt: Self.nowMs / 1000 + 60, signature: nil)))
+        #expect(try await rig.next()["decision"] as? String == "deny")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aPhoneAlwaysNeedsTheSettingAndFaceID() async throws {
+        var rig = await makeRig()
+        _ = try await rig.next()
+        let key = P256.Signing.PrivateKey()
+        rig.broker.phoneApprovalKey = { _ in Self.hex(key) }
+        let request = try Self.request()
+        rig.broker.receive(.question(id: 1, request: request), link: rig.link)
+        #expect(!rig.broker.phoneAnswered(try Self.signed(key, digest: request.digest, decision: .always)))
+        #expect(rig.broker.store.apps.isEmpty)
+
+        var allowed = false
+        rig.broker.phoneAlwaysAllow = { allowed }
+        allowed = true
+        rig.broker.reaskPhone()
+        #expect(rig.phone.asked.last?.1 == true)
+        var unsigned = try Self.signed(key, digest: request.digest, decision: .always)
+        unsigned.signature = nil
+        #expect(!rig.broker.phoneAnswered(unsigned))
+        #expect(rig.broker.phoneAnswered(try Self.signed(key, digest: request.digest, decision: .always)))
+        #expect(rig.broker.store.apps.map(\.via) == [.phone])
+        #expect(try await rig.next()["type"] as? String == "approved_apps")
+        #expect(try await rig.next()["decision"] as? String == "always")
+    }
+
+    // MARK: Card
+
+    @Test func theCardNamesWhoAsksAndEscapeDenies() throws {
+        let request = try Self.request()
+        let spec = ComputerUseApprovalCards.spec(for: request, icon: Data([1, 2]), timeZone: TimeZone(identifier: "UTC")!)
+        #expect(spec.title.contains("Claude"))
+        #expect(spec.title.contains("Safari"))
+        #expect(spec.lines.joined().contains("api-server"))
+        #expect(spec.lines.joined().contains(Self.client))
+        #expect(spec.icon == Data([1, 2]))
+        #expect(spec.buttons.map(\.id) == ["deny", "always", "session", "once"])
+        #expect(spec.cancelButton?.id == "deny")
+        #expect(spec.defaultButton?.id == "once")
+        #expect(spec.buttons.first { $0.id == "always" }?.title.contains("Safari") == true)
+        #expect(spec.buttons.compactMap(\.key) == ["a", "s"])
+        #expect(CmuxDialogKeys.action(for: .escape, modifiers: [], in: spec) == .press("deny"))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aPressOnTheCardDecidesThroughTheBroker() async throws {
+        var rig = await makeRig()
+        _ = try await rig.next()
+        let cards = ComputerUseApprovalCards(panels: false)
+        rig.broker.presenter = cards
+        let first = try Self.request()
+        let second = try Self.request(Self.requestObject(bundleID: "com.apple.Notes", nonce: String(repeating: "b", count: 32)))
+        rig.broker.receive(.question(id: 1, request: first), link: rig.link)
+        rig.broker.receive(.question(id: 2, request: second), link: rig.link)
+        let dialog = try #require(cards.dialogID(first.id))
+        #expect(cards.dialogID(second.id) != nil)
+        #expect(cards.center.press(dialog, button: "deny"))
+        let answer = try await rig.next()
+        #expect(answer["id"] as? Int == 1)
+        #expect(answer["decision"] as? String == "deny")
+        #expect(cards.dialogID(first.id) == nil)
+        // Withdrawn from elsewhere (a phone answered): the card goes and decides nothing more.
+        rig.broker.expire(second.id)
+        #expect(cards.dialogID(second.id) == nil)
+        #expect(try await rig.next() as NSDictionary == ["type": "app_approval", "id": 2, "ok": false])
+    }
+
+    @Test func revokeDialogListsEachSavedApp() {
+        let empty = ComputerUseApprovalActions.revokeSpec([])
+        #expect(empty.buttons.map(\.id) == ["ok"])
+        let spec = ComputerUseApprovalActions.revokeSpec([.init(bundleID: "com.apple.Notes", executable: nil, name: "Notes"),
+                                                          .init(bundleID: nil, executable: "/usr/bin/xterm", name: "xterm")])
+        #expect(spec.fields.compactMap(\.id) == ["app.0", "app.1"])
+        #expect(spec.buttons.map(\.id) == ["cancel", "all", "chosen"])
+        #expect(spec.cancelButton?.id == "cancel")
+    }
+
+    @Test func onlyAHigherModeNeedsThePerson() {
+        #expect(ComputerUseMode.unrestricted.raises(over: .standard))
+        #expect(ComputerUseMode.standard.raises(over: .ask))
+        #expect(ComputerUseMode.bounded.raises(over: .ask))
+        #expect(!ComputerUseMode.ask.raises(over: .bounded))
+        #expect(!ComputerUseMode.ask.raises(over: .ask))
+    }
+}

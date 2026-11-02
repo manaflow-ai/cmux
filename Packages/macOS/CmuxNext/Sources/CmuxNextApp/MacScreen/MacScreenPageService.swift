@@ -230,6 +230,7 @@ extension AppServices {
     /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.
     func startDeviceHub(_ settings: SettingsController) {
         // cmux Remote first: the hub it serves is made with its device identity.
+        startComputerUseApprovals(settings)
         startCmuxRemote(settings)
         deviceHub.start(settings: settings)
         cloud.willSignOut.append { [weak self] in self?.deviceHub.willSignOut() }

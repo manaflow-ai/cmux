@@ -73,6 +73,7 @@ enum AgentHandlers {
         registry.bind("macScreen.revokeViewer", unavailable: { context.services.macScreenPages.hubHost.noSessionReason },
                       run: { _ in _ = context.services.macScreenPages.hubHost.revokeViewer() })
         CmuxRemoteActions.bind(into: registry, environment: context.services.cmuxRemoteActions)
+        context.services.computerUseApprovals.bindActions(into: registry, window: context.services.cmuxRemoteActions.window)
         AgentSessionWorkspace.bind(into: registry, context: context)
         AgentSessionTab.bind(into: registry, context: context)
         ChiefInspectorHandlers.bind(into: registry, context: context)

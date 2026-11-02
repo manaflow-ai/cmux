@@ -64,6 +64,11 @@ public final class ComputerUseHelperV2 {
     var spawner: any ComputerUseHelperV2Spawning
     /// cmux Remote's worker instead of a helper this app starts (ComputerUseHelperV2+Remote.swift).
     public var remote: (any ComputerUseRemoteSpawning)?
+    /// App approvals (docs/computer-use-approvals.md): answers the worker's `app_approval`
+    /// questions and tells it the saved list. Unset, every question is refused.
+    public var approvals: ComputerUseApprovalBroker?
+    /// `computerUse.mode`, read at each start (the `configure` line's `permission_mode`).
+    public var permissionMode: @MainActor () -> ComputerUseMode = { .ask }
     private let clock: any Clock<Duration>
     private let readyTimeout: Duration
     private let exitGrace: Duration
@@ -256,7 +261,8 @@ public final class ComputerUseHelperV2 {
         await spawned.send(Self.line(["type": "configure", "socket": socketPath, "host_socket": hostSocketPath,
                                 "host_secret": Self.hex(hostSecret), "secret": Self.hex(secret),
                                 "acpmux_cdhashes": admission.hashes,
-                                "acpmux_requirement": admission.requirement.map { $0 as Any } ?? NSNull()]))
+                                "acpmux_requirement": admission.requirement.map { $0 as Any } ?? NSNull(),
+                                "permission_mode": permissionMode().rawValue]))
         let readySocket = await Self.readySocket(of: spawned, within: readyTimeout, clock: clock)
         guard current == generation else {
             spawned.closeInput()
@@ -296,10 +302,14 @@ public final class ComputerUseHelperV2 {
             guard let record = await MainActor.run(body: { self?.consentRefused }) else { return }
             await record(surface)
         }
+        let approval = link.flatMap { attachApprovals(to: $0) }
         // task-owner: stored in controlLog, cancelled by stop() and terminateForQuit(); it ends at the helper's EOF.
         controlLog = Task.detached {
             async let control: Void = Self.logControlLines(lines, pid: pid)
-            if let link { await ComputerUseHelperV2Consent.serve(link, pid: pid, consent: consent, refused: refused) }
+            if let link {
+                await ComputerUseHelperV2Consent.serve(link, pid: pid, consent: consent, refused: refused, approval: approval?.receive)
+                await approval?.detach()
+            }
             await control
         }
         guard await Self.writeEndpoint(path: endpointPath, socket: socketPath, secret: secret, owner: spawned.pid) else {

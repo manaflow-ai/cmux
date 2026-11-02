@@ -155,6 +155,17 @@ public struct MobileHostLaunch: Sendable, Equatable {
               "public_key": MobileHostMacIdentity.hex(identity.publicKey)])
     }
 
+    /// Asks the paired phones a Computer Use app approval (`cu_approval`): `request` is the
+    /// worker's request object, `always` offers Always Allow (`computerUse.phoneAlwaysAllow`).
+    public static func computerUseApprovalLine(request: [String: Any], always: Bool) -> Data {
+        anyLine(["type": "cu_approval", "request": request, "always": always])
+    }
+
+    /// The question `digest` is settled or gone (`cu_approval_done`).
+    public static func computerUseApprovalDoneLine(digest: String) -> Data {
+        line(["type": "cu_approval_done", "digest": digest])
+    }
+
     /// The control line that ends a removed phone's live links.
     public static func dropPhoneLine(_ phoneDeviceID: String) -> Data {
         line(["type": "drop_phone", "phone_device_id": phoneDeviceID])

@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import Foundation
+
+/// App approvals on a worker's host link (docs/computer-use-approvals.md): the link's approval
+/// lines go to ``ComputerUseHelperV2/approvals``, and its answers and the saved list go back on
+/// the link in order.
+extension ComputerUseHelperV2 {
+    /// One link's approval wiring: where its questions go, and its end.
+    nonisolated struct ApprovalAttachment: Sendable {
+        let receive: @Sendable (ComputerUseApprovalWire.Incoming) -> Void
+        let detach: @Sendable () async -> Void
+    }
+
+    /// Attaches `link` to the broker (nil without one: every question is refused on the link).
+    func attachApprovals(to link: ComputerUseHelperV2HostLink) -> ApprovalAttachment? {
+        guard let broker = approvals else { return nil }
+        let (outbox, sink) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .unbounded)
+        let id = broker.attach(sink)
+        // task-owner: drains this link's outbox in order; it ends when the broker detaches the link.
+        let writer = Task.detached(priority: .userInitiated) {
+            for await line in outbox { await link.send(line) }
+        }
+        return ApprovalAttachment(receive: { [weak broker] incoming in
+            // task-owner: one main-actor hop per approval line; the broker answers on the outbox.
+            Task { @MainActor in broker?.receive(incoming, link: id) }
+        }, detach: { [weak broker] in
+            await MainActor.run { broker?.detach(id) }
+            writer.cancel()
+        })
+    }
+
+    /// `computerUse.mode` changed: a running worker never changes mode, so stop its channel and
+    /// start a new one, which reads the new mode in its `configure` line.
+    public func restartForModeChange() async {
+        guard case .running = state else { return }
+        await stop()
+        await apply(enabled: true)
+    }
+}
