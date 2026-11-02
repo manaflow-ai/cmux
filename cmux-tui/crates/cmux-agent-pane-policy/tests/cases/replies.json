@@ -684,5 +684,85 @@
     "message": "no"
    }
   }
+ },
+ {
+  "name": "status: a url URLComponents refuses (bad port, two fragments, bad IP literal, bracket in the path, two @) reports no transport; valid ones do",
+  "method": "_acpmux/status",
+  "page_id": "7",
+  "reply": {
+   "jsonrpc": "2.0",
+   "id": 99,
+   "result": {
+    "peers": [
+     {
+      "name": "p0",
+      "url": "ssh://host:abc"
+     },
+     {
+      "name": "p1",
+      "url": "ws://host#a#b"
+     },
+     {
+      "name": "p2",
+      "url": "wss://[zz]/"
+     },
+     {
+      "name": "p3",
+      "url": "ssh://a/b[c]"
+     },
+     {
+      "name": "p4",
+      "url": "ssh://a@b@c"
+     },
+     {
+      "name": "g0",
+      "url": "ssh://dev@gpu-box:22/home"
+     },
+     {
+      "name": "g1",
+      "url": "wss://[::1]:8443/acp?x=1#f"
+     },
+     {
+      "name": "g2",
+      "url": "ws://host/a%20b"
+     }
+    ]
+   }
+  },
+  "expected": {
+   "jsonrpc": "2.0",
+   "id": 7,
+   "result": {
+    "peers": [
+     {
+      "name": "p0"
+     },
+     {
+      "name": "p1"
+     },
+     {
+      "name": "p2"
+     },
+     {
+      "name": "p3"
+     },
+     {
+      "name": "p4"
+     },
+     {
+      "name": "g0",
+      "transport": "ssh"
+     },
+     {
+      "name": "g1",
+      "transport": "wss"
+     },
+     {
+      "name": "g2",
+      "transport": "ws"
+     }
+    ]
+   }
+  }
  }
 ]
