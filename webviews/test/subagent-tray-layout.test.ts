@@ -8,8 +8,9 @@ test("the bottom-stack tray is flush with the composer and keeps the shared oute
   const rule = bottomStack.match(/\.acpmux-dock > \.acpmux-running-tray\s*\{([^}]*)\}/)?.[1] ?? "";
   // No bottom margin; the start and end insets match the composer's (the end one gives way to
   // --cv-inset-end where the pane sets it, #26068).
-  expect(rule).toMatch(/margin:\s*0\s+var\(--cv-inset-end,\s*var\(--cv-inset\)\)\s+0\s+var\(--cv-inset\)\s*;/);
-  expect(rule).not.toMatch(/8px/);
+  expect(rule).toMatch(/margin:\s*0\s+calc\(var\(--cv-inset-end,/);
+  expect(rule).toContain("--acpmux-tray-outset");
+  expect(rule).not.toMatch(/margin:[^;]*8px/);
 });
 
 // Leo, 2026-10-29: "why the fuck do you still have this fucking thing at the bottom of the running

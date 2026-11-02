@@ -56,6 +56,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iputils-arping \
     openssh-client \
     pkg-config \
+    locales \
     jq \
     fd-find \
     fzf \
@@ -71,6 +72,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     util-linux \
     e2fsprogs \
   && rm -rf /var/lib/apt/lists/* \
+  && locale-gen C.UTF-8 >/dev/null \
   && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
   && echo 'LANG=C.UTF-8' > /etc/default/locale \
   && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && ss -V
@@ -193,6 +195,29 @@ RUN curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh \
   && rm -f /tmp/cua-install.sh \
   && chmod -R a+rX /opt/cua-driver \
   && cua-driver --version
+
+# agent-desktop (vercel-labs, Apache-2.0): computer use through the AT-SPI
+# accessibility tree (snapshot with refs, find, click, type, launch, window
+# and screenshot commands). The release archive is pinned by URL and SHA-256
+# (`gh attestation verify --repo vercel-labs/agent-desktop` passed on it when
+# it was pinned); its clipboard helper stays beside the binary, which finds it
+# through the link. Like cua-driver it acts on the display a shell points it
+# at: the VNC desktop below, through /etc/cmux/desktop-env.sh (DISPLAY, the
+# session bus and the accessibility bus). Verified against openbox under
+# TigerVNC, not only GNOME. build-devbox-freestyle.ts reads these pins and
+# replays this install command.
+ARG CMUX_IMAGE_AGENT_DESKTOP_URL=https://github.com/vercel-labs/agent-desktop/releases/download/v1.0.2/agent-desktop-v1.0.2-x86_64-unknown-linux-gnu.tar.gz
+ARG CMUX_IMAGE_AGENT_DESKTOP_SHA256=ad661b7a3fd8f990a769243f4889a240ca0e2c8dab3ef5bddd6019086c71e0b4
+RUN curl -fsSL -o /tmp/agent-desktop.tar.gz $CMUX_IMAGE_AGENT_DESKTOP_URL \
+  && echo "$CMUX_IMAGE_AGENT_DESKTOP_SHA256  /tmp/agent-desktop.tar.gz" | sha256sum -c - \
+  && rm -rf /opt/agent-desktop \
+  && mkdir -p /opt/agent-desktop \
+  && tar -xzf /tmp/agent-desktop.tar.gz -C /opt/agent-desktop --no-same-owner \
+  && rm -f /tmp/agent-desktop.tar.gz \
+  && chmod -R a+rX /opt/agent-desktop \
+  && test -x /opt/agent-desktop/agent-desktop-linux-clipboard-owner \
+  && ln -sfn /opt/agent-desktop/agent-desktop /usr/local/bin/agent-desktop \
+  && test "$(agent-desktop --version)" = "agent-desktop 1.0.2"
 
 # Desktop layer: TigerVNC serving an openbox session with the tint2 dock
 # (Chrome, Files, Ghostty), Thunar, the CC0 wallpaper, the accessibility bus

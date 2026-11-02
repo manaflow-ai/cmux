@@ -6,7 +6,14 @@
 // these records, draw exactly as before.
 import { expect, test } from "bun:test";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "../src/agent-session/acpmux/conversation/backgroundTurns";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import {
+  messageRevealTarget,
+  turnFoldFor,
+  turnView,
+  turnViewFrom,
+} from "../src/agent-session/acpmux/conversation/turns";
+import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
+import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { OrderedRows } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
@@ -145,7 +152,11 @@ test("a prompt that interrupts a background turn starts a normal turn after it",
   const { client, rows } = await connect(daemon);
   try {
     // The prompt and everything after it are the real turn's, never the background turn's.
-    expect(rows().filter((row) => row.inBackground).map((row) => row.text)).toEqual(["Still building."]);
+    expect(
+      rows()
+        .filter((row) => row.inBackground)
+        .map((row) => row.text),
+    ).toEqual(["Still building."]);
     const view = drawn(rows());
     const line = view.findIndex((row) => row.kind === BACKGROUND_TURN);
     expect(texts(view.slice(line))).toEqual([
@@ -213,4 +224,307 @@ test("an older page's started record takes the rows its turn already made", () =
   expect(rows.get("inside")?.inBackground).toBe("bg6");
   expect(rows.get("after")?.inBackground).toBeUndefined();
   expect(rows.sorted().find((row) => row.id === "inside")?.inBackground).toBe("bg6");
+});
+
+const spawned = (id: string, state = "running"): Step => [
+  "in",
+  "subagent_spawned",
+  {
+    method: "session/update",
+    params: {
+      update: { sessionUpdate: "subagent_spawned" },
+      _meta: { acpmux: { subagents: [{ id, parent: null, name: id, state, toolCallId: `${id}-call` }] } },
+    },
+  },
+];
+
+// cmux#30314: a quiet turn that ends with no prose of its own must not leave its subagent group open.
+test("each background turn's subagent starts a group of its own", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Keep an eye on CI", "Watching.", "t1"),
+      started("bg7"),
+      spawned("first"),
+      ended("bg7", true),
+      started("bg8"),
+      spawned("second"),
+      ended("bg8", false),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const groups = rows().filter((row) => row.kind === "subagents");
+    expect(groups.map((row) => [row.subagents?.map((agent) => agent.id), row.inBackground])).toEqual([
+      [["first"], "bg7"],
+      [["second"], "bg8"],
+    ]);
+    // The second turn has something to say: its subagent is in sight, not in the first one's fold.
+    expect(drawn(rows()).some((row) => row.subagents?.some((agent) => agent.id === "second"))).toBe(true);
+  } finally {
+    client.close();
+  }
+});
+
+// cmux#30315: the tray's done line stands in for the group and keeps its background turn.
+test("a subagent's done line folds with its quiet background turn", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Run the checks", "Started.", "t1"),
+      started("bg9"),
+      spawned("checker"),
+      spawned("checker", "completed"),
+      say("Done."),
+      ended("bg9", true),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    // A line cached before its group was tagged (an older page read later) is made again.
+    const cache = new Map();
+    const untagged = rows().map((row) => (row.kind === "subagents" ? { ...row, inBackground: undefined } : row));
+    expect(withSubagentLines(untagged, cache).find((row) => row.kind === SUBAGENT_DONE)?.inBackground).toBeUndefined();
+    const tray = withSubagentLines(rows(), cache);
+    const done = tray.find((row) => row.kind === SUBAGENT_DONE)!;
+    expect(done.inBackground).toBe("bg9");
+    expect(drawn([...tray]).some((row) => row.kind === SUBAGENT_DONE)).toBe(false);
+    expect(drawn([...tray], [backgroundTurnRowId("bg9")]).some((row) => row.kind === SUBAGENT_DONE)).toBe(true);
+  } finally {
+    client.close();
+  }
+});
+
+// cmux#30316: Find and a message link open the background turn's line, not the fold before it.
+test("Find and a link open the background line that hides a row", async () => {
+  const daemon = fakeDaemon(
+    record([...personTurn("Ship it", "Shipping.", "t1"), started("bg10"), say("Still green."), ended("bg10", true)]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const all = rows();
+    const at = all.findIndex((row) => row.text === "Still green.");
+    expect(turnFoldFor(all, at)).toBe(backgroundTurnRowId("bg10"));
+    expect(messageRevealTarget(all, drawn(all), [all[at]!.id])).toEqual({
+      rowId: all[at]!.id,
+      fold: backgroundTurnRowId("bg10"),
+    });
+    // A row of the person's own turn still opens that turn's fold.
+    expect(
+      turnFoldFor(
+        all,
+        all.findIndex((row) => row.text === "Shipping."),
+      ),
+    ).toBe(
+      turnFoldFor(
+        all,
+        all.findIndex((row) => row.text === "Ship it"),
+      ),
+    );
+  } finally {
+    client.close();
+  }
+});
+
+// The quiet background turn may have ended before a subagent it started. If that subagent ends
+// after another person's prompt, its done line is inserted under that later turn by end time.
+// It must still fold under the *original* quiet background line (cmux#30535).
+test("a subagent done after the next user prompt stays folded with its owner background turn", () => {
+  const row = (id: string, at: number, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id,
+    at,
+    kind,
+    version: 1,
+    ...fields,
+  });
+  const owner = "backgroundTurn-bg-cross";
+  const rows: AcpmuxRow[] = [
+    row("prompt-1", 1, "user", { text: "Watch CI" }),
+    row("answer-1", 2, "assistant", { text: "Watching." }),
+    row("summary-1", 3, "turnSummary", { status: "completed" }),
+    row(owner, 4, BACKGROUND_TURN, {
+      background: { id: "bg-cross", trigger: "scheduled", running: false, quiet: true },
+    }),
+    row("group", 5, "subagents", {
+      inBackground: "bg-cross",
+      subagents: [
+        {
+          id: "child-cross",
+          parent: null,
+          name: "CI observer",
+          kind: "general-purpose",
+          state: "completed",
+          startedAt: 5,
+          endedAt: 11,
+          background: true,
+        },
+      ],
+    }),
+    row("prompt-2", 7, "user", { text: "Show me the status" }),
+    row("answer-2", 8, "assistant", { text: "Still working." }),
+    row("summary-2", 9, "turnSummary", { status: "completed" }),
+  ];
+  const tray = withSubagentLines(rows);
+  const done = tray.find((item) => item.kind === SUBAGENT_DONE)!;
+  expect(done.inBackground).toBe("bg-cross");
+  expect(tray.indexOf(done)).toBeGreaterThan(tray.findIndex((item) => item.id === "prompt-2"));
+
+  // Closing the original quiet line hides only its own done line, wherever it arrived.
+  const closed = drawn([...tray]);
+  expect(closed.some((item) => item.id === done.id)).toBe(false);
+  expect(closed.some((item) => item.id === "prompt-2")).toBe(true);
+  expect(closed.some((item) => item.id === "answer-2")).toBe(true);
+
+  // Disclosure of the original background line reveals the late completion in chronology order.
+  const opened = drawn([...tray], [owner]);
+  expect(opened.some((item) => item.id === done.id)).toBe(true);
+  expect(opened.indexOf(opened.find((item) => item.id === done.id)!)).toBeGreaterThan(
+    opened.findIndex((item) => item.id === "prompt-2"),
+  );
+});
+
+test("an earlier background owner update invalidates every later reused turn", () => {
+  const row = (id: string, at: number, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id,
+    at,
+    kind,
+    version: 1,
+    ...fields,
+  });
+  const owner = "backgroundTurn-bg-reuse";
+  const base: AcpmuxRow[] = [
+    row("prompt-1", 1, "user", { text: "Watch CI" }),
+    row("answer-1", 2, "assistant", { text: "Watching." }),
+    row(owner, 3, BACKGROUND_TURN, {
+      background: { id: "bg-reuse", trigger: "scheduled", running: true },
+    }),
+    row("owned", 4, "assistant", { text: "Still watching.", inBackground: "bg-reuse" }),
+    row("summary-1", 5, "turnSummary", { status: "completed" }),
+    row("prompt-2", 6, "user", { text: "Status?" }),
+    row("answer-2", 7, "assistant", { text: "Still green." }),
+    row("late", 8, "assistant", { text: "Background done.", inBackground: "bg-reuse" }),
+    row("summary-2", 9, "turnSummary", { status: "completed" }),
+    row("prompt-3", 10, "user", { text: "Ship it" }),
+    row("answer-3", 11, "assistant", { text: "Shipped." }),
+    row("summary-3", 12, "turnSummary", { status: "completed" }),
+  ];
+  const expanded = new Set<string>();
+  const previous = turnViewFrom(base, expanded, { now: 100 });
+  const updated = base.map((item) =>
+    item.id === owner
+      ? {
+          ...item,
+          background: { id: "bg-reuse", trigger: "scheduled", running: false, quiet: false },
+        }
+      : item,
+  );
+  const incremental = turnViewFrom(updated, expanded, { now: 100 }, previous);
+  expect(incremental.rows).toEqual(turnView(updated, expanded, { now: 100 }));
+  expect(incremental.rows.find((item) => item.id === "late")).toBeDefined();
+});
+
+// turnViewFrom reuses the turns before the first changed row. Opening or closing the original
+// line must still draw the later turn that holds the late done line again, and a streamed row in
+// the last turn must keep it hidden while the line stays closed.
+test("a late subagent done line follows its line's toggles across reused turn views", () => {
+  const row = (id: string, at: number, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id,
+    at,
+    kind,
+    version: 1,
+    ...fields,
+  });
+  const owner = "backgroundTurn-bg-reuse";
+  const rows: AcpmuxRow[] = [
+    row("prompt-1", 1, "user", { text: "Watch CI" }),
+    row("answer-1", 2, "assistant", { text: "Watching." }),
+    row("summary-1", 3, "turnSummary", { status: "completed" }),
+    row(owner, 4, BACKGROUND_TURN, {
+      background: { id: "bg-reuse", trigger: "scheduled", running: false, quiet: true },
+    }),
+    row("group", 5, "subagents", {
+      inBackground: "bg-reuse",
+      subagents: [
+        {
+          id: "child-reuse",
+          parent: null,
+          name: "CI observer",
+          kind: "general-purpose",
+          state: "completed",
+          startedAt: 5,
+          endedAt: 11,
+          background: true,
+        },
+      ],
+    }),
+    row("prompt-2", 7, "user", { text: "Show me the status" }),
+    row("answer-2", 8, "assistant", { text: "Still working." }),
+    row("summary-2", 9, "turnSummary", { status: "completed" }),
+    row("prompt-3", 20, "user", { text: "And now?" }),
+    row("answer-3", 21, "assistant", { text: "Done." }),
+    row("summary-3", 22, "turnSummary", { status: "completed" }),
+  ];
+  const tray = withSubagentLines(rows);
+  const done = tray.find((item) => item.kind === SUBAGENT_DONE)!;
+  expect(done.inBackground).toBe("bg-reuse");
+  const shows = (view: { rows: AcpmuxRow[] }) => view.rows.some((item) => item.id === done.id);
+  const now = 1_000;
+
+  const closedSet = new Set<string>();
+  const closed = turnViewFrom(tray, closedSet, { now });
+  expect(shows(closed)).toBe(false);
+  // Open the original line: the later turn holding the done line draws it.
+  const opened = turnViewFrom(tray, new Set([owner]), { now }, closed);
+  expect(shows(opened)).toBe(true);
+  // Close it again from the open view: hidden again, not a stale open row.
+  const closedAgain = turnViewFrom(tray, new Set<string>(), { now }, opened);
+  expect(shows(closedAgain)).toBe(false);
+
+  // A row streamed into the last turn reuses the earlier turns and keeps the done line hidden.
+  const streamed = [...tray, row("answer-3b", 23, "assistant", { text: "One more thing." })];
+  const next = turnViewFrom(streamed, closedSet, { now }, closed);
+  expect(next.reusedRows).toBeGreaterThan(0);
+  expect(shows(next)).toBe(false);
+  expect(next.rows.some((item) => item.id === "answer-3b")).toBe(true);
+  // ... and shows it while the line is open.
+  const openSet = new Set([owner]);
+  const openBase = turnViewFrom(tray, openSet, { now });
+  const openNext = turnViewFrom(streamed, openSet, { now }, openBase);
+  expect(openNext.reusedRows).toBeGreaterThan(0);
+  expect(shows(openNext)).toBe(true);
+});
+
+// A reused turn's rows were filtered by the folds of the view they came from. When a changed row
+// after them changes which background turns fold, the reused turns draw again.
+test("a fold change after the reused turns draws the turns before it again", () => {
+  const row = (id: string, at: number, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id,
+    at,
+    kind,
+    version: 1,
+    ...fields,
+  });
+  const line = (quiet: boolean) =>
+    row("backgroundTurn-bg-late", 12, BACKGROUND_TURN, {
+      background: { id: "bg-late", trigger: "scheduled", running: false, quiet },
+    });
+  const lateOwned = row("late-note", 6, "assistant", { text: "Background note.", inBackground: "bg-late" });
+  const head: AcpmuxRow[] = [
+    row("prompt-1", 1, "user", { text: "One" }),
+    row("answer-1", 2, "assistant", { text: "First." }),
+    row("summary-1", 3, "turnSummary", { status: "completed" }),
+    row("prompt-2", 4, "user", { text: "Two" }),
+    row("answer-2", 5, "assistant", { text: "Second." }),
+    lateOwned,
+    row("summary-2", 7, "turnSummary", { status: "completed" }),
+    row("prompt-3", 10, "user", { text: "Three" }),
+    row("answer-3", 11, "assistant", { text: "Third." }),
+  ];
+  const folds = new Set<string>();
+  const now = 1_000;
+  const quiet = turnViewFrom([...head, line(true)], folds, { now });
+  expect(quiet.rows.some((item) => item.id === lateOwned.id)).toBe(false);
+  // The line now has something to say: it no longer folds, so its rows draw where they came.
+  const fresh = turnViewFrom([...head, line(false)], folds, { now });
+  expect(fresh.rows.some((item) => item.id === lateOwned.id)).toBe(true);
+  const loud = turnViewFrom([...head, line(false)], folds, { now }, quiet);
+  expect(loud.rows.map((item) => item.id)).toEqual(fresh.rows.map((item) => item.id));
 });

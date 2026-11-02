@@ -96,8 +96,6 @@ REGENERATE = "python3 scripts/ci/defaults_guard.py snapshot"
 GUARD_FILES = (
     "scripts/ci/defaults_guard.py",
     OWNERS,
-    ".github/workflows/cmux-next-defaults-guard.yml",
-    ".github/workflows/cmux-next-defaults-guard-review.yml",
 )
 
 # AppKit's function-key characters, as the catalog export writes them.

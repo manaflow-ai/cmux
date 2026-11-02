@@ -667,6 +667,8 @@ while True:
                                "awsProfile": env.get("AWS_PROFILE"), "via": env.get("FAKE_CLAUDE_VIA"),
                                "loginOnly": sorted(k for k in ("GITHUB_TOKEN", "GH_TOKEN", "NPM_TOKEN", "MISE_GITHUB_TOKEN",
                                                                "NVM_AUTH_HEADER", "DEMO_KEY") if os.environ.get(k)),
+                               "machineMatches": (os.environ.get("DEMO_KEY") == os.environ["FAKE_CLAUDE_MACHINE_EXPECTED"])
+                                                 if "FAKE_CLAUDE_MACHINE_EXPECTED" in os.environ else None,
                                "miseDataDir": os.environ.get("MISE_DATA_DIR"), "proxy": os.environ.get("HTTPS_PROXY"),
                                "cloudMlRegion": os.environ.get("CLOUD_ML_REGION"),
                                "vertexRegions": sorted(k for k in os.environ if k.startswith("VERTEX_REGION_")),
@@ -737,7 +739,7 @@ while True:
             at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
             with open(stored(SESSION), "a") as f:
                 f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at, "message": {"role": "user", "content": said}}) + "\n")
-                reply = {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}
+                reply = {"role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": "ok"}]}
                 # FAKE_CLAUDE_TRANSCRIPT_USAGE=1: the reply carries its call's model and usage, as Claude Code's does.
                 if os.environ.get("FAKE_CLAUDE_TRANSCRIPT_USAGE") == "1":
                     reply.update({"id": "msg_" + uuid.uuid4().hex, "model": "claude-opus-5-5", "usage": {

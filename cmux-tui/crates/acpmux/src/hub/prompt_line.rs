@@ -20,6 +20,18 @@ pub(super) fn prompt_line(text: &str, client: &str, provenance: Option<&Value>) 
     }
 }
 
+/// Whether a prompt with `provenance` is acpmux's own notice of other agents' messages rather
+/// than anyone's words: an inbox notice ("[inbox] New messages from other agents in 1 thread"),
+/// an inbox digest or an agent digest. A History of what was asked (the sidebar hover card) leaves
+/// such a turn out; one agent's message stays, as "name: words" (`prompt_line`).
+pub(super) fn is_notice(provenance: Option<&Value>) -> bool {
+    let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
+    kind.is_some_and(|k| {
+        [super::inbox::NOTICE_KIND, super::digest::DIGEST_KIND, super::digest::inbox_digest::KIND]
+            .contains(&k)
+    })
+}
+
 /// The words of `text` a chat's title is made from (`titles.rs`): another agent's message
 /// without its sender and envelope, else `text` itself. A turn of several messages has no words
 /// of one sender: it stays as it is.

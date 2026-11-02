@@ -151,10 +151,17 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   caller's cancel),
   `cmux.agent-activity.socket`, `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
   `cua-helper-v2-reap`, `cua-helper-v2-stdout`
+- Input: `com.cmuxterm.next.event-source-processes` (``EventSourceProcesses``: the executable path and start time of
+  each process that posts key and mouse events, read once per process with `sysctl(KERN_PROC_PID)`/`proc_pidpath`, user-initiated,
+  serial; it also runs that process's exit watch, which removes the entry. The key path only reads the table, never
+  a system call; one item per new posting process, so no back-pressure)
 - Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
   `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,
-  `debug.window_record`, `com.cmuxterm.next.busy-watchdog` (the busy watchdog's kernel reads: each
+  `debug.window_record`, `debug.motion.trace` (a `debug.motion` `trace_stop`/`trace_read` with `path`: the report's JSON serialization and file
+  write, utility, serial, one item per call, so no back-pressure), `debug.motion.record` (a `debug.motion` `record_*` movie in DEBUG and bench builds: its
+  ScreenCaptureKit frames, the encoder appends and the scanline and frame-list file writes; user-initiated, serial;
+  a frame the encoder is not ready for is counted and dropped, never queued, so no back-pressure), `com.cmuxterm.next.busy-watchdog` (the busy watchdog's kernel reads: each
   process's `proc_pid_rusage` and `proc_pidinfo`, the Chromium helper list, the main thread's `thread_info` and
   stack sample; utility, serial; at most one window open or close is pending, so no back-pressure; a read the
   kernel holds delays only the next window). A diagnostic never makes a system call on the main thread: the

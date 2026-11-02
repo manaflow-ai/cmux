@@ -16,7 +16,7 @@ import type { StoreError } from "../db/sql.ts";
 import { OwnershipStore } from "../db/stores.ts";
 import type { Principal } from "../domain/principal.ts";
 import type { MeshId } from "../lib/ids.ts";
-import { TenantLimits, type LimitsUnavailable } from "../limits/service.ts";
+import { TenantLimits, LimitsUnavailable } from "../limits/service.ts";
 import { MeshConfig } from "../mesh/config.ts";
 import { Entitlements, type EntitlementUnavailable, type TenantMayCreate } from "./tenant-may-create.ts";
 
@@ -46,15 +46,24 @@ const decide = <C, const K extends "mesh" | "device">(
   });
 
 /** One more mesh for the caller's tenant (`mesh.perTenant`). */
-export const tenantMayCreateMesh = <C>(caller: Named<C, Principal>) =>
+export const tenantMayCreateMesh = <C>(caller: Named<C, Principal>, resume?: { readonly key: string; readonly meshId: MeshId }) =>
   Effect.flatMap(MeshConfig, (config) =>
+    resume === undefined ?
     decide(
       caller,
       "mesh",
       "mesh",
       config.budgets.meshesPerTenant,
       Effect.flatMap(OwnershipStore, (store) => store.countLive(caller.value.tenantId, "mesh")),
-    ),
+    ) : Effect.gen(function* () {
+      const tenantId = caller.value.tenantId;
+      if (!(yield* (yield* Entitlements).mayCreate(tenantId, "mesh"))) return { _tag: "not_entitled" as const };
+      const result = yield* (yield* TenantLimits).meshCreation(tenantId, { op: "reservation", ...resume });
+      if (result.state !== "reservation") return yield* Effect.fail(new LimitsUnavailable({ cause: "mesh reservation is not retained" }));
+      const TenantMayCreate = defineProof("TenantMayCreate:mesh");
+      const proof: TenantMayCreate<C, "mesh"> = Object.freeze({ ...TenantMayCreate.prove(caller), reservationId: result.reservationId });
+      return { _tag: "granted" as const, proof };
+    }),
   );
 
 /** One more device in `mesh` (`device.perMesh`). The caller must already hold the mesh's ownership proof. */

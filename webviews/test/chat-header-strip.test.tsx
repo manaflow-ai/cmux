@@ -150,5 +150,7 @@ test("the compact chat tools use host SF Symbols, with overflow last and no dupl
   const unpressed = host.querySelector<HTMLElement>("[data-symbol]")!;
   expect(unpressed.dataset.symbol).toBe("list.bullet");
   expect(unpressed.style.color).toBe("");
-  act(() => setHarnessSymbolHost(undefined));
+  act(() => {
+    setHarnessSymbolHost(undefined);
+  });
 });

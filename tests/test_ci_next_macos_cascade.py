@@ -372,13 +372,21 @@ class FleetGateway(unittest.TestCase):
                                {LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 1}, cascade.seen(shot, NOW), saturated=True)
         self.assertEqual(result.fleet_jobs, ("fast-tier",))
 
-    def test_gateway_output_is_reserved_without_wiring_raw_mac_jobs(self):
+    def test_no_tier_runs_on_the_gateway_itself(self):
+        """fleet_jobs never sends a whole Mac job (checkout, build) to gateway_runner: a listed tier's
+        <tier>-fleet client runs there (the checks-workflow guard GatewayRunsOnlyTheFleetClient)
+        and the tier only reports its verdict."""
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         self.assertEqual(jobs["macos-placement"]["outputs"]["fleet_jobs"], "${{ steps.place.outputs.fleet_jobs }}")
+        wiring = Wiring()
         for tier in (*CASCADED, *GUI_JOBS):
             self.assertNotIn("outputs.fleet_jobs", jobs[tier]["runs-on"])
-        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
-        self.assertNotIn("FLEET_CLIENT_JOBS", place["env"])
+            with self.subTest(tier=tier):
+                self.assertNotIn("gateway_runner", str(jobs[tier]["runs-on"]))
+                context = wiring.context()
+                context["needs"]["macos-placement"]["outputs"].update(
+                    fleet_jobs=f" {tier} ", gateway_runner="gateway-test", placed_attempt="1")
+                self.assertNotEqual(evaluate(jobs[tier]["runs-on"], context), "gateway-test")
 
     def test_gateway_reservation_is_empty_without_requested_jobs(self):
         shot = snapshot(minutes_old=1)
@@ -928,7 +936,9 @@ class Stall(unittest.TestCase):
             self.assertNotIn(f"outputs.{key}", text)
         jobs = yaml.safe_load(text)["jobs"]
         # The fast tier and the canary keep their own budget: no cold hosted build needs 45 minutes.
-        self.assertEqual(jobs["fast-tier"]["timeout-minutes"], 20)
+        # (Five while it only reports its build-fleet client's verdict: GatewayRunsOnlyTheFleetClient.)
+        fast = jobs["fast-tier"]["timeout-minutes"]
+        self.assertEqual(evaluate(fast, {"needs": {"fast-tier-fleet": {"result": "skipped"}}}), 20)
         canary = jobs["swift-canary"]["timeout-minutes"]
         self.assertEqual(evaluate(canary, {"needs": {"swift-canary-fleet": {"outputs": {"verdict": ""}}}}), 20)
         self.assertEqual(jobs["cmux-scheme-compile"]["timeout-minutes"], 60)
@@ -2065,6 +2075,15 @@ class DeadEndRoute(unittest.TestCase):
         seen = cascade.seen(snap, NOW)
         self.assertEqual(seen.owned, {"glaeda-side-std-xcode-26.6": 443.0})
         self.assertEqual(seen.owned_queued, {"glaeda-side-std-xcode-26.6": 96})
+        self.assertEqual(seen.unserved, frozenset())
+
+    def test_seen_reads_the_janitors_unserved_owned_labels(self):
+        # queue_janitor.py writes starved_labels.unserved(): fleet label keys, joined with "+" for a job asking
+        # for several. Only a single owned label says that label starts nothing.
+        snap = snapshot(minutes_old=5)
+        snap["unserved"] = ["glaeda-session-std-xcode-26.6", "glaeda-ios-sim+glaeda-std-xcode-26.6",
+                            "blacksmith-6vcpu-macos-26", 7]
+        self.assertEqual(cascade.seen(snap, NOW).unserved, frozenset({"glaeda-session-std-xcode-26.6"}))
 
 
 def observed_dead(minutes_old: float = 2, *, dead: str = LARGE, **overrides: dict) -> dict:
@@ -2148,6 +2167,64 @@ class DeadLabel(unittest.TestCase):
         self.assertEqual(sign.dead(snap, NOW), set(cascade.dead(snap, NOW)))
 
 
+class FleetClientJobs(unittest.TestCase):
+    """With every owned and Blacksmith macOS label full or dead, only the jobs that have a build-fleet client
+    (FLEET_CLIENT_JOBS: cmux-next.yml's <job>-fleet) are listed in fleet_jobs; nothing is while any label
+    can take the job, and the workflow lists only jobs that have their client."""
+
+    LIVE, WAITING = {LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 1}
+
+    def shot(self, **side: object) -> dict:
+        shot = snapshot(minutes_old=1, large=1, small=1)
+        for label in (LARGE, SMALL, SIDE):
+            shot["pools"][label] = {"cap": 1, "running": 1, "queued": 1,
+                                    "listening": 0, "held_offline": {"units": 1, "cpu": 0, "livelock": 0},
+                                    "oldest_queued_s": 240, "as_of": "2026-10-19T21:59:00Z"}
+        shot["pools"][SIDE].update(side)
+        return shot
+
+    def place(self, owned=(), shot=None, live=None, **overrides):
+        return cascade.place(env(**overrides), owned, live or self.LIVE, self.WAITING,
+                             cascade.seen(shot or self.shot(), NOW), saturated=True)
+
+    def test_only_listed_jobs_take_the_fleet(self):
+        self.assertEqual(self.place(FLEET_CLIENT_JOBS="fast-tier").fleet_jobs, ("fast-tier",))
+        self.assertEqual(self.place(FLEET_CLIENT_JOBS="fast-tier swift-canary").fleet_jobs,
+                         ("fast-tier", "swift-canary"))
+        self.assertEqual(self.place().fleet_jobs, ())
+        self.assertEqual(self.place(FLEET_CLIENT_JOBS="").fleet_jobs, ())
+
+    def test_nothing_is_listed_while_a_label_can_take_the_job(self):
+        # A Blacksmith label under its declared cap.
+        shot = self.shot()
+        shot["pools"][LARGE].update(cap=5, running=1)
+        self.assertEqual(self.place(shot=shot, live={LARGE: 1, SMALL: 10}, FLEET_CLIENT_JOBS="fast-tier").fleet_jobs,
+                         ())
+        # The side label has a listener, by a fresh health record (a stale record or snapshot reads full).
+        fresh = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        listening = self.shot(listening=1, held_offline={"units": 0, "cpu": 0, "livelock": 0}, as_of=fresh)
+        listening["generated_at"] = fresh
+        self.assertEqual(self.place(shot=listening, FLEET_CLIENT_JOBS="fast-tier").fleet_jobs, ())
+        # No snapshot: nothing is known full.
+        self.assertEqual(cascade.place(env(FLEET_CLIENT_JOBS="fast-tier"), (), self.LIVE, self.WAITING, None,
+                                       saturated=True).fleet_jobs, ())
+
+    def test_the_output_is_space_delimited_like_the_blacksmith_lists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            cascade.write(self.place(FLEET_CLIENT_JOBS="fast-tier"), {"GITHUB_OUTPUT": str(out)})
+            self.assertIn("fleet_jobs= fast-tier \n", out.read_text())
+
+    def test_the_workflow_lists_only_jobs_with_a_client(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+        listed = str(place["env"]["FLEET_CLIENT_JOBS"]).split()
+        self.assertEqual(listed, ["fast-tier"])
+        for job in listed:
+            with self.subTest(job=job):
+                self.assertIn(job, cascade.CASCADE_JOBS, "only a cascade job is ever left unplaced")
+                self.assertIn(f"{job}-fleet", jobs, "a listed job needs its <job>-fleet client")
+
 
 class GuiOverflow(unittest.TestCase):
     """The GUI jobs' Blacksmith leg (swift-test, daemon-test, generated-files): the largest size that starts them now.
@@ -2190,6 +2267,56 @@ class GuiOverflow(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(cascade.gui_overflow_label(live, waiting, seen, jobs=3), SMALL)
 
+
+class SharedRunnerStateCascadeTests(unittest.TestCase):
+    def document(self, **updates):
+        return {"schema": "runner-state/v1", "repository": "manaflow-ai/cmux", "complete": True,
+                "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(), "repository_runners": [],
+                "runner_groups": {"glaeda-minis": []},
+                "scale_sets": {LARGE: 2, SMALL: 5, MACOS_15: 1}, **updates}
+
+    @staticmethod
+    def encoded(doc):
+        import base64
+        import gzip
+        return base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode()
+
+    def test_complete_document_supplies_scale_set_counts_without_api_requests(self):
+        import os
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"CI_RUNNER_STATE": self.encoded(self.document())}), \
+                mock.patch.object(cascade.Api, "_get", side_effect=AssertionError("live read")):
+            counts = cascade.Api("synthetic-token", "manaflow-ai/cmux").in_flight()
+        self.assertEqual(counts, {LARGE: 2, SMALL: 5, MACOS_15: 1})
+
+    def test_partial_scale_sets_retain_live_group_fallback(self):
+        import os
+        from unittest import mock
+        def get(path):
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": f"Blacksmith scale sets - {LARGE}", "id": 20},
+                                          {"name": f"Blacksmith scale sets - {SMALL}", "id": 21}]}
+            return {"runners": [{"status": "online"}]}
+        with mock.patch.dict(os.environ, {"CI_RUNNER_STATE": self.encoded(self.document(scale_sets={LARGE: 0}))}), \
+                mock.patch.object(cascade.Api, "_get", side_effect=get) as live:
+            counts = cascade.Api("synthetic-token", "manaflow-ai/cmux").in_flight()
+        self.assertEqual(counts, {LARGE: 1, SMALL: 1})
+        self.assertEqual(live.call_count, 3)
+
+    def test_missing_optional_pool_count_rechecks_its_visible_group_live(self):
+        import os
+        from unittest import mock
+        def get(path):
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": f"Blacksmith scale sets - {label}", "id": 20 + index}
+                                          for index, label in enumerate(cascade.POOL_LABELS)]}
+            return {"runners": [{"status": "online"}] * 3}
+        document = self.document(scale_sets={LARGE: 2, SMALL: 5})
+        with mock.patch.dict(os.environ, {"CI_RUNNER_STATE": self.encoded(document)}), \
+                mock.patch.object(cascade.Api, "_get", side_effect=get) as live:
+            counts = cascade.Api("synthetic-token", "manaflow-ai/cmux").in_flight()
+        self.assertEqual(counts, {LARGE: 3, SMALL: 3, MACOS_15: 3})
+        self.assertEqual(live.call_count, 4)
 
 if __name__ == "__main__":
     unittest.main()

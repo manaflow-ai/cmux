@@ -18,6 +18,13 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
                 cliName: "notification show", mainMenu: .window
             ),
             ActionDescriptor(
+                id: "agent.jumpToNextNeedingInput",
+                title: String(localized: "action.agent.jumpToNextNeedingInput", defaultValue: "Go to Next Agent Needing Input", bundle: .module),
+                keywords: ["agent", "approval", "question", "needs input", "next"],
+                category: .notifications, symbol: "exclamationmark.bubble", surfaces: [.palette, .keyboard, .menu],
+                mainMenu: .window
+            ),
+            ActionDescriptor(
                 id: "jumpToUnread",
                 title: String(localized: "action.jumpToUnread", defaultValue: "Jump to Latest Unread", bundle: .module),
                 keywords: ["notifications", "next"], defaultShortcut: Shortcut("u", modifiers: [.command, .shift]),

@@ -26,6 +26,11 @@ public final class NativePopupHost {
     public var keepsOpen: (NSEvent) -> Bool = { _ in false }
     /// The popup closed by a dismiss rule; ``hide()`` does not call it.
     public var onDismiss: (() -> Void)?
+    private(set) var dismissalReason = "outside"
+    /// A nested popup temporarily owns the keys; ancestor panels remain open.
+    var keepsOpenOnKeyLoss: () -> Bool = { false }
+    /// Nested declarative panels observe their owning window, not ancestor popup layout.
+    weak var dismissalWindow: NSWindow?
     /// The control the popup opened from (screen), which it closes toward.
     public private(set) var anchor: CGRect = .zero
     /// Fading out after a hide: gone for the owner and for tests.
@@ -56,6 +61,7 @@ public final class NativePopupHost {
     /// being handled then (nil for none).
     func lostKeys(elsewhere: Bool, press: NSEvent?) {
         guard let keyed = panel as? NativePopupPanel else { return }
+        if keepsOpenOnKeyLoss() { return }
         // A menu or window opened from inside the popup took the keys: the popup stays, and takes
         // them back when the menu closes.
         if hasOpenChild { return }
@@ -151,10 +157,21 @@ public final class NativePopupHost {
     @discardableResult
     public func show(size: CGSize, anchor: CGRect, in window: NSWindow, preferred: PopupPlacement.Side = .below,
                      trailing: Bool = false, centered: Bool = false, makeKey: Bool = false,
-                     tooltipEntrance: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
+                     tooltipEntrance: Bool = false, sideBySide: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
         guard window.isVisible, let screen = PopupPlacement.screen(for: anchor, fallback: window) else { return nil }
-        let (frame, side) = PopupPlacement.frame(anchor: anchor, size: size, preferred: preferred, trailing: trailing,
-                                                 centered: centered, screen: screen.visibleFrame)
+        let frame: CGRect
+        let side: PopupPlacement.Side
+        if sideBySide {
+            frame = PopupPlacement.sideBySideFrame(anchor: anchor, size: size, screen: screen.visibleFrame).frame
+            // Side-by-side placement follows the row vertically; preserve the conventional side
+            // in the return value for callers that only record the vertical preference.
+            side = preferred
+        } else {
+            let placed = PopupPlacement.frame(anchor: anchor, size: size, preferred: preferred, trailing: trailing,
+                                              centered: centered, screen: screen.visibleFrame)
+            frame = placed.frame
+            side = placed.side
+        }
         generation += 1
         // A fresh open, or a reopen during the close (whose fade runs on the card, not the alpha).
         let opening = !panel.isVisible || isClosing
@@ -173,7 +190,7 @@ public final class NativePopupHost {
             let pivot = panel.popupPivot(toward: anchor)
             if tooltipEntrance { panel.openTooltipWithEntrance(pivot: pivot) } else { panel.openPopup(pivot: pivot) }
         }
-        watch(window)
+        watch(dismissalWindow ?? window)
         return (frame, side)
     }
 
@@ -210,8 +227,9 @@ public final class NativePopupHost {
     }
 
     /// Closes the popup by a dismiss rule: ``hide()``, then ``onDismiss``.
-    public func dismiss() {
+    public func dismiss(reason: String = "outside") {
         guard isShown else { return unwatch() }
+        dismissalReason = reason
         hide()
         onDismiss?()
     }
@@ -248,7 +266,10 @@ public final class NativePopupHost {
         // with a menu of the popup open, Escape closes only that menu.
         let escape = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
             guard let self, event.window === self.panel, event.keyCode == 53, self.isShown, self.childMenus.isEmpty else { return event }
-            self.dismiss()
+            // The input method owns Escape while cancelling marked text. Closing the popup
+            // here would discard the composition before the editor sees the key.
+            if let editor = self.panel.firstResponder as? NSTextView, editor.hasMarkedText() { return event }
+            self.dismiss(reason: "escape")
             return nil
         }
         monitors = [clicks, escape].compactMap { $0 }

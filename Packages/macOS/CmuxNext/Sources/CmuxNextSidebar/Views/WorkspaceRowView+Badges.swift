@@ -54,8 +54,9 @@ extension WorkspaceRowView {
     /// Lawrence 2026-10-20: every row's dot and spinner share one line; msg 11914: whatever else the
     /// row shows (a count, the keycap, the hover close and more) sits left of it,
     /// so a selected row's dot does not move. Never on the leading icon.
-    func layoutColumnMark(cy: CGFloat, rowWidth: CGFloat, markReplacesStatus: Bool) -> (view: NSView, trailing: CGFloat)? {
-        let column = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
+    func layoutStatusColumnMark(cy: CGFloat, rowWidth: CGFloat, markReplacesStatus: Bool) -> (view: NSView, trailing: CGFloat)? {
+        let columns = SidebarStyle.columns(rowWidth: rowWidth)
+        let column = columns.trailingCenter()
         let view: NSView
         if !rowBadge.isHidden {
             // The nearest backing pixel, so the last glyph's center stays on the column (a floor moved it up to a point left).
@@ -87,7 +88,7 @@ extension WorkspaceRowView {
         } else {
             return nil
         }
-        return (view, SidebarStyle.trailingAfterColumnMark(markMinX: view.frame.minX, rowWidth: rowWidth))
+        return (view, columns.trailingEdge(before: view.frame))
     }
 
     /// The row's backdrop for the badges' cutout rings: `fill` over the sidebar's background.

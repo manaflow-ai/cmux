@@ -7,7 +7,7 @@ import { freestyleCustomer } from "./customer.ts"
  * - Every Freestyle timer is -1 (coordinator, 2026-10-05): idleTimeoutSeconds, autoDeleteSeconds,
  *   ttlSeconds, maxRunSeconds, maxRunTotalSeconds. Freestyle never pauses, stops or deletes a machine
  *   by itself, so our record stays true; idle is ours (the 24 h backstop and cloud.idlePause, from the
- *   VM's own reports, on the money-op path). automaticRestart true.
+ *   VM's own reports, on the money-op path; all off unless CLOUD_IDLE_PAUSE is on, auto-pause.ts). automaticRestart true.
  * - firewall: a VM gets nothing implicitly; this allows egress to every publicly routable address.
  *   `public: true` selects by address, so it does not cover private or VPC addresses. The machine
  *   joins no VPC at create (no `vpcs`), so no VPC rule is needed now; the VPC attach work (lane 12)

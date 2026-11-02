@@ -39,7 +39,8 @@ label is dead: then it is the pick itself. Until 2026-10-31 dead() dropped the e
 labels dead, so with no fresh snapshot a re-run still took blacksmith-12vcpu-macos-26 (05:44Z: 88 queued, none
 running, the oldest 1403 min), as classic_nightly_build_runner.py did:
 
-    SNAPSHOT_TOKEN=<actions: read> CANDIDATE=<vars.MACOS_RUNNER_26> RUNNER_POOLS=<vars.RUNNER_POOLS> nightly_sign_runner.py
+    SNAPSHOT_TOKEN=<actions: read> [SNAPSHOT_FALLBACK_TOKEN=<github.token>] CANDIDATE=<vars.MACOS_RUNNER_26> \\
+        RUNNER_POOLS=<vars.RUNNER_POOLS> nightly_sign_runner.py
     -> `runner=<label>`, `alternate=<label>` and `placement=verified|unverified` in $GITHUB_OUTPUT,
        and why in the step summary
 """
@@ -218,7 +219,7 @@ def pick(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime,
     stuck = stalled(snapshot, labels, now, pools)
     if stuck is None:
         # A snapshot too old for the stall rule still shows a dead label (dead()): never pick it unverified.
-        # dev_landing_place.py's overflow (OVERFLOW_LABEL, 12 vCPU) and nightly_build_runner.py read this pick.
+        # nightly_build_runner.py reads this pick.
         gone = dead(snapshot, now, pools)
         label = next((label for label in labels if label not in gone), labels[0])
         return label, (f"no fresh pool snapshot, so `{label}` "
@@ -307,13 +308,26 @@ def main(env: Mapping[str, str] = os.environ, read: Callable[[str, str], Any] | 
     variable = (env.get("CANDIDATE") or "").strip()
     snapshot, problem = None, "no token to read the pool snapshot"
     token, repo = env.get("SNAPSHOT_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
+    # The read token is the routing App's, whose installation budget other jobs share: on
+    # run 41335987427 (2026-11-01) every read answered 403 with X-RateLimit-Remaining=0, the
+    # pick went blind onto blacksmith-6vcpu-macos-26 and the final DMG verify sat queued there.
+    # GITHUB_TOKEN has its own budget, so a failed read is tried with it next.
+    fallback = env.get("SNAPSHOT_FALLBACK_TOKEN", "").strip()
+    tokens = [token] + ([fallback] if fallback and fallback != token else [])
     if token and repo:
         def live() -> Any:
-            if read is not None:
-                return read(token, repo)
-            import pr_runner_pool  # noqa: PLC0415 - only for the live read
+            current = tokens[0]
+            try:
+                if read is not None:
+                    return read(current, repo)
+                import pr_runner_pool  # noqa: PLC0415 - only for the live read
 
-            return pr_runner_pool.GitHub(token, repo).snapshot(now=now)
+                return pr_runner_pool.GitHub(current, repo).snapshot(now=now)
+            except Exception:
+                if len(tokens) > 1:
+                    tokens.pop(0)
+                    print("nightly sign runner: the read token failed; the next read uses SNAPSHOT_FALLBACK_TOKEN")
+                raise
         snapshot, problem = read_snapshot(live, "nightly sign runner", sleep=sleep, clock=clock)
     try:
         attempt = max(1, int((env.get("GITHUB_RUN_ATTEMPT") or "1").strip() or "1"))

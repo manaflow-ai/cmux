@@ -28,9 +28,9 @@ public final class SidebarChatHistoryFeed {
 
     private var task: Task<Void, Never>?
 
-    /// Follows the setting, acpmux's windows, the lanes, every machine's `workspaces` and the
+    /// Follows the setting, acpmux's windows, the lanes, every machine's live tabs and the
     /// user's pins from now on; a row opens its chat with `open` (the app's Open Chat path).
-    public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel], localHost: String?,
+    public func start(liveTabs: @escaping @MainActor @Sendable () -> [TabModel], localHost: String?,
                       open: @escaping @MainActor (String) -> Void, windows: AcpmuxChatWindows,
                       lanes: AgentLaneStore = .shared, history: SidebarChatHistory = .shared) {
         guard task == nil else { return }
@@ -43,7 +43,7 @@ public final class SidebarChatHistoryFeed {
         task = Task {
             for await shown in ObservationStream({ () -> Shown? in
                 guard DesignSettings.shared.sidebarSections.sessionTree else { return nil }
-                let inputs = Inputs(live: Self.liveChats(workspaces(), lanes: lanes.lanes, localHost: localHost),
+                let inputs = Inputs(live: Self.liveChats(liveTabs(), lanes: lanes, localHost: localHost),
                                     pinned: history.pinned, limit: history.limit, folded: history.earlierFolded)
                 return Shown(inputs: inputs, state: Self.state(earlier: earlier.rows, pinned: pinned.rows, inputs: inputs))
             }) {
@@ -93,15 +93,14 @@ public final class SidebarChatHistoryFeed {
                                             pinned: inputs.pinned, limit: inputs.limit, folded: inputs.folded)
     }
 
-    /// The chats an open workspace shows: those its agent tabs' acpmux sessions on this Mac continue.
-    static func liveChats(_ workspaces: [WorkspaceModel], lanes: [String: AgentActivityLane], localHost: String?) -> Set<String> {
+    /// The live-tab projection used by the app. It observes each session's chat binding only;
+    /// turn-state changes, usage detail and terminal output leave the projection unchanged.
+    static func liveChats(_ tabs: [TabModel], lanes: AgentLaneStore, localHost: String?) -> Set<String> {
         var live: Set<String> = []
-        for workspace in workspaces {
-            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) {
-                guard let ref = tab.agentSession, ref.host == localHost, let session = ref.session,
-                      let chat = lanes[session]?.chat else { continue }
-                live.insert(chat)
-            }
+        for tab in tabs {
+            guard let ref = tab.agentSession, ref.host == localHost, let session = ref.session,
+                  let chat = lanes.chat(session) else { continue }
+            live.insert(chat)
         }
         return live
     }

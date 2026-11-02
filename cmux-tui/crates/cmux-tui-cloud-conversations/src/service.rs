@@ -115,6 +115,18 @@ pub trait CloudBackend: Send + Sync {
         let _ = (url, bearer, client_version);
         Err(TransportError("this cloud backend sends no GET requests".into()))
     }
+    /// Platform REST request with an install bearer supplied by the verified native app.
+    /// The concrete backend never follows redirects for this request.
+    fn platform(
+        &self,
+        method: &str,
+        url: &str,
+        bearer: &str,
+        body: &Value,
+    ) -> Result<HttpReply, TransportError> {
+        let _ = (method, url, bearer, body);
+        Err(TransportError("this cloud backend sends no platform requests".into()))
+    }
     /// `PUT url` with `headers` and the raw `body`, no bearer: an attachment
     /// upload slot or a presigned object URL is its own credential.
     fn put(

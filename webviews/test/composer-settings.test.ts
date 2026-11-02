@@ -15,12 +15,13 @@ test("machine load warnings are on by default and accept an explicit off value",
   expect(readComposerSettings({ showMachineLoadWarnings: "false" }).showMachineLoadWarnings).toBe(true);
 });
 
-test("attachments show inline by default; strip is the other view", () => {
+test("attachments show inline by default; strip and both are the other views", () => {
   expect(DEFAULT_COMPOSER.attachmentView).toBe("inline");
   expect(readComposerSettings({}).attachmentView).toBe("inline");
   expect(readComposerSettings({ attachmentView: "strip" }).attachmentView).toBe("strip");
   expect(readComposerSettings({ attachmentView: "inline" }).attachmentView).toBe("inline");
-  for (const bad of ["Strip", "row", 1, true, null]) {
+  expect(readComposerSettings({ attachmentView: "both" }).attachmentView).toBe("both");
+  for (const bad of ["Strip", "Both", "row", 1, true, null]) {
     expect(readComposerSettings({ attachmentView: bad }).attachmentView).toBe("inline");
   }
 });
@@ -29,12 +30,12 @@ test("switching the attachment view round-trips and keeps the other settings", (
   // The host's push after each Settings change: the whole value with only attachmentView changed.
   let settings = readComposerSettings({ ...DEFAULT_COMPOSER, showDictation: false, spellChecking: true });
   const seen: string[] = [];
-  for (const view of ["strip", "inline", "strip", "inline"] as const) {
+  for (const view of ["strip", "inline", "both", "inline"] as const) {
     settings = readComposerSettings({ ...settings, attachmentView: view });
     seen.push(settings.attachmentView);
     expect(settings).toEqual({ ...DEFAULT_COMPOSER, showDictation: false, spellChecking: true, attachmentView: view });
   }
-  expect(seen).toEqual(["strip", "inline", "strip", "inline"]);
+  expect(seen).toEqual(["strip", "inline", "both", "inline"]);
 });
 
 test("the page's attachment view choice applies at once and asks the host to keep it", async () => {

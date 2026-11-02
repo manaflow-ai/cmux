@@ -64,6 +64,8 @@ pub(crate) mod home;
 pub(crate) mod home_store;
 #[cfg(test)]
 mod home_tests;
+#[cfg(test)]
+mod incognito_terminal_tests;
 pub(crate) mod kept_tab_store;
 pub(crate) mod kept_tabs;
 #[cfg(test)]

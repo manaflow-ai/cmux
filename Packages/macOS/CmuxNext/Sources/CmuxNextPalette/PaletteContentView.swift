@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextSignposts
 import Observation
 import QuartzCore
 
@@ -139,6 +140,14 @@ final class PaletteContentView: NSView {
         if resultsVersion != appliedResults {
             appliedResults = resultsVersion
             list.setSections(sections)
+            // The commit of the frame these rows draw in ends the typed query's marks (key.palette_query_*).
+            let marks = model.queryFrames.takePending()
+            if marks.rows != nil || marks.answer != nil {
+                CommitBoundary().after { outcome in
+                    if let rows = marks.rows { Signposter.key.end(.paletteQueryRows, rows, outcome) }
+                    if let answer = marks.answer { Signposter.key.end(.paletteQueryAnswer, answer.interval, message: "rows=\(answer.rows)") }
+                }
+            }
         }
         list.setSelection(selection)
         list.setHover(hover)

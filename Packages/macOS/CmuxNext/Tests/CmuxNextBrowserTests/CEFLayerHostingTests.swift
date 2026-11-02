@@ -317,7 +317,7 @@ import Testing
 /// drag's first move until its release landed, capped at half the shortest display frame so no app frame is held
 /// past its display link's target time.
 @MainActor
-@Suite struct CEFLayerHostingPaneDragTests {
+@Suite(.closesItsWindows) struct CEFLayerHostingPaneDragTests {
     let fake = CEFLayerHostingTests.FakeFork()
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
 

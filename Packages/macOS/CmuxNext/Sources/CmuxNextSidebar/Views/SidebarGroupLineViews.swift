@@ -205,7 +205,7 @@ final class GroupLineView: NSView {
     /// Reads `sidebar.groupHeader` and `sidebar.groupColors` and repaints once when either changes; one
     /// observation at a time.
     private func observedLook() -> (style: SidebarGroupHeaderStyle, themed: Bool) {
-        let read = { _ = SidebarTunables.groupChromeShape.value; return (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
+        let read = { _ = SidebarTunables.groupChromeShapeOn; return (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
         guard !observesPalette else { return read() }
         observesPalette = true
         return withObservationTracking(read) { [weak self] in

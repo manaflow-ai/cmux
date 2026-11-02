@@ -214,44 +214,18 @@ enum CloudHandlers {
         return false
     }
 
-    /// The machine's first workspace, created (with a terminal) when it has none.
+    /// The machine's first workspace that no other machine also lists (``CloudMachineWorkspace``), created (with a terminal) when it has none.
     private static func firstWorkspaceResult(on session: CloudMachineSession, _ context: AppActionContext,
                                              beforeCreate: () throws -> Void = {}) async throws -> (id: String, created: Bool) {
-        let daemon = session.daemon
+        let daemon = session.daemon, machines = context.services.machines
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
-        return try await firstWorkspaceResult(in: daemon.store, beforeCreate: beforeCreate) {
-            await context.services.windows.createWorkspace(on: daemon)
-        }
-    }
-
-    @MainActor static func firstWorkspaceResult(in store: DaemonStore, beforeCreate: () throws -> Void,
-                                                create: () async -> String?) async throws -> (id: String, created: Bool) {
-        if let first = try await existingWorkspace(in: store) { return (first, false) }
-        // The live tree, rather than the stale pre-wait tree, decides whether creation needs consent.
-        try beforeCreate()
-        guard let id = await create() else { throw ActionFailure(message: CloudStrings.notConnected) }
-        return (id, true)
+        return try await CloudMachineWorkspace.first(in: daemon.store, notConnected: ActionFailure(message: CloudStrings.notConnected),
+                                                     listedElsewhere: { id in machines.daemons.contains { $0 !== daemon && $0.store.workspace(id: id) != nil } },
+                                                     beforeCreate: beforeCreate) { await context.services.windows.createWorkspace(on: daemon) }
     }
 
     static func firstWorkspace(on session: CloudMachineSession, _ context: AppActionContext) async throws -> String {
         try await firstWorkspaceResult(on: session, context).id
-    }
-
-    /// The first workspace `store` lists, nil when it lists none. A daemon's connection is up
-    /// before its first tree is applied (right after a resume), and the list then is the last
-    /// connection's, not "none": the read waits for this connection's tree (`liveTreeEpoch`), up to
-    /// `limit`, so an open never makes a second workspace. The connection is published before the
-    /// store hears `.connected` (which moves the epoch), so the store must say connected too. A tree
-    /// that never comes within `limit` throws "not connected": never "none", which would make one.
-    static func existingWorkspace(in store: DaemonStore, within limit: Duration = .seconds(10)) async throws -> String? {
-        let current = { @MainActor @Sendable in
-            if case .connected = store.connectionState { return store.liveTreeEpoch == store.connectionEpoch }
-            return false
-        }
-        if !(await current()), await !CloudMove.holds(within: limit, until: current) {
-            throw ActionFailure(message: CloudStrings.notConnected)
-        }
-        return store.workspaces.first?.id
     }
 
     /// Open Desktop (`cloud open-desktop`): the machine's desktop, as cmux Classic shows it, in a
@@ -280,9 +254,8 @@ enum CloudHandlers {
             let name = CloudStrings.desktopWorkspaceName(title), address = record.url.absoluteString
             let api = services.cloud.machineAPI, machineID = session.machineID, cloud = services.cloud
             let unavailable = CloudStrings.desktopUnavailable(title)
-            // The person's mark goes on right before the tab appears (after the host start and token
-            // read), in the person's run scope captured here, so its window never runs out first.
-            let scope = ActionRunScope.current, pages = services.remoteViewPages
+            // The person's run scope, captured here: their approval goes on the tab this open makes.
+            let scope = ActionRunScope.current, cache = services.cache
             WorkspaceHandlers.createAndShow(services: services, name: name, daemon: services.machines.local) { connection, terminal in
                 guard let pane = terminal.pane else { return }
                 if rd {
@@ -298,8 +271,11 @@ enum CloudHandlers {
                     guard token.count == 64 else { throw ActionFailure(message: unavailable) }
                     await MainActor.run { cloud.desktopRdTokens[machineID.lowercased()] = token }
                 }
-                await MainActor.run { pages.personOpens(record.url, scope: scope) }
-                _ = try await connection.newFrontendBrowserTab(url: address, engine: .webkit, in: pane, title: name)
+                let created = try await connection.newFrontendBrowserTab(url: address, engine: .webkit, in: pane, title: name)
+                // The approval goes on the exact tab the daemon made for this open, never on whichever
+                // tab first shows the same address (#29208): until then the tab asks for Connect.
+                let key = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
+                await MainActor.run { cache.personOpenedRemoteView(key, url: record.url, scope: scope) }
                 if let surface = terminal.surface { try await connection.closeTab(surface) }
             }
             return
@@ -383,7 +359,7 @@ enum CloudHandlers {
         session.attach(origin: connectOrigin(for: invocation))
         guard session.resuming else { return }
         let daemon = session.daemon
-        _ = await CloudMove.holds(within: limit) { daemon.connection != nil || session.resumeFailure != nil }
+        _ = await CloudWait.holds(within: limit) { daemon.connection != nil || session.resumeFailure != nil }
         if let failure = session.resumeFailure { throw ActionFailure(message: failure) }
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
     }

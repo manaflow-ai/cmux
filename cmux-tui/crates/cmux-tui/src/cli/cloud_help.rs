@@ -97,6 +97,12 @@ const GROUPS: &[Group] = &[
                 "Text that hands the machine to someone else",
                 "マシンを他の人に引き継ぐためのテキスト",
             ),
+            verb(
+                "share-machine",
+                "{target} [--teammate USER_ID] [--revoke]",
+                "Share a team machine's chats with a teammate (no --teammate lists them)",
+                "チームのマシンのチャットをチームメイトと共有（--teammate なしで一覧表示）",
+            ),
         ],
     },
     Group {

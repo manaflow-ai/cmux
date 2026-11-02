@@ -4,6 +4,84 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeRequestsListResult {
+    pub requests: Vec<HomeRequestsListResultRequestsItem>,
+}
+
+wire_errors! {
+    /// The error codes home.requests.list declares.
+    HomeRequestsListError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Search Home messages in conversations you are a current human participant of (newest first, with a short Top section).
+    HomeSearchOp {
+        name: "home.search",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:planetscale",
+        risk: "read",
+        principals: [Session, Install],
+        params: HomeSearchParams,
+        result: HomeSearchResult,
+        error: HomeSearchError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSearchParams {
+    pub q: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<ConversationId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<ParticipantId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<ConversationKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<Timestamp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSearchResultHitsItemRangesItem {
+    pub start: i64,
+    pub length: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSearchResultHitsItem {
+    pub conversation: ConversationId,
+    pub title: Option<String>,
+    pub seq: i64,
+    pub message_id: String,
+    pub author: ParticipantId,
+    pub created_at: Timestamp,
+    pub snippet: String,
+    pub ranges: Vec<HomeSearchResultHitsItemRangesItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSearchResult {
+    pub hits: Vec<HomeSearchResultHitsItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
 wire_errors! {
     /// The error codes home.search declares.
     HomeSearchError {
@@ -819,78 +897,4 @@ wire_errors! {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
     }
-}
-
-wire_op! {
-    /// Change the team's integration policy (team admins; refused while an SSO or MDM policy locks it).
-    IntegrationPolicySetOp {
-        name: "integration.policy.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: IntegrationPolicySetParams,
-        result: TeamIntegrationPolicy,
-        error: IntegrationPolicySetError,
-    }
-}
-
-wire_enum! {
-    IntegrationPolicySetParamsGithubScope {
-        LinkingUserRepos = "linking_user_repos",
-        Installation = "installation",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationPolicySetParamsGithub {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope: Option<IntegrationPolicySetParamsGithubScope>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub require_org_admin: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub repo_allowlist: Option<Option<Vec<RepoPattern>>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allow_workflows: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationPolicySetParams {
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub allowed_providers: Option<Option<Vec<IntegrationProvider>>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub github: Option<IntegrationPolicySetParamsGithub>,
-}
-
-wire_errors! {
-    /// The error codes integration.policy.set declares.
-    IntegrationPolicySetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyLocked = "policy.locked",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Disconnect: deletes the stored provider credential at once and marks the connection revoked.
-    IntegrationRevokeOp {
-        name: "integration.revoke",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "destructive",
-        principals: [Session],
-        params: IntegrationRevokeParams,
-        result: Connection,
-        error: IntegrationRevokeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationRevokeParams {
-    pub connection: ConnectionId,
 }

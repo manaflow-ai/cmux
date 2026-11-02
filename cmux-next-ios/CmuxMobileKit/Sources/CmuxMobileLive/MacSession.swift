@@ -16,6 +16,8 @@ final class MacSession {
     let link: LinkController
     let workspaces: WorkspaceSync
     let acpmux = AcpmuxHub()
+    /// Separate ACP clients: VM-local session ids never collide with this Mac's.
+    var cloudChats: [String: CloudChatRelay] = [:]
     let feed: LiveFeed
     let terminalFeed: TerminalFeed
     /// Workspace and tab changes on this Mac.

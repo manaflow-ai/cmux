@@ -57,7 +57,7 @@ extension SidebarViewComponents {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
             selected = model.selectedItem
-            onScreen = SidebarTunables.multiView.value ? model.onScreen : []
+            onScreen = SidebarTunables.multiViewOn ? model.onScreen : []
             profiles = model.profiles
             activeProfile = model.activeProfileID
             filter = model.filterText
@@ -77,7 +77,7 @@ extension SidebarViewComponents {
             tree = SidebarSessionTree.shared.drawn
             pullRequests = SidebarSessionTree.shared.pullRequests
             history = SidebarChatHistory.shared.state
-            workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
+            workspacesAsTabs = SidebarTunables.workspacesAsTabsOn
             groupsByStatus = SidebarTunables.groupByStatus.value
             foldsDone = SidebarTunables.doneFold.value
             rowLimit = SidebarTunables.rowLimit

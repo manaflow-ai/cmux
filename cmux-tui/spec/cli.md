@@ -238,7 +238,11 @@ longer wait, also named in the message) and leaves the owner running. Other
 lifecycle commands fail fast while `lifecycle_ready` is `false` and can be
 retried after the owner is ready. `server ensure` waits for a restoring
 owner (up to 2 minutes, then `server.restore_timeout`) instead of starting
-another.
+another. An owner at its connection limit refuses each new connection with a
+`type: "refused"`, `code: "server.busy"` line; `server ensure` waits for
+capacity instead of starting another owner and fails with `server.busy` after
+10 seconds of continuous refusals. `server ensure --replace-unresponsive` replaces an
+owner that refuses every connection for that long.
 `server ensure --ws-loopback [--ws-allow-origin <origin>[,<origin>...]]` (private app
 contract, cx-hnmbt.2) starts an owner it spawns with `--ws 127.0.0.1:0` (and the
 extra page origins, a comma-separated list: the app passes every first-party page origin

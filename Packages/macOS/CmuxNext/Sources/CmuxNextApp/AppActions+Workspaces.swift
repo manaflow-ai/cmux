@@ -50,7 +50,7 @@ extension AppActions {
         // only while its Debug tunable is on.
         registry.bind("nextSidebarTab", invoke: { SidebarNavigation.step(by: 1, scope: $0["scope"]?.stringValue, services) })
         registry.bind("prevSidebarTab", invoke: { SidebarNavigation.step(by: -1, scope: $0["scope"]?.stringValue, services) })
-        registry.includesWorkspaceTabKeys = { SidebarTunables.workspacesAsTabs.value }
+        registry.includesWorkspaceTabKeys = { SidebarTunables.workspacesAsTabsOn }
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue else { return }
             SidebarNavigation.select(number: number, services)
@@ -166,7 +166,7 @@ extension AppActions {
         spawn.inputToken = keys
         // In this turn: the row, and for Cmd-N's page the workspace itself, show before any daemon reply.
         let create = BenchSpans.measure("cmdN.start") { windows.startWorkspace(spawn, on: daemon, into: target) }
-        services.registry.track(Task {
+        services.registry.trackOrReport(Task {
             var pageMade = false
             defer { input.endIncoming(keys, pageMade: pageMade) }
             do {
@@ -184,7 +184,7 @@ extension AppActions {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new workspace", error)
             }
-        })
+        }, as: "newTab")
     }
 
     /// Close Workspace. With no target, a close pressed while the window's
@@ -244,12 +244,12 @@ extension AppActions {
                 let close: @MainActor () async -> ActionWorkFailure? = {
                     let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
                         try await ClosingWorkspaces.shared.refusal()
-                        try await WorkspaceClose.close(key, terminals: terminals, on: connection)
+                        try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon)
                     }
                     guard hidden else { return failure }
                     // A close that went through stays hidden until the store has applied its events (the row is gone there).
                     if failure == nil, let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "close workspace") }
-                    ClosingWorkspaces.shared.end(id, refused: failure != nil, in: controller?.window)
+                    ClosingWorkspaces.shared.end(id, refused: failure != nil, reason: WorkspaceClose.shownReason(failure), in: controller?.window)
                     return failure
                 }
                 return !offline ? lanes.run(in: window, close) : hidden ? Task { await close() } : Task { services.registry.refuse(CloudStrings.closeNotConnected(services.machines.machineName(daemon.machineID) ?? daemon.machineID)); return nil }

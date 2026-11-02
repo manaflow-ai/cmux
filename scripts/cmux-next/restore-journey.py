@@ -1993,7 +1993,7 @@ def seeded(before):
                   ("three move Retries (move, show, update)",
                    sorted(r.get("kind") for r in before.get("cloud.move_retries") or []) == ["move", "show", "update"]),
                   ("a Bring Back Local Retry (ask first)", [r.get("kind") for r in before.get("cloud.bring_back_retries") or []] == ["ask_first"]),
-                  ("an Always folder grant", any(g.get("scope") == "folder" for g in before.get("cloud.grants") or [])),
+                  ("an Always folder grant", any(g.get("scope") == "account_team_origin_folder" for g in before.get("cloud.grants") or [])),
                   ("a dismissed offer matching its Retry", [d.get("matches_retry") for d in before.get("cloud.dismissed") or []] == [True])],
         "split": [("rj-split workspace", has(lambda k, v: k.startswith("ws[rj-split]."))),
                   # The name and pin rows compare equal emptiness as a pass: they need the seed to show.

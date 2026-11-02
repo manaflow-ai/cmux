@@ -4,6 +4,76 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct OwnershipTransferParams {
+    pub conversation: ConversationId,
+    pub participant: ParticipantId,
+}
+
+wire_errors! {
+    /// The error codes ownership.transfer declares.
+    OwnershipTransferError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParticipant = "invalid_participant",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownParticipant = "unknown_participant",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// A participant's avatar with its bytes, or null. The participant reads their own and an owner its Chief's; anyone else names a conversation both are in. Any other read is selector.not_found, the same answer as an unknown participant.
+    ParticipantAvatarGetOp {
+        name: "participant.avatar.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: ParticipantAvatarGetParams,
+        result: ParticipantAvatarGetResult,
+        error: ParticipantAvatarGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarGetParams {
+    pub participant_id: ParticipantId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<ConversationId>,
+}
+
+wire_enum! {
+    ParticipantAvatarGetResultAvatarMediaType {
+        ImagePng = "image/png",
+        ImageJpeg = "image/jpeg",
+        ImageGif = "image/gif",
+        ImageWebp = "image/webp",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarGetResultAvatar {
+    pub sha256: String,
+    pub media_type: ParticipantAvatarGetResultAvatarMediaType,
+    pub bytes: i64,
+    /// The image, base64.
+    pub data: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarGetResult {
+    pub participant_id: ParticipantId,
+    pub avatar: Option<ParticipantAvatarGetResultAvatar>,
+}
+
 wire_errors! {
     /// The error codes participant.avatar.get declares.
     ParticipantAvatarGetError {
@@ -820,85 +890,5 @@ wire_errors! {
         PolicyInvalid = "policy.invalid",
         RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Disable a connection (owners and admins): sign-in discovery stops routing to it.
-    SsoConnectionDisableOp {
-        name: "sso.connection.disable",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "destructive",
-        principals: [Session],
-        params: SsoConnectionDisableParams,
-        result: SsoConnection,
-        error: SsoConnectionDisableError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionDisableParams {
-    pub connection: SsoConnectionId,
-}
-
-wire_errors! {
-    /// The error codes sso.connection.disable declares.
-    SsoConnectionDisableError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The team's SSO connections, without secrets (owners and admins).
-    SsoConnectionListOp {
-        name: "sso.connection.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session],
-        params: SsoConnectionListParams,
-        result: SsoConnectionListResult,
-        error: SsoConnectionListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionListParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionListResult {
-    pub team: TeamId,
-    pub connections: Vec<SsoConnection>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes sso.connection.list declares.
-    SsoConnectionListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Seal the OIDC client secret (owners and admins). The secret is never returned, logged or recorded in events.
-    SsoConnectionSetSecretOp {
-        name: "sso.connection.set_secret",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: SsoConnectionSetSecretParams,
-        result: SsoConnection,
-        error: SsoConnectionSetSecretError,
     }
 }

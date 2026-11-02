@@ -116,6 +116,24 @@ import Testing
         #expect(data.contains { $0 > 0 }, "the caption drew nothing")
     }
 
+    @Test func threeHundredAgentNamesFitOneCompactFoldLabel() {
+        let names = (0..<300).map { "a\($0)" }
+        let folded = HomeMapping.agentMessageText(.init(group: Self.group,
+            kind: .fold(count: 300, peers: names, expanded: false)))
+        #expect(folded.contains("300"))
+        #expect(folded.contains("a0, a1, a2, …"))
+        #expect(!folded.contains("a299"))
+        #expect(!folded.contains("]("))
+        #expect(folded.count < 140)
+        let expanded = HomeMapping.agentMessageText(.init(group: Self.group,
+            kind: .fold(count: 300, peers: names, expanded: true)))
+        #expect(expanded.contains("300"))
+        #expect(!expanded.contains("a299"))
+        let notes = HomeMapping.agentMessageText(.init(group: Self.group, kind: .notes(
+            count: 300, peers: names, reason: .stopped(session: "Disconnected"), expanded: false)))
+        #expect(notes.contains("300") && notes.hasSuffix("`a0` `a1` `a2` …") && !notes.contains("a299"))
+    }
+
     @Test func aClickOnTheFoldRowTogglesItsGroupAndOpensNothingElse() throws {
         _ = NSApplication.shared
         let me = ParticipantID("user_me"), chief = ParticipantID("agent_chief")

@@ -16,11 +16,16 @@ import {
   orderInline,
   placeTokensIn,
   removeInline,
+  type SelectionPart,
+  selectionParts,
   sliceHoldsInline,
+  wholeSelected,
   withTextMarksEscaped,
 } from "./composer/inlineNode";
 import { followActionsWidth } from "./composerScrollLane";
 import { caretInView } from "./composer/caretInView";
+import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
+import type { SlashNames, SlashTrigger } from "./slashCommands";
 import { MINIMAL_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import {
   Editor,
@@ -38,7 +43,7 @@ import { gfm } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
 import { clipboard } from "@milkdown/kit/plugin/clipboard";
 import { baseKeymap, chainCommands, lift, selectAll } from "@milkdown/kit/prose/commands";
-import { redo, redoDepth, undo, undoDepth } from "@milkdown/kit/prose/history";
+import { closeHistory, redo, redoDepth, undo, undoDepth } from "@milkdown/kit/prose/history";
 import { keymap } from "@milkdown/kit/prose/keymap";
 import { splitListItem } from "@milkdown/kit/prose/schema-list";
 import { type EditorState, Plugin, Selection, TextSelection } from "@milkdown/kit/prose/state";
@@ -97,6 +102,9 @@ export type MarkdownFieldHandle = {
   redo(): void;
   /// Selects the whole prompt (its context menu's Select All).
   selectAll(): void;
+  /// Inserts `text` at the selection as a paste of plain text goes in, with no surface rule run on it
+  /// (a copy's own runs of text put back in order, composer/composerCopy.ts).
+  insertText(text: string): void;
   /// Places attachments `ids` at the caret, in the text (composer/inlineNode.ts); false where they
   /// cannot go (a code block, an editor not made yet).
   insertInline(ids: readonly string[]): boolean;
@@ -107,6 +115,9 @@ export type MarkdownFieldHandle = {
   /// The ids of the attachments placed in the text, from its nodes alone (text shaped like a token
   /// is text), in order, each once; undefined before the editor is made.
   inlineIds(): string[] | undefined;
+  /// Writes `/name ` over the `/word` the caret ends (composer/slashTokens.ts), the text around it
+  /// kept, as one undoable edit; false when there is no such word or no editor yet.
+  insertCommand(name: string): boolean;
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -119,7 +130,7 @@ export type MarkdownFieldProps = {
   /// The prompt as markdown. A value the field did not emit itself (cleared after a send, a
   /// command the menu wrote) replaces the document.
   value: string;
-  /// The new markdown, and the caret's offset in the first paragraph (where `/` commands live).
+  /// The new markdown, and the caret's offset in the first paragraph (`/` commands: `onSlash`).
   onChange(markdown: string, caret: number): void;
   onCaret?(caret: number): void;
   /// Runs before the editor's own keys; preventDefault keeps the editor from handling the key.
@@ -154,8 +165,21 @@ export type MarkdownFieldProps = {
   /// attachment stays their text. Read when a value's tokens become nodes (the editor made, a value
   /// set from outside, `type`); unset, every token-shaped run is taken for an attachment.
   isInlineAttachment?(id: string): boolean;
+  /// A copy or cut of the selection (Cmd-C, Cmd-X, the menu's): its runs of text and its placed
+  /// attachments in order, its text as the field copies it, and whether it holds the whole draft.
+  /// True when the surface wrote the pasteboard itself; the field then takes a cut's selection out.
+  onCopy?(copy: { parts: SelectionPart[]; text: string; whole: boolean }, cut: boolean): boolean;
+  /// Whether the selection holds the whole draft (Select All), as it changes: the surface marks what
+  /// it shows besides the text (the strip's attachments) as selected too.
+  onWholeSelection?(whole: boolean): void;
+  /// A paste before the field reads it: true when the surface put it in itself.
+  onPasteFirst?(event: ClipboardEvent): boolean;
   /// The surface's own key handling, which runs before the editor's keys (the omnibar word rules).
   plugins?: Plugin[];
+  /// The command names a `/name` word draws blue for (slashCommands.ts `slashNames`); unset, none.
+  slashNames?: SlashNames;
+  /// The `/word` the caret ends, as it changes (undefined: none), for the `/` menu.
+  onSlash?(trigger: SlashTrigger | undefined): void;
   /// Shift-Enter adds a line (default true).
   multiline?: boolean;
   /// Commands keep literal characters: no Markdown input rules or formatting shortcuts.
@@ -210,10 +234,18 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.onUnplacedQuotes === next.onUnplacedQuotes &&
     previous.onInlineViews === next.onInlineViews &&
     previous.isInlineAttachment === next.isInlineAttachment &&
+    previous.onCopy === next.onCopy &&
+    previous.onWholeSelection === next.onWholeSelection &&
+    previous.onPasteFirst === next.onPasteFirst &&
     previous.plugins === next.plugins &&
+    previous.slashNames === next.slashNames &&
+    previous.onSlash === next.onSlash &&
     sameMarkdownFieldAttributes(previous.attributes, next.attributes)
   );
 }
+
+/// No command words: a field with no `/` commands colours nothing.
+const NO_SLASH_NAMES: SlashNames = { leading: new Set(), anywhere: new Set() };
 
 /** Markdown without the serializer's trailing newline, and empty for an empty document.
  * Milkdown writes an empty paragraph as `<br />`; empty lines a prompt starts or ends with
@@ -386,6 +418,14 @@ function typedText(remark: RemarkParser, markdown: string): string {
 }
 
 /** The caret's offset inside the first paragraph, else past its end. */
+/// Brings a selection the browser changed on its own (not yet told by a selectionchange) into the
+/// editor's state, as ProseMirror's DOM observer would at that event. Its observer is not public API.
+function readDomSelection(view: EditorView) {
+  const observer = (view as unknown as { domObserver?: { forceFlush?(): void; flush?(): void } }).domObserver;
+  observer?.forceFlush?.();
+  observer?.flush?.();
+}
+
 function caretOf(view: EditorView): number {
   const { selection, doc } = view.state;
   const first = doc.firstChild;
@@ -432,7 +472,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
+    onCopy,
+    onWholeSelection,
+    onPasteFirst,
     plugins = [],
+    slashNames,
+    onSlash,
     multiline = true,
     literal = false,
     plainInput = false,
@@ -485,7 +530,15 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           literalKeys.current!,
         ]
       : richPlugins.current;
+    // A new plugin list remakes every plugin view, and Milkdown's root view then unwraps and wraps
+    // the editor's element again: the move blurs it. The New Tab field is plain in both of its
+    // modes (`plainInput`), so leaving shell mode asks for the list it already has; keep it, and
+    // the keyboard with it. A list that does change gives the focus back to the field that had it.
+    const now = current.state.plugins;
+    if (plugins.length === now.length && plugins.every((plugin, index) => plugin === now[index])) return;
+    const focused = current.hasFocus();
     current.updateState(current.state.reconfigure({ plugins }));
+    if (focused && !current.hasFocus()) current.focus();
   }, []);
   useLayoutEffect(configureLiteral, [configureLiteral, literal, plainInput]);
   // The markdown the field last emitted or applied; a different `value` comes from outside.
@@ -503,6 +556,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
+    onCopy,
+    onWholeSelection,
+    onPasteFirst,
+    onSlash,
   });
   latest.current = {
     onChange,
@@ -517,8 +574,27 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
+    onCopy,
+    onWholeSelection,
+    onPasteFirst,
+    onSlash,
   };
+  const slashNamesNow = useRef(slashNames);
+  slashNamesNow.current = slashNames;
   const composing = useRef(false);
+  /// The `/word` last told to `onSlash`.
+  const slashTold = useRef<SlashTrigger | undefined>(undefined);
+  /// Tells `onSlash` the `/word` at the caret. Not while an input method composes: its text is not
+  /// typed yet (a candidate may still replace it); `compositionend` tells it.
+  const tellSlash = (state: EditorState) => {
+    const tell = latest.current.onSlash;
+    if (!tell || composing.current) return;
+    const next = slashTriggerAt(state);
+    const told = slashTold.current;
+    if (next?.query === told?.query && next?.length === told?.length && next?.leading === told?.leading) return;
+    slashTold.current = next;
+    tell(next);
+  };
   const touched = useRef(false);
   // Focus asked for before the editor exists is applied once it does.
   const pendingFocus = useRef(false);
@@ -577,6 +653,25 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const inlineKnown = (id: string) => latest.current.isInlineAttachment?.(id) ?? true;
   // Whether this field's editor was made with placed attachments (`placesInline` in `mount`).
   const inlineOn = useRef(false);
+  /// A copy or cut the surface writes itself (`onCopy`): the field's own copy is skipped, and a cut's
+  /// selection goes as one edit.
+  const copied = (editorView: EditorView, event: ClipboardEvent, cut: boolean) => {
+    const surface = latest.current.onCopy;
+    const { state } = editorView;
+    if (!surface || state.selection.empty) return false;
+    const copy = {
+      parts: inlineOn.current ? selectionParts(state) : [],
+      text: copiedText(state.selection.content()),
+      whole: wholeSelected(state),
+    };
+    if (!copy.parts.length && copy.text) copy.parts.push({ text: copy.text });
+    if (!surface(copy, cut)) return false;
+    event.preventDefault();
+    // The text at once; the surface's own write (the host's, a moment later) replaces it whole.
+    event.clipboardData?.setData("text/plain", copy.text);
+    if (cut) editorView.dispatch(editorView.state.tr.deleteSelection().scrollIntoView().setMeta("uiEvent", "cut"));
+    return true;
+  };
 
   const mount = useCallback(
     (root: HTMLDivElement | null) => {
@@ -599,6 +694,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       // Set from a passed-on Return the field took until its key comes up: the paragraph an input
       // method may still insert for that key is the same Return, not a second one.
       let returnTaken = false;
+      // Whether the selection held the whole draft at the last update (`onWholeSelection`).
+      let wholeNow = false;
       // A paste that ends the draft shows the field's whole end, its bottom inset too: the caret
       // reveal stops a margin short in WebKit, which would leave the last line under the bottom fade
       // (markdownField.css). Every paste path ends here.
@@ -617,6 +714,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               handleDOMEvents: {
                 keydown: (_view, event) => {
                   returnTaken = false;
+                  // A caret the browser moved on its own (an arrow key ProseMirror leaves to it) reaches
+                  // the editor's state only at the next selectionchange, a task later. A key that
+                  // comes first saw the old selection: after ArrowRight collapsed a selected New Tab
+                  // location, ProseMirror's keypress typed over the whole location it still thought
+                  // was selected. Its own keydown flushes only pending DOM mutations, so read the
+                  // selection here, before the surface's keys and ProseMirror's see it.
+                  if (!event.isComposing && event.keyCode !== 229 && !_view.composing) readDomSelection(_view);
                   latest.current.onKeyDown?.(event);
                   if (event.defaultPrevented) return true;
                   // Browser editing shortcuts must remain reliable in literal New Tab input.
@@ -696,6 +800,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   compositionEndedAt = event.timeStamp;
                   composing.current = false;
                   latest.current.onCompositionChange?.(false);
+                  tellSlash(_view.state);
                   return false;
                 },
                 // A paste that carries images (files, or a data: <img> in its HTML: Chrome's Copy Image
@@ -746,7 +851,16 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   event.preventDefault();
                   return true;
                 },
+                // A copy of a selection with attachments in it is the surface's: it puts the text and
+                // the attachments on the pasteboard together (Leo, 2026-11-01: "select all in
+                // composer which also selects all the attachments as the copy as well").
+                copy: (editorView, event) => copied(editorView, event, false),
+                cut: (editorView, event) => copied(editorView, event, true),
                 paste: (editorView, event) => {
+                  if (latest.current.onPasteFirst?.(event)) {
+                    event.preventDefault();
+                    return true;
+                  }
                   const data = event.clipboardData;
                   if (!data) return false;
                   if (literalNow.current) {
@@ -842,6 +956,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
             // Report every document and caret change; the composer's menu follows the caret.
             view: () => ({
               update: (next, previous) => {
+                tellSlash(next.state);
+                const whole = wholeSelected(next.state);
+                if (whole !== wholeNow) {
+                  wholeNow = whole;
+                  latest.current.onWholeSelection?.(whole);
+                }
                 if (next.state.doc.eq(previous.doc)) {
                   if (!next.state.selection.eq(previous.selection)) latest.current.onCaret?.(caretOf(next));
                   return;
@@ -1010,6 +1130,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         .use(history)
         .use(clipboard)
         .use(placesInline ? [inlineAttachmentNode, inlinePlugin(inline.current)] : [])
+        .use($prose(() => slashTokensPlugin(() => slashNamesNow.current ?? NO_SLASH_NAMES)))
         .create()
         .then((made) => {
           if (disposed) {
@@ -1025,6 +1146,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           showPlaceholder(known.current);
           applyAttributes();
           for (const quote of pendingQuotes.current.splice(0)) insertReplyQuote(made, view.current, quote);
+          tellSlash(view.current.state);
           if (pendingFocus.current) view.current.focus();
           latest.current.onReady?.();
           window.dispatchEvent(new window.Event(COMPOSER_READY_EVENT));
@@ -1086,6 +1208,11 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   }, [value]);
   // Aria and role follow the composer's state on the editable element.
   useLayoutEffect(applyAttributes);
+  // A new command list colours the prompt's command words again (an editor made later reads it).
+  useLayoutEffect(() => {
+    const current = view.current;
+    if (current) current.dispatch(setSlashNames(current.state.tr, slashNames ?? NO_SLASH_NAMES));
+  }, [slashNames]);
 
   const wrapper = useRef<HTMLDivElement | null>(null);
   // A long draft scrolls inside this box past its cap (markdownField.css): the edge with more draft
@@ -1219,6 +1346,11 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           refocus.current = null;
           if (view.current) selectAll(view.current.state, view.current.dispatch);
         },
+        insertText: (text) => {
+          if (!view.current || !text) return;
+          refocus.current = null;
+          insertPlain(view.current, text);
+        },
         insertInline: (ids) => {
           if (!view.current) return false;
           refocus.current = null;
@@ -1226,6 +1358,16 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         },
         removeInline: (id, caret) => {
           if (view.current) removeInline(view.current, id, caret);
+        },
+        insertCommand: (name) => {
+          const current = view.current;
+          const tr = current && commandEdit(current.state, name);
+          if (!current || !tr) return false;
+          refocus.current = null;
+          current.dispatch(tr);
+          // What is typed next is its own undo step too.
+          current.dispatch(closeHistory(current.state.tr));
+          return true;
         },
         inlineIds: () => (view.current ? inlineIds(view.current.state.doc) : undefined),
         orderInline: (ids) => {

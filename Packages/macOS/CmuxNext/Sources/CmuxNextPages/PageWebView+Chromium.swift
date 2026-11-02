@@ -34,10 +34,14 @@ extension PageWebView {
     static let chromiumFireAndForget = [
         PagePaintProbe.handlerName, PageInputReadiness.handlerName, ConsoleErrorCapture.handlerName,
         PageChromiumDocumentScripts.navigateHandler, PageChromiumDocumentScripts.hostDropHandler,
+        PageChromiumDocumentScripts.pageDropHandler,
     ]
 
     /// How long after a drag of files entered the page its drop may still open one in the host.
     static let chromiumDropWindow: TimeInterval = 120
+
+    /// How long after the native drop the page's drop message may still report its files.
+    static let chromiumDropConfirmation: TimeInterval = 10
 
     /// The engine `descriptor` made with `options` shows in now: the one decision every page view
     /// takes (``PageEnginePolicy``, with the app's ``chromiumHosting``).
@@ -177,6 +181,7 @@ extension PageWebView {
         page.setZoom(pageZoom)
         // The WebKit page draws no background (`drawsBackground` off): the Chromium page neither.
         page.setSeeThrough(true)
+        page.setAnswersFileChooser(onFilesChosen != nil)
         page.contentView.frame = bounds
         page.contentView.autoresizingMask = [.width, .height]
         addSubview(page.contentView)
@@ -211,6 +216,8 @@ extension PageWebView {
         chromiumSession = nil
         chromiumUserEventUptime = nil
         chromiumDragFile = nil
+        chromiumDragged = nil
+        chromiumDropConfirmed = nil
         inputReadiness.editor = nil
         scriptTarget.bridge = bridge
         engineDecision = .webKit(reason)
@@ -271,10 +278,17 @@ extension PageWebView {
             openOutside(url, modifiers: [])
         case .filesDragged(let urls):
             filesDragged(urls)
+        case .dragEnded(let dropped):
+            chromiumDragEnded(dropped: dropped)
         case .userInput(let uptime):
             chromiumUserInput(at: uptime)
         case .contextMenu(let request):
             showChromiumMenu(request)
+        case .pasted:
+            chromiumPasted()
+        case .filesChosen(let urls):
+            noteTouch()
+            onFilesChosen?(urls)
         }
     }
 
@@ -288,6 +302,8 @@ extension PageWebView {
             ConsoleErrorCapture(page: descriptor.id).record(body)
         case PageChromiumDocumentScripts.hostDropHandler:
             hostDropped()
+        case PageChromiumDocumentScripts.pageDropHandler:
+            pageDropped()
         case PageChromiumDocumentScripts.navigateHandler:
             guard let object = body as? [String: Any], let text = object["url"] as? String, let url = URL(string: text) else { return }
             var modifiers: NSEvent.ModifierFlags = []
@@ -309,9 +325,48 @@ extension PageWebView {
     /// A drag of files from outside entered the Chromium page: the first one goes to the host when
     /// ``fileDrop`` takes it (as on the WebKit page), and the page script hands the drop over.
     private func filesDragged(_ urls: [URL]) {
+        chromiumDragged = urls.isEmpty ? nil : (urls, now())
+        chromiumDropConfirmed = nil
         let url = urls.first.flatMap { url in fileDrop.flatMap { $0.accepts(url) ? url : nil } }
         chromiumDragFile = url.map { ($0, now()) }
         chromiumSession?.bridge.evaluate("window.__cmuxHostDrop && window.__cmuxHostDrop(\(url != nil))")
+    }
+
+    /// The drag that entered the page ended natively. A drop on the page (AppKit's
+    /// `performDragOperation` on the pane, with its event in dispatch) arms one page drop message;
+    /// a drag that left or was cancelled clears what it entered with, so a later message from page
+    /// script reports nothing.
+    private func chromiumDragEnded(dropped: Bool) {
+        guard dropped, chromiumDragged != nil else {
+            chromiumDragged = nil
+            chromiumDropConfirmed = nil
+            return
+        }
+        chromiumDropConfirmed = (now(), NSApp?.currentEvent)
+    }
+
+    /// The page's drop of files: the files of the real drag that entered it, once, and only right
+    /// after the pane's native drop of that drag (``chromiumDragEnded(dropped:)``). Page script can
+    /// post this message at any time but cannot name a file or make a native drop, so with no drop
+    /// the host saw (a drag still under way, left or cancelled), it reports nothing. A drop the host
+    /// took (``fileDrop``, ``hostDropped()``) is not the page's and is not reported here.
+    private func pageDropped() {
+        guard let dragged = chromiumDragged, let confirmed = chromiumDropConfirmed else { return }
+        chromiumDragged = nil
+        chromiumDropConfirmed = nil
+        guard chromiumDragFile == nil, now().timeIntervalSince(confirmed.at) < Self.chromiumDropConfirmation else { return }
+        droppedEnteredAt = dragged.at
+        droppedEvent = confirmed.event
+        defer { (droppedEnteredAt, droppedEvent) = (nil, nil) }
+        onFilesDropped?(dragged.urls)
+    }
+
+    /// The one entry of a paste into the Chromium page (its Cmd-V as `CEFRuntime.routeKey` sees it,
+    /// and our own menu's Paste): ``onPaste``, with the person's event in dispatch. A mouse click on
+    /// the menu bar's Edit > Paste goes to Chromium's view without passing here.
+    func chromiumPasted() {
+        guard chromiumSession != nil else { return }
+        onPaste?()
     }
 
     /// The page script handed a drop over. Only the file of a real drag the host took opens, once,

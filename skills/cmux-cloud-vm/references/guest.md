@@ -93,6 +93,28 @@ apply` is for new or empty workspaces; use the commands above to change an occup
 workspace without restarting its agents. Machine resource resizing is the app's
 `cmux cloud resize-machine` action on the Mac.
 
+## The machine's desktop: computer use
+
+A desktop machine runs a VNC desktop on `DISPLAY=:1` (openbox, the tint2 dock,
+Chrome, Thunar, Ghostty) that the person can watch with `cmux cloud open-desktop`.
+Every shell of the `cmux` user is already pointed at it (`/etc/cmux/desktop-env.sh`:
+`DISPLAY`, the session bus and the accessibility bus), so these work as is:
+
+```bash
+agent-desktop status                       # accessibility: granted
+agent-desktop launch thunar --activate     # start an app and wait for its window
+agent-desktop list-apps
+agent-desktop snapshot --app thunar -i     # accessibility tree with @refs
+agent-desktop click @<ref>                 # act on a ref from the last snapshot
+agent-desktop screenshot --app thunar /tmp/thunar.png
+agent-desktop skills get desktop           # its own guide, for this exact version
+```
+
+`agent-desktop` (vercel-labs) works through the accessibility tree, so prefer it
+for app windows; use `agent-browser` for web pages and `cua-driver` for pixel-level
+work. It needs the desktop's session bus, which only `cmux` gets: from a root
+shell run `sudo -u cmux -i agent-desktop …`. Close only the apps you opened.
+
 ## Browser authentication from guest terminals
 
 `cmux open-url <http-or-https-url>` asks the Mac projecting that exact terminal

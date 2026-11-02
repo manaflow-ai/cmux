@@ -181,6 +181,38 @@ struct HomeAgentMessagesTests {
         #expect(row.agentMessage?.kind == .message(from: "a1", to: "agent_mux", outgoing: false, text: "checked"))
     }
 
+    @Test func hundredsOfPeersKeepACompactFallbackAndAllTheirIdentities() throws {
+        var book = HomeAgentMessages()
+        let messages: [HomeAgentRun.Message] = (0..<300).map { index in
+            .init(id: "report:a\(index)", sequence: UInt64(index + 1), revision: 1,
+                  peer: "a\(index)", outgoing: false, text: "Report \(index)", date: date)
+        }
+        _ = book.apply(run(revision: 1, messages: messages))
+        let collapsed = book.inserting(into: [question()], summary: nil)
+        let fold = try #require(collapsed.last)
+        #expect(collapsed.count == 2)
+        #expect(fold.plainText == "▸ a0 · a1 · a2 · …")
+        #expect(fold.agentMessage?.kind == .fold(count: 300,
+               peers: (0..<300).map { "a\($0)" }, expanded: false))
+        let group = HomeAgentMessageRow.groupID(author: chief, anchor: IdempotencyKey("question"))
+        let expanded = book.inserting(into: [question()], summary: nil, expanded: [group])
+        #expect(expanded.count == 302) // question + disclosure + all 300 reports
+        #expect(expanded.contains { $0.plainText.hasSuffix("Report 299") })
+
+        // 300 agents that stopped with no report: one notes row, the same short preview.
+        var stopped = HomeAgentMessages()
+        _ = stopped.apply(run(revision: 1, messages: (0..<300).map { index in
+            .init(id: "note:a\(index)", sequence: UInt64(index + 1), revision: 1, peer: "a\(index)", outgoing: false,
+                  text: "(stopped without a report: its session is Disconnected)", date: date)
+        }))
+        let notes = try #require(stopped.inserting(into: [question()], summary: nil).last)
+        #expect(notes.plainText == "▸ a0 · a1 · a2 · …")
+        guard case let .notes(count, peers, _, _)? = notes.agentMessage?.kind else {
+            Issue.record("expected the notes row"); return
+        }
+        #expect(count == 300 && peers.count == 300)
+    }
+
     @Test func foldToggleLinkRoundTripsOnlyItsOwnForm() throws {
         let group = HomeAgentMessageRow.groupID(author: chief, anchor: IdempotencyKey("question"))
         #expect(group.count == 16)

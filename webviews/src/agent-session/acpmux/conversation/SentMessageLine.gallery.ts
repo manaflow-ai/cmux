@@ -53,6 +53,13 @@ const viaReach = bash(
   "completed",
   { output: "queued" },
 );
+// The same send over plain ssh (ask-1b0c0b04de): the session is on that host, as through reach.
+const viaSsh = bash(
+  `ssh -o ConnectTimeout=5 build-box 'acpmux send --no-wait docs-lane "The copy pass is yours; #4182 merged."'`,
+  "Hand the copy pass to docs-lane on build-box",
+  "completed",
+  { output: "steered" },
+);
 const fromFile = bash(
   `acpmux send --no-wait reports:leo "$(cat /tmp/net-retries/summary.md)"`,
   "Send the summary to Leo's reports",
@@ -72,6 +79,25 @@ const recordedFileSend = bash(
   "Send the recorded report to Leo",
   "completed",
   { output: "queued", startedAt: 2 },
+);
+// Leo's row (2026-10-26): Claude Code's Write makes the message file, then a send reads it
+// through `bash -c` with `2>&1 | tail -1`. Opening the row renders that file, not the shell.
+const writeTool = tool("Write /tmp/coord/m1276.txt", "edit", "completed", {
+  diffs: [
+    {
+      path: "/tmp/coord/m1276.txt",
+      newText:
+        "## Composer follow-up\n\n- **Paste** keeps the caret where it was.\n- Ship it once the review passes.\n",
+    },
+  ],
+  startedAt: 1,
+  endedAt: 1.5,
+});
+const writtenFileSend = bash(
+  `bash -c '"/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux" send --no-wait --from coord build-box/composer - < /tmp/coord/m1276.txt 2>&1 | tail -1'`,
+  "Send the follow-up to composer",
+  "completed",
+  { output: "queued for delivery 01a17aa5-7ef3-7e30-9dd5-151c07b5b6ce", startedAt: 2 },
 );
 const failed = bash(
   "acpmux send perf-lane 'Profile the transcript scroll on the long fixture.'",
@@ -112,7 +138,7 @@ const sent = () => {
   const snapshot = chat(
     [
       user("Report the merge, tell scroll-jitter, and ask for the re-review.", 4),
-      activity([reported, viaTimeout, viaHeredoc, viaReach, fromFile, subsessionSend], 3.8),
+      activity([reported, viaTimeout, viaHeredoc, viaReach, viaSsh, fromFile, subsessionSend], 3.8),
       assistant("Reported to coord-deputy, told scroll-jitter, and asked review-astra for a re-review.", 3.5),
       summary(3.5, { status: "completed" }),
     ],
@@ -133,6 +159,17 @@ const recordedFile = () => {
   );
   return { ...snapshot, sessions: [...snapshot.sessions, CHILD] };
 };
+
+const writtenFile = () =>
+  chat(
+    [
+      user("Write the follow-up and send it to composer.", 2),
+      activity([writeTool, writtenFileSend], 1.8),
+      assistant("Queued for composer.", 1.5),
+      summary(1.5, { status: "completed" }),
+    ],
+    { title: "coord" },
+  );
 
 /// Opens the finished turn's "Worked for" line, where its calls are.
 const openTurn: Play = async (ctx) => {
@@ -174,6 +211,15 @@ export default agentPaneEntry({
     "recorded-file": {
       note: "Before: an acpmux send whose stdin comes from a file shows only its target. After the preceding Bash write is part of this turn, the compact row still says Sent message to reports:leo; opening it renders the recorded Markdown and keeps the shell command behind Raw.",
       snapshot: recordedFile(),
+      play: async (ctx) => {
+        await openTurn(ctx);
+        await ctx.click({ selector: ".cv-sent" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md h2"));
+      },
+    },
+    "written-file": {
+      note: 'Before: a send of a file Claude Code\'s Write made opened to Raw alone, and Raw to the shell command (Leo: "I EXPAND THEN ALL I SEE IS RAW"). After: opening it renders the written Markdown, the command behind Raw. A send whose words the transcript never held opens straight to its call.',
+      snapshot: writtenFile(),
       play: async (ctx) => {
         await openTurn(ctx);
         await ctx.click({ selector: ".cv-sent" });

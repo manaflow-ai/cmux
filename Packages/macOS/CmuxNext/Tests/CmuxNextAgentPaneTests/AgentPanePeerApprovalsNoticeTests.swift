@@ -82,6 +82,43 @@ struct AgentPanePeerApprovalsNoticeTests {
         #expect(view.remoteApprovalsNotice == nil)
     }
 
+    /// The notice takes space in the page's flow (its notice slot above the composer): the pane
+    /// adds no view of its own for it, which floated over the transcript's first message (Leo,
+    /// 2026-11-01: "yuck more garbage"). A reloaded page gets it again with the pane's other state.
+    @Test func theNoticeIsThePagesNotAViewOverTheTranscript() throws {
+        let (view, directory) = try pane()
+        defer { view.close(); try? FileManager.default.removeItem(at: directory) }
+        let before = view.subviews.map(ObjectIdentifier.init)
+        view.showPeerApprovalsOff(.onceOnly)
+        view.showOtherInstallNotice(true)
+        #expect(view.subviews.map(ObjectIdentifier.init) == before, "the notice laid a view over the page")
+        let event = try #require(AgentPanePageHost.currentEvents(view).first { $0.kind == "paneNotices" })
+        #expect(event == AgentPaneNotice.event(view.paneNotices))
+        guard case .array(let notices) = event.value else { Issue.record("not a list"); return }
+        #expect(notices.compactMap { $0["title"]?.stringValue } == [AgentPaneView.peerApprovalsOnceOnly])
+        // A notice that hides leaves the page an empty list.
+        view.showPeerApprovalsOff(nil)
+        #expect(AgentPanePageHost.currentEvents(view).first { $0.kind == "paneNotices" }?.value == .array([]))
+    }
+
+    /// The page's button (`pane.noticeAction {id}`) runs the notice's action, only on the person's click.
+    @Test func thePagesButtonRunsTheNoticesAction() async throws {
+        let (view, directory) = try pane()
+        defer { view.close(); try? FileManager.default.removeItem(at: directory) }
+        var asked: [String] = []
+        view.model.transport.peerApprover = AgentPanePeerApprover(key: AcpmuxMacApprover()) { peer, _ in asked.append(peer); return nil }
+        view.model.transport.acpmuxSocket = "/tmp/far-a.sock"
+        view.showPeerApprovalsOff(.notEnrolled(peer: "far"))
+        #expect(AgentPaneRequest(body: ["method": "pane.noticeAction", "params": ["id": "remoteApprovals"]]) == .paneNoticeAction(id: "remoteApprovals"))
+        let refused = view.model.paneNoticeAction("remoteApprovals", userGesture: false)
+        #expect(refused["ok"] as? Bool != true, "a page script ran the notice's action")
+        let reply = view.model.paneNoticeAction("remoteApprovals", userGesture: true)
+        #expect(reply["ok"] as? Bool == true)
+        await settle { view.remoteApprovalsNotice == nil }
+        #expect(asked == ["far"])
+        #expect(view.model.paneNoticeAction("remoteApprovals", userGesture: true)["ok"] as? Bool != true)
+    }
+
     @Test func closingThePaneTakesTheNoticeAway() throws {
         let (view, directory) = try pane()
         defer { try? FileManager.default.removeItem(at: directory) }

@@ -207,7 +207,7 @@ export function ToolGroupRow({
     <>
       <button
         type="button"
-        className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
+        className={`cv-tool is-toggle is-run${running ? " is-live" : " is-strong"}`}
         data-tool-group={disclosureKey}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}

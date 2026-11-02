@@ -306,7 +306,7 @@ fn local_target() -> Option<&'static str> {
     target_triple(std::env::consts::OS, std::env::consts::ARCH)
 }
 
-/// The commit of a build id (`<hash>[+dirty.<fp>] <date>`, `hub::BUILD`):
+/// The commit of a build id (`<hash>[+dirty.<fp>] <date>`, `hub::build()`):
 /// two builds of one commit on different days, or with local edits, are the
 /// same code to an update. `nogit` names no commit.
 fn build_commit(build: &str) -> Option<&str> {
@@ -350,9 +350,12 @@ fn version_build(version: &str) -> Option<&str> {
 }
 
 /// The build id an acpmux binary carries, read from its bytes, so a binary
-/// for another platform is not run: clap's version text
-/// `<version> (<hash>[+dirty.<fp>] <date>)` is one string in it.
+/// for another platform is not run: its stamp `acpmux <version> (<hash>[+dirty.<fp>]
+/// <date>)` is one string in it (acpmux-build-id's `STAMP`). Without that
+/// marker (a binary from before it), the first `<version> (<build id>)`, but
+/// never rustc's own `rustc version <version> (<hash> <date>)`.
 fn embedded_build(bytes: &[u8]) -> Option<String> {
+    let mut first = None;
     let mut from = 0;
     while let Some(i) = bytes[from..].windows(2).position(|w| w == b" (") {
         let at = from + i;
@@ -363,11 +366,25 @@ fn embedded_build(bytes: &[u8]) -> Option<String> {
         let rest = &bytes[from..bytes.len().min(from + 80)];
         let Some(end) = rest.iter().position(|&b| b == b')') else { continue };
         let Ok(text) = std::str::from_utf8(&rest[..end]) else { continue };
-        if is_build_id(text) {
+        if !is_build_id(text) {
+            continue;
+        }
+        // The version before " (": back to the space (or other byte) before it.
+        let prefix = bytes.get(..at).unwrap_or_default();
+        let start = prefix
+            .iter()
+            .rposition(|&b| !(b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b'+'))
+            .map_or(0, |p| p.saturating_add(1));
+        let before = prefix.get(..start).unwrap_or_default();
+        if before.ends_with(b"acpmux ") {
             return Some(text.to_owned());
         }
+        if before.ends_with(b"rustc version ") || before.ends_with(b"rustc ") {
+            continue;
+        }
+        first.get_or_insert_with(|| text.to_owned());
     }
-    None
+    first
 }
 
 /// `<7-40 hex>[+dirty.<8 hex>] <YYYY-MM-DD>`, as build.rs writes it.
@@ -661,7 +678,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
             return up.end(Outcome::NeedsBinary, "wrongPlatform", why);
         }
         None => match crate::self_command::SelfCommand::current() {
-            Ok(own) => (own.exe, Some(crate::hub::BUILD.to_owned())),
+            Ok(own) => (own.exe, Some(crate::hub::build().to_owned())),
             Err(e) => return up.end(Outcome::Failed, "noBinary", e.to_string()),
         },
     };
