@@ -544,7 +544,19 @@ impl Mux {
         if matches!(operation, ResourceOperation::PaneCreate | ResourceOperation::PaneSplit) {
             return;
         }
-        self.emit(MuxEvent::TreeChanged);
+        // A terminal create sends its exact deltas itself (workspace-added, screen-added or tab-added,
+        // with its selection): the workspace create path, `create_terminal_in_workspace_impl` and its
+        // hosted binding, and `effect_add_terminal_tab`. A coarse `tree-changed` on top made every delta
+        // client read the whole tree again for each create: O(session) per create (#32408).
+        if !matches!(
+            operation,
+            ResourceOperation::WorkspaceCreate
+                | ResourceOperation::TabCreateTerminal
+                | ResourceOperation::WorkspaceRun
+                | ResourceOperation::PaneRun
+        ) {
+            self.emit(MuxEvent::TreeChanged);
+        }
         if matches!(
             operation,
             ResourceOperation::PaneSwap
