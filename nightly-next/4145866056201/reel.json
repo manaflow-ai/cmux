@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4145866056201",
+  "notes": "notes/4145866056201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32330,
+      "title": "fix(next sidebar): a picked-up row stands on the window's own glass, no frost of its own",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32121,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-8b624259cf797bbff39265f6eae5692073801191",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32336,
+      "title": "base red: CloudApprovalAnsweredElsewhereTests compiles and passes (#32244 x #32271/#32300)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32307,
+      "title": "base red: arch app_lines, #32159's Session Info capture and #32131's held-prompt checks move into CmuxNextAgentPane",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32243,
+      "title": "cmux-tui: the agent roster fold reads the journal tail with no daemon lock",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32355,
+      "title": "ci: portable placement's fleet wait stops once a re-read can't see the runners",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32356,
+      "title": "Re-pin app FFI to 8b62425 after #32305",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32321,
+      "title": "fix(next): a select of a tab the pane record holds before its strip maps it selects it (BrowserSamePaneReuseTests on macOS 27)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
