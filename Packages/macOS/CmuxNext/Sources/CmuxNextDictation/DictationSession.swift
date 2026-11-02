@@ -28,6 +28,10 @@ public final class DictationSession {
     public var recordingFolder: (@MainActor () -> URL?)?
     /// Called on every change, on the main actor.
     public var onUpdate: ((DictationUpdate) -> Void)?
+    /// Called for each finalized segment, before the corresponding update.
+    /// Consumers that insert dictation into a streaming target can use this
+    /// callback without mistaking a volatile hypothesis for committed text.
+    public var onFinalText: ((String) -> Void)?
 
     private let authorizer: any DictationAuthorizing
     private let makeTranscriber: @MainActor (DictationAudioLevelMeter) -> any SpeechTranscribing
@@ -175,7 +179,10 @@ public final class DictationSession {
         do {
             for try await event in stream {
                 guard session == generation else { return }
-                if let delta = transcript.apply(event) { committed += delta }
+                if let delta = transcript.apply(event) {
+                    committed += delta
+                    onFinalText?(delta)
+                }
                 emit()
             }
         } catch {
@@ -195,7 +202,10 @@ public final class DictationSession {
         listening?.cancel()
         listening = nil
         endLevels()
-        if let delta = transcript.commitTrailingVolatileText() { committed += delta }
+        if let delta = transcript.commitTrailingVolatileText() {
+            committed += delta
+            onFinalText?(delta)
+        }
         // The engine ended its stream itself (or missed the deadline); make
         // sure it let go of the microphone.
         finishEngine()
@@ -234,7 +244,10 @@ public final class DictationSession {
         recording?.discard()
         recording = nil
         // Keep the words on screen when it fails mid-phrase.
-        if let delta = transcript.commitTrailingVolatileText() { committed += delta }
+        if let delta = transcript.commitTrailingVolatileText() {
+            committed += delta
+            onFinalText?(delta)
+        }
         let failure = error as? DictationFailure ?? .transcriptionFailed(String(describing: error))
         Self.logger.error("dictation failed: \(String(describing: failure), privacy: .public)")
         switch failure {

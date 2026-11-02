@@ -150,7 +150,14 @@ final class CEFDevToolsController {
     func willOpen() {
         guard let tab, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
         opening = true
-        if tab.container.window != nil, tab.runtime.supportsEmbeddedDevTools {
+        let embedded = tab.container.window != nil && tab.runtime.supportsEmbeddedDevTools
+        // The DevTools frontend keeps its own dock side (its profile setting) and applies it when it loads; the fork
+        // reports that as a dock-side choice (`dockSideChosen`), which moved a just-opened DevTools from cmux's side
+        // to the frontend's (BROWSER VIDEO F2: bottom, then right ~13 refreshes later). As in Chrome, one side counts:
+        // cmux's is written into that setting here, before the frontend exists, for every way DevTools opens (cmux's
+        // commands, a panel, the page's Inspect, Chromium's own commands).
+        _ = shim.devToolsSetFrontendDockSide(browserID, Self.forkSide(of: embedded ? layout.dock : .window))
+        if embedded {
             // Docked or in its own window, DevTools is a child of a cmux
             // view, so a later move keeps it alive.
             // Chromium creates DevTools synchronously over a view in the
@@ -230,6 +237,16 @@ final class CEFDevToolsController {
         case 2: .bottom
         case 3: .right
         default: nil
+        }
+    }
+
+    /// The fork's dock-side value of `dock` (the inverse of `dock(forkSide:)`).
+    nonisolated static func forkSide(of dock: BrowserDevToolsDock) -> Int32 {
+        switch dock {
+        case .window: 0
+        case .left: 1
+        case .bottom: 2
+        case .right: 3
         }
     }
 
