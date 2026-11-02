@@ -40,7 +40,7 @@ name, ordinal): the ordinal is the 0-based index among that file's top-level dec
 in line order. So a new or deleted file never shifts another file's keys; a file moved or renamed, a declaration moved
 to another file or Swift module, or a renamed declaration loses its row and counts as an unlisted one until the table
 follows (moving logic inside Swift never lowers a count; only a move into Rust does). A row whose path has no
-`Sources/<module>/` folder is invalid. An extension's name is as written
+`Sources/<module>/` folder, or whose folder is not its module column, is invalid. An extension's name is as written
 (`extension Notification.Name`, `extension [String:Int]` without spaces), without generic arguments. Class and
 shares: LOGIC 100/0, MIRROR 0/100, PLATFORM and GENERATED 0/0, MIXED any two integer percents whose sum is at most 100
 (the reader's fixed split; only a code change moves a count, never an estimate). A row with another shape is ignored
@@ -368,11 +368,12 @@ def units(raw: str, path: str = "") -> list[Unit]:
 _IN_MODULE = re.compile(r"(?:^|/)Sources/([^/]+)/(.+)$")
 
 
-def in_module(path: str) -> str | None:
-    """PATH relative to its module's folder (`.../Sources/CmuxNextApp/Windows/W.swift` -> `Windows/W.swift`), or None
-    for a path outside a `Sources/<module>/` folder."""
+def in_module(path: str) -> tuple[str, str] | None:
+    """(module, PATH relative to its module's folder) (`.../Sources/CmuxNextApp/Windows/W.swift` -> (`CmuxNextApp`,
+    `Windows/W.swift`)), or None for a path outside a `Sources/<module>/` folder. Two closure packages never share a
+    module folder (arch_counts.AmbiguousModule), so the pair names one file of the count."""
     m = _IN_MODULE.search(path)
-    return m.group(2) if m else None
+    return (m.group(1), m.group(2)) if m else None
 
 
 def parse_table(text: str | None) -> tuple[dict[tuple[str, str, str, str, int], Entry], int]:
@@ -396,11 +397,12 @@ def parse_table(text: str | None) -> tuple[dict[tuple[str, str, str, str, int], 
             invalid += 1
             continue
         shares = (int(logic), int(mirror))
-        where = in_module(fields[7]) if len(fields) > 7 else None
-        if (CLASSES[cls] is not None and shares != CLASSES[cls]) or sum(shares) > 100 or where is None:
+        found = in_module(fields[7]) if len(fields) > 7 else None
+        if (CLASSES[cls] is not None and shares != CLASSES[cls]) or sum(shares) > 100 or found is None \
+                or found[0] != module:  # a path in another module's folder never matches this module's file
             invalid += 1
             continue
-        key = (module, where, kind, name, int(ordinal))
+        key = (module, found[1], kind, name, int(ordinal))
         entry = Entry(cls, shares[0], shares[1], fields[7] if len(fields) > 7 else "",
                       fields[8] if len(fields) > 8 else "")
         if key in table:  # a duplicate row: the larger of each share counts, so a duplicate never lowers a row
@@ -467,7 +469,7 @@ def count_units(files: dict[str, list[Unit]], table_text: str | None, sha: str =
     declarations = views = made = made_lines = 0
     for path in sorted(files):
         module = AC.package_of(path)
-        where = in_module(path) or path
+        where = (in_module(path) or ("", path))[1]
         for u in files[path]:
             ordinal = seen[(path, u.kind, u.name)]
             seen[(path, u.kind, u.name)] += 1
