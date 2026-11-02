@@ -92,9 +92,12 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
         if let lastSwitch = ledger.lastAutomaticSwitchAtMs(panelId: panelId), occurredAtMs < lastSwitch {
             return .ignore
         }
-        // A quoted reset that already passed ("Oct 25 at 9am" read that afternoon) would expire at
-        // once and leave the account looking free; it counts as unparsed.
-        let quotedReset = ClaudeUsageLimitReset.resetDate(inMessage: detail, now: now, timeZone: timeZone)
+        // The quote means the next such time after the limit was reported, not after it was
+        // handled: "resets 9am" reported at 8:59:59 meant this morning. A quoted reset that already
+        // passed ("Oct 25 at 9am" read that afternoon) would expire at once and leave the account
+        // looking free; it counts as unparsed.
+        let reportedAt = Date(timeIntervalSince1970: Double(occurredAtMs) / 1000)
+        let quotedReset = ClaudeUsageLimitReset.resetDate(inMessage: detail, now: reportedAt, timeZone: timeZone)
             .flatMap { $0 > now ? $0 : nil }
         let exhaustion = ClaudeAccountAutoSwitchAction.Exhaustion(
             account: current,
