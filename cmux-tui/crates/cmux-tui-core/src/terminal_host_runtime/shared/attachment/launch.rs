@@ -174,7 +174,9 @@ fn launch_terminal_host_seeded_in(
     seed: &[u8],
     workspace_key: &str,
 ) -> anyhow::Result<HostAttachment> {
+    crate::scratch_launch_trace("host.launch_start");
     let launch_publication_lock = reserve_terminal_host_publication(root)?;
+    crate::scratch_launch_trace("host.publication_lock");
     crate::debug_spans::mark("host.publication_reserved");
     let owner_token = CapabilityToken::random()?;
     let terminal_hex = encode_hex(terminal_id.as_bytes());
@@ -216,6 +218,7 @@ fn launch_terminal_host_seeded_in(
         None => StandbyTerminalHost::spawn()?,
     };
     crate::debug_spans::mark("host.process_ready");
+    crate::scratch_launch_trace("host.process_ready");
 
     let bootstrap = HostBootstrap {
         min_version: PROTOCOL_VERSION,
@@ -230,6 +233,7 @@ fn launch_terminal_host_seeded_in(
     }
     let ready = HostReady::decode(&ready_frame.payload)?;
     crate::debug_spans::mark("host.bootstrap_ready");
+    crate::scratch_launch_trace("host.bootstrap_ready");
     if ready.terminal_id != terminal_id {
         anyhow::bail!("terminal host changed terminal identity during bootstrap");
     }
@@ -255,6 +259,7 @@ fn launch_terminal_host_seeded_in(
     drop(stdin);
     drop(stdout);
     crate::debug_spans::mark("host.launch_ready");
+    crate::scratch_launch_trace("host.launch_ready");
 
     let record: TerminalHostRecord = serde_json::from_slice(
         &fs::read(&record_path).context("read terminal-host discovery record")?,
@@ -275,6 +280,7 @@ fn launch_terminal_host_seeded_in(
     // row Exited.
     let mut attachment = connect_record(record, record_path, OwnerIntent::Surface)?;
     crate::debug_spans::mark("host.connected");
+    crate::scratch_launch_trace("host.connected");
     attachment.launch_process = Some(process);
     debug_assert_eq!(
         attachment.launch_activation_pending,

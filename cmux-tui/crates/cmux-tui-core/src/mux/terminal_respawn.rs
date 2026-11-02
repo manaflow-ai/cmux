@@ -719,6 +719,7 @@ mod tests {
 
 /// SCRATCH (never merge): a respawn phase mark on stderr.
 fn respawn_trace(terminal_id: &str, phase: &str) {
+    crate::scratch_launch_trace(&format!("respawn.{phase} {terminal_id}"));
     static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
     let start = START.get_or_init(std::time::Instant::now);
     let Ok(path) = std::env::var("CMUX_TUI_SCRATCH_RESPAWN_TRACE") else { return };
