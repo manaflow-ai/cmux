@@ -248,14 +248,31 @@ export function useTrayMotion(
 /// the message tokens (subagents.css `.acpmux-tick`). The first text, and any change while motion
 /// may not run, just shows. The old words go on their `animationend`, or `animationcancel` when the
 /// host turns motion off midway; Reduce Motion's stylesheet cuts the exit to a frame.
-export function Tick({ text, className }: { text: string; className?: string }): ReactNode {
+///
+/// `steadyCounts`: a change in its numbers alone ("9 subagents" to "10 subagents") swaps in place,
+/// with no fade, so the running tray's header never flickers as each subagent or command joins (Leo,
+/// 2026-10-31: "I hate how this keeps jolting every time there's a new subagent or command"). Its
+/// words changing still tick.
+export function Tick({
+  text,
+  className,
+  steadyCounts = false,
+}: {
+  text: string;
+  className?: string;
+  steadyCounts?: boolean;
+}): ReactNode {
   // `previous` is the leaving words, `entering` whether the new ones still rise; each part settles
   // on its own animation's end (or cancel), so the shorter exit never cuts the entrance short.
   type TickState = { text: string; previous?: string; entering: boolean; turn: number };
   const [state, setState] = useState<TickState>({ text, entering: false, turn: 0 });
   const cell = useRef<HTMLSpanElement>(null);
   let shown = state;
-  if (state.text !== text) {
+  if (state.text !== text && steadyCounts && sameWords(state.text, text)) {
+    // Only the numbers moved: the cell keeps its parts (an entrance still playing plays on).
+    shown = { ...state, text };
+    setState(shown);
+  } else if (state.text !== text) {
     const moves = cell.current ? motionAllowed(cell.current) : false;
     shown = { text, previous: moves ? state.text : undefined, entering: moves, turn: state.turn + 1 };
     setState(shown);
@@ -307,4 +324,11 @@ function onAnimationDone(done: () => void) {
       node.removeEventListener("animationcancel", ended);
     };
   };
+}
+
+/// Whether two texts differ only in their numbers ("9 subagents · 13 commands", "10 subagents · 14
+/// commands"): the tray header's counts ticking over.
+export function sameWords(a: string, b: string): boolean {
+  const words = (text: string) => text.replace(/\d+/g, "#");
+  return words(a) === words(b);
 }

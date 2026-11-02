@@ -4,11 +4,12 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// A failed drop must restore the source and remove its destination preview,
 /// including failures before a move can find its source tab or destination pane.
-@MainActor
+@MainActor @Suite(.closesItsWindows)
 struct TabDropRollbackTests {
     final class Strip {
         let model = TabStripModel(tabs: [TabItem(id: "target", title: "Target")], selectedID: "target")

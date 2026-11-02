@@ -398,6 +398,10 @@ pub(super) fn parse_workspace_group(
             if flags.boolean("collapse") {
                 params.insert("collapsed", Value::Bool(true));
             }
+            // The room's group of that name when it has one (find or create).
+            if flags.boolean("reuse") {
+                params.insert("reuse", Value::Bool(true));
+            }
             Op::WorkspaceGroupCreate
         }
         ["remove"] => {

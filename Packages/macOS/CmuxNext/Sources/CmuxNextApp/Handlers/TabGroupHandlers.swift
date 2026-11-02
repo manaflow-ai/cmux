@@ -76,9 +76,9 @@ enum TabGroupHandlers {
             let tabs = selected.filter { !$0.pinned }
             guard !tabs.isEmpty else { return ctx.refuse(RefusalStrings.pinnedCannotGroup) }
             let name = invocation["name"]?.stringValue
-            // The same color rule as screen groups (`TabGroupOrdering.nextColor`).
-            let color = invocation["color"]?.stringValue
-                ?? TabGroupOrdering.nextColor(used: pane.tabGroups.compactMap { $0.color.flatMap(GroupColor.init(rawValue:)) }).rawValue
+            // No color given is grey, the daemon's default, never a palette color nobody picked (Leo
+            // 2026-10-31: "WHERE IS ORANGE COMING FROM?"). A color the caller names still shows.
+            let color = invocation["color"]?.stringValue ?? GroupColor.grey.rawValue
             let writes = TabGroupWrites(pane: pane, daemon: ctx.services.daemon(for: pane))
             run("create-tab-group", pane: pane, ctx, writes.create(tabs, name: name, color: color))
             ctx.services.paneController(for: pane)?.stripModel.clearMultiSelection()
