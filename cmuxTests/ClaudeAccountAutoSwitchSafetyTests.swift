@@ -99,6 +99,24 @@ struct ClaudeAccountAutoSwitchHoldBackTests {
     }
 
     @Test
+    func anUnsentDraftInTheTextBoxHoldsTheSwitchBack() {
+        // cmux's text box keeps its draft on the pane's terminal panel, which the restart replaces
+        // without it, even while Claude's own input box is empty.
+        typealias HoldBack = ClaudeAccountAutoSwitchAction.HoldBack
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .emptyPrompt, textBoxHasDraft: true) == .draftPending)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .unknown, textBoxHasDraft: true) == .draftPending)
+        guard case .holdBack(_, .draftPending) = fixture.decide(
+            fixture.request(),
+            pane: fixture.pane(),
+            sourceScreen: .emptyPrompt,
+            sourceTextBoxHasDraft: true
+        ) else {
+            Issue.record("a text box draft must hold the switch back")
+            return
+        }
+    }
+
+    @Test
     @MainActor
     func aDraftWrappedPastOneRowHoldsTheSwitchBack() throws {
         // Any sentence wider than a narrow split pane wraps, leaving the cursor on a
@@ -124,10 +142,10 @@ struct ClaudeAccountAutoSwitchHoldBackTests {
     func thePaneIsInUseWhenItHoldsADraftOrGotInput() {
         typealias HoldBack = ClaudeAccountAutoSwitchAction.HoldBack
         // The same check runs again, synchronously, right before the pane restarts.
-        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .emptyPrompt) == nil)
-        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .draft) == .draftPending)
-        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .emptyPrompt) == .userInput)
-        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .draft) == .draftPending)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .emptyPrompt, textBoxHasDraft: false) == nil)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .draft, textBoxHasDraft: false) == .draftPending)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .emptyPrompt, textBoxHasDraft: false) == .userInput)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .draft, textBoxHasDraft: false) == .draftPending)
     }
 
     @Test(arguments: [
@@ -136,9 +154,9 @@ struct ClaudeAccountAutoSwitchHoldBackTests {
     func aScreenThatIsNotClaudesEmptyPromptHoldsTheSwitchBack(screen: AgentAutoResumeCoordinator.ScreenState) {
         // Only Claude's empty input box shows the pane is idle. A screen cmux can't read or
         // place may hold anything, so the unattended restart fails closed.
-        #expect(ClaudeAccountAutoSwitchAction.HoldBack.paneInUse(receivedInputSinceReport: false, screen: screen) == .promptUnconfirmed)
+        #expect(ClaudeAccountAutoSwitchAction.HoldBack.paneInUse(receivedInputSinceReport: false, screen: screen, textBoxHasDraft: false) == .promptUnconfirmed)
         // Input after the limit is the more specific reason.
-        #expect(ClaudeAccountAutoSwitchAction.HoldBack.paneInUse(receivedInputSinceReport: true, screen: screen) == .userInput)
+        #expect(ClaudeAccountAutoSwitchAction.HoldBack.paneInUse(receivedInputSinceReport: true, screen: screen, textBoxHasDraft: false) == .userInput)
         guard case .holdBack(_, .promptUnconfirmed) = fixture.decide(fixture.request(), pane: fixture.pane(), sourceScreen: screen) else {
             Issue.record("a screen read as \(screen) must hold the switch back")
             return

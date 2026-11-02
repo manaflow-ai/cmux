@@ -57,7 +57,7 @@ struct ClaudeAccountAutoSwitchFixture {
     }
 
     /// The decision with every input defaulting to "nothing in the way": Claude idle at its empty
-    /// prompt, no input, no stored exhaustion, every account usable and trusted.
+    /// prompt, no text box draft, no input, no stored exhaustion, every account usable and trusted.
     func decide(
         _ request: ClaudeAccountAutoSwitchRequest,
         pane: ClaudeAccountAutoSwitchRequest.Pane,
@@ -65,6 +65,7 @@ struct ClaudeAccountAutoSwitchFixture {
         stored: [String: Date] = [:],
         ledger: ClaudeAccountAutoSwitchLedger = ClaudeAccountAutoSwitchLedger(),
         sourceScreen: AgentAutoResumeCoordinator.ScreenState = .emptyPrompt,
+        sourceTextBoxHasDraft: Bool = false,
         isUsable: (ClaudeAccount) -> Bool = { _ in true },
         isTrusted: (ClaudeAccount) -> Bool = { _ in true },
         now: Date? = nil
@@ -75,6 +76,7 @@ struct ClaudeAccountAutoSwitchFixture {
             storedExhaustion: stored,
             ledger: ledger,
             sourceScreen: sourceScreen,
+            sourceTextBoxHasDraft: sourceTextBoxHasDraft,
             isUsable: isUsable,
             isTrusted: isTrusted,
             now: now ?? self.now,
