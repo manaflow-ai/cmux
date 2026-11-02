@@ -1291,6 +1291,8 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]
