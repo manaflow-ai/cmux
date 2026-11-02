@@ -329,7 +329,7 @@ pub(super) fn restore_resource_state(
             panes,
             surfaces: Default::default(),
             terminal_catalog: Default::default(),
-            terminal_catalog_by_runtime: HashMap::new(),
+            terminal_catalog_by_runtime: Default::default(),
             terminal_catalog_by_host: HashMap::new(),
             split_screens: HashMap::new(),
             resource_indexes: indexes,

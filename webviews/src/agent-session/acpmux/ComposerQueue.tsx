@@ -1083,7 +1083,9 @@ export function ComposerQueue({
                 className="acpmux-queue-resume"
                 // acpmux's first prompt: a held one (trustHeld.ts) is not acpmux's to resume.
                 onClick={() =>
-                  void onChange((queue.find((row) => !row.held) ?? queue[0]).id, { op: "resume" }).catch(() => undefined)
+                  void onChange((queue.find((row) => !row.held) ?? queue[0]).id, { op: "resume" }).catch(
+                    () => undefined,
+                  )
                 }
               >
                 {t("composer.queueResume")}
