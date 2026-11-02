@@ -229,3 +229,151 @@ fn a_workspace_size_default_keeps_the_key_off_the_session_lock() {
     assert_eq!(locks, 0, "with a workspace size default the person's key took the session lock");
     mux.shutdown();
 }
+
+/// TYPING FIX 2 (follow-up C of #31940): `send-key` (a named key such as Return or Ctrl-C from an attached view) goes
+/// to the same kept terminal as `send`, under the same route rules, so it takes no session lock either. Before, it
+/// looked its terminal up through the session lock on every call.
+#[cfg(unix)]
+#[test]
+fn a_named_key_reaches_its_terminal_without_the_session_lock() {
+    let mux = test_mux();
+    let (typing, client, writer) = attached_terminal(&mux);
+    let named = |keys: &[&str]| Command::SendKey {
+        surface: typing.id,
+        keys: keys.iter().map(|key| (*key).to_string()).collect(),
+    };
+    handle_command(&mux, client, named(&["enter"]), &writer).unwrap();
+
+    let (sent, locks) =
+        session_locks_of(|| handle_command(&mux, client, named(&["ctrl+c"]), &writer));
+    sent.unwrap();
+    assert_eq!(locks, 0, "a named key from an attached view took the session lock");
+
+    // The same route rule as `send`: after a respawn the next named key reaches the new shell.
+    let (new_sent, new_input) = mpsc::channel();
+    let removed =
+        mux.remove_surface_runtime_for_test(typing.id).expect("the placement had a runtime");
+    let respawned =
+        crate::Surface::spawn_for_test(typing.id, SurfaceOptions::default(), Weak::new()).unwrap();
+    respawned.replace_input_writer_for_test(Box::new(InputRecorder(new_sent)));
+    mux.insert_surface_runtime_for_test(respawned);
+    handle_command(&mux, client, named(&["enter"]), &writer).unwrap();
+    assert_eq!(
+        new_input.try_recv().ok(),
+        Some(b"\r".to_vec()),
+        "the named key after the respawn did not reach the new shell"
+    );
+    drop(removed);
+    mux.shutdown();
+}
+
+/// Reads lines from `reader` until the reply to request `id` (stream lines of an attach come in between).
+#[cfg(target_os = "macos")]
+fn reply_to(reader: &mut BufReader<Box<dyn transport::Stream>>, id: u64) -> Value {
+    use std::io::BufRead;
+    loop {
+        let mut line = String::new();
+        assert!(
+            reader.read_line(&mut line).unwrap() > 0,
+            "the connection closed before reply {id}"
+        );
+        let value: Value = serde_json::from_str(&line).unwrap();
+        if value["id"] == json!(id) {
+            return value;
+        }
+    }
+}
+
+/// TYPING FIX 2 (F7): when every core is busy, a default-QoS thread waits for a CPU. The fleet probe measured up to
+/// about 25 ms for each wake of a default-QoS key thread with 2 x cores busy threads (about half that, and no wait
+/// in the middle of a send, at user-interactive; STATUS 6593). A key crosses three threads of its connection: the
+/// `mux-conn` reader, the `mux-control-dispatch` request thread and the `mux-line-out` writer. Once a connection
+/// carries the person's keys to a terminal it views, those threads run at QOS_CLASS_USER_INTERACTIVE (Chrome: the
+/// thread that carries input runs at the highest priority); automation's connections keep the default.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_connection_that_carries_the_persons_keys_runs_at_user_interactive_qos() {
+    use std::io::Write as _;
+    let mux = test_mux();
+    let surface = mux.new_workspace(Some("typing".into()), Some((80, 24))).unwrap();
+    let socket = TestSocket::new("input-qos");
+    let listener = transport::listen(&socket.path).unwrap();
+    let client = transport::connect(&socket.path).unwrap();
+    let server = listener.accept().unwrap();
+    let handler = std::thread::Builder::new()
+        .name("mux-conn".into())
+        .spawn({
+            let mux = mux.clone();
+            move || handle_connection(mux, server)
+        })
+        .unwrap();
+    let mut writer = client.try_clone_box().unwrap();
+    let mut reader = BufReader::new(client);
+    let byte = base64::engine::general_purpose::STANDARD.encode(b"a");
+    let requests = [
+        json!({"id": 1, "cmd": "attach-surface", "surface": surface.id, "cols": 80, "rows": 24}),
+        json!({"id": 2, "cmd": "send", "surface": surface.id, "bytes": byte}),
+        json!({"id": 3, "cmd": "send", "surface": surface.id, "bytes": byte}),
+    ];
+    for request in requests {
+        let id = request["id"].as_u64().unwrap();
+        writeln!(writer, "{request}").unwrap();
+        writer.flush().unwrap();
+        let reply = reply_to(&mut reader, id);
+        assert!(reply.get("error").is_none_or(Value::is_null), "request {id} failed: {reply}");
+    }
+    // Each thread recorded its QoS before it read, ran or wrote request 3 (its reply came after that).
+    let interactive = libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE as u32;
+    for role in ["mux-conn", "mux-control-dispatch", "mux-line-out"] {
+        assert_eq!(
+            input_qos::observed_thread_qos(role),
+            Some(interactive),
+            "{role} carried the person's keys at another QoS than user-interactive"
+        );
+    }
+    drop(writer);
+    drop(reader);
+    handler.join().unwrap();
+    mux.shutdown();
+}
+
+/// TYPING FIX 2 (F7): automation (a CLI connection that writes to a terminal it does not view) keeps the default QoS,
+/// so it never competes with the person's input.
+#[cfg(target_os = "macos")]
+#[test]
+fn an_unattached_senders_connection_keeps_the_default_qos() {
+    use std::io::Write as _;
+    let mux = test_mux();
+    let surface = mux.new_workspace(Some("automation".into()), Some((80, 24))).unwrap();
+    let socket = TestSocket::new("input-qos-cli");
+    let listener = transport::listen(&socket.path).unwrap();
+    let client = transport::connect(&socket.path).unwrap();
+    let server = listener.accept().unwrap();
+    let handler = std::thread::spawn({
+        let mux = mux.clone();
+        move || handle_connection(mux, server)
+    });
+    let mut writer = client.try_clone_box().unwrap();
+    let mut reader = BufReader::new(client);
+    let byte = base64::engine::general_purpose::STANDARD.encode(b"a");
+    for id in 1..=3u64 {
+        let request = json!({"id": id, "cmd": "send", "surface": surface.id, "bytes": byte});
+        writeln!(writer, "{request}").unwrap();
+        writer.flush().unwrap();
+        reply_to(&mut reader, id);
+    }
+    let interactive = libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE as u32;
+    for role in ["mux-control-dispatch", "mux-line-out"] {
+        let observed = input_qos::observed_thread_qos(role);
+        assert!(observed.is_some(), "{role} recorded no QoS");
+        assert_ne!(
+            observed,
+            Some(interactive),
+            "{role} of an automation connection runs at user-interactive"
+        );
+    }
+    drop(writer);
+    drop(reader);
+    handler.join().unwrap();
+    mux.shutdown();
+}
