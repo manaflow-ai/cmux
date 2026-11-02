@@ -114,7 +114,7 @@ public final class CmuxDialogCenter {
         entries[id]?.view?.handle(key, modifiers: modifiers) ?? false
     }
 
-    /// Some dialog is on screen: one read, so every key-down can skip the dialog lookup.
+    /// Some dialog is open: a scan of the open dialogs (0 or 1 as a rule), so every key-down can skip the lookup.
     public var showsDialog: Bool { entries.values.contains { $0.view != nil } }
 
     /// A key-down that missed the dialog blocking keys in `host` (its overlay did not have the
@@ -182,7 +182,8 @@ public final class CmuxDialogCenter {
             switch scope {
             case .window(let scoped): return scoped === window
             case .tab(let view):
-                guard view.window === window else { return false }
+                // A parked (hidden) tab's dialog shows nothing: the shown tab's keys stay its own (review of #31849).
+                guard view.window === window, !view.isHiddenOrHasHiddenAncestor else { return false }
                 return holds(responder, view) || focusedArea.map { view === $0 || view.isDescendant(of: $0) } == true
             case .app: return false
             }
