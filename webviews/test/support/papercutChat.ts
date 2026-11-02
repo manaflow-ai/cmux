@@ -227,6 +227,23 @@ export async function papercutPane(
     await page.goto(
       `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${PAPERCUT_CHAT}`,
     );
+    // Browser tests exercise the page-rendered panel. A real AppKit host may announce its native
+    // panel through this bridge before the header is ready; the standalone test host has no native
+    // surface to draw, so explicitly keep these tests on the web fallback instead of waiting for a
+    // toggle the page intentionally removed while native Session Info is active.
+    await page.waitForFunction(
+      () =>
+        typeof (
+          (window as Window & { cmuxAcpmuxSessionInfo?: { host?: (on: unknown) => void } }).cmuxAcpmuxSessionInfo
+        )?.host === "function",
+      undefined,
+      { timeout: 120_000 },
+    );
+    await page.evaluate(() => {
+      const host = (window as Window & { cmuxAcpmuxSessionInfo?: { host?: (on: unknown) => void } })
+        .cmuxAcpmuxSessionInfo;
+      host?.host?.(false);
+    });
     await (
       options.ready ? page.locator(options.ready).first() : page.getByText(`Answer ${options.turns}:`, { exact: false })
     ).waitFor({ timeout: 120_000 });
