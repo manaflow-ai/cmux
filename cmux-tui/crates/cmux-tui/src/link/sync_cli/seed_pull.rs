@@ -494,9 +494,11 @@ fn receive(quarantine: &Path, bundle: &Path, exported: &Exported) -> anyhow::Res
         quarantine_git(quarantine).args(["bundle", "list-heads"]).arg(bundle),
     )?)
     .into_owned();
-    for (name, sha) in
-        [("head", &exported.head), ("index", &exported.index), ("work", &exported.work)]
-    {
+    let mut named = vec![("head", &exported.head), ("index", &exported.index), ("work", &exported.work)];
+    if let Some(stash) = &exported.stash {
+        named.push(("stash", stash));
+    }
+    for (name, sha) in named {
         if q.text(&["rev-parse", "--verify", "--quiet", &format!("{sha}^{{commit}}")])
             .ok()
             .as_deref()
@@ -591,9 +593,11 @@ impl Quarantine<'_> {
     /// ref changes there.
     fn fetch_into(&self, folder: &Path, exported: &Exported) -> anyhow::Result<()> {
         let mut wanted = Vec::new();
-        for (name, sha) in
-            [("head", &exported.head), ("index", &exported.index), ("work", &exported.work)]
-        {
+        let mut named = vec![("head", &exported.head), ("index", &exported.index), ("work", &exported.work)];
+        if let Some(stash) = &exported.stash {
+            named.push(("stash", stash));
+        }
+        for (name, sha) in named {
             let reference = format!("refs/cmux-pull/{name}");
             checked(quarantine_git(self.0).args(["update-ref", &reference, sha]))?;
             wanted.push(reference);
