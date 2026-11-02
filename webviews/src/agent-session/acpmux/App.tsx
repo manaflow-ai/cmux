@@ -419,6 +419,7 @@ import {
 import { UserBubble } from "./conversation/UserBubble";
 import { SkillWordsContext, useSkillWords } from "./conversation/skillWords";
 import { ChiefPromptBubble } from "./conversation/ChiefPromptBubble";
+import { TranscriptChief } from "./conversation/sentFrom";
 import {
   editableKey,
   editableSeqs,
@@ -640,7 +641,7 @@ import { WatchBanner } from "./WatchBanner";
 import { ManagedBanner } from "./ManagedBanner";
 import { PaneNotices } from "./PaneNotices";
 import { setPaneNotices } from "./paneNoticeStore";
-import { isTakenOver, managedBy, takeOverManaged } from "./managedBy";
+import { chiefOf, isTakenOver, managedBy, takeOverManaged } from "./managedBy";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -6804,6 +6805,8 @@ function AcpmuxPane() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [shownSessionId, snapshot.sessions, takenOverAt],
   );
+  // The Chief whose prompts this chat draws "Sent from" (conversation/sentFrom.ts).
+  const chatChief = useMemo(() => chiefOf(shownSessionId, snapshot.sessions), [shownSessionId, snapshot.sessions]);
   const freshAgents = useMemo(
     () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
     [snapshot.rows, snapshot.subagentViews],
@@ -12842,6 +12845,7 @@ function AcpmuxPane() {
   });
   const transcriptContent = (
     // Quick Chat's panel has no room beside it: its fences have no Open preview.
+    <TranscriptChief.Provider value={chatChief}>
     <ArtifactContext.Provider value={quick ? undefined : openArtifact}>
       <RenderPages.Provider value={pages}>
         <ImageViewerContext.Provider value={openImage}>
@@ -12988,6 +12992,7 @@ function AcpmuxPane() {
         </ImageViewerContext.Provider>
       </RenderPages.Provider>
     </ArtifactContext.Provider>
+    </TranscriptChief.Provider>
   );
   const transcript = (
     <PresentationContext.Provider value={chatPresentation}>{transcriptContent}</PresentationContext.Provider>

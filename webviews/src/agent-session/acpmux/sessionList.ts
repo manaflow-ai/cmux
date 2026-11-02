@@ -64,6 +64,11 @@ export type AcpmuxSessionEntry = {
   reportsTo?: string;
   /** Started by a Chief (its `mux.parent` tag, `optchat-chief:<home>`): the Chief manages it. */
   chiefChild?: true;
+  /** The Chief home that started it (its `mux.parent` tag's value), when a Chief did. */
+  chiefHome?: string;
+  /** A Chief's own turn session: the home whose chats it starts (`mux.children`) and that Chief's
+   *  participant id (`cmux.chief.participant`, optchat-chief acpmux.rs), as the sidebar reads them. */
+  chiefTurn?: { home: string; participant: string };
   /** A sub-session's name among its parent's (acpmux `shortName`, "tests"). */
   shortName?: string;
   /** What it is doing (acpmux `lane.state`): working, waiting on the person, failed, lost or idle. */
@@ -185,6 +190,20 @@ function tagValue(tags: unknown, tag: string): string | undefined {
  *  `optchat-chief` or `optchat-chief:<home id>`. */
 const CHIEF_PARENT_TAG = "mux.parent";
 
+/** The tags a Chief puts on its own turn session (cmux_chief::rules::CHILDREN_TAG, optchat-chief
+ *  acpmux.rs CHIEF_PARTICIPANT_TAG). */
+const CHIEF_CHILDREN_TAG = "mux.children";
+const CHIEF_PARTICIPANT_TAG = "cmux.chief.participant";
+
+/** A Chief turn session's home and participant id, from its tags. */
+function chiefTurn(tags: unknown): { home: string; participant: string } | undefined {
+  const home = tagValue(tags, CHIEF_CHILDREN_TAG);
+  const participant = tagValue(tags, CHIEF_PARTICIPANT_TAG);
+  return home && participant && /^optchat-chief(?::|$)/.test(home) && /^agent_[A-Za-z0-9_-]{1,58}$/.test(participant)
+    ? { home, participant }
+    : undefined;
+}
+
 /** Whether acpmux's tags say a Chief started the session. */
 function chiefParent(tags: unknown): boolean {
   if (typeof tags !== "object" || tags === null || Array.isArray(tags)) return false;
@@ -274,7 +293,8 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     spawnedBy: text(session.spawnedBy),
     startedBy: text(session.startedBy),
     reportsTo: tagValue(session.tags, REPORTS_TO_TAG),
-    ...(chiefParent(session.tags) && { chiefChild: true as const }),
+    ...(chiefParent(session.tags) && { chiefChild: true as const, chiefHome: tagValue(session.tags, CHIEF_PARENT_TAG) }),
+    ...(chiefTurn(session.tags) && { chiefTurn: chiefTurn(session.tags) }),
     shortName: text(session.shortName),
     lane: LANES.includes(session.lane?.state) ? session.lane.state : undefined,
     queued: Number(session.queued) > 0 ? Number(session.queued) : undefined,
