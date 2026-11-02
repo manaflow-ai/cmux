@@ -952,7 +952,8 @@ def step_reopen_video(j, step):
         records.append({"cycle": index, "markers": [{k: m.get(k) for k in ("pane", "focused_before", "received", "key_sent_wall")}
                                                     for m in record.get("markers") or []], "main_wall": record.get("main_wall"),
                         "expected": record.get("markers_expected"), "markers_error": record.get("markers_error"),
-                        "launch_terminals": record.get("launch_terminals"), "marks": record.get("app_marks_ms")})
+                        "launch_terminals": record.get("launch_terminals"), "marks": record.get("app_marks_ms"),
+                        "visible_tabs": [t.get("shown_tab") for t in before["visible_terminals"] if not t.get("live")]})
         rows.append({"cycle": index, "movie": record["movie"], "differences": record["differences"],
                      "settled": settled, "app_marks_ms": record["app_marks_ms"],
                      "end_to_gone_ms": record.get("end_to_gone_ms")})
@@ -1160,19 +1161,27 @@ def cond_reopen_frames_in_first_window_frame(j, want, cache):
     records = getattr(j, "reopen_records", None)
     if not records:
         return False, {"why": "no reopen_video step ran before this check"}
-    bad = []
+    bad, not_visible = [], []
     for rec in records:
         panes = rec.get("launch_terminals")
         window = (rec.get("marks") or {}).get("first_window_frame_committed")
         if not isinstance(panes, dict) or not panes:
             bad.append({"cycle": rec["cycle"], "why": "no per-pane launch timeline (a build without #31621)"})
             continue
-        for key, p in panes.items():
-            shown = p.get("frame_shown_ms") if isinstance(p, dict) else None
+        visible = [t for t in rec.get("visible_tabs") or [] if t]
+        if not visible:
+            bad.append({"cycle": rec["cycle"], "why": "no visible terminal tab recorded before the end"})
+        for key in visible:
+            p = panes.get(key)
+            if not isinstance(p, dict):
+                bad.append({"cycle": rec["cycle"], "tab": key[-8:], "why": "a visible pane never asked for its frame"})
+                continue
+            shown = p.get("frame_shown_ms")
             if shown is None or window is None or shown > window + 0.5:
                 bad.append({"cycle": rec["cycle"], "tab": key[-8:], "frame_shown_ms": shown, "window_ms": window,
-                            "missed": p.get("missed") if isinstance(p, dict) else None})
-    return not bad, {"cycles": len(records), "bad": len(bad), "first": bad[:8]}
+                            "missed": p.get("missed")})
+        not_visible.extend(k[-8:] for k in panes if k not in visible)
+    return not bad, {"cycles": len(records), "bad": len(bad), "first": bad[:8], "not_visible": not_visible[:8]}
 
 
 STEPS = {"require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
