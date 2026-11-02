@@ -1,0 +1,1 @@
+{"rounds": [{"theme": "dark", "case": "devtools-right-light", "round": 1, "movie": "dark/devtools-right-light-r1.mov", "open": {"t_send": 1000.246}, "close": {"t_send": 1000.7626666666666}, "state_before": {"dpr": 1}, "state_after": {"dpr": 1}, "record": {"scale": 1}}]}

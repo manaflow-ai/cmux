@@ -8,8 +8,8 @@
   /* browser-video heavy page: the light page's static column, plus a 24,000-node grid that reflows with the
      viewport width, a canvas drawn every animation frame and a CSS animation. The judge masks what moves
      before the key (canvas, spinner) and checks the static column as on the light page. */
-  :root { --bg: #f4f4f2; --fg: #15171a; --line: #c9ccd1; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #17191d; --fg: #d8dadf; --line: #3a3e46; } }
+  :root { --bg: #fff8e0; --fg: #15171a; --line: #d9c98f; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0b2a4a; --fg: #d8e4f0; --line: #2f5478; } }
   html, body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/18px Menlo, monospace; }
   #col { position: absolute; left: 0; top: 0; width: 520px; }
   .row { box-sizing: border-box; height: 64px; border-bottom: 1px solid var(--line); padding: 6px 10px; }

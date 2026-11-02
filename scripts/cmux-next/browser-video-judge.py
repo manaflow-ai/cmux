@@ -156,8 +156,28 @@ def judge_round(root, entry, stills, window_px):
     x0, y0, x1, y1 = column
     colmask = ~anim[y0:y1, x0:x1]
 
+    def area_kind(f, rect):
+        """What the DevTools area shows: `devtools` (as in B), `page` (as in A), `blank` (one flat color: a
+        placeholder such as the pane fill or Chromium's white) or `other` (a partial or different picture)."""
+        if rect is None:
+            return "none", None
+        x0_, y0_, x1_, y1_ = rect
+        crop = f[y0_:y1_, x0_:x1_].astype(np.int16)
+        near = lambda ref: float((np.abs(crop - ref[y0_:y1_, x0_:x1_].astype(np.int16)).sum(axis=2) > 24).mean())
+        to_b, to_a = near(B), near(A)
+        if to_b < 0.02 and to_b <= to_a:
+            return "devtools", None
+        if to_a < 0.02:
+            return "page", None
+        flat = crop.reshape(-1, 3)
+        median = np.median(flat, axis=0)
+        mean = [int(v) for v in median]
+        if float((np.abs(flat - median).sum(axis=1) <= 24).mean()) > 0.9:
+            return ("blank-white" if min(mean) >= WHITE else "blank"), mean
+        return "other", mean
+
     def phase(indices, t_key, ref, end_ref, label):
-        out = {"key_t": t_key, "first": None, "settle": None, "flash": [], "jump": [], "badge_places": []}
+        out = {"key_t": t_key, "first": None, "settle": None, "flash": [], "jump": [], "badge_places": [], "area": []}
         prev = ref
         places = []
         for i in indices:
@@ -170,6 +190,11 @@ def judge_round(root, entry, stills, window_px):
                     save(f, os.path.join(stills, f"{entry['theme']}-{entry['case']}-r{entry['round']}-{label}-first-f{i}.png"))
                 out["settle"] = {"frame": i, "refreshes": refreshes}
             prev = f
+            kind, mean = area_kind(f, dev)
+            if not out["area"] or out["area"][-1]["kind"] != kind:
+                out["area"].append({"kind": kind, "from_frame": i, "refreshes": refreshes, "mean": mean})
+                if kind not in ("devtools", "page") and sum(1 for a in out["area"] if a["kind"] == kind) == 1:
+                    save(f, os.path.join(stills, f"{entry['theme']}-{entry['case']}-r{entry['round']}-{label}-area-{kind}-f{i}.png"))
             if dark:
                 for name, rect, base in (("devtools", dev, max(steady["dev_white_A"] or 0, steady["dev_white_B"] or 0)),
                                          ("page", page_area, max(steady["page_white_A"] or 0, steady["page_white_B"] or 0))):
@@ -318,6 +343,7 @@ def main():
             p = res.get(ph) or {}
             print(f"  {ph}: first {p.get('first')} settle {p.get('settle')} flash {len(p.get('flash') or [])} "
                   f"jump {len(p.get('jump') or [])} badge_extra {len(p.get('badge_extra') or [])}", flush=True)
+            print("    area: " + " -> ".join(f"{a['kind']}@{a['refreshes']}" for a in p.get("area") or []), flush=True)
         if res.get("restore") or res.get("error"):
             print(f"  restore {res.get('restore')} error {res.get('error')}", flush=True)
     if opts.json:
