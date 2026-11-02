@@ -130,6 +130,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var header: AgentPaneHeaderHooks?
     /// The header's tools in the pane's tab row (``AgentPaneTabRow``, `ChromeTunables.tabRowTools`).
     @ObservationIgnored public let tabRow = AgentPaneTabRow()
+    /// Page-owned Session Info content drawn by AppKit.
+    @ObservationIgnored public let sessionInfo = AgentPaneSessionInfo()
     /// Declarative native controls published by the page for the shared tab row.
     public private(set) var tabRowTools: [PaneTabRowTool] = []
     @ObservationIgnored public var onTabRowToolInvoked: ((String, String?) -> Void)?
@@ -167,6 +169,9 @@ public final class AgentPaneModel {
     /// Whether the page has asked for a handshake, so its bridge is up and
     /// a turn can be revealed through it directly.
     @ObservationIgnored public internal(set) var hasHandshake = false
+    /// The New Tab context came from the spare pool's prepare (the tab a Cmd-T would make), not from a tab: the
+    /// handshake (a reconnect too) never takes its folder, which is no tab's yet (SHORTCUT FRAMES F2 review).
+    @ObservationIgnored public internal(set) var newTabPrepared = false
     /// The binary on the socket when the last handshake was refused with a daemon this app may
     /// replace: only then does `acpmux.restart` stop it, and only while that same binary holds
     /// the socket (``AgentPaneHandshakeReply/restartAcpmux(in:)``).
@@ -363,7 +368,7 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .tabRowToolsSet, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList),
+             .tabRowTools, .tabRowToolsSet, .sessionInfo, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList),
              .sandboxState, .subagentShown: break
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
         // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
@@ -583,7 +588,7 @@ public final class AgentPaneModel {
             } catch {
                 return AgentPaneReply.failure(code: "btw_failed", message: "Inline side question failed")
             }
-        case .paneAction, .moveToMachine, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .sideChat, .subagentPane, .subagentShown, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
+        case .paneAction, .moveToMachine, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .sessionInfo, .copyText, .sideChat, .subagentPane, .subagentShown, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
