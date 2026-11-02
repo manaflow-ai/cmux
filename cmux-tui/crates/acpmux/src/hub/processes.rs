@@ -313,9 +313,14 @@ impl ProcessTable {
         after: Option<&str>,
     ) -> Result<(Vec<Process>, bool), RpcError> {
         let start = match after {
-            Some(id) => self.by_id.get(id).copied().ok_or_else(|| {
-                RpcError::invalid_params("cursor is not a process ID in this session")
-            })?.saturating_add(1),
+            Some(id) => self
+                .by_id
+                .get(id)
+                .copied()
+                .ok_or_else(|| {
+                    RpcError::invalid_params("cursor is not a process ID in this session")
+                })?
+                .saturating_add(1),
             None => 0,
         };
         let end = start.saturating_add(limit).min(self.processes.len());

@@ -49,9 +49,9 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
     if m == method::MUX_PROCESS_LIST {
         let paging = process_page_params(params)?;
         return match params.get("sessionId").filter(|v| !v.is_null()) {
-            None if paging.is_some() => Err(RpcError::invalid_params(
-                "paged process lists require a sessionId",
-            )),
+            None if paging.is_some() => {
+                Err(RpcError::invalid_params("paged process lists require a sessionId"))
+            }
             None => Ok(hub.list_processes(None)),
             Some(key) => {
                 let key = key
@@ -147,7 +147,6 @@ pub(super) fn push_update(conn: &Conn, ev: &HubEvent) {
     let process = rec.msg.get("process").cloned().unwrap_or(Value::Null);
     conn.send(&Message::notification(method::MUX_PROCESS_UPDATE, json!({"process": process})));
 }
-
 
 #[cfg(test)]
 mod process_page_params_tests {
