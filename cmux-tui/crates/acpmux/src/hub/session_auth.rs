@@ -315,13 +315,7 @@ impl Hub {
             if let (Some(var), Some(home)) = (var, &home) {
                 profile.env.insert(var.to_owned(), home.display().to_string());
             }
-            let id = harness.clone();
-            let check = tokio::task::spawn_blocking(move || {
-                crate::harness_health::fresh_auth(&id, &profile, notes.as_ref())
-            })
-            .await
-            .unwrap_or_else(|e| Err(e.to_string()));
-            facts.check = Some((now_ms(), check));
+            facts.check = Some(fresh_check(harness.clone(), profile, notes).await);
         }
         Ok(facts.decide())
     }
@@ -395,6 +389,36 @@ struct Siblings<'a> {
     defaults: &'a BTreeMap<String, String>,
     /// The target's route id.
     route: &'a Option<String>,
+}
+
+/// A harness's sign-in check's answer and when it came.
+type Check = (u64, Result<(Auth, String), String>);
+
+/// The checks running now, by harness, the profile they run (its env holds the chat's own and
+/// its account home) and the auth notes: a page's `refresh` on each chat switch and turn runs
+/// at most one check process for the same sign-in at a time, and joins it.
+static CHECKING: crate::flights::Flights<CheckKey, Check> = crate::flights::Flights::new();
+
+/// What a check runs from: the harness, its profile as the check runs it, its auth notes.
+type CheckKey = (String, crate::config::HarnessProfile, Option<crate::config::profiles::AuthNotes>);
+
+/// `harness_health::fresh_auth` for `id` run as `profile`, joining a check of the same inputs
+/// that is already running ([`CHECKING`]).
+async fn fresh_check(
+    id: String,
+    profile: crate::config::HarnessProfile,
+    notes: Option<crate::config::profiles::AuthNotes>,
+) -> Check {
+    let key = (id.clone(), profile.clone(), notes.clone());
+    let work = move || async move {
+        let check = tokio::task::spawn_blocking(move || {
+            crate::harness_health::fresh_auth(&id, &profile, notes.as_ref())
+        })
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()));
+        (now_ms(), check)
+    };
+    CHECKING.join(key, work, |why| (now_ms(), Err(why))).await
 }
 
 /// The route a spawn takes, given the route id and scope it chose (`routes::spawn_route`): an
