@@ -60,6 +60,11 @@ public final class ChildPageFocus {
         granting = true
         defer { granting = false }
         setFocus(next, true)
+        // The grant gave the page focus but moved no key (seen in a fresh launch after an address-bar load): the cmux
+        // window that shows the page still has the keys, its responder is the window, and a typed key reaches no view.
+        // The page window takes them: still the request's one key change.
+        guard page === next, let window = pageWindow(next), let key = keys.keyWindow, key !== window, window.parent === key else { return }
+        keys.makeKey(window)
     }
 
     /// `window` (the cmux window) took the keys back while a page has focus, and no click put them
