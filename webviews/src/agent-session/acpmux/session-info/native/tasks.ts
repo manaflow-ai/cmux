@@ -98,14 +98,14 @@ export function tasksSection(
   };
   const rows: NativeInfoRow[] = [...workflowRows(input, actions, t, stop)];
 
-  // Servers, newest first: the command, the ports it names (the first opens on a click, the others
-  // by their buttons) and how long it has run.
+  // Servers, newest first: the command, the ports it names (each explicit port is its own button)
+  // and how long it has run. The row itself stays plain, like ServersSection.tsx.
   for (const server of [...servers].sort((a, b) => b.startedAt - a.startedAt)) {
     const urls = server.ports.map((port) => `http://localhost:${port}`);
     const onOpenUrl = input.onOpenUrl;
     const buttons: NativeInfoButton[] = [];
     if (onOpenUrl)
-      for (const url of urls.slice(1))
+      for (const url of urls)
         buttons.push({
           label: t("sessionInfo.servers.open", { url }),
           symbol: "link",
@@ -120,12 +120,6 @@ export function tasksSection(
       detail: formatDuration(Math.max(0, now - server.startedAt)),
       ...(server.ports.length > 0 ? { trailing: server.ports.map((port) => `:${port}`).join(" ") } : {}),
       tone: "running",
-      ...(onOpenUrl && urls[0]
-        ? {
-            action: actions.add(`tasks.openUrl:${server.id}`, () => onOpenUrl(urls[0]!)),
-            help: t("sessionInfo.servers.open", { url: urls[0] }),
-          }
-        : {}),
       ...(buttons.length > 0 ? { buttons } : {}),
     });
   }

@@ -5,9 +5,12 @@
 // the ended ones' row ("94 done · 1 failed"), which opens into their lines. The lists, their order and
 // their words come from the page's own helpers, so both panels say the same thing.
 import { formatDuration } from "../../conversation/turns";
-import type { Translate } from "../../i18n";
+import type { PaneLanguage, Translate } from "../../i18n";
+import { isRepeatedAgentKind } from "../../subagents/AgentIdentity";
 import { nestAgents } from "../../subagents/AgentsPill";
 import { elapsed } from "../../subagents/SubagentGroup";
+import { subagentProgress } from "../../subagents/subagentProgress";
+import { retrying } from "../../subagents/retryState";
 import { subagentStateText, subagentStatus, type SubagentStatus } from "../../summary/SubagentStatusList";
 import { orderedSessions, sessionStatus, sessionStateText } from "../ChildSessionRows";
 import type { SubsessionLimits } from "../../model";
@@ -16,13 +19,18 @@ import type { Subagent } from "../../subagents/subagentFold";
 import { clampRunning, MAX_RUNNING, slotCounts } from "../../subsessionLimits";
 import { SUBAGENTS_SHOWN, subagentCounts } from "../SubagentsSection";
 import type { NativeInfoActions, NativeInfoButton, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
+import { nativeInfoWave } from "./wave";
 
 export type SubagentsSectionInput = {
   /// The section is unfolded (Session Info's `state.subagents`).
   open: boolean;
   /// The chat's subagents; a workflow Background tasks lists (`workflows`) is left out, as there.
   agents: readonly Subagent[];
+  /// Parent harness supplies ordinary child agents that do not name their own.
+  harness?: string;
   workflows?: readonly { id: string }[];
+  /// The pane language used by the shared progress formatter.
+  language?: PaneLanguage;
   waiting: ReadonlySet<string>;
   /// The chats its agent started.
   sessions: readonly StartedSession[];
@@ -81,7 +89,10 @@ export function subagentsSection(
     state: string;
     time?: string;
     task?: string;
+    progress?: string;
+    kind?: string;
     harness?: string;
+    working?: boolean;
     depth: number;
     at: number;
     open?: () => void;
@@ -101,25 +112,32 @@ export function subagentsSection(
       status,
       state: subagentStateText(t, agent, waiting),
       time: formatDuration(elapsed(agent, input.now)),
-      task: agent.task,
-      harness: agent.harness,
+      progress: subagentProgress(t, input.language ?? "en", agent, { usage: false }).join(" · ") || undefined,
+      task: agent.task && agent.task !== agent.name ? agent.task : undefined,
+      kind: agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined,
+      harness: agent.harness ?? input.harness,
+      working: Boolean(retrying(agent)),
       depth,
       at: agent.endedAt ?? agent.startedAt,
       open: input.onOpen && (() => input.onOpen!(agent.id)),
     };
   };
-  const sessionLine = (child: StartedSession): SubagentLine => ({
-    key: `session:${child.sessionId}`,
-    identity: child.sessionId,
-    name: child.title,
-    status: sessionStatus(child),
-    state: sessionStateText(t, child).text,
-    harness: child.harness,
-    time: undefined,
-    depth: 0,
-    at: child.createdAt ?? 0,
-    open: input.onOpenSession && (() => input.onOpenSession!(child.sessionId)),
-  });
+  const sessionLine = (child: StartedSession): SubagentLine => {
+    const state = sessionStateText(t, child);
+    return {
+      key: `session:${child.sessionId}`,
+      identity: child.sessionId,
+      name: child.title,
+      status: sessionStatus(child),
+      state: state.text,
+      harness: child.harness,
+      working: state.working,
+      time: undefined,
+      depth: 0,
+      at: child.createdAt ?? 0,
+      open: input.onOpenSession && (() => input.onOpenSession!(child.sessionId)),
+    };
+  };
   const runningAgents = nestAgents(agents.filter((agent) => live(subagentStatus(agent, waiting))).sort(waitsFirst)).map(
     ({ agent, depth }) => agentLine(agent, depth),
   );
@@ -148,20 +166,32 @@ export function subagentsSection(
       .filter(Boolean)
       .join(" · ");
   };
-  const line = (item: SubagentLine): NativeInfoRow => ({
+  const line = (item: SubagentLine, waveIndex?: number): NativeInfoRow => ({
     id: item.key,
     symbol: item.agent ? "bubble.left" : "bubble.left.and.bubble.right",
     title: item.name,
     ...(item.detail && item.detail !== item.name ? { detail: item.detail } : {}),
+    ...(item.progress ? { progress: item.progress } : {}),
     trailing: [item.time, item.state].filter(Boolean).join(" · "),
     tone: TONE[item.status],
+    ...(item.working ? { working: true } : {}),
+    ...(waveIndex !== undefined ? { wave: nativeInfoWave(waveIndex) } : {}),
     ...(item.depth > 0 ? { indent: Math.min(item.depth, 3) } : {}),
     ...(item.open ? { action: actions.add(`subagents.open:${item.key}`, item.open) } : {}),
-    ...(item.task && item.task !== item.name ? { help: item.task } : {}),
+    ...([item.kind, item.task].filter(Boolean).length > 0
+      ? { help: [item.kind, item.task].filter(Boolean).join("\n") }
+      : {}),
     ...(item.harness ? { harness: item.harness } : {}),
   });
   const showAll = input.showAll ?? false;
-  rows.push(...(showAll ? running : running.slice(0, SUBAGENTS_SHOWN)).map(line));
+  const shown = showAll ? running : running.slice(0, SUBAGENTS_SHOWN);
+  let waveIndex = 0;
+  rows.push(
+    ...shown.map((item) => {
+      const index = live(item.status) ? waveIndex++ : undefined;
+      return line(item, index);
+    }),
+  );
   if (running.length > SUBAGENTS_SHOWN) {
     const onShowAll = input.onShowAll;
     rows.push({
@@ -212,8 +242,8 @@ function limitRow(
   const max = pendingMax ?? limits.maxRunning;
   const { running, queued } = slotCounts(limits, sessions);
   const buttons: NativeInfoButton[] = [];
-  if (onSet) {
-    if (limits.maxRunningSource === "session")
+  if (onSet || onStep) {
+    if (limits.maxRunningSource === "session" && onSet)
       buttons.push({
         label: t("sessionInfo.subagents.limit.resetLabel"),
         symbol: "arrow.uturn.backward",
@@ -221,20 +251,22 @@ function limitRow(
       });
     const lower = clampRunning(max - 1);
     const raise = clampRunning(max + 1);
-    buttons.push(
-      {
+    const lowerAction = onStep ? () => onStep(-1) : onSet ? () => onSet(lower, max) : undefined;
+    const raiseAction = onStep ? () => onStep(1) : onSet ? () => onSet(raise, max) : undefined;
+    if (lowerAction)
+      buttons.push({
         label: t("sessionInfo.subagents.limit.lower", { n: lower }),
         symbol: "minus",
-        action: actions.add("subagents.limitLower", () => (onStep ? onStep(-1) : onSet(lower, max))),
+        action: actions.add("subagents.limitLower", lowerAction),
         ...(max <= MAX_RUNNING.min ? { disabled: true } : {}),
-      },
-      {
+      });
+    if (raiseAction)
+      buttons.push({
         label: t("sessionInfo.subagents.limit.raise", { n: raise }),
         symbol: "plus",
-        action: actions.add("subagents.limitRaise", () => (onStep ? onStep(1) : onSet(raise, max))),
+        action: actions.add("subagents.limitRaise", raiseAction),
         ...(max >= MAX_RUNNING.max ? { disabled: true } : {}),
-      },
-    );
+      });
   }
   return {
     id: "limit",
