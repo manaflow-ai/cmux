@@ -53,7 +53,10 @@ public struct TerminalLastFrames {
     /// (``TerminalFramePurgeability``), so memory pressure takes their pages with no policy of ours. SWITCH FRAMES
     /// SF-2: bounded by the warm set alone (8 on a 16 GB Mac), a terminal's frame was dropped 4 switches after its
     /// eviction in a 9-workspace, 18-terminal session, and every switch back showed an empty pane.
-    public static func capacity(warm: Int, physicalBytes: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Int {
+    public static func capacity(warm: Int) -> Int { capacity(warm: warm, physicalBytes: ProcessInfo.processInfo.physicalMemory) }
+
+    /// ``capacity(warm:)`` for a Mac with `physicalBytes` of memory.
+    public static func capacity(warm: Int, physicalBytes: UInt64) -> Int {
         guard warm > 0 else { return 0 }
         return warm + min(128, Int((physicalBytes / 32) / frameCostBytes))
     }
