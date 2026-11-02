@@ -306,10 +306,17 @@ public final class TerminalLaunchFrames {
         shown.view.removeFromSuperview()
     }
 
-    /// The terminals whose saved frame a pane shows ahead of their surface now (#32274): on screen with no session
-    /// shown yet, so no quit snapshot or keeper save covers them, and their saved frame is the one the pane shows.
+    /// The terminals whose saved frame a pane on screen shows ahead of their surface (#32274), or will show when the
+    /// launch read ends (it asked ahead before then): no session is shown there yet, so no quit snapshot or keeper save
+    /// covers them, and their saved frame is the one the pane shows. On screen as the quit and the keeper count it.
     var keysShownAhead: Set<String> {
-        Set(ahead.values.filter { $0.content?.window != nil && $0.view.superview != nil }.map(\.key))
+        func onScreen(_ content: NSView?) -> Bool {
+            guard let content else { return false }
+            return content.window?.isVisible == true && !content.isHiddenOrHasHiddenAncestor
+        }
+        let shown = ahead.values.filter { $0.view.superview === $0.content && onScreen($0.content) }.map(\.key)
+        let asked = waiting.filter { $0.value.session == nil && onScreen($0.value.content) }.map(\.key)
+        return Set(shown).union(asked)
     }
 
     /// Whether `content` shows a frame ahead of its terminal's surface (tests).
