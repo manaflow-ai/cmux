@@ -29,7 +29,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 sys.path.insert(0, str(ROOT / "tests"))
-from blacksmith_linux_sizes import blacksmith_route  # noqa: E402
+from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 ARTIFACTS_WORKFLOW = WORKFLOW.parent / "cmux-tui-artifacts.yml"
 TREE_JOBS = ("daemon-test", "cmux-scheme-compile")
@@ -824,7 +824,20 @@ class PathRoutingStructure(unittest.TestCase):
                     # A complete PR cascade can precede the unchanged push/display route.
                     # Count owned allocation only in alternatives active for this event.
                     from test_ci_runs_on_fallback import EXPRESSION, flat_alternatives, conjuncts, separate_pr_cascade
-                    alternatives = flat_alternatives(EXPRESSION.findall(expression)[0])
+                    # The route helper still recognizes the old literal labels. Normalize the
+                    # declared pool references only for this structural classification; evaluate
+                    # the actual expression below so the assertion remains pool-backed.
+                    normalized = re.sub(
+                        r"fromJSON\(vars\.RUNNER_POOLS\)\.macos_26_large",
+                        "'blacksmith-12vcpu-macos-26'",
+                        expression,
+                    )
+                    normalized = re.sub(
+                        r"fromJSON\(vars\.RUNNER_POOLS\)\.macos_26",
+                        "'blacksmith-6vcpu-macos-26'",
+                        normalized,
+                    )
+                    alternatives = flat_alternatives(EXPRESSION.findall(normalized)[0])
                     allocated_side = any(
                         "outputs.owned_jobs" in part
                         and (event == "pull_request" or "github.event_name == 'pull_request'" not in conjuncts(part))
@@ -1143,13 +1156,17 @@ RESET_STALE_SUBMODULES = "scripts/ci/reset-stale-submodules.sh"
 
 
 # The Blacksmith outage failover reads a variable but only ever picks another Blacksmith size.
-OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-\d+vcpu-ubuntu-2404' \|\| ")
+OVERFLOW_FAILOVER = re.compile(
+    r"vars\.CI_CLOUD_OVERFLOW_SAVED && (?:'blacksmith-\d+vcpu-ubuntu-2404'|fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+) \|\| "
+)
 
 
 def can_run_on_owned_runner(job: dict) -> bool:
     """A runs-on that reads a repository variable, or portable placement's mini, can resolve to a mini (glaeda-*)."""
-    runs_on = str(job.get("runs-on", ""))
-    return "vars." in OVERFLOW_FAILOVER.sub("", runs_on) or "outputs.mini_runner" in runs_on
+    runs_on = unwrap_fork_pool_reads(str(job.get("runs-on", "")))
+    runs_on = OVERFLOW_FAILOVER.sub("", runs_on)
+    runs_on = re.sub(r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", runs_on)
+    return "vars." in runs_on or "outputs.mini_runner" in runs_on
 
 
 class ReusedWorkspaceSubmodules(unittest.TestCase):
@@ -1411,8 +1428,14 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "), runs_on)
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
         # Its Blacksmith size and failover are the ones .github/runners.json linux_sizes measured.
-        self.assertTrue(runs_on.endswith(blacksmith_route("cmux-next.yml", "fast-tier-cargo") + " }}"), runs_on)
-        self.assertNotIn("vars.", OVERFLOW_FAILOVER.sub("", runs_on), "an ephemeral Linux VM, never a reused mini")
+        self.assertTrue(runs_on.endswith(
+            "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || "
+            "fromJSON(vars.RUNNER_POOLS).linux_8 }}"
+        ), runs_on)
+        route_without_pools = re.sub(
+            r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", OVERFLOW_FAILOVER.sub("", runs_on)
+        )
+        self.assertNotIn("vars.", route_without_pools, "an ephemeral Linux VM, never a reused mini")
         # The same gate, except that the Mac half also follows the route (MacFastTierFollowsTheRoute).
         self.assertEqual(cargo["if"], mac["if"].replace(
             " && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false'", ""))
@@ -2115,9 +2138,9 @@ FAST_TIER_REPORT_CLAUSE = (
     "contains(fromJSON('[\"success\",\"failure\",\"cancelled\"]'), needs.fast-tier-fleet.result) "
     "&& !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
     "contains(fromJSON('[\"success\",\"failure\",\"cancelled\"]'), needs.fast-tier-fleet.result) "
-    "&& vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || "
+    "&& vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_4 || "
     "contains(fromJSON('[\"success\",\"failure\",\"cancelled\"]'), needs.fast-tier-fleet.result) "
-    "&& 'blacksmith-2vcpu-ubuntu-2404' || "
+    "&& fromJSON(vars.RUNNER_POOLS).linux_2 || "
 )
 
 
@@ -2238,6 +2261,25 @@ class _UnsetIsEmpty(dict):
         return ""
 
 
+class _RunnerPools(dict):
+    """Small GitHub-expression stand-in for `fromJSON(vars.RUNNER_POOLS).pool`."""
+
+    def __getattr__(self, name):
+        return self[name]
+
+
+DEFAULT_RUNNER_POOLS = json.dumps({
+    "linux_2": "blacksmith-2vcpu-ubuntu-2404",
+    "linux_4": "blacksmith-4vcpu-ubuntu-2404",
+    "linux_8": "blacksmith-8vcpu-ubuntu-2404",
+    "linux_16": "blacksmith-16vcpu-ubuntu-2404",
+    "linux_32": "blacksmith-32vcpu-ubuntu-2404",
+    "macos_15": "blacksmith-6vcpu-macos-15",
+    "macos_26": "blacksmith-6vcpu-macos-26",
+    "macos_26_large": "blacksmith-12vcpu-macos-26",
+})
+
+
 def evaluate(expression: str, context: dict):
     """Evaluate a job `if:` or `runs-on:` against literal context values.
 
@@ -2254,12 +2296,15 @@ def evaluate(expression: str, context: dict):
     text = text.replace("&&", " and ").replace("||", " or ")
     text = re.sub(r"!(?!=)", " not ", text)
     text = re.sub(r"(?<!')\btrue\b(?!')", "True", text)
+    eval_context = {"vars.RUNNER_POOLS": DEFAULT_RUNNER_POOLS, **context}
     names = {
-        "_ctx": _UnsetIsEmpty(context),
+        "_ctx": _UnsetIsEmpty(eval_context),
         "always": lambda: True,
         "contains": lambda haystack, needle: needle in haystack,
         "startsWith": lambda value, prefix: str(value).startswith(prefix),
-        "fromJSON": json.loads,
+        "fromJSON": lambda value: (
+            _RunnerPools(json.loads(value)) if isinstance(json.loads(value), dict) else json.loads(value)
+        ),
         "format": lambda template, *values: re.sub(r"\{(\d+)\}", lambda match: str(values[int(match.group(1))]), template),
     }
     return eval(text, {"__builtins__": {}}, names)  # noqa: S307 - this repository's workflow, not input
@@ -2400,7 +2445,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             "needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && "
             "needs.macos-placement.outputs.gateway_runner != '' && needs.macos-placement.outputs.gateway_runner || "),
             fast["runs-on"])
-        self.assertIn("'blacksmith-2vcpu-ubuntu-2404'", fast["runs-on"])
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", fast["runs-on"])
         run = next(step["run"] for step in fast["steps"] if step.get("id") == "compile")
         self.assertIn("compile-check --ref", run)
         self.assertIn("--app", run)

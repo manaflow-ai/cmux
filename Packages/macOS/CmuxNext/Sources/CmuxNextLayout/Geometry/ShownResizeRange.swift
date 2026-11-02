@@ -36,4 +36,54 @@ public nonisolated struct ShownResizeRange {
                                                  viewportWidth: geometry.stripWidth, gap: style.stripGap)
         return lower...max(lower, ColumnWidthPreset.widthRange.upperBound)
     }
+
+    /// Every row height of `column` after a keyboard press moves the row edge next to `pane`'s row by `delta`
+    /// (a share of the column's height; down is positive): the edge below that row, or above it for the last row.
+    /// The press trades whole permille between the two rows (or, in a scrolling stack, sizes the upper row alone),
+    /// the exact inverse of ``RowStackGeometry/compute``'s placement, so each press moves the edge by the same
+    /// `(height + gap) * delta` points, snapped once to the pixel grid. Each row keeps 100 permille and the height its
+    /// tree needs; a press at that limit is nil (nothing moves).
+    public func rowHeights(moving pane: PaneID, in column: LayoutColumn, by delta: Double) -> [RowHeight]? {
+        guard column.hasRows, let stack = geometry.rowStacks[column.id],
+              let index = column.rows.firstIndex(where: { $0.root.contains(pane) }) else { return nil }
+        let upper = index + 1 < column.rows.count ? index : index - 1
+        guard upper >= 0 else { return nil }
+        let rows = column.rows, sum = rows.reduce(0) { $0 + max($1.height, 1) }
+        let fills = !style.rowsEnabled || sum <= 1000
+        // Permille as placed: a filled stack scales every row by 1000 / sum.
+        let scale = fills && sum > 0 ? Double(sum) / 1000 : 1
+        func floor(_ row: LayoutRow) -> Int {
+            let points = SplitGeometry.minimumSize(of: row.root, style: style).height
+            let placed = Double(RowStackGeometry.permille(forPixelHeight: points, columnHeight: stack.frame.height, gap: stack.gap))
+            return max(LayoutRow.heightRange.lowerBound, Int((placed * scale).rounded(.up)))
+        }
+        let step = Int((delta * 1000 * scale).rounded())
+        guard step != 0 else { return nil }
+        var heights = rows.map { RowHeight(row: $0.id, height: $0.height) }
+        let range = LayoutRow.heightRange
+        // The upper row's permille where it shows: a row stored below what its panes need shows at that minimum.
+        let shownUpper = max(rows[upper].height, floor(rows[upper]))
+        /// From where the row shows, one step toward `next`, inside `low...high`; nil when nothing would move, so a
+        /// press never moves the edge the wrong way or sends a height the model refuses.
+        func stepped(low: Int, high: Int) -> Int? {
+            guard low <= high else { return nil }
+            let next = step > 0 ? min(shownUpper + step, high) : max(shownUpper + step, low)
+            return (step > 0 ? next > shownUpper : next < shownUpper) ? next : nil
+        }
+        if fills {
+            let pair = rows[upper].height + rows[upper + 1].height
+            // Both rows stay in 100...1000 (setRowHeights refuses others) and keep their minimums.
+            guard let next = stepped(low: max(floor(rows[upper]), pair - range.upperBound),
+                                     high: min(pair - floor(rows[upper + 1]), range.upperBound)) else { return nil }
+            heights[upper].height = next
+            heights[upper + 1].height = pair - next
+        } else {
+            // A scrolling stack: the upper row alone, and never below the sum that fills the column (there the stack
+            // places rows in proportion, a different edge): the press that reaches it is a part step.
+            let rest = sum - rows[upper].height
+            guard let next = stepped(low: max(floor(rows[upper]), 1000 - rest), high: range.upperBound) else { return nil }
+            heights[upper].height = next
+        }
+        return heights
+    }
 }

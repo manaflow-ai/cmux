@@ -33,6 +33,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
     /// keeps it with the tab, so a relaunch opens the chat with it.
     case unsentDraft(String)
+    /// What a new chat leaves when its tab opens another chat (`chat.leftover`, cmux#32276): its
+    /// typed text and prompts held for a trust answer, kept for its window's next new chat.
+    case newChatLeftover(String)
+    /// A New Tab page showed that leftover as its draft (`chat.leftoverTaken`): its window's slot gives it up.
+    case newChatLeftoverTaken(String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
     /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])
@@ -212,6 +217,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case copyText(String)
     /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.
     case tabRowToolsSet([PaneTabRowTool])
+    /// `pane.tabRowTools.openMenu {id, menuItemId?}`: opens a native page menu for palette expansion.
+    case tabRowToolsOpenMenu(id: String, menuItemID: String?)
     /// `/btw <question>` asks acpmux for one bounded inline side answer.
     case btwInline(question: String, sessionId: String)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
