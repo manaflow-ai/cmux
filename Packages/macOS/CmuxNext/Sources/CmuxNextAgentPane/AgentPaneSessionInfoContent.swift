@@ -730,22 +730,24 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         // A new area sends no Entered for a pointer already inside it, and then no Exited when the
         // pointer leaves: so the line takes the pointer's place now, and an area made with the pointer
         // inside assumes it, or a line rebuilt under the pointer stays lit at rest.
-        hovered = pointerInside
+        // Set only on a change: a repaint here would clear a reveal's highlight as its scroll lands.
+        let inside = pointerInside
+        if hovered != inside { hovered = inside }
         guard line.action != nil || line.reorderable || !line.menu.isEmpty else { return }
         var options: NSTrackingArea.Options = [.mouseEnteredAndExited, .activeAlways, .inVisibleRect]
-        if hovered { options.insert(.assumeInside) }
+        if inside { options.insert(.assumeInside) }
         addTrackingArea(NSTrackingArea(rect: .zero, options: options, owner: self))
     }
 
     private var pointerInside: Bool {
         guard let window, !isHiddenOrHasHiddenAncestor else { return false }
-        return bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+        return visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
     }
 
     // A refresh takes every line out of the list and puts it back: out of the window, a line is never lit.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { hovered = false }
+        if window == nil, hovered { hovered = false }
     }
 
     override func mouseEntered(with event: NSEvent) { hovered = true }
