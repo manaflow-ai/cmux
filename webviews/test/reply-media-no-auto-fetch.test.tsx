@@ -147,7 +147,9 @@ describe("R5: no automatic fetch", () => {
   test("an expired cached remote grant offers a new click, never an automatic fetch", async () => {
     const url = "https://media.example.com/expired-grant.mp4";
     const first = await render(url);
-    await first.act(async () => first.container.querySelector<HTMLButtonElement>(".cv-image-placeholder__load")!.click());
+    await first.act(async () =>
+      first.container.querySelector<HTMLButtonElement>(".cv-image-placeholder__load")!.click(),
+    );
     expect(srcs(first.calls, "media.load")).toEqual([url]);
     await first.unmount();
 
@@ -183,7 +185,9 @@ describe("R5: no automatic fetch", () => {
   test("never suppresses a previously cached remote player and offers no retry", async () => {
     const url = "https://media.example.com/now-disabled.mp4";
     const first = await render(url);
-    await first.act(async () => first.container.querySelector<HTMLButtonElement>(".cv-image-placeholder__load")!.click());
+    await first.act(async () =>
+      first.container.querySelector<HTMLButtonElement>(".cv-image-placeholder__load")!.click(),
+    );
     await first.unmount();
     const page = await render(url, "never");
     expect(page.container.querySelector("video")).toBeNull();

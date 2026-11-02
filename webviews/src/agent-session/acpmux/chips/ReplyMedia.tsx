@@ -158,9 +158,7 @@ function HostRemoteMedia({ url, alt, fallback }: { url: string; alt: string; fal
   return (
     <span ref={setFrame} className={`cv-media is-${kind} is-remote`}>
       <span className="cv-media__host">{webURL(url)?.host}</span>
-      {state === "failed" && (
-        fallback ?? <span className="cv-image-placeholder__note">{t("image.unavailable")}</span>
-      )}
+      {state === "failed" && (fallback ?? <span className="cv-image-placeholder__note">{t("image.unavailable")}</span>)}
       <button type="button" className="cv-image-placeholder__load" disabled={state === "loading"} onClick={load}>
         {kind === "audio" ? t("media.loadAudio") : t("media.loadVideo")}
       </button>
