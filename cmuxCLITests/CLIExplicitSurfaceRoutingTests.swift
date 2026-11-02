@@ -102,6 +102,34 @@ struct CLIExplicitSurfaceRoutingTests {
         }
     }
 
+    @Test func surfaceIconPreservesPersistentResponseAndAcceptsLegacyTTL() throws {
+        for ttl in [false, true] {
+            let token = "AABBCCDD-1111-2222-3333-444455558888"
+            let arguments = ["surface", "icon", "set",
+                "--workspace", "AABBCCDD-1111-2222-3333-444455556666",
+                "--surface", "AABBCCDD-1111-2222-3333-444455557777",
+                "--owner", "agent-status", "--pid", "12345", "--process-start", "generation-1",
+                "--lease-token", token, "--revision", "1"] + (ttl ? ["--ttl", "30"] : [])
+            let execution = try runMockCommand(arguments: arguments, socketName: "icon-retained-\(ttl)") { line in
+                guard let request = Self.jsonObject(line), let id = request["id"] as? String,
+                      request["method"] as? String == "surface.icon.set" else {
+                    return Self.malformedRequestResponse(raw: line)
+                }
+                return Self.v2Response(id: id, ok: true,
+                    result: ["lease_token": token, "revision": 2, "persistent": true])
+            }
+            #expect(execution.result.status == 0, Comment(rawValue: execution.result.stderr))
+            let result = try #require(Self.jsonObject(execution.result.stdout))
+            #expect(result["persistent"] as? Bool == true)
+            #expect(result["ttl_seconds"] == nil)
+            #expect(result["lease_token"] as? String == token)
+            let request = try #require(try execution.state.requestObjects().last)
+            let params = try #require(request["params"] as? [String: Any])
+            #expect(params["asset"] == nil)
+            #expect((params["ttl_seconds"] as? Int) == (ttl ? 30 : nil))
+        }
+    }
+
     @Test func browserProfileMutationsRejectMalformedArgumentsBeforeSocket() throws {
         let cases: [(name: String, arguments: [String], diagnostic: String)] = [
             ("surface-missing-value", ["browser", "profiles", "delete", "--surface", "--typo", "Work"], "--surface requires a value"),

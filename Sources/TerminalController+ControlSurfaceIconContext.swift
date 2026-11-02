@@ -57,12 +57,12 @@ extension TerminalController {
                 let entry = try workspace.surfaceIconLeases.set(
                     panelID: inputs.surfaceID, ownerID: inputs.ownerID,
                     token: inputs.leaseToken, expectedRevision: inputs.expectedRevision,
-                    animation: animation, ttl: TimeInterval(inputs.ttlSeconds)
+                    animation: animation
                 )
                 return .ok(.object([
                     "lease_token": .string(entry.token.uuidString),
                     "revision": .int(Int64(entry.revision)),
-                    "ttl_seconds": .int(Int64(inputs.ttlSeconds)),
+                    "persistent": .bool(true),
                 ]))
             } catch SurfaceIconLeaseStore.LeaseError.ownershipConflict {
                 return .err(code: "conflict", message: "Surface icon already has an owner", data: nil)

@@ -671718,55 +671718,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>] [--ttl <5..120>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\nAsset JSON: {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\nOmit --asset-file only to renew an existing lease. Targets must be UUIDs; focus and handle fallback are not supported."
+            "value": "Usage: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\nAsset JSON: {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\nIcons remain until replaced or cleared. Omit --asset-file only with the current token and revision. Targets must be UUIDs; focus and handle fallback are not supported."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>] [--ttl <5..120>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\nJSON للمورد: {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\nاحذف --asset-file فقط لتجديد حجز موجود. يجب أن تكون الأهداف UUID؛ لا يُدعم الرجوع إلى التركيز أو المعرّفات المختصرة."
+            "value": "الاستخدام: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\nJSON للمورد: {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\nتبقى الأيقونات حتى استبدالها أو مسحها. احذف --asset-file فقط عند تقديم الرمز والمراجعة الحاليين. يجب أن تكون الأهداف UUID؛ لا يُدعم الرجوع إلى التركيز أو المعرّفات المختصرة."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>] [--ttl <5..120>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\nAsset-JSON: {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\n--asset-file nur weglassen, um eine bestehende Lease zu verlängern. Ziele müssen UUIDs sein; Fokus- oder Handle-Fallback wird nicht unterstützt."
+            "value": "Verwendung: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\nAsset-JSON: {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\nSymbole bleiben erhalten, bis sie ersetzt oder gelöscht werden. --asset-file nur mit dem aktuellen Token und der aktuellen Revision weglassen. Ziele müssen UUIDs sein; Fokus- oder Handle-Fallback wird nicht unterstützt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>] [--ttl <5..120>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\nJSON del recurso: {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\nOmita --asset-file solo para renovar una concesión existente. Los destinos deben ser UUID; no se admite recurrir al foco ni a identificadores abreviados."
+            "value": "Uso: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\nJSON del recurso: {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\nLos iconos se conservan hasta que se sustituyan o borren. Omita --asset-file solo con el token y la revisión actuales. Los destinos deben ser UUID; no se admite recurrir al foco ni a identificadores abreviados."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>] [--ttl <5..120>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\nJSON de la ressource : {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\nOmettez --asset-file uniquement pour renouveler un bail existant. Les cibles doivent être des UUID ; aucun repli sur le focus ou un identifiant court n’est pris en charge."
+            "value": "Utilisation : cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\nJSON de la ressource : {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\nLes icônes restent affichées jusqu’à leur remplacement ou leur suppression. Omettez --asset-file uniquement avec le jeton et la révision actuels. Les cibles doivent être des UUID ; aucun repli sur le focus ou un identifiant court n’est pris en charge."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>] [--ttl <5..120>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\nアセット JSON: {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\n既存のリースを更新する場合にのみ --asset-file を省略します。対象は UUID が必須です。フォーカスや短縮識別子へのフォールバックは対応していません。"
+            "value": "使用方法: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\nアセット JSON: {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\nアイコンは置き換えまたはクリアされるまで保持されます。現在のトークンとリビジョンを指定する場合にのみ --asset-file を省略できます。対象は UUID が必須です。フォーカスや短縮識別子へのフォールバックは対応していません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>] [--ttl <5..120>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\n리소스 JSON: {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\n기존 임대를 갱신할 때만 --asset-file을 생략하세요. 대상은 UUID여야 하며 포커스나 축약 식별자로 대체할 수 없습니다."
+            "value": "사용법: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\n리소스 JSON: {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\n아이콘은 교체하거나 지울 때까지 유지됩니다. 현재 토큰과 리비전을 지정할 때만 --asset-file을 생략하세요. 대상은 UUID여야 하며 포커스나 축약 식별자로 대체할 수 없습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法： cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>] [--ttl <5..120>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\n资源 JSON： {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\n仅在续租现有租约时省略 --asset-file。目标必须为 UUID；不支持以焦点或简短标识符作为回退。"
+            "value": "用法： cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\n资源 JSON： {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\n图标保持到被替换或清除。仅在提供当前令牌和修订号时省略 --asset-file。目标必须为 UUID；不支持以焦点或简短标识符作为回退。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法： cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>] [--ttl <5..120>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\n資源 JSON： {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\n僅在續租現有租約時省略 --asset-file。目標必須為 UUID；不支援以焦點或簡短識別碼作為備援。"
+            "value": "用法： cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>]\n       cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>\n資源 JSON： {\"frames\":[{\"svg\":\"<svg/>\",\"duration_ms\":100}],\"loop\":true,\"static_frame\":0}\n圖示會保留直到被取代或清除。僅在提供目前權杖和修訂號時省略 --asset-file。目標必須為 UUID；不支援以焦點或簡短識別碼作為備援。"
           }
         }
       }

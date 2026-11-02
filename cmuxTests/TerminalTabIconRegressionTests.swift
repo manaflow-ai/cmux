@@ -116,7 +116,7 @@ struct TerminalTabIconRegressionTests {
         let focusedPanel = workspace.focusedPanelId
         let animation = TabIconAnimation(id: "external-test", frames: [Data([1])], durations: [0.1], loops: true)
         let entry = try workspace.surfaceIconLeases.set(
-            panelID: panel.id, ownerID: "cc-island:test", animation: animation, ttl: 30
+            panelID: panel.id, ownerID: "cc-island:test", animation: animation
         )
         workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
         workspace.recordAgentPID(key: "claude_code", pid: pid_t(ProcessInfo.processInfo.processIdentifier), panelId: panel.id, refreshPorts: false)

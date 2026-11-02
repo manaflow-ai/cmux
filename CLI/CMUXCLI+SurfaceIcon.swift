@@ -3,10 +3,10 @@ import CmuxControlSocket
 
 extension CMUXCLI {
     static let surfaceIconUsage = String(localized: "cli.surface.icon.usage", defaultValue: """
-    Usage: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>] [--ttl <5..120>]
+    Usage: cmux surface icon set --workspace <UUID> --surface <UUID> --owner <ID> --pid <INT> --process-start <STR> [--asset-file <JSON>] [--lease-token <UUID>] [--revision <INT>]
            cmux surface icon clear --workspace <UUID> --surface <UUID> --owner <ID> --lease-token <UUID> --revision <INT>
     Asset JSON: {"frames":[{"svg":"<svg/>","duration_ms":100}],"loop":true,"static_frame":0}
-    Omit --asset-file only to renew an existing lease. Targets must be UUIDs; focus and handle fallback are not supported.
+    Icons remain until replaced or cleared. Omit --asset-file only with the current token and revision. Targets must be UUIDs; focus and handle fallback are not supported.
     """,
     bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
     )
@@ -14,7 +14,7 @@ extension CMUXCLI {
     func runSurfaceIconCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
         let request = try Self.surfaceIconRequest(commandArgs)
         let payload = try client.sendV2(method: request.method, params: request.params)
-        // Lease tokens and revisions are load-bearing for subsequent renewal/clear;
+        // Tokens and revisions guard subsequent updates/clear;
         // preserve the complete response rather than reducing it to an OK message.
         print(jsonString(payload))
     }

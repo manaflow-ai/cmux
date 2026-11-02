@@ -24,6 +24,7 @@ struct ControlSurfaceIconParser {
         let processStart = try params["expected_process_start"].map {
             try string($0, name: "expected_process_start", maxBytes: 80)
         }
+        // Deprecated compatibility input: validate its old shape, but icons no longer expire.
         let ttl = try params["ttl_seconds"].map {
             try integer($0, name: "ttl_seconds", range: 5...120)
         } ?? 30
@@ -38,7 +39,7 @@ struct ControlSurfaceIconParser {
             if let rawAsset = params["asset"] {
                 asset = try parseAsset(rawAsset)
             } else {
-                guard token != nil else { throw invalid("asset is required unless renewing a lease_token") }
+                guard token != nil else { throw invalid("asset is required unless updating with a lease_token") }
                 asset = nil
             }
         }

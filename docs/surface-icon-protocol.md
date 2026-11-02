@@ -1,32 +1,36 @@
 # External terminal-tab icons
 
-`surface.icon.set` and `surface.icon.clear` provide temporary, local-only decoration of an ordinary workspace terminal tab. They do not select a workspace, focus a terminal, run a command or change the provider's native brand icon. Browser, Dock, cloud/remote and relay targets are unsupported.
+`surface.icon.set` and `surface.icon.clear` provide retained, local-only decoration of an ordinary workspace terminal tab. They do not select a workspace, focus a terminal, run a command or change the provider's native brand icon. Browser, Dock, cloud/remote and relay targets are unsupported.
 
 The cc-island plugin uses these methods when its **Sync cmux tab icons** option is enabled. The plugin owns Claude session state and artwork; cmux validates and renders generic SVG frame resources. No JavaScript, CSS animation, external images or network resources are executed. Frames play locally through Core Animation rather than per-frame socket updates.
 
-## Set and renew
+## Set and update
 
 Send a v2 request with these parameters:
 
 - `workspace_id`, `surface_id`: explicit UUIDs, never current-focus defaults or short handles.
 - `owner_id`: a nonempty producer/session identity, at most 200 UTF-8 bytes.
 - `expected_agent_pid`, `expected_process_start`: the current process PID and its UTC, English `ps -o lstart=` timestamp with whitespace normalized. The process must still have that birth identity, belong to the current user, and match the target terminal's actual device and foreground process group. Provider PID metadata is not used as terminal ownership evidence: a workspace-wide provider key can be replaced by another tab. Inherited environment IDs and saved checkpoints alone are insufficient.
-- `ttl_seconds`: 5–120 seconds, default 30.
+- `ttl_seconds`: deprecated compatibility input. Integers from 5–120 are still accepted, but ignored: icons do not expire.
 - `asset`: an object with `frames`, `loop` and optional `static_frame` (default 0). Each frame is `{ "svg": "<svg ...>...</svg>", "duration_ms": 100 }`.
 
 An asset has 1–64 frames, each at most 16 KiB, with at most 512 KiB total SVG bytes. Each frame lasts 50–5000 ms; total duration is at most 30 seconds. Accepted SVG elements are `svg`, `g`, `path`, `rect` and `circle` with bounded geometry, transforms and literal colors. Text must be outlines. Declarations/entities, references, scripts, styles, images, filters and SVG-native animation elements are rejected. Frames are rasterized to 64×64 PNGs before display.
 
-The first set returns `lease_token`, `revision` and `ttl_seconds`. Every later update/renewal supplies `lease_token` and `expected_revision`. To renew unchanged pixels, omit `asset`. Renewal does not restart animation. Another producer cannot take over an unexpired lease.
+A complete `asset` without `lease_token` or `expected_revision` sets or replaces the icon after live process/terminal authorization. This allows a restarted producer to recover without waiting for expiry. Every full replacement creates a new token and generation; the last successfully committed full set wins.
+
+The response contains `lease_token`, `revision` and `persistent: true`, not a lifetime. The legacy token name is retained for compatibility: it is now a generation credential, not a timed lease. Conditional updates supply the current `lease_token` and `expected_revision` and must match the current owner. Old credentials cannot update or clear a replacement. A legacy asset-free update with matching credentials is still accepted; it keeps the same pixels and does not restart animation. No heartbeat is required.
 
 `cmux surface icon set --help` describes the CLI adapter, which reads an asset JSON file and sends its contents rather than exposing a local file to the socket API. Existing `cmux --json rpc surface.icon.set '<params>'` also works.
 
-## Clear and expiry
+## Clear and lifecycle
 
-`surface.icon.clear` requires explicit UUIDs, `owner_id`, `lease_token` and `expected_revision`. The old process need not remain alive to clear its own decoration. Unknown/stale ownership cannot clear a new lease.
+`surface.icon.clear` requires explicit UUIDs, `owner_id`, `lease_token` and `expected_revision`. The old process need not remain alive to clear its own icon generation. Unknown/stale ownership cannot clear a replacement.
 
-A lease expires unless renewed; producers should renew a 30-second lease about every 10 seconds. Expiry, accepted terminal closure/detach and local terminal respawn remove the decoration. The current native provider mark remains underneath and is revealed on removal. Leases are not persisted or transferred between workspaces.
+The last successfully set icon remains until another accepted update, explicit clear, terminal closure/detach or local terminal respawn. A failed update or an inactive/disconnected producer does not clear it. The current native provider mark remains underneath and is revealed on removal. Icons are not persisted or transferred between workspaces; they do not survive cmux restart.
 
-Accessibility Reduce Motion displays a static frame. Hidden or occluded icon views pause playback; one-shot completion icons retain their final frame rather than replaying on renewal.
+Deploy the retained-state cmux implementation before a producer that stops sending heartbeats. Legacy producers may still implement their own expiry/retry assumptions and should be updated as well.
+
+Accessibility Reduce Motion displays a static frame. Hidden or occluded icon views pause playback; one-shot completion icons retain their final frame rather than replaying on unchanged updates.
 
 ## Verification status
 
