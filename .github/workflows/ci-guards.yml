@@ -1673,6 +1673,10 @@ jobs:
           python3 tests/test_ci_cli_contract_verb_guard.py
           python3 scripts/check-cli-contract-verbs.py
 
+      - name: Validate Cloud VM contract option coverage
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: python3 tests/test_cli_contract_vm_options.py -v
+
       - name: Validate socket capability parity
         if: ${{ matrix.group == 'quality-determinism' }}
         run: |
