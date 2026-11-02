@@ -547,32 +547,32 @@ class Main(unittest.TestCase):
                             read_snapshot=lambda t, r: snapshot({LARGE: 90, SMALL: 90}))
         self.assertEqual(out, {"owned": SIDE})
 
-    def test_the_verify_mode_takes_the_all_nightly_reservation_while_two_runners_are_idle(self) -> None:
+    def test_the_verify_mode_takes_the_all_nightly_reservation_without_a_runner_read(self) -> None:
         # Run 41365440328: signer-dmg-image sat 809 s in glaeda's admission on a shared nightly slot mini
-        # ("1 of 14 units free"); the reservation's runners hold no shared capacity.
-        plain, builder = picker.NIGHTLY_ONLY_LABEL, picker.NIGHTLY_ONLY_BUILDER_LABEL
+        # ("1 of 14 units free"); the reservation's runners hold no shared capacity. Run 41400519218: the
+        # verify pick's live read got a 403 (routing-App budget spent) and both jobs waited 6-15 min on the
+        # shared pool. The reservation is taken with no read, even when every read would fail or show it busy.
+        plain = picker.NIGHTLY_ONLY_LABEL
         reserved = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "NIGHTLY_ONLY_LABEL": plain}
-        idle = [runner(plain), runner(plain), runner(builder), runner(SIDE)]
-        out = self.run_main(reserved, argv=("verify",), read_runners=lambda t, r: idle,
-                            read_snapshot=lambda t, r: snapshot({}))
-        self.assertEqual(out, {"owned": plain})
-        # One idle reservation runner (the builder never counts) is not enough: the old owned pick runs.
-        one = [runner(plain), runner(plain, busy=True), runner(builder), runner(SIDE)]
-        for env, runners in ((reserved, one), ({**reserved, "GITHUB_RUN_ATTEMPT": "2"}, idle),
-                             ({**reserved, "GITHUB_REF": "refs/heads/main"}, idle),
-                             ({**reserved, "NIGHTLY_ONLY_LABEL": ""}, idle),
-                             ({"NIGHTLY_ONLY_LABEL": plain}, idle)):
-            with self.subTest(env=env, runners=len(runners)):
-                out = self.run_main(env, argv=("verify",), read_runners=lambda t, r, runners=runners: runners,
+        calls: list[str] = []
+
+        def counted(token: str, repo: str):
+            calls.append("read")
+            raise OSError("HTTP 403: API rate limit exceeded for installation")
+        for env in (reserved, {**reserved, "UNREAD_OWNED_FALLBACK": "1"}, {**reserved, "ROUTE_TOKEN": ""}):
+            with self.subTest(env=env):
+                out = self.run_main(env, argv=("verify",), read_runners=counted, read_snapshot=counted)
+                self.assertEqual(out, {"owned": plain})
+        self.assertEqual(calls, [])
+        # A re-run, another ref, an unset or foreign label, or another repository keeps the old owned pick.
+        idle = [runner(plain), runner(plain), runner(SIDE)]
+        for env in ({**reserved, "GITHUB_RUN_ATTEMPT": "2"}, {**reserved, "GITHUB_REF": "refs/heads/main"},
+                    {**reserved, "GITHUB_EVENT_NAME": "schedule"}, {**reserved, "NIGHTLY_ONLY_LABEL": ""},
+                    {**reserved, "NIGHTLY_ONLY_LABEL": "glaeda-other"}, {"NIGHTLY_ONLY_LABEL": plain}):
+            with self.subTest(env=env):
+                out = self.run_main(env, argv=("verify",), read_runners=lambda t, r: idle,
                                     read_snapshot=lambda t, r: snapshot({}))
                 self.assertEqual(out, {"owned": SIDE})
-
-    def test_the_verify_mode_reservation_read_failure_keeps_the_owned_pick(self) -> None:
-        def broken(token: str, repo: str):
-            raise OSError("HTTP 403: API rate limit exceeded for installation")
-        out = self.run_main({"GITHUB_REPOSITORY": "manaflow-ai/cmux", "NIGHTLY_ONLY_LABEL": picker.NIGHTLY_ONLY_LABEL,
-                             "UNREAD_OWNED_FALLBACK": "1"}, argv=("verify",), read_runners=broken, read_snapshot=broken)
-        self.assertEqual(out, {"owned": SIDE})
 
     def test_the_verify_pick_reads_the_reservation_variable(self) -> None:
         text = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
@@ -632,6 +632,31 @@ class Main(unittest.TestCase):
 
 
 class SharedWait(unittest.TestCase):
+    def test_owned_route_before_any_wait_keeps_using_the_document(self):
+        idle = dict(runner(SIDE), id=1, name="synthetic-owned", os="macOS")
+        doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
+                   generated_at=dt.datetime.now(dt.timezone.utc).isoformat(), repository_runners=[],
+                   runner_groups={"glaeda-minis": [idle]}, scale_sets={})
+        env = dict(GITHUB_REPOSITORY="manaflow-ai/cmux", ROUTE_TOKEN="synthetic-token",
+                   DEDICATED_LABEL=DEDICATED, OWNED_LABELS=SIDE, GITHUB_EVENT_NAME="push",
+                   GITHUB_REF="refs/heads/nightly-next", CANDIDATE=LARGE,
+                   CI_RUNNER_STATE=base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode())
+        paths, clock = [], Clock()
+
+        def api(path):
+            paths.append(path)
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": "glaeda-minis", "id": 10}]}
+            return {"runners": [idle]} if "/10/runners" in path else {}
+
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(picker.pool.GitHub, "get_api", side_effect=api), \
+             mock.patch.object(picker, "write_output") as write, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(picker.main(env, sleep=clock.sleep, clock=clock), 0)
+        self.assertEqual(write.call_args.args[1]["owned"], SIDE)
+        self.assertEqual(clock.sleeps, [])
+        self.assertEqual(paths, [])
+
     def test_busy_document_is_rechecked_live_before_giving_up_the_builder(self):
         idle = dict(runner(DEDICATED), id=1, name="synthetic-builder", os="macOS")
         doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
@@ -642,6 +667,7 @@ class SharedWait(unittest.TestCase):
                    CANDIDATE=LARGE, CI_RUNNER_STATE=base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode())
         paths, clock = [], [0.0]
         def api(path):
+            self.assertGreater(clock[0], 0, "the first look must make no org runner-list calls")
             paths.append(path)
             if "visible_to_repository" in path:
                 return {"runner_groups": [{"name": "glaeda-minis", "id": 10}]}
