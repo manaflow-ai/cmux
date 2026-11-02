@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (sample sessions, pull requests and commands), not shipped UI.
-// Session Info (Debug Settings `agent.inspector`, on by default) as the real SessionInfo renders it
+// Session Info (Debug Settings `agent.sessionInfo`, on by default) as the real SessionInfo renders it
 // in its panel at the right of a chat: a full chat with every section, its Context and Connectors
 // open, its Changes across repositories with line breakdowns, comments, failing checks and owners
 // (all of them after Show more), its running subagents and chats named one per line with the ended

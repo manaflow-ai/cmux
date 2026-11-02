@@ -11,9 +11,12 @@ Scanned: webviews/src/agent-session/acpmux/session-info/ (every file), webviews/
 and the Swift files listed in SWIFT (EXEMPT: two tests about the word itself). A file name with "inspector" in it fails too.
 
 Allowed (ALLOW): the names that are saved state or a wire name, which a rename would break:
-  agent.inspector                        Debug Settings key (AgentPaneTunables.sessionInfo)
+  agent.inspector                        the Debug Settings key's old name, read once
+                                         (AgentPaneTunables.registerRenames; now agent.sessionInfo)
   cmux.agentPane.inspector.*             localStorage keys (sessionInfoState.ts, sectionOrder.ts)
-  agentPane.display.inspector.placement  Settings key for Push / Overlay
+  agentPane.display.inspector.placement  the Push / Overlay key's old name, read while the new
+                                         one is absent (RenamedSettingKeys; now
+                                         agentPane.display.sessionInfo.placement)
   agent-pane.chat-inspector, agent-pane.inspector-*   gallery entry ids other tools read
   `inspector` in the App's header state  (AgentPaneHeaderState.json, `pane.tabState`,
                                           setHeaderState / applyHeaderState payloads)
