@@ -200,8 +200,20 @@ test("the activity line names the work in the shared icon column", () => {
   );
   expect(text(html)).toMatch(/^Edit grid\.css \d+s$/);
   expect(html).toContain('class="cv-tool__icon"');
-  expect(html).toContain("cv-spinner");
+  expect(html).not.toContain("cv-spinner");
   expect(html).not.toMatch(/cv-working-mark|cv-activity__dots/);
+});
+
+test("a running command keeps only its static terminal mark", () => {
+  const html = renderToStaticMarkup(
+    <ActivityLine
+      row={row("command", "activity-line", { text: "bun test", doingCommand: true })}
+      now={() => at + 26_000}
+    />,
+  );
+  expect(html).toContain("cv-tool__icon");
+  expect(html).toContain("<svg");
+  expect(html).not.toContain("cv-spinner");
 });
 
 test("live activity lines share the page's one second and rest while the page is hidden", () => {

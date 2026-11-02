@@ -1,10 +1,17 @@
 // l10n-allow-file: gallery fixture labels, not shipped UI.
-// Three visual arms for the running activity line: the current unmarked line, a generic spinner
-// for every row, and a kind-aware mark (the shipped choice) that keeps command identity visible.
+// Four visual arms for the running activity line: the current unmarked line, a generic spinner,
+// a mixed spinner/kind treatment, and the aligned treatment that keeps the shared icon column
+// without adding a second working-state mark.
 import { componentEntry } from "../../../gallery/format";
 import { Spinner, TerminalSquare } from "./icons";
 
-type Look = "none" | "spinner" | "kind";
+type Look = "none" | "spinner" | "kind" | "aligned";
+
+function Mark({ look, command }: { look: Look; command: boolean }) {
+  if (look === "aligned") return command ? <TerminalSquare /> : null;
+  if (look === "kind" && command) return <TerminalSquare />;
+  return <Spinner size={16} />;
+}
 
 function ActivityLineLooks({ look }: { look: Look }) {
   const rows = [
@@ -19,7 +26,7 @@ function ActivityLineLooks({ look }: { look: Look }) {
           <div key={row.text} className="cv-activity cv-tool">
             {look !== "none" && (
               <span className="cv-tool__icon" aria-hidden="true">
-                {look === "kind" && row.command ? <TerminalSquare /> : <Spinner size={16} />}
+                <Mark look={look} command={row.command} />
               </span>
             )}
             <span className="cv-activity__label">{row.text}</span>
@@ -39,7 +46,8 @@ export default componentEntry<{ look: Look }>({
   height: 180,
   widths: { narrow: 420, normal: 640, wide: 820 },
   covers: ["agent-session/acpmux/conversation/ActivityLine.tsx"],
-  styles: () => Promise.all([import("../styles.css"), import("./conversation.css"), import("./ActivityLineLooks.gallery.css")]),
+  styles: () =>
+    Promise.all([import("../styles.css"), import("./conversation.css"), import("./ActivityLineLooks.gallery.css")]),
   load: async () => ActivityLineLooks,
   variants: {
     none: {
@@ -51,8 +59,12 @@ export default componentEntry<{ look: Look }>({
       props: { look: "spinner" },
     },
     kind: {
-      note: "Chosen: generic work keeps the spinner while a running command uses the terminal mark, preserving the shared icon column and tool identity.",
+      note: "Arm 3: generic work keeps the spinner while a running command uses the terminal mark; rejected because the live line is not a working-state mark.",
       props: { look: "kind" },
+    },
+    aligned: {
+      note: "Chosen: every line reserves the shared icon slot; plan work leaves it empty and a running command uses only its static terminal mark.",
+      props: { look: "aligned" },
     },
   },
 });
