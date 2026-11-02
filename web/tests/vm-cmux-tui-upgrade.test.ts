@@ -68,6 +68,7 @@ ${functions}
       sleep() { :; }
       pgrep() { ${mode === "absent" ? "return 1" : "return 0"}; }
       daemon_has_trusted_carrier() { ${mode === "trusted" ? ":" : "return 1"}; }
+      supervisor_would_strand_daemon() { return 1; }
       canary_crash_loop() { finish "OK fixture-canary"; }
 ${script.slice(gateStart, gateEnd)}
 [ "${mode}" = trusted ] && canary_crash_loop
@@ -82,4 +83,34 @@ ${script.slice(gateStart, gateEnd)}
     }
   }, 20000);
 
+  test.each([
+    { sudo: "refused", boot: "old", strands: true },
+    { sudo: "refused", boot: "new", strands: false },
+    { sudo: "allowed", boot: "old", strands: false },
+  ])("an upgrade with sudo $sudo and a $boot supervisor: strands=$strands", async ({ sudo, boot, strands }) => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-upgrade-strand-"));
+    try {
+      const bootFile = path.join(root, "boot");
+      const shipped = readFileSync(path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-devbox-boot"), "utf8");
+      writeFileSync(bootFile, boot === "new" ? shipped : "sudo -n true; then CMUX_TUI_USER=cmux\n");
+      const start = script.indexOf("supervisor_would_strand_daemon() {");
+      const end = script.indexOf("\n}\n", start) + 3;
+      expect(start).toBeGreaterThan(-1);
+      const fixture = `H=/home/cmux
+setpriv() { ${sudo === "allowed" ? "return 0" : "return 1"}; }
+${script.slice(start, end)}
+if supervisor_would_strand_daemon; then echo strands; else echo safe; fi
+`;
+      const result = await runChild("/bin/sh", ["-c", fixture], { timeout: 5000, env: { ...process.env, CMUX_DEVBOX_BOOT: bootFile } });
+      expect(result.stdout.trim()).toBe(strands ? "strands" : "safe");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the upgrade checks the supervisor before it can stop the daemon", () => {
+    const gate = script.indexOf('supervisor_would_strand_daemon && finish');
+    expect(gate).toBeGreaterThan(script.indexOf('finish "SKIP no-trusted-carrier"'));
+    expect(gate).toBeLessThan(script.indexOf('if [ "$(exe_sha "$D")" = "$TARGET_SHA" ]; then', script.indexOf('finish "SKIP no-trusted-carrier"')));
+  });
 });
