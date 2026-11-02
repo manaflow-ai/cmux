@@ -202,7 +202,7 @@ fn a_later_creation_group_commits_after_an_earlier_one() {
     // The split's pane is stored at a lower revision than the new
     // workspace's pane.
     let (split_pane, workspace_pane) = mux.with_state(|state| {
-        let public = |surface: &Arc<crate::Surface>| {
+        let public = |surface: &Arc<Surface>| {
             state
                 .resource_indexes
                 .pane_ids
