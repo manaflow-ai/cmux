@@ -51,11 +51,16 @@ struct PresentedPixelGridTests {
 
         func settle() { for _ in 0..<600 where step() {} }
 
+        /// Pane hosts and dividers `offGrid` looked at in its last call (a check over none proves nothing).
+        var checked = 0
+
         /// The edges of every shown pane host and divider of every shown screen, in window points, that
         /// are not on a device pixel (more than a thousandth of a pixel off).
         func offGrid() -> [String] {
             var off: [String] = []
+            checked = 0
             func check(_ name: String, _ view: NSView) {
+                checked += 1
                 let rect = view.convert(view.bounds, to: nil)
                 for (edge, value) in [("minX", rect.minX), ("maxX", rect.maxX), ("minY", rect.minY), ("maxY", rect.maxY)] {
                     let pixels = value * scale
@@ -73,15 +78,18 @@ struct PresentedPixelGridTests {
             return off
         }
 
-        /// Steps until the layout rests and returns each frame's off-grid edges (frame number first).
+        /// Steps until the layout rests and returns each frame's off-grid edges (frame number first), and a
+        /// frame number for each frame that checked no host at all.
         func stepRecordingOffGrid() -> [(frame: Int, edges: [String])] {
             var found: [(Int, [String])] = []
             let first = offGrid()
             if !first.isEmpty { found.append((0, first)) }
+            if checked == 0 { found.append((0, ["no host checked"])) }
             for frame in 1...600 {
                 let moving = step()
                 let off = offGrid()
                 if !off.isEmpty { found.append((frame, off)) }
+                if checked == 0 { found.append((frame, ["no host checked"])) }
                 if !moving { break }
             }
             return found
@@ -137,6 +145,28 @@ struct PresentedPixelGridTests {
         strip.root.syncWithModel()
         let off = strip.stepRecordingOffGrid()
         #expect(off.isEmpty, "frames with an edge off the device grid (scale \(strip.scale)): \(off.prefix(4))")
+    }
+
+    /// A camera at rest between two device pixels (a centered column of odd width difference rests at x.5 px): every
+    /// pane shows on the grid, at rest (its rest offset is zero, so chrome that waits for the rest hears it), and
+    /// keeps its size. A half-pixel shift across the screen's left edge must not widen a pane by a pixel.
+    @Test func aCameraRestingBetweenPixelsShowsPanesOnTheGridAtRest() throws {
+        let strip = Strip(Self.columns(4, width: 0.45), focused: "p4")
+        defer { strip.window.closeAfterTest() }
+        let sizes = Dictionary(uniqueKeysWithValues: strip.screen.paneFrames.keys.compactMap { pane in
+            strip.root.context.hosts[pane].map { (pane, $0.frame.size) }
+        })
+        let between = (strip.screen.scroll.value * strip.scale).rounded() / strip.scale + 0.5 / strip.scale
+        strip.screen.scroll.value = between
+        strip.screen.scroll.target = between
+        strip.screen.applyPresentation(force: true)
+        #expect(strip.offGrid().isEmpty, "a camera at \(between) pt: \(strip.offGrid())")
+        #expect(strip.checked >= 4, "the check looked at the panes (\(strip.checked))")
+        for pane in strip.screen.paneFrames.keys {
+            let host = try #require(strip.root.context.hosts[pane])
+            #expect(host.restOffset == .zero, "\(pane.rawValue) at rest reads a rest offset \(host.restOffset)")
+            #expect(host.frame.size == sizes[pane], "\(pane.rawValue) changed size on a move: \(sizes[pane] ?? .zero) -> \(host.frame.size)")
+        }
     }
 
     /// A screen switch slides the incoming screen in from the side: its panes stay on the grid while it slides.
