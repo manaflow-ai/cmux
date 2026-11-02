@@ -521,7 +521,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     private var pageCanHold: Bool {
         guard let tab else { return false }
         return tab.host.hostView.superview === self && !tab.devToolsController.reservesRoom
-            && !tab.devToolsController.deviceModeOn && tab.sidePanel.state == nil && tab.deviceEmulation == nil
+            && !(tab.devToolsController.deviceModeOn && tab.devToolsController.views != nil)
+            && tab.sidePanel.state == nil && tab.deviceEmulation == nil
     }
 
     /// Lets go of a held page size; the next layout gives the page its frame.

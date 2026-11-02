@@ -256,6 +256,7 @@ import Testing
         let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.closeAfterTest() }
+        first.container.frame = container.frame  // a real page size: a zero-size page never holds
         window.contentView?.addSubview(first.container)
         let clock = ManualClock()
         first.devToolsController.openTimer = DemandTimer(owner: "test", clock: clock)
@@ -263,8 +264,10 @@ import Testing
         first.devToolsController.willOpen()
         try await clock.waitForSleeper()
         clock.advance(by: CEFDevToolsController.openedLimit)
-        for _ in 0..<200 where first.devToolsController.reservesRoom { await Task.yield() }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while first.devToolsController.reservesRoom, ContinuousClock.now < deadline { await Task.yield() }
         try #require(!first.devToolsController.reservesRoom, "the unreported open gave its room back")
+        try #require(first.host.hostView.frame.width > 0, "the page has a size")
         try #require(first.devToolsController.views != nil, "its views stay, hidden")
 
         first.container.paneResizeGestureDidChange(active: true)
@@ -283,10 +286,13 @@ import Testing
         let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.closeAfterTest() }
+        first.container.frame = container.frame
         window.contentView?.addSubview(first.container)
         first.devToolsController.layout.dock = .bottom
         first.devToolsController.willOpen()
         first.devToolsController.opened(browser: 20, docked: true)
+        try #require(first.devToolsController.reservesRoom)
+        try #require(first.host.hostView.frame.width > 0, "the page has a size, so only DevTools' room stops the hold")
         first.container.paneResizeGestureDidChange(active: true)
         #expect(first.container.heldPageSize == nil)
         first.container.paneResizeGestureDidChange(active: false)
