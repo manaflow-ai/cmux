@@ -1,6 +1,6 @@
 use super::*;
-use crate::host_pressure::Sample;
-use crate::host_pressure::tests::{calm, incident};
+use crate::Sample;
+use crate::tests::{calm, incident};
 use std::sync::Arc;
 
 /// A probe whose readings a test changes between samples, and counts.

@@ -44,6 +44,8 @@ cmux-worktree-care.workspace = true
 cmux-wg.workspace = true
 anyhow = "1"
 cmux-agent-pane-policy.workspace = true
+# The host CPU/RAM budget (src/host_pressure.rs re-exports it); the app links the same crate.
+cmux-host-budget.workspace = true
 cmux-unix-socket.workspace = true
 cmux-panic-log.workspace = true
 clap = { version = "4.5", features = ["derive"] }

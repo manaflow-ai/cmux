@@ -1,0 +1,29 @@
+[package]
+name = "cmux-host-budget"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The host's CPU and RAM budget (cmuxterm-hq#2995): the formula, the verdict, the sampler and the level the app shows. acpmux's daemon status and the macOS app (through cmux-app-ffi) both use it."
+
+[features]
+# The daemon's async reads of the meter (`Meter::current`, `Meter::peek`), which
+# sample on a tokio blocking thread. The app's C ABI reads it synchronously:
+# cmux-app-ffi turns the default off and links no tokio.
+default = ["tokio"]
+tokio = ["dep:tokio"]
+
+[dependencies]
+dirs = "6"
+libc = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, optional = true, features = ["rt", "time"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
+
+[lints]
+workspace = true

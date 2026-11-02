@@ -18,6 +18,7 @@ dependencies = [
  "cmux-codex-acp",
  "cmux-git",
  "cmux-host",
+ "cmux-host-budget",
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
@@ -1234,6 +1235,18 @@ dependencies = [
  "url",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-host-budget"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
