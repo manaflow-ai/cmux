@@ -74,9 +74,9 @@ struct SessionPriorityApplyGate {
     /// its last input and its Claude's last turn end. A long turn's last input was the prompt that
     /// started it, so the turn end opens the window again.
     ///
-    /// Input stamped in the window's first millisecond (exactly ``quietInputWindow`` ago) still
-    /// holds the pane, as the input ledger counts input at its `since` time; a turn end must be
-    /// later than that millisecond.
+    /// Input or a turn end stamped in the window's first millisecond (exactly
+    /// ``quietInputWindow`` ago) still holds the pane: the input ledger counts input at its
+    /// `since` time, and the turn end uses the same edge, so both start one window.
     ///
     /// - Parameter receivedInputSince: Whether the pane got input at or after the given time.
     static func isInsideQuietWindow(
@@ -85,7 +85,8 @@ struct SessionPriorityApplyGate {
         lastTurnEndMs: Int64?
     ) -> Bool {
         let windowStart = nowMs - quietInputWindowMs
-        return (lastTurnEndMs ?? .min) > windowStart || receivedInputSince(windowStart)
+        if let lastTurnEndMs, lastTurnEndMs >= windowStart { return true }
+        return receivedInputSince(windowStart)
     }
 
     /// Checks, in order: account switch, a manual change (on screen or the workspace flag), a

@@ -111,6 +111,12 @@ struct SidebarWorkspaceSnapshotBuilder {
         /// Remote host named after the title when another workspace shares it (beta), else nil.
         var hostTitleSuffix: String? = nil
 
+        /// The session-priority values the row freezes into its context menu. Read here, with
+        /// the rest of the snapshot and outside rendering, so the sidebar body observes neither
+        /// the workspace's `@Observable` session priority state nor its pane list. The
+        /// workspace's `sessionPriorityDidChangeSubject` refreshes the snapshot when they change.
+        var sessionPriorityMenu = SessionPriorityMenuState.disabled
+
         /// The title as the row shows it. Renaming and other title affordances keep using `title`.
         var displayTitle: String {
             guard let hostTitleSuffix else { return title }

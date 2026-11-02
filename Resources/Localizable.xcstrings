@@ -678685,7 +678685,7 @@
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "กำลังใช้…"
+            "value": "กำลังนำไปใช้…"
           }
         },
         "tr": {
@@ -679060,7 +679060,7 @@
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่ได้ใช้"
+            "value": "ไม่ได้นำไปใช้"
           }
         },
         "tr": {
@@ -679185,7 +679185,7 @@
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ใช้แล้ว"
+            "value": "นำไปใช้แล้ว"
           }
         },
         "tr": {

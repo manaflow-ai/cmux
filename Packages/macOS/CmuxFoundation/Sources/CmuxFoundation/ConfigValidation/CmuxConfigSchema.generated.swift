@@ -2148,7 +2148,7 @@ enum CmuxEmbeddedConfigSchema {
                         },
                         "model": {
                           "type": "string",
-                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}(?![\\s\\S])"
                         }
                       }
                     },
@@ -2168,7 +2168,7 @@ enum CmuxEmbeddedConfigSchema {
                         },
                         "model": {
                           "type": "string",
-                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}(?![\\s\\S])"
                         }
                       }
                     },
@@ -2188,7 +2188,7 @@ enum CmuxEmbeddedConfigSchema {
                         },
                         "model": {
                           "type": "string",
-                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}(?![\\s\\S])"
                         }
                       }
                     }
@@ -2214,7 +2214,7 @@ enum CmuxEmbeddedConfigSchema {
                         },
                         "model": {
                           "type": "string",
-                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}(?![\\s\\S])"
                         }
                       }
                     },
@@ -2234,7 +2234,7 @@ enum CmuxEmbeddedConfigSchema {
                         },
                         "model": {
                           "type": "string",
-                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}(?![\\s\\S])"
                         }
                       }
                     },
@@ -2254,7 +2254,7 @@ enum CmuxEmbeddedConfigSchema {
                         },
                         "model": {
                           "type": "string",
-                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}(?![\\s\\S])"
                         }
                       }
                     }

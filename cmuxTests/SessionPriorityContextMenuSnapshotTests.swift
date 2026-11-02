@@ -77,6 +77,29 @@ struct SessionPriorityContextMenuSnapshotTests {
         }
     }
 
+    /// The row reads its menu values from the workspace's sidebar snapshot, built outside
+    /// rendering, so a change must show up in a freshly built snapshot.
+    @Test
+    func workspaceSidebarSnapshotCarriesTheMenuValues() throws {
+        let suiteName = "SessionPriorityContextMenuSnapshotTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        try withSetting(true) {
+            let workspace = Workspace()
+            @MainActor func menu() -> SessionPriorityMenuState {
+                SidebarWorkspaceSnapshotFactory(
+                    workspace: workspace,
+                    settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+                    showsAgentActivity: false
+                ).makeSnapshot().sessionPriorityMenu
+            }
+            #expect(menu() == SessionPriorityMenuState(enabled: true))
+            workspace.setClaudeDifficultyOverride(.hard)
+            workspace.setSessionPriorityManual(true)
+            #expect(menu() == SessionPriorityMenuState(enabled: true, difficultyOverride: .hard, adjustableManual: true))
+        }
+    }
+
     @Test
     func menuSectionHiddenWhenDisabled() throws {
         try withSetting(false) {

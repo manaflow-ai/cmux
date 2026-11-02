@@ -220,8 +220,10 @@ struct SessionPriorityApplyGateTests {
         let prompt = turnEnd - 300_000
         #expect(inside(nowMs: turnEnd + 100, inputMs: prompt, turnEndMs: turnEnd))
         #expect(inside(nowMs: turnEnd + 9_999, inputMs: prompt, turnEndMs: turnEnd))
-        // A turn end exactly ten seconds old no longer holds the pane.
-        #expect(!inside(nowMs: turnEnd + 10_000, inputMs: prompt, turnEndMs: turnEnd))
+        // A turn end exactly ten seconds old still holds the pane, like input that old: one
+        // window from whichever came later.
+        #expect(inside(nowMs: turnEnd + 10_000, inputMs: prompt, turnEndMs: turnEnd))
+        #expect(!inside(nowMs: turnEnd + 10_001, inputMs: prompt, turnEndMs: turnEnd))
         // Input after the turn end restarts the window.
         #expect(inside(nowMs: turnEnd + 12_000, inputMs: turnEnd + 5_000, turnEndMs: turnEnd))
         // Input exactly ten seconds old still holds it: the ledger counts input at its `since`

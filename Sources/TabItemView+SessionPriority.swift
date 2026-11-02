@@ -7,8 +7,8 @@ extension TabItemView {
     @ViewBuilder
     var sessionPriorityContextMenuSection: some View {
         // The setting is read when the menu opens (like `WorkspaceTodoFeature.isEnabled`);
-        // the override and manual flag come from the row snapshot, which rebuilds on the
-        // workspace's `sessionPriorityDidChangeSubject` (`makeSidebarImmediateObservationPublisher`).
+        // the override and manual flag come from the workspace's sidebar snapshot, which is
+        // rebuilt on its `sessionPriorityDidChangeSubject` (`makeSidebarImmediateObservationPublisher`).
         if SessionPriorityCoordinator.shared.isEnabled {
             let current = snapshot.contextMenu.claudeDifficultyOverride
             let adjustableManual = snapshot.contextMenu.sessionPriorityAdjustableManual
