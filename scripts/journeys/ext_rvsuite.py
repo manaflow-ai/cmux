@@ -9,7 +9,14 @@ Steps (`do`):
                 returns once it samples (its "Sampling process" line), so the next step's action is inside the sample.
                 The report goes to <journey out>/diag-<name>.txt (run.py fetches diag-*.txt).
   sample_stop   {name}  waits for that sample to end (its seconds + 30 s at most) and records its size.
+  xtp_start     {name, seconds?: 2}  starts `xcrun xctrace record --template "Time Profiler" --attach <app pid>` for
+                `seconds` and returns once it records; the bundle goes to <journey out>/xtp-<name>.trace.
+  xtp_stop      {name}  waits for the recording to end, then exports its time-profile table (time-stamped stacks,
+                every thread) as XML to <journey out>/diag-<name>.txt (run.py fetches diag-*.txt).
+  trace_only_start {name} / trace_only_stop {name}  debug.motion trace_start / trace_stop without the recorder
+                (a build whose recorder is broken); the samples go to <journey out>/diag-<name>trace.json.
 """
+import json
 import os
 import subprocess
 import time
@@ -82,5 +89,75 @@ def step_sample_stop(j, step):
     return {"path": str(rec["path"]), "bytes": size, "exit": rec["proc"].returncode, "ended_after_s": round(D.now() - rec["t_sampling"], 3)}
 
 
-STEPS = {"try_action": step_try_action, "sample_start": step_sample_start, "sample_stop": step_sample_stop}
+def _xtp(j):
+    if not hasattr(j, "rv_xtp"):
+        j.rv_xtp = {}
+    return j.rv_xtp
+
+
+def step_xtp_start(j, step):
+    name = step["name"]
+    if not name.isalpha() or not name.islower():
+        raise D.StepError(f"xtp_start: name {name!r} must be lowercase letters")
+    bundle = j.out / f"xtp-{name}.trace"
+    seconds = float(step.get("seconds", 2.0))
+    proc = subprocess.Popen(["/usr/bin/xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(j.app.pid),
+                             "--time-limit", f"{int(seconds * 1000)}ms", "--output", str(bundle), "--no-prompt"],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    end = D.now() + 60
+    seen = []
+    while D.now() < end:
+        line = proc.stdout.readline()
+        if not line:
+            if proc.poll() is not None:
+                break
+            continue
+        seen.append(line.strip())
+        if "Starting recording" in line or "Ctrl-C to stop" in line:
+            t = D.now()
+            _xtp(j)[name] = {"proc": proc, "bundle": bundle, "seconds": seconds, "t": t, "said": seen}
+            if step.get("mark"):
+                j.marks[step["mark"]] = t
+            return {"bundle": str(bundle), "seconds": seconds, "t_recording": round(t, 6), "said": seen[-4:]}
+    proc.kill()
+    raise D.StepError(f"xctrace did not start on pid {j.app.pid}: {seen[-6:]}")
+
+
+def step_xtp_stop(j, step):
+    rec = _xtp(j).pop(step["name"], None)
+    if not rec:
+        raise D.StepError(f"xtp_stop: no recording {step['name']!r}")
+    try:
+        rest = rec["proc"].communicate(timeout=rec["seconds"] + 120)[0] or ""
+    except subprocess.TimeoutExpired:
+        rec["proc"].kill()
+        raise D.StepError("xtp_stop: xctrace did not end")
+    out = j.out / f"diag-{step['name']}.txt"
+    with open(out, "w") as f:
+        done = subprocess.run(["/usr/bin/xcrun", "xctrace", "export", "--input", str(rec["bundle"]), "--xpath",
+                               '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]'],
+                              stdout=f, stderr=subprocess.PIPE, text=True, timeout=300)
+    size = os.path.getsize(out)
+    if done.returncode != 0 or not size:
+        raise D.StepError(f"xctrace export failed ({done.returncode}): {done.stderr.strip()[-300:]} record: {rest.strip()[-300:]}")
+    return {"export": str(out), "bytes": size, "record_exit": rec["proc"].returncode, "record_said": rest.strip()[-200:]}
+
+
+def step_trace_only_start(j, step):
+    reply = j.app.rpc("debug.motion", {"action": "trace_start", "window": 0}) or {}
+    if isinstance(reply, dict) and reply.get("error"):
+        raise D.StepError(f"trace_start: {reply['error']}")
+    return {"reply": reply}
+
+
+def step_trace_only_stop(j, step):
+    reply = j.app.rpc("debug.motion", {"action": "trace_stop"}) or {}
+    path = j.out / f"diag-{step['name']}trace.json"
+    path.write_text(json.dumps(reply))
+    return {"path": str(path), "samples": len(reply.get("samples") or []), "refresh_ms": reply.get("refresh_ms")}
+
+
+STEPS = {"try_action": step_try_action, "sample_start": step_sample_start, "sample_stop": step_sample_stop,
+         "xtp_start": step_xtp_start, "xtp_stop": step_xtp_stop,
+         "trace_only_start": step_trace_only_start, "trace_only_stop": step_trace_only_stop}
 CONDITIONS = {}
