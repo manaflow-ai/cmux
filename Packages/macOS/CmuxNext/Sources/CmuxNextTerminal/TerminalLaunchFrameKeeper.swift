@@ -201,10 +201,8 @@ final class TerminalLaunchFrameKeeper {
         }
     }
 
-    private static func isOnScreen(_ session: TerminalSession) -> Bool {
-        !session.isRenderingSuspended && session.surfaceView.window?.isVisible == true
-            && !session.surfaceView.isHiddenOrHasHiddenAncestor
-    }
+    /// The surface view's own rule, which also tells the keeper when its answer changes (``TerminalSurfaceView/updateOcclusion()``).
+    private static func isOnScreen(_ session: TerminalSession) -> Bool { session.surfaceView.showsForLaunchFrame }
 
     private func remove(_ key: String) {
         guard kept[key]?.onDisk ?? true else { return }
