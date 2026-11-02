@@ -7,7 +7,9 @@ import { chatDisplay, ownsColumn, type ChatDisplay } from "./chatDisplay";
 /// (`theme.chatWidth`, AgentPaneTheme.swift) and again when it changes; Leo picks the default
 /// from the three before it moves to real Settings.
 ///
-/// - `standard` (the default): 720px, widening with the pane to an 800px cap, for everything.
+/// - `standard` (the default): the pane's width up to an 800px cap, never under 720px, for everything:
+///   the column Settings' Chat Text Width (800 by default) promises, so the default draws the same
+///   as any other width the user picks (https://github.com/manaflow-ai/cmux/issues/31510).
 /// - `wide`: the same, to a 960px cap, for everything.
 /// - `wideBlocks`: a 1120px cap for code, diffs, tables, tool output and cards, while prose keeps
 ///   the standard 800px measure at the column's left edge, so reading lines stay as long as today.
@@ -26,7 +28,7 @@ export interface ChatColumn {
 }
 
 const COLUMNS: Record<ChatWidth, ChatColumn> = {
-  standard: { min: 720, max: 800, share: 0.625, prose: Infinity },
+  standard: { min: 720, max: 800, share: 1, prose: Infinity },
   wide: { min: 720, max: 960, share: 0.625, prose: Infinity },
   wideBlocks: { min: 720, max: 1120, share: 0.7, prose: 800 },
 };

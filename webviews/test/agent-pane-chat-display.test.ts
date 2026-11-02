@@ -144,8 +144,7 @@ describe("chat display drawing", () => {
   // any pane under 1280px while Settings said Chat Text Width 800, and 810 jumped to 810px.
   test("the default column is the one Chat Text Width 800 promises", () => {
     const defaults = chatColumnOf("standard", resolveChatDisplay({}));
-    const near = (width: number) =>
-      chatColumnOf("standard", resolveChatDisplay({ "agentPane.display.width": width }));
+    const near = (width: number) => chatColumnOf("standard", resolveChatDisplay({ "agentPane.display.width": width }));
     for (const pane of [760, 900, 1000, 1200, 1600]) {
       const at = transcriptColumn(pane, defaults).width;
       expect({ pane, width: at }).toEqual({ pane, width: transcriptColumn(pane, near(800)).width });

@@ -168,8 +168,9 @@ test("the tight gutter fits the resting rail beside the text at every pane width
 test("its padding shrinks first, then its hit width, as the pane narrows", () => {
   const at = (width: number) => railPlacement(width, transcriptColumn(width).inset, TIGHT);
   expect(at(1040)).toMatchObject({ left: 16, width: 36 });
-  expect(at(800)).toMatchObject({ left: 4, width: 36 });
-  expect(at(760)).toMatchObject({ left: 4, width: 16 });
+  // The default column is the pane's width up to 800 px (#31510), so the gutter opens past 800 + 2 edges.
+  expect(at(880)).toMatchObject({ left: 4, width: 36 });
+  expect(at(840)).toMatchObject({ left: 4, width: 16 });
   expect(at(320)).toMatchObject({ left: 4, width: 14 });
 });
 
