@@ -119,22 +119,30 @@ struct ScheduledCacheTtl {
 #[derive(Default)]
 struct CacheTtlQueue {
     entries: HashMap<(String, String), ScheduledCacheTtl>,
-    epochs: HashMap<String, (u64, Vec<CacheTtlSpec>, bool)>,
+    epochs: HashMap<String, (u64, Vec<CacheTtlSpec>, bool, String)>,
+    observed: HashMap<String, CacheTtlTarget>,
+    fired: HashSet<(String, String)>,
 }
 
 impl CacheTtlQueue {
     fn observe(&mut self, target: CacheTtlTarget, now: Instant, now_ms: u64) {
         let session = target.session.clone();
-        let signature = (target.idle_since, target.timers.clone(), target.eligible());
+        let signature =
+            (target.idle_since, target.timers.clone(), target.eligible(), target.name.clone());
+        self.observed.insert(session.clone(), target.clone());
         if self.epochs.get(&session) == Some(&signature) {
             return;
         }
-        self.remove(&session);
+        self.entries.retain(|(key, _), _| key != &session);
+        self.fired.retain(|(key, _)| key != &session);
         self.epochs.insert(session.clone(), signature);
         if !target.eligible() {
             return;
         }
         for spec in &target.timers {
+            if self.fired.contains(&(session.clone(), spec.id.clone())) {
+                continue;
+            }
             let elapsed = now_ms.saturating_sub(target.idle_since);
             let elapsed = (target.idle_since > 10_000_000_000)
                 .then(|| Duration::from_millis(elapsed))
@@ -152,6 +160,8 @@ impl CacheTtlQueue {
 
     fn remove(&mut self, session: &str) {
         self.epochs.remove(session);
+        self.observed.remove(session);
+        self.fired.retain(|(key, _)| key != session);
         self.entries.retain(|(key, _), _| key != session);
     }
 
@@ -166,15 +176,17 @@ impl CacheTtlQueue {
             .filter(|(_, entry)| entry.due <= now)
             .map(|(key, _)| key.clone())
             .collect::<Vec<_>>();
-        due.into_iter().filter_map(|key| self.entries.remove(&key)).collect()
+        due.into_iter()
+            .filter_map(|key| {
+                let entry = self.entries.remove(&key)?;
+                self.fired.insert(key);
+                Some(entry)
+            })
+            .collect()
     }
 
     fn reload(&mut self, timers: HashMap<String, Vec<CacheTtlSpec>>, now: Instant, now_ms: u64) {
-        let mut targets = self
-            .entries
-            .values()
-            .map(|entry| (entry.target.session.clone(), entry.target.clone()))
-            .collect::<HashMap<_, _>>();
+        let mut targets = self.observed.clone();
         self.entries.clear();
         self.epochs.clear();
         for target in targets.values_mut() {
@@ -745,6 +757,9 @@ fn read_watch(
                     // a push reached is still there.
                     listed.extend(pushed.iter().cloned());
                     crate::server::close_unlisted_chat_shares(&mux, &listed, &before);
+                    for session in unlisted.keys() {
+                        mux.remove_cache_ttl_timer(session);
+                    }
                     unlisted.clear();
                     whole = Some(Instant::now());
                     None

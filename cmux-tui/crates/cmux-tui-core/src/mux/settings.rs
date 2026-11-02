@@ -117,7 +117,10 @@ fn host_policy_after(store: &ConfigStore, changes: &[Change]) -> Option<(HostSiz
 fn emit_changes(mux: &Mux, changes: impl IntoIterator<Item = Change>) {
     let mut changed = false;
     for change in changes {
-        changed |= change.keys.iter().any(|key| key == "notifications.agentIdleTimers");
+        changed |= change.keys.iter().any(|key| {
+            key == "notifications.agentIdleTimers"
+                || key.starts_with("notifications.agentIdleTimers.")
+        });
         mux.emit(MuxEvent::SettingsChanged(change));
     }
     if changed {
