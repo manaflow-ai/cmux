@@ -95,8 +95,21 @@ await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
     });
     const before = await transcript.evaluate((node) => node.scrollTop);
     const box = (await group.boundingBox())!;
+    const geometry = await page.evaluate(() => {
+      const transcript = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const group = document.querySelector<HTMLElement>(".cv-tool-run")!;
+      const tr = transcript.getBoundingClientRect();
+      const gr = group.getBoundingClientRect();
+      return {
+        transcript: { top: tr.top, bottom: tr.bottom, height: tr.height, scrollTop: transcript.scrollTop, scrollHeight: transcript.scrollHeight },
+        group: { top: gr.top, bottom: gr.bottom, height: gr.height },
+        overflowY: getComputedStyle(transcript).overflowY,
+      };
+    });
+    console.log(`tool-group-wheel geometry ${JSON.stringify(geometry)}`);
     await page.mouse.move(box.x + box.width / 2, box.y + Math.min(box.height / 2, 200));
     await page.mouse.wheel(0, 420);
+    console.log(`tool-group-wheel after-wheel ${await transcript.evaluate((node) => node.scrollTop)}`);
     await page.waitForFunction(
       (start) => (document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollTop ?? 0) > start + 2,
       before,
