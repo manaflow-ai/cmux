@@ -66,7 +66,17 @@ impl<B: Backend> Server<B> {
     /// Runs `open`: the target pane first (a split, a column or a named pane), then the
     /// app's open action into it.
     pub(super) fn call_open(&self, arguments: &Map<String, Value>) -> Value {
-        let known = ["kind", "path", "url", "where", "pane", "workspace", "edge", "focus", "idempotency_key"];
+        let known = [
+            "kind",
+            "path",
+            "url",
+            "where",
+            "pane",
+            "workspace",
+            "edge",
+            "focus",
+            "idempotency_key",
+        ];
         if let Some(name) = arguments.keys().find(|name| !known.contains(&name.as_str())) {
             return invalid(format!("open has no argument {name:?}"));
         }
@@ -170,7 +180,8 @@ impl<B: Backend> Server<B> {
     /// complete before its acknowledgement arrives; on in_progress the
     /// viewer may already be open, and closing its pane would discard it.
     fn failed_open(&self, made: Option<String>, answer: Value, open_id: &str) -> Value {
-        if answer.pointer("/structuredContent/state").and_then(Value::as_str) == Some("in_progress") {
+        if answer.pointer("/structuredContent/state").and_then(Value::as_str) == Some("in_progress")
+        {
             let Some(mut receipt) = answer.get("structuredContent").cloned() else {
                 return answer;
             };
