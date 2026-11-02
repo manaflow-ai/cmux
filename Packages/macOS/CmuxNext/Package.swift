@@ -31,7 +31,7 @@ import PackageDescription
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
 //   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
-//   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
+//   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime, CCmuxAppFFI (Stack auth, /api/vm REST, the Cloud start's Rust decisions,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 //   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
 //   CmuxNextMobile -> Daemon, CMUXMobileCore, CmuxIrxTransport (phone host; no UI)
@@ -1237,6 +1237,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // CloudMoveCLI runs cmux-tui through the daemon's ProcessRunner.
                 "CmuxNextDaemon",
                 "CmuxNextWakeups",
+                // CloudStartCore: the Cloud start's decisions (cmux-cloud-start-core).
+                "CCmuxAppFFI",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
                 .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),

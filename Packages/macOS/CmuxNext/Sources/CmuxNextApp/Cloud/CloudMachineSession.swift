@@ -35,7 +35,7 @@ final class CloudMachineSession {
     private(set) var linkEnded: String?
     /// The last ended link's error as the link gave it (``CloudAppLinks/endedMessage(_:)`` shows less), for `cloud.machines`.
     @ObservationIgnored private(set) var linkEndedDetail: String?
-    /// The ended link went down or was revoked, not refused (``CloudAppLinks/isDrop(_:)``).
+    /// The ended link went down or was revoked, not refused (``CloudLinkError/isDrop(_:)``).
     private(set) var linkDropped = false
     /// The link as this session's endpoint calls see it (cx-lu8f): starting,
     /// up, or the last start's failure. Drives the booting and connecting
@@ -341,7 +341,7 @@ final class CloudMachineSession {
         daemon.shutdownConnection()
         daemon.store.markFailed(message)
         linkEnded = message
-        linkDropped = CloudAppLinks.isDrop(error)
+        linkDropped = CloudLinkError.isDrop(error)
         linkPhase = .failed(message)
         if let refresher {
             // task-owner: one throttled list read; the reconcile it runs updates this record
