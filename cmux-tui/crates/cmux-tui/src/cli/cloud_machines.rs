@@ -47,7 +47,7 @@ pub(super) fn merge(global: &GlobalArgs, result: Value) -> Value {
 
 /// Whether this process belongs to a cmux app (an app terminal's
 /// environment, or the app bundle around the executable).
-fn app_found() -> bool {
+pub(super) fn app_found() -> bool {
     let exe = std::env::current_exe().ok();
     crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())
         .is_some()
