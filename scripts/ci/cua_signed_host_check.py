@@ -7,9 +7,13 @@ Computer Use driver enabled, and verifies that the app's authenticated host
 connection remains open.  A host connection that is refused closes before it
 can remain in the app's descriptor table.
 
-The helper's own signed bundle is checked as a negative identity as well.  An
-ad-hoc tagged app and an ordinary unsigned process are connected to each host
-socket and must receive the stable ``host_unverified`` refusal.  The detailed
+Each driver is checked as the build runs it: NIGHTLY carries no helper v2, so
+"upstream" runs the legacy helper there.  An ad-hoc tagged app and an ordinary
+unsigned process are connected to each host socket and must be refused.  The
+helper v2 refuses them before reading, with the stable ``host_unverified``
+refusal.  The legacy helper answers their ``machine_consent_host`` request
+without the host token, which it checks before the code signature, so its
+refusal is a host-only error that never says attached.  The detailed
 ``not Apple-signed (ad hoc or unsigned)`` reason is emitted by the helper's
 real code check (and is covered by the HostVerifier unit test); the wire reply
 deliberately exposes only the stable refusal reason.
@@ -22,6 +26,7 @@ temporarily unavailable classic feed must not turn this scheduled check red.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import plistlib
 import signal
@@ -42,6 +47,11 @@ MAIN_IDS = {
 }
 HELPER_ID = "com.cmuxterm.cua"
 HOST_REFUSAL = "host_unverified"
+# DEV builds embed the helper v2 here (ComputerUseHelperV2.embeddedHelperApp);
+# without it "upstream" runs the legacy helper (ComputerUseHelperDaemon.effectiveDriver).
+UPSTREAM_HELPER = "Contents/Library/cmux Computer Use (dev).app/Contents/MacOS/cmux-cua-helper"
+# The legacy helper (cmux-cua serve) answers a request; this is the app's attach request.
+LEGACY_ATTACH = b'{"request":{"args":{},"method":"machine_consent_host"}}\n'
 
 
 class Failure(RuntimeError):
@@ -154,18 +164,29 @@ def host_socket(identifier: str, driver: str) -> Path:
     return root / "cmux-cua" / scope / "cua.sock"
 
 
+def effective_driver(app: Path, driver: str) -> str:
+    """The helper the app runs for `driver`: NIGHTLY has no helper v2, so upstream is legacy."""
+    return "upstream" if driver == "upstream" and (app / UPSTREAM_HELPER).is_file() else "legacy"
+
+
 def process_has_path(pid: int, path: Path) -> bool:
     result = run(["/usr/sbin/lsof", "-nP", "-a", "-p", str(pid), "-U"], timeout=15, check=False)
     return str(path) in result.stdout
 
 
-def wait_for_host(process: subprocess.Popen[bytes], path: Path, timeout: float = 45) -> None:
+def wait_for_host(process: subprocess.Popen[bytes], path: Path, timeout: float = 45, hold: float = 3) -> None:
+    """The app's host connection must stay open for `hold` seconds: a refused one closes at once."""
     deadline = time.monotonic() + timeout
+    since: float | None = None
     while time.monotonic() < deadline:
         if process.poll() is not None:
             raise Failure(f"cmux exited with status {process.returncode} before attaching to {path}")
         if path.exists() and process_has_path(process.pid, path):
-            return
+            since = since if since is not None else time.monotonic()
+            if time.monotonic() - since >= hold:
+                return
+        else:
+            since = None
         time.sleep(0.25)
     raise Failure(f"signed app pid {process.pid} never kept an accepted host connection to {path}")
 
@@ -181,14 +202,32 @@ def stop(process: subprocess.Popen[bytes]) -> None:
         process.wait(timeout=15)
 
 
-def connect_refusal(path: Path) -> str:
+def connect_refusal(path: Path, driver: str) -> str:
+    """Helper v2 refuses an unverified peer before reading; legacy answers the attach request."""
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.settimeout(10)
     try:
         client.connect(str(path))
+        if driver == "legacy":
+            client.sendall(LEGACY_ATTACH)
         return client.makefile("rb").readline().decode("utf-8", "replace")
     finally:
         client.close()
+
+
+def refused(reply: str, driver: str) -> bool:
+    """Helper v2 names host_unverified. Legacy checks the host token before the code
+    signature, so a peer without it gets a refusal that never says attached."""
+    if driver == "upstream":
+        return HOST_REFUSAL in reply
+    try:
+        line = json.loads(reply)
+    except ValueError:
+        return False
+    if not isinstance(line, dict):
+        return False
+    attached = isinstance(line.get("result"), dict) and line["result"].get("attached") is True
+    return line.get("ok") is False and not attached
 
 
 def ad_hoc_peer(root: Path) -> Path:
@@ -208,27 +247,33 @@ def ad_hoc_peer(root: Path) -> Path:
     return binary
 
 
-def ad_hoc_refusal(path: Path, binary: Path) -> None:
+def ad_hoc_refusal(path: Path, binary: Path, driver: str) -> None:
     script = (
         "import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); "
+        "sys.argv[2] and s.sendall(sys.argv[2].encode()); "
         "print(s.makefile('rb').readline().decode(), end=''); s.close()"
     )
-    result = subprocess.run([str(binary), "-c", script, str(path)], capture_output=True, text=True, timeout=20)
-    if HOST_REFUSAL not in result.stdout:
+    request = LEGACY_ATTACH.decode() if driver == "legacy" else ""
+    result = subprocess.run([str(binary), "-c", script, str(path), request],
+                            capture_output=True, text=True, timeout=20)
+    if not refused(result.stdout, driver):
         raise Failure(f"ad hoc tagged DEV peer was not refused by {path}: {result.stdout!r}")
 
 
-def exec_chain_refusal(path: Path, binary: Path) -> None:
+def exec_chain_refusal(path: Path, binary: Path, driver: str) -> None:
     """Connect, exec, then speak: the connection's audit token must not survive exec."""
     script = (
         "import os,socket,sys,time; s=socket.socket(socket.AF_UNIX); "
         "s.set_inheritable(True); s.connect(sys.argv[1]); time.sleep(.2); "
         "os.execv(sys.executable,[sys.executable,'-c',"
-        "\"import os,socket,sys; s=socket.socket(fileno=3); "
-        "print(s.makefile('rb').readline().decode(), end='')\",sys.argv[1]])"
+        "\"import os,socket,sys; s=socket.socket(fileno=int(sys.argv[2])); "
+        "sys.argv[1] and s.sendall(sys.argv[1].encode()); "
+        "print(s.makefile('rb').readline().decode(), end='')\",sys.argv[2],str(s.fileno())])"
     )
-    result = subprocess.run([str(binary), "-c", script, str(path)], capture_output=True, text=True, timeout=20)
-    if HOST_REFUSAL not in result.stdout:
+    request = LEGACY_ATTACH.decode() if driver == "legacy" else ""
+    result = subprocess.run([str(binary), "-c", script, str(path), request],
+                            capture_output=True, text=True, timeout=20)
+    if not refused(result.stdout, driver):
         raise Failure(f"exec-chain peer was not refused by {path}: {result.stdout!r}")
 
 
@@ -280,6 +325,9 @@ def main() -> int:
         for name, app, identifier in apps:
             try:
                 for driver in ("upstream", "legacy"):
+                    runs = effective_driver(app, driver)
+                    if runs != driver:
+                        log(f"info: {name} has no helper v2; driver {driver} runs the {runs} helper")
                     run_root = root / f"run-{name}-{driver}"
                     home = run_root / "home"
                     (home / "Library/Application Support").mkdir(parents=True)
@@ -304,14 +352,14 @@ def main() -> int:
                                                 env=env, cwd=str(home), stdin=subprocess.DEVNULL,
                                                 stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
                     try:
-                        path = host_socket(identifier, driver)
+                        path = host_socket(identifier, runs)
                         wait_for_host(process, path)
                         log(f"ok: {name} {driver} accepted the signed app host on {path}")
-                        refusal = connect_refusal(path)
-                        if HOST_REFUSAL not in refusal:
+                        refusal = connect_refusal(path, runs)
+                        if not refused(refusal, runs):
                             raise Failure(f"unsigned peer was not refused by {path}: {refusal!r}")
-                        ad_hoc_refusal(path, adhoc)
-                        exec_chain_refusal(path, adhoc)
+                        ad_hoc_refusal(path, adhoc, runs)
+                        exec_chain_refusal(path, adhoc, runs)
                         log(f"ok: {name} {driver} refused unsigned, ad hoc, and exec-chain peers")
                     finally:
                         stop(process)
