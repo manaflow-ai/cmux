@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
-import { chromium, type Browser, type Locator } from "playwright";
+import { chromium, type Browser, type Locator, type Page } from "playwright";
 import { FindPill } from "../src/ui/FindPill";
 import { ImportCards } from "../src/ui/ImportCards";
 import { installPaintedFrames } from "./support/paintedFrames";
@@ -67,6 +67,19 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
       const style = getComputedStyle(element);
       return { background: style.backgroundColor, color: style.color, opacity: style.opacity };
     });
+  const installPressMarkers = async (page: Page) => {
+    await page.evaluate(() => {
+      for (const button of document.querySelectorAll<HTMLButtonElement>(".find-pill__button")) {
+        button.addEventListener("pointerdown", (event) => {
+          button.dataset.pressActive = "true";
+          button.setPointerCapture(event.pointerId);
+        });
+        const clear = () => delete button.dataset.pressActive;
+        button.addEventListener("pointerup", clear);
+        button.addEventListener("pointercancel", clear);
+      }
+    });
+  };
   let browser: Browser;
   beforeAll(async () => {
     browser = await chromium.launch({ headless: true });
@@ -84,6 +97,7 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
           body { margin: 24px; color: CanvasText; background: Canvas; }
         </style>${fixture(canStep)}`);
         await installPaintedFrames(page);
+        await installPressMarkers(page);
         return page;
       };
       for (const name of [
@@ -118,14 +132,6 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
             const held = await paint(button);
             expect(held).not.toEqual(hovered);
             if (name === "Match case") {
-              console.log(
-                await button.evaluate((element) => ({
-                  active: element.matches(":active"),
-                  pressed: element.matches('[aria-pressed="true"]'),
-                  disabled: element.matches(":disabled"),
-                  html: element.outerHTML,
-                })),
-              );
               expect({ background: held.background, color: held.color }).toEqual(selectedPaint);
             }
             expect(await button.boundingBox()).toEqual(box);
