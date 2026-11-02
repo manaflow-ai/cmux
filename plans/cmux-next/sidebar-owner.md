@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-02: a remote group's machine mark is its rows' size and image. Leo, verbatim: "the sizes of the icons for
+  groups and workspaces aren't the same size anymore they should be". #29833 drew each workspace row's machine mark at a
+  status mark's size (`SidebarStyle.statusGlyphSize`) but left the group header's trailing mark (from 4ef89f17eba, the
+  remote group) at the leading glyph's side, larger than the rows under it. The header now draws
+  `WorkspaceRowView.machineMarkImage` at the rows' size (`GroupHeaderRowView.machineMarkSide`); the non-default leading
+  look keeps the icon column's glyph size. A group's own icon already shares the workspace icon's box. Regression:
+  `SidebarGroupIconSizeTests`, at each density and text size.
+
 - 2026-11-02: a row's fill keeps an even gap from both sidebar edges and has a rounder corner. Leo, comparing
   ChatGPT's selected sidebar row with ours: "CHATGPT HAS A SLIGHT GAP" / "WE DON'T" / "JUST ADD A SLIGHT GAP (PADDING)
   AND SMOOTH OUT A BIT MORE OF OUR CORNERS ON THE SIDEBAR WORKSPACES". `SidebarStyle.rowEdgeGap` (the fill to the

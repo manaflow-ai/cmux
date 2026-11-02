@@ -502,6 +502,12 @@ extension GroupHeaderRowView {
     /// The status the remote group's dot shows (tests).
     var debugMachineTone: SectionHeaderRowView.StatusTone? { machineDot.isHidden ? nil : machineTone }
 
+    /// The machine mark's side: a status mark's in the trailing column, as every workspace row's machine mark;
+    /// the leading glyph's in the icon column.
+    func machineMarkSide(_ look: SidebarHostGroupLook) -> CGFloat {
+        look == .leadingMark ? SidebarStyle.leadingGlyphSide : SidebarStyle.statusGlyphSize
+    }
+
     fileprivate func configureMachine(_ machine: SidebarMachine?) {
         guard let machine else {
             self.machine = nil
@@ -515,8 +521,11 @@ extension GroupHeaderRowView {
         let tone = SectionHeaderRowView.tone(machine, hostGroup: true)
         machineTone = tone
         let look = hostLook
-        let symbol: IconName = machine.kind == .cloud ? .cloud : .machineRemote
-        machineMark.image = NSImage.icon(symbol, size: SidebarStyle.leadingGlyphSide)
+        // The same mark at the same size as its member rows' (`WorkspaceRowView.machineMarkImage` at a status mark's
+        // size): a trailing mark drawn at the leading glyph's side read larger than the rows' under it (Leo 2026-11-02:
+        // "the sizes of the icons for groups and workspaces aren't the same size anymore they should be"). Leading, it
+        // takes the icon column's glyph size, as a group's own icon does.
+        machineMark.image = WorkspaceRowView.machineMarkImage(SidebarMachineMark(machine), side: machineMarkSide(look))
         machineMark.isHidden = look == .dotOnly
         // The quiet look keeps the dot for a machine that needs the person (or is on its way).
         let quiet = look == .markQuietWhenConnected && (tone == .success || tone == nil)
@@ -566,7 +575,7 @@ extension GroupHeaderRowView {
             x = machineWords.frame.minX - Metrics.space1
         }
         if !machineMark.isHidden, !leadsWithMachineMark {
-            let side = SidebarStyle.leadingGlyphSide
+            let side = machineMarkSide(hostLook)
             machineMark.frame = NSRect(x: x - side, y: (height - side) / 2, width: side, height: side)
             x = machineMark.frame.minX - Metrics.space2
         }
