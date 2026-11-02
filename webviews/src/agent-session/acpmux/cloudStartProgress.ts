@@ -276,7 +276,7 @@ function operation(value: unknown): CloudStartupOperation | undefined {
   const guestVerified =
     record.checkout_state === "guest_verified" &&
     checkoutRepo !== undefined && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(checkoutRepo) &&
-    checkoutCommit !== undefined && /^[a-f0-9]{40}$/.test(checkoutCommit) &&
+    checkoutCommit !== undefined && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(checkoutCommit) &&
     state === "done";
   return {
     state,
