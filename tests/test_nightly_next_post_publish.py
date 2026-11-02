@@ -2,8 +2,12 @@
 """Keep NEXT feed publication independent of the compatibility identity.
 
 The signed arm64 artifact is the user-facing readiness boundary. The
-NIGHTLY-identity compatibility lane runs after the NEXT publication; it must
-not become a dependency of ``publish-nightly``.
+NIGHTLY-identity compatibility lane must not become a dependency of
+``publish-nightly``. Its target and the release signer pool (hosted Linux and
+one secret-free Mac job) start from this run's prepared app beside cmux NEXT's
+own signers; the macOS signer, the only part that holds an owned signing Mac,
+runs after the NEXT publication (#25957), and the old feed publishes only the
+build ``publish-nightly`` published.
 """
 
 import re
@@ -31,16 +35,19 @@ def needs(job_text: str) -> str:
 failures = []
 publish = job("publish-nightly")
 publish_needs = needs(publish)
-compatibility_jobs = ("legacy-identity-target",)
+compatibility_jobs = ("legacy-identity-target", "legacy-signer-app", "legacy-signer-dmg-image", "legacy-signer-dmg",
+                      "verify-nightly-identity-legacy-pool", "sign-nightly-identity-legacy")
 
 for post_job in compatibility_jobs:
     if post_job in publish_needs:
-        failures.append(f"publish-nightly must not wait for post-publication job {post_job}")
-    post = job(post_job)
-    if "prepare-nightly-variant" not in needs(post):
-        failures.append(f"{post_job} must wait for the prepared NEXT artifact")
-    if "publish-nightly" not in needs(post):
-        failures.append(f"{post_job} must run after the primary NEXT publication")
+        failures.append(f"publish-nightly must not wait for compatibility job {post_job}")
+if "prepare-nightly-variant" not in needs(job("legacy-identity-target")):
+    failures.append("legacy-identity-target must wait for the prepared NEXT artifact")
+if "publish-nightly" not in needs(job("sign-nightly-identity-legacy")):
+    failures.append("the macOS legacy signer (an owned signing Mac) must run after the primary NEXT publication")
+for pool_job in ("legacy-signer-app", "legacy-signer-dmg"):
+    if "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}" not in job(pool_job):
+        failures.append(f"{pool_job} must sign on the signer route (hosted Linux), never an owned signing Mac")
 legacy = job("legacy-identity-target")
 if "build-nightly-app" not in needs(legacy):
     failures.append("legacy identity targeting must know the current build number")

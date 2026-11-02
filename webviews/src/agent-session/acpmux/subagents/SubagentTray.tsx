@@ -70,6 +70,7 @@ import { AgentLine } from "./AgentLine";
 import { SUBAGENT_FALLBACK } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
+import { subagentDisplayName } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
@@ -384,7 +385,7 @@ export const SubagentTray = memo(function SubagentTray({
           >
             <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
           </span>
-          <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} />
+          <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} steadyCounts />
           {/* Quiet meta right after the counts, never a column of its own far from them. */}
           <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
             {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
@@ -458,7 +459,7 @@ export const SubagentTray = memo(function SubagentTray({
     if (item.kind === "agent")
       return menu(
         <AgentLine
-          name={item.agent.name}
+          name={subagentDisplayName(t, item.agent)}
           progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
           progressAgent={item.agent}
           icon={SUBAGENT_FALLBACK}
@@ -473,7 +474,7 @@ export const SubagentTray = memo(function SubagentTray({
           // Its kind and what it does now are off the line (Leo, 2026-10-31: "a lot of these
           // subtitles are bad"); the tooltip keeps them under its task.
           title={agentTooltip(t, item.agent)}
-          label={t("subagents.open", { name: item.agent.name })}
+          label={t("subagents.open", { name: subagentDisplayName(t, item.agent) })}
           chevron
           trayColumns
           // A narrow tray's second line is its time and controls: the stats wrap under the title.
@@ -489,8 +490,11 @@ export const SubagentTray = memo(function SubagentTray({
         stop &&
           item.agent.state === "running" &&
           !item.agent.command &&
-          stopItem(stopKey(item)!, item.agent.name, t("subagents.stop", { name: item.agent.name }), () =>
-            stop(item.agent.id),
+          stopItem(
+            stopKey(item)!,
+            subagentDisplayName(t, item.agent),
+            t("subagents.stop", { name: subagentDisplayName(t, item.agent) }),
+            () => stop(item.agent.id),
           ),
       );
     if (item.kind === "command") {

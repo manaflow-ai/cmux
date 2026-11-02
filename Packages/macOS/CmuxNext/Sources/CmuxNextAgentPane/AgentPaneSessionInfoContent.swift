@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// What a section or row needs from the panel: its colors and how a click reaches the page. A value,
 /// not the store, so a row holds no reference to it.
@@ -234,7 +235,8 @@ final class SessionInfoListView: NSView {
     private var ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil }, move: { _, _, _ in }, flush: {})
     private var pendingItems: [SessionInfoItem]?
     private var pendingInk: SessionInfoInk?
-    private var revealTask: Task<Void, Never>?
+    /// Clears a revealed row's highlight; a new reveal replaces the pending one.
+    private let revealTimer = DemandTimer(owner: "SessionInfo.reveal")
     var width: CGFloat = 0 { didSet { if width != oldValue { place() } } }
 
     @discardableResult
@@ -342,13 +344,9 @@ final class SessionInfoListView: NSView {
         let rect = target.frame
         scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, rect.minY - SessionInfoMetrics.rowHeight)))
         scroll.reflectScrolledClipView(scroll.contentView)
-        revealTask?.cancel()
         target.layer?.backgroundColor = ink.colors.hover.withAlphaComponent(0.8).cgColor
-        revealTask = Task { @MainActor [weak self, weak target] in
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            guard !Task.isCancelled else { return }
+        revealTimer.schedule(after: .milliseconds(350)) { @MainActor [weak target] in
             target?.layer?.backgroundColor = nil
-            self?.revealTask = nil
         }
     }
 
@@ -465,7 +463,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             control.state = toggle ? .on : .off
             control.target = self
             control.action = #selector(toggleChanged(_:))
-            control.toolTip = line.help
+            control.themedToolTip = line.help
             self.toggle = control
         }
         if !line.menu.isEmpty {
@@ -474,11 +472,11 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         }
         if line.reorderable {
             grip = Self.image("line.3.horizontal", font: Typography.caption, tint: colors.tertiary)
-            grip?.toolTip = line.reorderLabel ?? line.title
+            grip?.themedToolTip = line.reorderLabel ?? line.title
         }
         buttons = line.buttons.map { SessionInfoButtonView(button: $0, ink: ink) }
         for view in [glyph, grip, title, detail, subtitle, trailing, chevron, meter, segmentedMeter, marksView, toggle, menuButton].compactMap({ $0 }) + buttons { addSubview(view) }
-        toolTip = [line.help, line.hover?.title, line.hover?.detail].compactMap { $0 }.joined(separator: "\n")
+        themedToolTip = [line.help, line.hover?.title, line.hover?.detail].compactMap { $0 }.joined(separator: "\n")
         setAccessibilityElement(true)
         setAccessibilityLabel([line.title, line.detail, line.subtitle, line.trailing].compactMap { $0 }.joined(separator: ", "))
         setAccessibilityRole(line.action != nil ? .button : .staticText)
@@ -760,7 +758,7 @@ final class SessionInfoButtonView: NSView {
         wantsLayer = true
         layer?.cornerRadius = 4
         addSubview(content)
-        toolTip = button.label
+        themedToolTip = button.label
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(button.label)
