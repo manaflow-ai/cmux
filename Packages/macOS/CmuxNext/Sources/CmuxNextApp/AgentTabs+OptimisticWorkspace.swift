@@ -64,7 +64,7 @@ extension AgentTabStore {
                 let created: (AgentTabCreated, UInt64?) = try await WorkspaceCreation.createWithFirstTab(
                     key, name: name, on: connection, repair: repair, giveUp: giveUp
                 ) { workspace in
-                    BenchSpans.mark("cmdN.workspace.created")
+                    print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) workspace-created \(key.rawValue)"); BenchSpans.mark("cmdN.workspace.created")
                     var request = NewConversationTabRequest(agentSession: record, workspace: workspace.workspace, origin: Self.createOrigin,
                                                             mutationID: UUID().uuidString)
                     request.transaction = transaction
@@ -75,13 +75,13 @@ extension AgentTabStore {
                                               surface: response.surface)
                     return (tab, await connection.eventSequence())
                 }
-                self?.tabCreated(tabKey, as: created.0)
+                print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) confirm-created \(key.rawValue) tab=\(created.0.key)"); self?.tabCreated(tabKey, as: created.0)
                 ProvisionalTab.created(transaction, surface: created.0.surface, in: store)
                 if let sequence = created.1 { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
                 if let started = self?.sessions[created.0.key] { self?.sendSession(started, for: created.0.key) } // a chat its page started first binds now (as `open`)
                 return key.rawValue
             } catch {
-                fail()
+                print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) confirm-failed \(key.rawValue) \(error)"); fail()
                 throw error
             }
         }

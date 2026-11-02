@@ -244,9 +244,9 @@ extension AppActions {
                 let close: @MainActor () async -> ActionWorkFailure? = {
                     let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
                         try await ClosingWorkspaces.shared.refusal()
-                        try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon)
+                        print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) close-sent \(key.rawValue)"); try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon)
                     }
-                    guard hidden else { return failure }
+                    print("CHATOPEN-DIAG t=\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime * 1000)) close-done \(key.rawValue) failure=\(String(describing: failure))"); guard hidden else { return failure }
                     // A close that went through stays hidden until the store has applied its events (the row is gone there).
                     if failure == nil, let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "close workspace") }
                     ClosingWorkspaces.shared.end(id, refused: failure != nil, reason: WorkspaceClose.shownReason(failure), in: controller?.window)
