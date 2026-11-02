@@ -443,6 +443,8 @@ kit has its own `top`). Every program takes `--seed N` (the same seed draws the 
 ```bash
 K=scripts/journeys/tui-kit/tuikit.py
 python3 $K gradient --seed 7 --duration 60 --log /tmp/g.jsonl   # 120 fps truecolor gradient, box art, CJK and emoji
+python3 $K gradient --pace sleep ...                            # pacing: spin (gradient default, one core), hybrid, sleep
+python3 scripts/journeys/tui-kit/pace_probe.py --seconds 30      # frame intervals per pacing variant on this host
 python3 $K describe --seed 7 --size 120x40                        # where gradient puts each element (columns, rows)
 python3 $K sigwinch --seed 7 --duration 60 --log /tmp/w.jsonl   # one reflow per new size; every SIGWINCH logged
 python3 $K mouse --seed 7 --duration 60 --log /tmp/m.jsonl      # curses, SGR 1006 mouse, cursor at (rows//2, cols//2)
@@ -460,7 +462,8 @@ python3 scripts/journeys/tui-kit/test_tuikit.py                  # the kit's own
 
 What the analyzer reads in a frame:
 
-- `gradient`: top-left `F<frame> t=<s> seed=<n> <cols>x<rows>`; on row 2 a barcode: a magenta guard
+- `gradient`: it spins to each frame's due time by default (`--pace spin`, one core): on a fleet mini a
+  sleeping 120 fps loop woke in bursts (frame interval p95 47 ms, pace_probe job 0a364ec0ef40). Top-left `F<frame> t=<s> seed=<n> <cols>x<rows>`; on row 2 a barcode: a magenta guard
   cell, 20 cells of the frame index (white 1, black 0, most significant first), a cyan guard; a 3x5
   block-digit counter bottom right (panes of 50x18 or more). The frame log gives each frame's write
   time, so a video frame maps to a program frame. Frames are inside synchronized-update brackets

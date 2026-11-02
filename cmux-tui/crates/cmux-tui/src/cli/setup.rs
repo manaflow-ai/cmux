@@ -182,13 +182,6 @@ fn no_arguments(args: &[String]) -> Result<(), Refusal> {
     }
 }
 
-/// Concise human instructions in the same manifest agents read.
-#[derive(serde::Serialize)]
-struct HumanGuide {
-    title: &'static str,
-    steps: &'static [&'static str],
-}
-
 /// One setup task as `list` names it.
 struct Task {
     id: &'static str,
@@ -205,8 +198,6 @@ struct Task {
     /// the task done: the exact command to run, what to hand the person and
     /// what to reply. Capitals (HOST, FOLDER) are the person's to fill in.
     prompt: &'static str,
-    /// Human instructions, also bundled into Help > Setup Guide and its documentation.
-    guide: Option<HumanGuide>,
 }
 
 /// Every setup task a person meets in cmux NEXT, with the command that does
@@ -220,7 +211,6 @@ const TASKS: &[Task] = &[
         apply: &["cmux setup trust FOLDER"],
         person: None,
         prompt: "Trust FOLDER so agents start there without asking: run `cmux setup trust FOLDER` and tell me the undo.",
-        guide: None,
     },
     Task {
         id: "harness",
@@ -230,13 +220,6 @@ const TASKS: &[Task] = &[
         apply: &["cmux harness add ...", "cmux harness login ID"],
         person: Some("the harness's own sign-in (OAuth in a browser) and installing its CLI"),
         prompt: "Check that my agent harnesses (Claude Code, Codex, ...) are installed, signed in and current here: run `cmux setup harness`, start any sign-in it names in a terminal beside this chat, and tell me what to click.",
-        guide: Some(HumanGuide {
-            title: "Start an agent on this Mac",
-            steps: &[
-                "Open the model picker and choose + to see Harnesses. Install a provider, then use Sign In and finish its browser or terminal instructions.",
-                "Run cmux setup harness to check the result. Follow the recovery it reports for that profile; unknown sign-in evidence does not confirm a working account.",
-            ],
-        }),
     },
     Task {
         id: "machine",
@@ -246,7 +229,6 @@ const TASKS: &[Task] = &[
         apply: &["cmux setup machine SSH_TARGET [--name NAME]"],
         person: Some("key-only ssh to the machine: adding a key there or fixing ssh config"),
         prompt: "Add my machine HOST as an agent machine (a Mac on my tailnet such as `studio`, or an ssh host such as `ubuntu@build-1`): run `cmux setup machine HOST`, then run `cmux acp host doctor <name> --json`, where <name> is the `name` that result reports. If ssh refuses, give me the command to try; never ask for my password. Tell me the undo.",
-        guide: None,
     },
     Task {
         id: "host_update",
@@ -256,7 +238,6 @@ const TASKS: &[Task] = &[
         apply: &["cmux setup machine SSH_TARGET --name NAME", "cmux acp host update --all --json"],
         person: None,
         prompt: "Something is wrong with my agent machine NAME: run `cmux setup status`, and if it lists NAME as outdated or not connected, run the `fix` it names for NAME only. If NAME still fails, run `cmux acp host doctor NAME --fix --json` and tell me what is left.",
-        guide: None,
     },
     Task {
         id: "accounts",
@@ -266,14 +247,6 @@ const TASKS: &[Task] = &[
         apply: &["cmux cloud sign-in"],
         person: Some("the cmux sign-in in the browser"),
         prompt: "Check and recover my sign-ins: run `cmux accounts list --json`. If cmux is signed out, run `cmux cloud sign-in` and tell me to finish it in the browser; if the command or browser reports offline or Cloud unavailable, stop and tell me to reconnect before retrying. If a provider is missing or expired, open Settings > Accounts and use Sign In or Re-authenticate (or run `cmux accounts reauth --provider PROVIDER`), then run the list again. If I picked the wrong cmux account, use Switch Account in Settings > Accounts and verify the masked account; if a saved key is missing or unreadable, use Add Key there and save or send it without printing the secret. Tell me which providers remain unavailable and never claim an unknown or Keychain-backed sign-in is valid.",
-        guide: Some(HumanGuide {
-            title: "Recover a sign-in",
-            steps: &[
-                "Open Settings > Accounts. Use Sign In for a missing provider or Re-authenticate for an expired one, then check again.",
-                "For the wrong cmux account, use Switch Account and check the masked address. For a missing or unreadable saved key, use Add Key; never paste the secret into a chat.",
-                "If the command or browser reports offline, reconnect before retrying. If Cloud is unavailable, retry when the service returns; local work can continue.",
-            ],
-        }),
     },
     Task {
         id: "cloud_machine",
@@ -283,14 +256,6 @@ const TASKS: &[Task] = &[
         apply: &["cmux setup cloud-machine"],
         person: Some("signing in to cmux, and allowing the new machine on the card cmux shows"),
         prompt: "Make me a cmux Cloud machine. I know it costs money every hour it runs. Run `cmux setup cloud-machine`, tell me which card to click, and tell me the undo.",
-        guide: Some(HumanGuide {
-            title: "Use another machine",
-            steps: &[
-                "For a Cloud machine, sign in to cmux, then preview with cmux setup cloud-machine --dry-run. To proceed, run cmux setup cloud-machine without --dry-run. Creating a machine costs money; confirm the request only when you want it.",
-                "For an existing SSH machine, run cmux setup machine HOST. If the connection fails, use the SSH command it reports. Do not enter a password into an agent chat.",
-                "Run cmux setup status for the current checks and recovery steps. A detected credential is not proof that it is valid or belongs to the intended account.",
-            ],
-        }),
     },
     Task {
         id: "tailnet",
@@ -306,7 +271,6 @@ const TASKS: &[Task] = &[
             "installing Tailscale, signing in to it (`tailscale up`, a browser sign-in), and an admin approving the device when the tailnet requires it",
         ),
         prompt: "Let my other machines reach this one over Tailscale, for my own Tailscale login only: run `cmux setup tailnet`, tell me the one Tailscale step it names for me (install, start, sign in or approve), and run it again once I have done it. If it asks for my tailnet login, ask me. Tell me the undo.",
-        guide: None,
     },
     Task {
         id: "phone",
@@ -318,7 +282,6 @@ const TASKS: &[Task] = &[
             "turning on iPhone connections on the Mobile Pairing page, installing the cmux iPhone app (TestFlight invite while it is in beta), signing in there with the same cmux account, and allowing the phone on this Mac when it asks",
         ),
         prompt: "Set up the cmux iPhone app with this Mac: run `cmux settings get mobile.allowIPhoneConnections` and `cmux cloud open-mobile-pairing`. If iPhone connections are off, tell me to turn them on there (only I can). Then tell me to install cmux on my iPhone, sign in there with the same cmux account, and allow the phone on this Mac when it asks.",
-        guide: None,
     },
     Task {
         id: "pairing_ticket",
@@ -328,7 +291,6 @@ const TASKS: &[Task] = &[
         apply: &["cmux host ticket new --json", "cmux host ticket revoke ID --json"],
         person: Some("pasting the line on the other machine"),
         prompt: "Give me one line to paste on my other machine MACHINE so it can use this one: run `cmux host ticket new --label MACHINE --json` and give me its `install_command` (or its `join_command` when cmux is already installed there). If its `url` starts with ws://, tell me what to forward first. It works once, within 15 minutes; tell me how to revoke it.",
-        guide: None,
     },
     Task {
         id: "mcp",
@@ -338,7 +300,6 @@ const TASKS: &[Task] = &[
         apply: &["cmux setup mcp"],
         person: Some("turning on \"mcp\": {\"enabled\": true} in the cmux settings file"),
         prompt: "Give Claude Code and Codex outside cmux the cmux MCP server: run `cmux setup mcp`. If it names a setting, give me that one line to turn on; do not edit the file. Tell me the undo.",
-        guide: None,
     },
     Task {
         id: "computer_use",
@@ -350,7 +311,6 @@ const TASKS: &[Task] = &[
             "allowing Computer Use on the sheet cmux shows, and the Accessibility and Screen Recording switches in System Settings",
         ),
         prompt: "Let agents use this Mac: run `cmux setup computer-use`, tell me to click Allow on the sheet cmux shows, then open each System Settings pane it names and tell me which switch to turn on.",
-        guide: None,
     },
     Task {
         id: "browser_import",
@@ -367,7 +327,6 @@ const TASKS: &[Task] = &[
             "allowing the cookie import on the panel cmux shows and the Keychain prompt; history and password import (Import from Browser...)",
         ),
         prompt: "Bring my bookmarks over from BROWSER: run `cmux setup browser-import --browser BROWSER` and tell me the undo. Leave my cookies alone unless I ask.",
-        guide: None,
     },
     Task {
         id: "keyboard_shortcuts",
@@ -377,7 +336,6 @@ const TASKS: &[Task] = &[
         apply: &["cmux settings keyboard-shortcuts"],
         person: None,
         prompt: "Show me my cmux key bindings: run `cmux keybinding list --json` and list them; to see what one chord does, run `cmux keybinding resolve KEYS --json`.",
-        guide: None,
     },
     Task {
         id: "notifications",
@@ -389,7 +347,6 @@ const TASKS: &[Task] = &[
             "allowing notifications on the macOS prompt, or turning them on in System Settings > Notifications once denied",
         ),
         prompt: "Let cmux show me notifications: run `cmux setup notifications`, then tell me to click Allow on the macOS prompt, or open the System Settings page it names and tell me what to turn on.",
-        guide: None,
     },
     Task {
         id: "team_invites",
@@ -399,7 +356,6 @@ const TASKS: &[Task] = &[
         apply: &["cmux home invite --email EMAIL"],
         person: Some("team invites from the web dashboard (Teams > Members)"),
         prompt: "Invite EMAIL to this Home conversation: once I confirm the address, run `cmux home invite --email EMAIL`. Team invites I send myself from the web dashboard (Teams > Members).",
-        guide: None,
     },
 ];
 
@@ -415,7 +371,6 @@ fn list() -> Value {
                 "apply": task.apply,
                 "person": task.person,
                 "prompt": task.prompt,
-                "guide": task.guide,
             })
         })
         .collect::<Vec<_>>();
@@ -641,26 +596,6 @@ mod tests {
                 task.prompt
             );
         }
-    }
-
-    /// The offline app guide is a generated projection of the same tasks agents read.
-    #[test]
-    fn human_guide_matches_the_native_bundle() {
-        let bundled: Value = serde_json::from_str(include_str!(
-            "../../../../../Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/setup-guide.json"
-        ))
-        .unwrap();
-        let manifest = list();
-        let expected = manifest["tasks"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|task| {
-                let guide = task["guide"].as_object()?;
-                Some(json!({"id": task["id"], "title": guide["title"], "steps": guide["steps"]}))
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(bundled, json!(expected));
     }
 
     /// The generated page has one block per task, each with its prompt.

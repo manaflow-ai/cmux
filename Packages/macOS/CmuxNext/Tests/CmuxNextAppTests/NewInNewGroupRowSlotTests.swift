@@ -29,8 +29,8 @@ struct NewInNewGroupRowSlotTests {
         let window = try #require(services.windows.active?.state.id)
         let controller = try #require(services.windows.controller(for: window))
         let list = controller.sidebar.container.sidebarView.list
-        await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { SidebarDocStore.current?.shown != nil }
-        try #require(SidebarDocStore.current?.shown != nil, "the same-tree daemon serves the sidebar document")
+        await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { services.sidebarDoc.store?.shown != nil }
+        try #require(services.sidebarDoc.store?.shown != nil, "the same-tree daemon serves the sidebar document")
         func rows(_ layout: SidebarLayout) -> [String] {
             layout.rows.compactMap { if case let .workspace(id) = $0.key { id.rawValue } else { nil } }
         }

@@ -150,7 +150,7 @@ enum WorkspaceGroupHandlers {
             // On the sidebar document a pinned group is one in Pinned, as shown (pending changes included).
             // A `pinned` argument (CLI, MCP, scripts) sets that state instead of toggling.
             let group = try context.group(invocation), id = sidebarID(group, context)
-            let pinned = invocation["pinned"]?.boolValue ?? !(SidebarDocStore.current?.showsPinned(group: id.rawValue) ?? isPinned(group, context))
+            let pinned = invocation["pinned"]?.boolValue ?? !(context.services.sidebarDoc.store?.showsPinned(group: id.rawValue) ?? isPinned(group, context))
             try context.sidebar().handle(.setGroupPinned(id, pinned))
         })
         // The group icon: the shared icon string, same rule as workspace and tab icons.
@@ -262,7 +262,7 @@ enum WorkspaceGroupHandlers {
     /// A new group inside `parent` on the sidebar document (remote-groups-DESIGN.md slice 3), with the
     /// next palette color; a person's new subgroup opens its name editor, as New Group does.
     private static func newSubgroup(in parent: CmuxNextSidebar.GroupID, name: String, byUser: Bool, _ context: AppActionContext) throws {
-        guard let store = SidebarDocStore.current, SidebarDocWiring.isActive else {
+        guard let store = context.services.sidebarDoc.activeStore else {
             throw ActionFailure.invalidTarget(WorkspaceVerbStrings.subgroupNeedsDocument)
         }
         let id = CmuxNextSidebar.GroupID.make()

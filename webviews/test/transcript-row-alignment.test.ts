@@ -7,10 +7,11 @@
 // In gallery entry agent-pane.transcript-row-alignment (a reply, a tool call, a reply, a subagent
 // that finished, a reply, a background command that ended, a reply, another agent's message, a
 // reply; above them a folded
-// turn's "Worked for" line and a footer with its time, tokens and actions), measured from the
+// turn's "Worked for" line and a footer with its actions and time), measured from the
 // transcript column's left edge (`col-left`, design/grid.md 5.5) in light and dark:
-// - every reply's first glyph, a "Worked for" line's first glyph, the footer's "Worked for" label
-//   and the first glyph of every action row (a reply's, a footer's) start on col-left;
+// - every reply's first glyph, a "Worked for" line's first glyph and the first glyph of every action
+//   row (a reply's, a footer's) start on col-left; nothing comes before a footer's buttons
+//   (reply-footer.test.ts);
 // - every row with a leading icon (a tool row, a subagent's end, a background command's end,
 //   another agent's message) has its 16px icon box on col-left and its words at one shared x;
 // - each status row between two replies has the block gap above it and below it (design/grid.md 5.5:
@@ -100,9 +101,7 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
       };
       for (const prose of document.querySelectorAll(".acpmux-row.acpmux-assistant .cv-md")) lead("reply", prose);
       for (const worked of document.querySelectorAll(".cv-worked.is-toggle")) lead("worked-for", worked);
-      for (const label of document.querySelectorAll(".cv-turn-summary")) lead("footer label", label);
       // An action row's first glyph: its 16px box, where Codex and Claude start the copy glyph.
-      // A footer that says its time first leads with that label instead (measured above).
       for (const actions of document.querySelectorAll(".cv-turn-actions .cv-turn-action-group")) {
         if (actions.previousElementSibling) continue;
         const glyph = actions.querySelector(".cv-iconbtn svg");
@@ -250,7 +249,6 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
         for (const kind of [
           "reply",
           "worked-for",
-          "footer label",
           "footer actions",
           "tool",
           "subagent finished",
