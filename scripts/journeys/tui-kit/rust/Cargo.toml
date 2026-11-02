@@ -1,0 +1,26 @@
+# The TUI load kit's compiled programs (cmux-ad 2026-11-02 03:40Z: every load that must hold a rate
+# is compiled code). Its own workspace, std only and no dependencies, so it builds from a copy of
+# scripts/journeys/tui-kit alone:
+#   cargo build --release --offline --manifest-path scripts/journeys/tui-kit/rust/Cargo.toml
+# or `python3 scripts/journeys/tui-kit/tuikit.py build-bins`. Not part of cmux-tui and not built by CI.
+[package]
+name = "tuikit-load"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "Seeded terminal load at a held rate for the layout-animation and typing-under-load videos"
+
+[[bin]]
+name = "tk-gradient"
+path = "src/bin/tk-gradient.rs"
+
+[[bin]]
+name = "tk-storm"
+path = "src/bin/tk-storm.rs"
+
+[profile.release]
+opt-level = 3
+debug = false
+
+[workspace]
