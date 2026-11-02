@@ -2,7 +2,12 @@
 // stable ids through reconnect and no sends after revoke. The fake clock has zero wall-clock sleeps.
 import { expect, test } from "bun:test";
 import { GuestPrompts } from "../src/agent-session/guest/guestPrompts";
-import { GUEST_PROMPT_GAP_MS, GUEST_PROMPT_RETRY_MS, GuestSendQueue, type GuestSendTimers } from "../src/agent-session/guest/guestSendQueue";
+import {
+  GUEST_PROMPT_GAP_MS,
+  GUEST_PROMPT_RETRY_MS,
+  GuestSendQueue,
+  type GuestSendTimers,
+} from "../src/agent-session/guest/guestSendQueue";
 import { memoryStorage } from "../src/agent-session/guest/fixtures/liveChat";
 
 function fakeClock() {
@@ -22,7 +27,10 @@ function fakeClock() {
     const until = now + ms;
     for (let steps = 0; steps < 1_000; steps += 1) {
       const next = [...jobs].filter(([, job]) => job.at <= until).sort((a, b) => a[1].at - b[1].at)[0];
-      if (!next) { now = until; return; }
+      if (!next) {
+        now = until;
+        return;
+      }
       now = next[1].at;
       jobs.delete(next[0]);
       next[1].run();
@@ -37,10 +45,14 @@ function fixture() {
   let id = 0;
   const prompts = new GuestPrompts("share", memoryStorage(), (bytes) => bytes.fill(++id), clock.timers.now);
   const sent: Array<{ id: string; text: string; at: number }> = [];
-  const queue = new GuestSendQueue(prompts, (prompt) => {
-    sent.push({ id: prompt.clientId, text: prompt.text, at: clock.timers.now() });
-    return true;
-  }, clock.timers);
+  const queue = new GuestSendQueue(
+    prompts,
+    (prompt) => {
+      sent.push({ id: prompt.clientId, text: prompt.text, at: clock.timers.now() });
+      return true;
+    },
+    clock.timers,
+  );
   const add = (text: string) => {
     const p = prompts.add(text);
     queue.queued();
