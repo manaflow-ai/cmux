@@ -56,12 +56,12 @@ enum SettingsHandlers {
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false },
                             stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
         // Install an Earlier Nightly…: Settings > Updates at its Channels card, whose Switch installs any
-        // recent build (`cmux nightly install` is the CLI form). Unavailable where builds cannot switch.
+        // recent build (`cmux nightly install` is the CLI form); a new focus each open scrolls back to it.
         registry.bind("updates.installEarlierBuild", unavailable: { [weak services = context.services] in
             services?.updater.installEarlierBuildUnavailableReason
         }, invoke: { [weak registry, weak services = context.services] invocation in
             do {
-                try services?.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: "#/settings/updates?focus=channels")
+                try services?.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: "#/settings/updates?focus=channels:\(UUID().uuidString.prefix(8))")
             } catch {
                 registry?.refuse(String(describing: error))
             }

@@ -297,7 +297,7 @@ test("an app that offers no Update button shows the lines only", async () => {
   page.unmount();
 });
 
-test("Install an Earlier Nightly… opens the page at ?focus=channels, which scrolls to the card", async () => {
+test("Install an Earlier Nightly… opens the page at ?focus=channels[:N], which scrolls to the card", async () => {
   const scrolled: string[] = [];
   const view = globalThis.window.HTMLElement.prototype;
   const original = view.scrollIntoView;
@@ -310,6 +310,11 @@ test("Install an Earlier Nightly… opens the page at ?focus=channels, which scr
     expect(card(page.container)).not.toBeNull();
     expect(scrolled).toContain("channels");
     page.unmount();
+    scrolled.length = 0;
+    const again = await renderPage({ path: "/settings/updates?focus=channels:2" });
+    await settle();
+    expect(scrolled).toContain("channels");
+    again.unmount();
     scrolled.length = 0;
     const plain = await renderPage({ path: "/settings/updates" });
     await settle();
