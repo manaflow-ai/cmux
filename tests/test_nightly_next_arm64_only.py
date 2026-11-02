@@ -147,6 +147,12 @@ def compile_commands(outputs):
         (root / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
         (root / "cmux-next-ios/rust").mkdir(parents=True)
         (root / "scripts/ci/background_build.py").write_text((ROOT / "scripts/ci/background_build.py").read_text())
+        (root / "scripts/lib").mkdir(parents=True)
+        (root / "scripts/lib/rust-targets.sh").write_text((ROOT / "scripts/lib/rust-targets.sh").read_text())
+        # The Release step sources the shared cache-failure classifier (#30107).
+        (root / "scripts/cmux-next/lib").mkdir(parents=True)
+        (root / "scripts/cmux-next/lib/compilation-cache.sh").write_text(
+            (ROOT / "scripts/cmux-next/lib/compilation-cache.sh").read_text())
         capture = root / "capture"
         capture.mkdir()
         steps = (

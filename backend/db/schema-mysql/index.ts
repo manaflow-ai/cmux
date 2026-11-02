@@ -258,3 +258,22 @@ export const teamBillingCustomer = mysqlTable("team_billing_customer", {
   customerId: ascii("customer_id", 128).notNull(),
   createdAt: at("created_at").notNull()
 }, (t) => [primaryKey({ columns: [t.teamId, t.mode], name: "team_billing_customer_pkey" }), uniqueIndex("team_billing_customer_customer").on(t.customerId, t.mode)])
+
+/**
+ * Cloud environments (plans/cmux-next/cloud-environments-DESIGN.md §7): a summary row per environment,
+ * projected by the team's CloudDO (the single writer; the spec and variable values never leave it).
+ * A delete is a soft delete under the source guard, so a replayed older upsert cannot bring it back.
+ */
+export const cloudEnvironments = mysqlTable("cloud_environments", {
+  id: ascii("id").primaryKey(),
+  teamId: ascii("team_id").notNull(),
+  name: label("name", 80).notNull(),
+  repo: label("repo", 300),
+  status: ascii("status", 16).notNull(),
+  snapshotId: ascii("snapshot_id"),
+  createdBy: ascii("created_by").notNull(),
+  createdAt: at("created_at").notNull(),
+  updatedAt: at("updated_at").notNull(),
+  deletedAt: at("deleted_at"),
+  ...source()
+}, (t) => [index("cloud_environments_team").on(t.teamId, t.deletedAt)])

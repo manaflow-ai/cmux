@@ -3,7 +3,14 @@
 // (subsessions.ts), from acpmux's session summaries as the pane cuts them (sessionList.ts).
 import { expect, test } from "bun:test";
 import { sessionEntry } from "../sessionList";
-import { SubsessionStore, subsessionInfo, subsessionRows, waitingLine } from "./subsessions";
+import {
+  SubsessionStore,
+  subagentDisplayName,
+  subsessionDisplayName,
+  subsessionInfo,
+  subsessionRows,
+  waitingLine,
+} from "./subsessions";
 import { translate } from "../i18n";
 
 /// A session summary as acpmux sends it, with the fields the sub-session rows read.
@@ -23,6 +30,8 @@ test("a summary's sub-session fields: its parent, short name, lane, queue and wh
   const entry = summary("tests", {
     startedBy: "chat",
     shortName: "tests",
+    effort: "high",
+    lastMessage: { role: "agent", text: "Done." },
     queued: 2,
     lane: { state: "working", step: "Run the tests", title: null, since: 1, error: null },
     turn: { planStep: "Check retries", activity: "bun test src/net", prompt: "Run the tests" },
@@ -33,7 +42,10 @@ test("a summary's sub-session fields: its parent, short name, lane, queue and wh
     lane: "working",
     queued: 2,
     doing: "Check retries · bun test src/net",
+    effort: "high",
+    lastMessage: "Done.",
   });
+  expect(subsessionInfo(entry)).toMatchObject({ effort: "high", parent: "chat", lastMessage: "Done." });
   // Without a plan step or a tool, what the turn was asked; not working, nothing.
   expect(summary("a", { lane: { state: "working", step: "Fix the grid" }, turn: {} }).doing).toBe("Fix the grid");
   expect(summary("b", { turn: { activity: "Read" } }).doing).toBeUndefined();
@@ -44,6 +56,17 @@ test("a summary's sub-session fields: its parent, short name, lane, queue and wh
   });
   expect(summary("e", { waitingOn: "permission" }).waitingOn).toEqual({ on: "permission" });
   expect(summary("f", { waitingOn: "nothing" }).waitingOn).toBeUndefined();
+});
+
+test("an unnamed sub-session gets a localized display name instead of its opaque id", () => {
+  const t = translate;
+  const session = { name: "optchat-123456789", sessionId: "optchat-123456789" };
+  expect(subsessionDisplayName(t, session)).toBe("Subagent");
+  expect(subsessionDisplayName(t, { name: "claude/optchat-a1b2c3d4", sessionId: "session-123" })).toBe("Subagent");
+  expect(subsessionDisplayName(t, { name: "Review /optchat-logs", sessionId: "session-456" })).toBe(
+    "Review /optchat-logs",
+  );
+  expect(subsessionDisplayName(t, { ...session, name: "Reviewer" })).toBe("Reviewer");
 });
 
 test("a sub-session's state: working, needs input, failed (or lost) or done, with its unread mark when done", () => {
@@ -125,6 +148,52 @@ test("the store follows sub-sessions only, and tells its readers only when one's
   expect(store.get("a")).toBeUndefined();
 });
 
+test("a sender name shared by live chats never chooses the first one arbitrarily", () => {
+  const store = new SubsessionStore();
+  let changes = 0;
+  store.subscribeNames(() => changes++);
+  const local = summary("local", { name: "reviewer", shortName: "reviewer" });
+  const remote = summary("remote", { name: "gpu/reviewer", shortName: "reviewer", peer: "gpu" });
+  store.set([local, remote]);
+  expect(store.find("reviewer")).toBeUndefined();
+  expect(store.find("gpu/reviewer")).toBe("remote");
+  expect(store.has("local")).toBe(true);
+  expect(store.has("remote")).toBe(true);
+  const before = changes;
+  // Merely changing list order cannot make a colliding sender name actionable or
+  // notify subscribers: the set of identities and hosts has not changed.
+  store.set([remote, local]);
+  expect(store.find("reviewer")).toBeUndefined();
+  expect(changes).toBe(before);
+  // The ambiguous alias becomes actionable when its other live owner leaves.
+  store.set([remote]);
+  expect(store.find("reviewer")).toBe("remote");
+  expect(changes).toBeGreaterThan(before);
+});
+
+test("two peer chats with the same bare sender retain distinct qualified names", () => {
+  const store = new SubsessionStore();
+  store.set([
+    summary("gcp-session", { name: "gcp/audit", peer: "gcp" }),
+    summary("aws-session", { name: "aws/audit", peer: "aws" }),
+  ]);
+  expect(store.find("audit")).toBeUndefined();
+  expect(store.find("gcp/audit")).toBe("gcp-session");
+  expect(store.find("aws/audit")).toBe("aws-session");
+  // An archived chat never hides a unique active sender.
+  store.set([
+    summary("gcp-session", { name: "gcp/audit", peer: "gcp" }),
+    summary("aws-session", { name: "aws/audit", peer: "aws", tags: ["archived"] }),
+  ]);
+  expect(store.find("audit")).toBe("gcp-session");
+  // When all matches are archived and ambiguous, a name alone stays unresolved.
+  store.set([
+    summary("gcp-session", { name: "gcp/audit", peer: "gcp", tags: ["archived"] }),
+    summary("aws-session", { name: "aws/audit", peer: "aws", tags: ["archived"] }),
+  ]);
+  expect(store.find("audit")).toBeUndefined();
+});
+
 test("another agent's message finds its sender's chat by name, and that chat's harness", () => {
   const store = new SubsessionStore();
   let notified = 0;
@@ -157,4 +226,17 @@ test("another agent's message finds its sender's chat by name, and that chat's h
   expect(store.find("coord-deputy")).toBeUndefined();
   expect(renamed).toBe(2);
   expect(notified).toBe(1);
+});
+
+test("a subagent named only by its raw session/tool call id shows as Subagent, never the id", () => {
+  const t = translate;
+  const id = "01a15779-206b-72b0-96af-bdbe4868e19c/toolu_01H9Jk66ek2xu2m2SaOS09M1";
+  expect(subagentDisplayName(t, { id, name: id })).toBe("Subagent");
+  expect(subagentDisplayName(t, { id: "other", name: id })).toBe("Subagent");
+  expect(subagentDisplayName(t, { id, name: "Review the diff" })).toBe("Review the diff");
+  expect(subagentDisplayName(t, { id, name: "toolu docs" })).toBe("toolu docs");
+  expect(subagentDisplayName(t, { id: "Reviewer", name: "Reviewer" })).toBe("Reviewer");
+  expect(subagentDisplayName(t, { id: "s/call_7", name: "s/call_7" })).toBe("Subagent");
+  const thread = "019a3f2e-7c41-7d22-9b1e-5a6c0d4e8f13";
+  expect(subagentDisplayName(t, { id: thread, name: thread })).toBe("Subagent");
 });

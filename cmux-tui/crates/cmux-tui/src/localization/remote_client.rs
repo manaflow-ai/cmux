@@ -75,6 +75,9 @@ pub(crate) struct RemoteClientMessages {
     pub(super) wireguard_config_invalid: &'static str,
     pub(super) wireguard_start_failed: &'static str,
     pub wireguard_hub_conflict: &'static str,
+    pub wireguard_hub_token_needs_hub: &'static str,
+    pub stdin_claimed_twice: &'static str,
+    pub hub_token_invalid: &'static str,
     pub(super) wireguard_hub_serve_failed: &'static str,
     pub(super) wireguard_hub_signal_failed: &'static str,
     pub(super) wg_hub_option_required: &'static str,
@@ -260,6 +263,7 @@ and credential-source groups in occurrence order.
 through an in-process WireGuard peer (owner-only wg-quick file; no root)
   --wireguard-hub PATH  dial ws routes through a running `cmux wg hub` socket
 instead; exclusive with --wireguard-config
+  --wireguard-hub-token-stdin  read that hub's client token as one line on stdin
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
   --agent-hooks PROVIDER[,PROVIDER...] installs those coding-agent hooks for
 the remote user on each attach (for example claude,codex)
@@ -395,6 +399,9 @@ for up to two relay fallbacks
     wireguard_config_invalid: "WireGuard config is not a valid wg-quick file: {error}",
     wireguard_start_failed: "could not start the in-process WireGuard tunnel: {error}",
     wireguard_hub_conflict: "--wireguard-config and --wireguard-hub cannot be combined; one link owns a tunnel or dials through a hub, not both",
+    wireguard_hub_token_needs_hub: "--wireguard-hub-token-stdin needs --wireguard-hub",
+    stdin_claimed_twice: "only one input can come from stdin: --wireguard-hub-token-stdin and --invite-file - cannot be combined",
+    hub_token_invalid: "the WireGuard hub token on stdin must be one line of 1 to 255 bytes",
     wireguard_hub_serve_failed: "could not serve the WireGuard hub socket: {error}",
     wireguard_hub_signal_failed: "could not wait for the hub shutdown signal: {error}",
     wg_hub_option_required: "wg hub requires {option}",
@@ -436,6 +443,7 @@ ID とセッション:
 プロセス内 WireGuard ピア経由で接続します（所有者のみ読める wg-quick ファイル、root 不要）
   --wireguard-hub パス  実行中の `cmux wg hub` ソケット経由で ws ルートに接続します。
 --wireguard-config とは併用できません
+  --wireguard-hub-token-stdin  そのハブのクライアントトークンを標準入力から 1 行で読みます
   --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
   --agent-hooks プロバイダー[,プロバイダー...] 接続のたびにリモートユーザーへ
 コーディングエージェントのフックを導入 (例: claude,codex)
@@ -569,6 +577,9 @@ ID とセッション:
     wireguard_config_invalid: "WireGuard 設定は有効な wg-quick ファイルではありません: {error}",
     wireguard_start_failed: "プロセス内 WireGuard トンネルを開始できませんでした: {error}",
     wireguard_hub_conflict: "--wireguard-config と --wireguard-hub は併用できません。1 つのリンクはトンネルを所有するかハブ経由で接続するかのどちらかです",
+    wireguard_hub_token_needs_hub: "--wireguard-hub-token-stdin には --wireguard-hub が必要です",
+    stdin_claimed_twice: "標準入力から読めるのは 1 つだけです。--wireguard-hub-token-stdin と --invite-file - は併用できません",
+    hub_token_invalid: "標準入力の WireGuard ハブトークンは 1 から 255 バイトの 1 行である必要があります",
     wireguard_hub_serve_failed: "WireGuard ハブソケットを提供できませんでした: {error}",
     wireguard_hub_signal_failed: "ハブの終了シグナルを待機できませんでした: {error}",
     wg_hub_option_required: "wg hub には {option} が必要です",

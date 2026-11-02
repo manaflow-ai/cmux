@@ -20,9 +20,20 @@ public actor CloudLinkSession {
     }
 
     public nonisolated let key: CloudLinkKey
+    /// ``ownerLink`` != nil for the main actor (Settings > Machines' row), on the same link.
+    public nonisolated let ownership = CloudLinkOwnership()
     private let resolver: any CloudLinkResolver
     private let makeIntent: @Sendable () -> String
-    private var state = State.idle
+    private var state = State.idle {
+        didSet {
+            published += 1
+            let (ownership, owns, link) = (ownership, ownerLink != nil, published)
+            // task-owner: one main-actor hop; CloudLinkOwnership drops one a newer hop overtook
+            Task { @MainActor in ownership.publish(owns, link: link) }
+        }
+    }
+    /// Counts state changes: the order of the ``ownership`` hops.
+    private var published = 0
     /// Counts connects and ends; the current connect's ticket id.
     private var attempt: UInt64 = 0
     /// A revoke that came while the current connect was in flight: the
@@ -83,6 +94,37 @@ public actor CloudLinkSession {
         switch state {
         case .ready(let socket), .attached(let socket): socket.path
         case .idle, .connecting, .ended: nil
+        }
+    }
+
+    /// One atomic snapshot of the live endpoint and its ownership answer. Reading these
+    /// separately could combine a replacement socket with a superseded owner answer.
+    public var currentLinkSocket: CloudLinkSocket? {
+        switch state {
+        case .ready(let socket), .attached(let socket): socket
+        case .idle, .connecting, .ended: nil
+        }
+    }
+
+    /// The current connect's id while its link is up and its answer said the signed-in caller owns
+    /// the machine (``CloudLinkSocket/callerOwnsVM``), else nil. A chat start or a trust call reads
+    /// it before it connects and again as it sends: a different answer means the link ended or a
+    /// new connect asked the Cloud API again, so an owner answer never carries over to another link
+    /// (as ``CloudMachineLink/ownerLink`` on the legacy link).
+    public var ownerLink: Int? {
+        switch state {
+        case .ready(let socket), .attached(let socket): socket.callerOwnsVM ? Int(truncatingIfNeeded: attempt) : nil
+        case .idle, .connecting, .ended: nil
+        }
+    }
+
+    /// True while the link is up and its connect's answer said the machine is a teammate's
+    /// (``CloudLinkSocket/callerIsTeammate``): a chat start is refused as a teammate's machine
+    /// (`agent_session.team_vm_blocked`). It never grants a start; only ``ownerLink`` does.
+    public var callerIsTeammate: Bool {
+        switch state {
+        case .ready(let socket), .attached(let socket): socket.callerIsTeammate
+        case .idle, .connecting, .ended: false
         }
     }
 

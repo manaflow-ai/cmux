@@ -18,7 +18,7 @@
   z-index: var(--layer-overlay);
   container-type: size;
   display: flex;
-  padding: 8px;
+  padding: var(--ds-space-2);
   box-sizing: border-box;
   pointer-events: none;
   /* No opacity, transform, filter, will-change or paint containment here: any of them makes this
@@ -35,7 +35,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 18px;
+  border-radius: var(--ds-radius-composer);
   background: color-mix(in srgb, var(--acpmux-drop-tone) var(--acpmux-drop-wash, 3%), transparent);
   /* No will-change: it would make the sheet the pill's backdrop root for as long as it shows. */
   animation: acpmux-drop-in var(--acpmux-drop-in) var(--cmux-ease-out, ease-out) backwards;
@@ -114,8 +114,8 @@
   flex: none;
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: var(--ds-control-primary);
+  height: var(--ds-control-primary);
   border-radius: 999px;
   color: var(--acpmux-drop-tone);
   background: color-mix(in srgb, var(--acpmux-drop-tone) 14%, transparent);
@@ -156,7 +156,7 @@
 /* A narrow chat (a split, a floating chat): the refusal's reason may wrap under the title. */
 @container (max-width: 300px) {
   .acpmux-drop-pill {
-    border-radius: 18px;
+    border-radius: var(--ds-radius-composer);
   }
   .acpmux-drop-hint {
     white-space: normal;

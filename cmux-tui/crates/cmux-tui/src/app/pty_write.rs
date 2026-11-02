@@ -109,6 +109,9 @@ impl App {
 
     pub(super) fn focus_pane_after_input(&mut self, pane: PaneId) {
         if self.prepare_pty_input_before_mutation() {
+            // A pane of a docked workspace (or of the stage while a dock has
+            // focus) focuses its workspace first.
+            self.focus_frame_workspace_of_pane(pane);
             let workspace_index = self.tree.active_workspace;
             let screen_index =
                 self.tree.active_workspace().map(|workspace| workspace.active_screen);

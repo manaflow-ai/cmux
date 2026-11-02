@@ -14,6 +14,13 @@ class BaseRedChecksTests(unittest.TestCase):
         text = "\x1b[31m### 2 cmux-next check(s) failed\x1b[0m\n- Main-thread concurrency (failure)\n- Crash safety (timed_out)\n"
         self.assertEqual(module.failed_names(text), {"Main-thread concurrency", "Crash safety"})
 
+    def test_parses_timestamped_job_log_lines(self):
+        # As the job-logs endpoint returns them (push run 40596227506).
+        text = ("2026-10-27T22:43:14.6681431Z ### 1 cmux-next check(s) failed\n"
+                "2026-10-27T22:43:14.6689782Z - Check the app FFI pin (failure)\n"
+                "2026-10-27T22:43:14.6690119Z Each check's own step log has the details.\n")
+        self.assertEqual(module.failed_names(text), {"Check the app FFI pin"})
+
     def test_green_summary_has_no_reds(self):
         self.assertEqual(module.failed_names("All blocking cmux-next checks passed.\\n"), set())
 
@@ -70,6 +77,32 @@ class BaseRedChecksTests(unittest.TestCase):
                 {"Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
             )
             self.assertIn("/actions/jobs/42/logs", paths[-1])
+        finally:
+            module.api = original
+
+    def test_redirect_to_another_host_drops_the_token(self):
+        # The job-logs 302 goes to a signed blob URL that refuses a bearer token (401).
+        handler = module.DropAuthOnRedirect()
+        request = module.urllib.request.Request(
+            "https://api.github.com/repos/manaflow-ai/cmux/actions/jobs/42/logs",
+            headers={"Authorization": "Bearer token", "Accept": "application/vnd.github+json"},
+        )
+        moved = handler.redirect_request(request, None, 302, "Found", {}, "https://blob.example.net/logs?sig=x")
+        self.assertFalse(moved.has_header("Authorization"))
+        self.assertEqual(moved.get_header("Accept"), "application/vnd.github+json")
+        same = handler.redirect_request(request, None, 302, "Found", {}, "https://api.github.com/other")
+        self.assertEqual(same.get_header("Authorization"), "Bearer token")
+        downgraded = handler.redirect_request(request, None, 307, "Temporary", {}, "http://api.github.com/other")
+        self.assertFalse(downgraded.has_header("Authorization"))
+
+    def test_unknown_previous_status_fails_closed(self):
+        original = module.api
+        try:
+            for run in ('{"name":"cmux-next checks (god files, concurrency, crash safety, l10n)"}',
+                        '{"name":"cmux-next checks (god files, concurrency, crash safety, l10n)","status":"odd"}'):
+                module.api = lambda _base, _token, _path, run=run: ('{"check_runs":[%s]}' % run).encode()
+                with self.assertRaises(RuntimeError):
+                    module.base_reds("manaflow-ai/cmux", "before", "https://api.github.com", "token")
         finally:
             module.api = original
 

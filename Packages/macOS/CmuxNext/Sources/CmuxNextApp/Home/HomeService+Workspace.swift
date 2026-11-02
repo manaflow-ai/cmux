@@ -46,6 +46,9 @@ extension HomeService {
                 homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home) {
                     TabMoves.toNewDockColumn($0, anchor: $1, edge: .left, role: .agentChat, respawn: $2, pinned: $3, services: services,
                                              completion: $4) })
+                // Each window's own Home is docked on every connect too (cmux#27880); before the
+                // Chief's tab, which can wait long for the Chief's owner.
+                if !HomeDock.classic { await services.windowHomes.ensureDocks(connection) }
                 try await ensureChiefTab(connection, home: home)
             } catch is CancellationError {
             } catch {
@@ -224,11 +227,11 @@ extension HomeService {
     /// The strip title of conversation tab `tab`: its conversation's title.
     func tabTitle(for tab: TabModel) -> String {
         let id = tab.snapshot.conversation?.conversation
+        // A Chief's one name (its record, or a rename being saved), as its tile and header show it.
+        if let id, let name = chiefName(of: .init(id)) { return name }
         if let id, let chief = cloudChiefs.chief(for: id) {
             return chief.displayName.isEmpty ? HomeStrings.chiefName : chief.displayName
         }
-        // A cloud Chief renamed since the list was read: the directory keeps the rename.
-        if let id, let name = chiefNames.first(where: { $0.key.rawValue == id })?.value { return name }
         let title = conversations.first { $0.id == id }?.title ?? ""
         return title.isEmpty ? HomeStrings.title : title
     }

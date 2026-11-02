@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-20: "i made density comfortable and now it looks like this (home right side
@@ -11,7 +12,7 @@ import Testing
 /// `SidebarStyle.rowTrailingTrim` short of the right inset, and the pinned rows end there too.
 /// The group header's bar starts left of the rows, at its members' rail (Lawrence 2026-10-23), so
 /// the pinned rows start at the rows' inset, not at the bar.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarPinnedRowWidthTests {
     static let home = LayoutItemID("itm_home"), store = LayoutItemID("itm_app_store")
     static let group = GroupID("grp-next")
@@ -100,7 +101,7 @@ struct SidebarPinnedRowWidthTests {
             Motion.reduceMotionOverride = nil
         }
         let h = Harness(width: c.start)
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         h.resize(to: c.end)
         try #require(h.list.displayed.row(for: Self.topKey) != nil, "the list draws no top block")
         let inset = SidebarDensityTokens.horizontalInset
@@ -117,7 +118,8 @@ struct SidebarPinnedRowWidthTests {
             let (pill, radius) = try h.itemPill(id)
             #expect(abs(pill.minX - inset) < 0.5, "\(id) starts at \(pill.minX), the rows at the inset \(inset)")
             #expect(abs(pill.maxX - header.maxX) < 0.5, "\(id) ends at \(pill.maxX), the group header at \(header.maxX) (list \(width))")
-            #expect(pill.maxX <= width - inset + 0.5, "\(id) runs past the sidebar's trailing inset: \(pill.maxX) in \(width)")
+            // Since Leo 2026-10-27 a row's fill runs to `rowEdgeGap` from the sidebar's edge, never past it.
+            #expect(pill.maxX <= width - SidebarStyle.rowEdgeGap + 0.5, "\(id) runs past the sidebar's edge gap: \(pill.maxX) in \(width)")
             #expect(abs(radius - headerRadius) < 0.01, "\(id) radius \(radius), the group header's \(headerRadius)")
             #expect(abs(radius - SidebarDensityTokens.rowCornerRadius) < 0.01, "\(id) radius \(radius) is not the density token")
         }

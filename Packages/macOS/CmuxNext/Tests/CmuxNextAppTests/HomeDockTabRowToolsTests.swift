@@ -106,7 +106,10 @@ import Testing
         let tools = ChiefPaneTools(chief: chief, registry: registry)
         let rows = chief.allSubagents(), items = tools.subagentsMenu().items
         #expect(rows.count == 2)
-        #expect(items.map(\.title) == rows.map(\.info.title))
+        // An untitled subagent's sidebar row stays icon-led under the Chief header; the menu, which has no
+        // such header, names it Subagent (Leo 2026-10-29).
+        #expect(rows.map(\.info.title) == ["", ""])
+        #expect(items.map(\.title) == rows.map { $0.info.title.isEmpty ? ChiefToolStrings.subagent : $0.info.title })
         #expect(items.map(\.toolTip) == rows.map(\.info.activity.shortLabel))
         let runs = items.compactMap(ActionRegistry.menuRun(of:))
         #expect(runs.map(\.id) == Array(repeating: ActionID("chief.openSubagent"), count: rows.count))

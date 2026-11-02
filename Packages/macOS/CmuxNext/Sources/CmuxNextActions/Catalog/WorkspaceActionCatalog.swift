@@ -245,7 +245,8 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "palette.toggleWorkspacePin",
                 title: String(localized: "action.palette.toggleWorkspacePin", defaultValue: "Pin/Unpin Workspace", bundle: .module),
                 keywords: ["pin", "unpin", "favorite"], category: .workspace, symbol: "pin",
-                surfaces: [.palette, .menu, .contextMenu, .keyboard], targets: [.workspace], cliName: "workspace pin-unpin",
+                surfaces: [.palette, .menu, .contextMenu, .keyboard], arguments: [CatalogArgument.pinnedBool], targets: [.workspace],
+                cliName: "workspace pin-unpin",
                 mainMenu: .file
             ),
             // Archive keeps the workspace in its group (or its section), last and dimmed; Unarchive puts
@@ -354,7 +355,10 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "workspaceGroup.newSubgroup",
                 title: String(localized: "action.workspaceGroup.newSubgroup", defaultValue: "New Subgroup", bundle: .module),
                 keywords: ["group", "nest", "folder", "create"], category: .workspace, symbol: "folder.badge.plus",
-                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group new-subgroup"
+                surfaces: [.palette, .contextMenu],
+                // The CLI's `workspace group create --parent GROUP --name N` and MCP name both.
+                arguments: [CatalogArgument.groupWorkspaceGroup.optional, CatalogArgument.nameString.optional],
+                targets: [.workspaceGroup], cliName: "workspace-group new-subgroup"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.rename",

@@ -1,6 +1,6 @@
 public import CoreGraphics
 
-/// The strip scrollbar's thumb: a minimap of the visible range over the
+/// The strip scrollbar's thumb: the visible range over the
 /// whole strip (plans/cmux-next/dock-column.md, rules B1 to B4). Pure.
 public nonisolated enum StripScrollbarGeometry {
     /// B1. Nil when every column fits (nothing to scroll). Otherwise the

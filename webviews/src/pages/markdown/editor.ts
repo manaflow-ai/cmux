@@ -60,11 +60,13 @@ import {
 } from "./comments";
 import { NearCodeBlocks } from "./nearCode";
 import { imageSize, obsidianSyntaxPlugin } from "./obsidian";
+import { paddingSelectPlugin } from "./paddingSelect";
 import { isPointerSelecting, pointerChanged, pointerSelectPlugin } from "./pointerSelect";
 import {
   ResizableTableView,
   tableClipboard,
   tableDragOutPlugin,
+  tableTextSelectPlugin,
   tableKeyDown,
   tableViewAt,
   type TableWidths,
@@ -332,6 +334,8 @@ export class MarkdownEditor {
           },
         }));
       })
+      // Before gfm's table editing: its Shift-click handler would end the event first.
+      .use(tableTextSelectPlugin)
       .use(commonmark)
       .use(gfm)
       .use(referenceLinkSchema)
@@ -343,6 +347,7 @@ export class MarkdownEditor {
       .use(clipboard)
       .use(rawSchema)
       .use(pointerSelectPlugin)
+      .use(paddingSelectPlugin)
       .use(tableDragOutPlugin)
       .use(activeBlockPlugin)
       .use(taskCheckboxPlugin())

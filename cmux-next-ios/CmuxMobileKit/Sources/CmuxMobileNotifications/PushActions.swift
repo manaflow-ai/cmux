@@ -10,6 +10,12 @@ public enum PushCategory: String, CaseIterable, Sendable {
     case failed = "CMUX_MOBILE_FAILED"
     case chief = "CMUX_MOBILE_CHIEF"
     case terminal = "CMUX_MOBILE_TERMINAL"
+    /// Cloud attention pushes navigate to the Cloud chat and never carry
+    /// reply buttons. These categories still need registration so APNs does
+    /// not silently fall back to an unknown category.
+    case cloudQuestion = "CLOUD_QUESTION"
+    case cloudPermission = "CLOUD_PERMISSION"
+    case cloudDone = "CLOUD_DONE"
     /// The phone's own "Couldn't reach <Mac>" notification.
     case retry = "CMUX_MOBILE_RETRY"
     /// A sealed push before it opened, and any push that is not to be acted
@@ -116,11 +122,22 @@ public struct PushActions: Sendable {
         button.opensApp || (requireFaceID && (button == .deny || button == .reply || button == .terminalReply))
     }
 
-    /// The buttons the content extension sets: the payload's own, except with
-    /// Show previews off, when the static buttons stay (their titles never name
-    /// an option on the lock screen; PR #24156 review L1).
-    public func extensionActions(for payload: PushPayload) -> [UNNotificationAction] {
-        payload.previews ? actions(for: payload) : []
+    /// The buttons the content extension sets: the payload's own, or nil to
+    /// keep the static buttons, as with Show previews off (their titles never
+    /// name an option on the lock screen; PR #24156 review L1). With
+    /// `replyField` the long look shows the system's reply field at its
+    /// bottom (the category's Reply), so no "Reply" button stands beside it
+    /// (the button opened a second field, and read as unexplained).
+    public func extensionActions(for payload: PushPayload, replyField: Bool = false) -> [UNNotificationAction]? {
+        guard payload.previews else { return nil }
+                // Chief keeps its Reply button: its long look has no composer, and a
+        // Chief alert without Reply read as unrepliable (2026-10-30).
+        let plan = plan(for: payload).filter { !(replyField && $0.action == .reply && payload.kind != .chief) }
+        return plan.map { button in
+            // Without the composer the system field is the way to reply: say to whom.
+            let title = button.action == .reply ? payload.agent.map { String(localized: "Reply to \($0)") } ?? button.title : button.title
+            return action(button.action, title: title)
+        }
     }
 
     /// Every category, with the buttons a notification gets without the
@@ -142,7 +159,7 @@ public struct PushActions: Sendable {
         case .question, .questionForm: [action(.answer)]
         case .permission: [action(.allowOnce), action(.deny)]
         case .completed, .failed, .chief: [action(.reply)]
-        case .terminal, .sealed: []
+        case .terminal, .sealed, .cloudQuestion, .cloudPermission, .cloudDone: []
         case .retry: [action(.retry)]
         }
     }
@@ -244,10 +261,9 @@ public struct PushSharedPreference {
     }
 }
 
-/// Which stores a Require Face ID call writes. `AppLockController.init` runs in
-/// `RootView.body`, so the same value arrives on every body pass: a write then
-/// (a `UserDefaults.standard` write wakes `@AppStorage` readers, which run the
-/// body again) loops the first frame forever. Only a change writes.
+/// Which stores a Require Face ID call writes. AppLock sends the setting on
+/// appear, which may equal the stored value, and a needless
+/// `UserDefaults.standard` write wakes `@AppStorage` readers. Only a change writes.
 public struct PushFaceIDSync: Sendable, Equatable {
     /// The app's own defaults' value.
     public private(set) var local: Bool

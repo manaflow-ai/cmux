@@ -12,10 +12,18 @@ public nonisolated struct HomeRecipientLook: Hashable, Sendable {
     public var avatar: HomeChiefAvatar?
     /// Where a Chief runs, after "Chief" under the name; nil shows the source alone.
     public var tag: String?
+    /// When the recipient was last active ("Active 2 hours ago"); the list shows it only on rows that
+    /// would otherwise read the same as another (two Chiefs named "Chief" on this Mac).
+    public var activity: String?
 
-    public init(avatar: HomeChiefAvatar? = nil, tag: String? = nil) {
+    /// - Parameters:
+    ///   - avatar: The Chief's avatar; nil draws initials.
+    ///   - tag: Where a Chief runs; nil shows the source alone.
+    ///   - activity: When it was last active, shown only to tell alike rows apart.
+    public init(avatar: HomeChiefAvatar? = nil, tag: String? = nil, activity: String? = nil) {
         self.avatar = avatar
         self.tag = tag
+        self.activity = activity
     }
 }
 

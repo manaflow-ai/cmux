@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Closing the last column or row of a scrolling strip (Lawrence 2026-10-20: "the pane closes
@@ -10,6 +11,7 @@ import Testing
 /// after the panes land), and ends where the new layout puts it. Frames step at a fixed 120 Hz dt,
 /// so every assertion is about frame N, not wall time.
 @MainActor
+@Suite(.closesItsWindows)
 struct ColumnCloseScrollMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -93,6 +95,7 @@ struct ColumnCloseScrollMotionTests {
     /// and the carried pane frames together), so either one may carry the shift.
     @Test func closingTheLastColumnShiftsTheStripOnTheCloseSpringFromItsFirstFrame() throws {
         let strip = Strip(Self.columns(3), focused: "p3")
+        defer { strip.window.closeAfterTest() }
         #expect(strip.screen.scroll.value > 100, "three half-width columns scroll to the end for p3 (offset \(strip.screen.scroll.value))")
         let start = strip.shown("p2").minX
 
@@ -134,6 +137,7 @@ struct ColumnCloseScrollMotionTests {
     /// panes land (the camera keeps that spring until it rests too).
     @Test func closingAMiddleColumnAtTheEndMovesPanesAndCameraAsOneMotion() {
         let strip = Strip(Self.columns(4), focused: "p4")
+        defer { strip.window.closeAfterTest() }
         let before = strip.shown("p4")
         strip.close(to: .columns([LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1")), LayoutColumn(id: "c2", width: 0.5, root: .leaf("p2")),
                                    LayoutColumn(id: "c4", width: 0.5, root: .leaf("p4"))]), focus: "p4")
@@ -154,6 +158,7 @@ struct ColumnCloseScrollMotionTests {
     /// Reduce Motion: the close and the shift land in the change itself.
     @Test func reduceMotionClosesTheLastColumnInOneFrame() {
         let strip = Strip(Self.columns(3), focused: "p3", reduceMotion: true)
+        defer { strip.window.closeAfterTest() }
         strip.close(to: Self.columns(2), focus: "p2")
         #expect(abs(strip.screen.scroll.value - strip.screen.scroll.target) < 0.01)
         #expect(abs(strip.screen.scroll.value) < 0.5)
@@ -166,6 +171,7 @@ struct ColumnCloseScrollMotionTests {
     /// down into view on the close spring from the close's own frame, and rest at the new end.
     @Test func closingTheLastRowShiftsTheRowsOnTheCloseSpringFromItsFirstFrame() throws {
         let strip = Strip(Self.rows([400, 400, 400, 400]), focused: "p4")
+        defer { strip.window.closeAfterTest() }
         let rows = try #require(strip.screen.rowScrolls["c1"])
         #expect(rows.state.spring.value > 100, "four 400 permille rows scroll to the end for p4 (offset \(rows.state.spring.value))")
         let start = strip.shown("p3").minY
@@ -193,6 +199,7 @@ struct ColumnCloseScrollMotionTests {
     /// still glide to their places instead of jumping by the offset they had.
     @Test func closingTheLastOverflowingRowGlidesWhenTheRestFit() {
         let strip = Strip(Self.rows([500, 500, 500]), focused: "p3")
+        defer { strip.window.closeAfterTest() }
         #expect((strip.screen.rowScrolls["c1"]?.state.spring.value ?? 0) > 100)
         let before = strip.shown("p2")
         strip.close(to: Self.rows([500, 500]), focus: "p2")

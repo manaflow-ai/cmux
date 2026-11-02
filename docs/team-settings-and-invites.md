@@ -82,8 +82,21 @@ type TeamDetail = { team: { id: string; displayName: string;
   billing: TeamBillingSummary };
 ```
 
+- `GET /api/teams` -> `200 { teams: TeamListing[], selectedTeamId: string |
+  null }`, where `TeamListing = { id, displayName, profileImageUrl: string |
+  null, role: TeamRole, permissions: TeamViewerPermissions }`. Membership is
+  read fresh from Hexclave (one paged read of the user's teams), then each
+  team's grants as `requireTeamAccess` reads them, at most 4 at a time. A team
+  deleted during the read is left out; any other Hexclave failure is a 503
+  with `retry-after`, never a guessed role. `selectedTeamId` is null unless
+  the selected team is in `teams`. The macOS and iOS apps use this to show
+  roles and to enable rename and delete only for admins.
 - `POST /api/teams` `{ displayName }` -> `201 { team: { id, displayName } }`.
-  Creator gets `team_admin`, team becomes selected.
+  Creator gets `team_admin`, team becomes selected. Every path that creates a
+  team must grant the creator `team_admin` and delete the team when that grant
+  fails (`grantTeamAdmin` here; `createTeam` in the iOS Worker
+  `cmux-next-ios/backend`). Teams created before the Worker did this are found
+  by `web/scripts/backfill-team-admins.ts`.
 - `GET /api/teams/[teamId]` -> `TeamDetail` (invitations and links empty for
   non-admins).
 - `PATCH /api/teams/[teamId]` `{ displayName?, profileImageUrl? }` (admin).

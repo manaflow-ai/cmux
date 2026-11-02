@@ -5,7 +5,7 @@ import CmuxNextIcons
 /// One extension action: Chromium's icon, which already carries the badge
 /// and the disabled look laid out on the whole button, with gray hover
 /// and press fills.
-final class ExtensionActionButton: NSButton, PointerHoverReporting {
+final class ExtensionActionButton: ClickableButton, PointerHoverReporting {
     let actionID: String
     var onRun: (() -> Void)?
     var onMenu: ((CGPoint) -> Void)?
@@ -68,8 +68,8 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
     }
 
     private func applyIcon(_ action: CEFExtensionAction) {
-        // The extension's own image keeps its size (the bar's height) in the larger button.
-        let size = OmnibarStyle.barHeight
+        // The extension's own image fills the button (28 pt at Standard).
+        let size = OmnibarStyle.buttonSize
         if let data = action.iconPNG, let icon = NSImage(data: data) {
             icon.size = NSSize(width: size, height: size)
             image = icon

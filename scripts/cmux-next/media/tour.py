@@ -10,7 +10,8 @@ scripts/smoke-signed-app-cli.sh uses), drives it only through the bundled
 
     manifest.json   steps with their command, status, output and screenshot
     shots/NN-*.png  one screenshot per step (a failed step is captured too)
-    frames/*.jpg    the window about twice a second, for the video
+    capture.mov    continuous window-only video at up to 60 fps
+    frames/*.jpg    fastest available stills when no native video route works
 
 A tour is a JSON file with a `title` and `steps`, and optionally `settings`:
 the cmux-next.json the app launches with (`CMUX_NEXT_CONFIG_FILE`), a private
@@ -63,6 +64,7 @@ import os
 from pathlib import Path
 import plistlib
 import re
+import selectors
 import shutil
 import signal
 import socket
@@ -73,6 +75,8 @@ import threading
 import time
 from typing import Any
 
+MAX_SECONDS = 300
+
 STEP_KEYS = {"title", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows"}
 # Other windows a step shoots beside the main one (floating panels, popovers,
 # sheets), at most this many, each at least this big in points.
@@ -81,23 +85,29 @@ MIN_OTHER_WINDOW = (40, 24)
 # All of a step's other-window shots share this many seconds.
 OTHER_WINDOWS_BUDGET = 20.0
 TOUR_KEYS = {"title", "steps", "settings"}
+# A directional focus right after a pane close (focus_after_close).
+DIRECTIONAL_FOCUS = {"focusLeft", "focusRight", "focusUp", "focusDown"}
+# Focus moves that open no pane, so they never undo a close (ActionCatalog+Focus.swift).
+FOCUS_MOVES = DIRECTIONAL_FOCUS | {
+    "focusPreviousPane", "focusNextPane", "focusPaneByNumber", "pane.focus", "column.focusLeft",
+    "column.focusRight", "focusHistoryBack", "focusHistoryForward", "focusHistoryLast"}
+PANE_CLOSES = {"closePane", "pane.closeOthers"}
 DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
 POSTCONDITION_TIMEOUT = 2.0
 SOCKET_TIMEOUT = 60.0
 # --stop: seconds a bundle's processes get after SIGTERM before SIGKILL.
 STOP_GRACE = 10.0
-FRAME_INTERVAL = 0.5
+FRAME_INTERVAL = 1 / 60
 # Five minutes of frames; a tour that runs longer keeps its screenshots but its
 # video stops here, so a stuck step cannot fill the runner's disk.
-MAX_FRAMES = 600
+MAX_FRAMES = 60 * MAX_SECONDS
 WINDOW_TIMEOUT = 20.0
 # A window snapshot paints each shown page too, so it can take a few seconds.
 SNAPSHOT_TIMEOUT = 20.0
 APP_WINDOW_MODE = "app window (debug.window_snapshot)"
-# Each app-window frame is a main-thread snapshot of the app being recorded:
-# fewer of them keep its motion from stalling on the capture.
-APP_WINDOW_FRAME_INTERVAL = 1.0
+# Still-only routes run sequentially, limited by their capture latency (at most 60 Hz).
+APP_WINDOW_FRAME_INTERVAL = FRAME_INTERVAL
 # scripts/release-media/host_agent.py on main looks in the same places.
 HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
                      Path("/Applications/CuaSshScreenCapture.app"))
@@ -105,13 +115,21 @@ HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
 MAX_STEPS = 30
 READ_ONLY_POSTCONDITION_METHODS = {
     "debug.layers", "debug.surfaces", "debug.focus", "debug.window_list", "debug.windows",
-    "debug.pane_chrome", "debug.notifications", "debug.themes",
+    "debug.pane_chrome", "debug.notifications", "debug.themes", "debug.dialog",
 }
+# The tour's shells read these rc files, never the runner account's, whose `%n@%m` prompt names the CI
+# Mac. A DEBUG app launched with CMUX_CAPTURE_SHELL_HOME (as a PR capture slot is) starts its terminals'
+# zsh there (ZDOTDIR; Ghostty's wrapper hands it back before `.zshrc` runs) and names the showcase Mac
+# ("Studio Mac") on its panes and its machine picker, so pr-media's privacy check
+# (scripts/ci/pr_media_privacy.py) passes the tour's shots.
+FIXTURE_ZSHRC = "PROMPT='tour@studio-mac %1~ %# '\nRPROMPT=''\n"
 # Inherited caller context a cmux terminal exports. Left in place, a local run
-# inside cmux would route the tour's commands at the caller's own workspace.
+# inside cmux would route the tour's commands at the caller's own workspace, and
+# any of LaunchIdentity.otherCmuxMarkers makes the app drop the tour's
+# CMUX_NEXT_SOCKET_PATH and CMUX_CAPTURE_SHELL_HOME as another cmux's.
 SCRUBBED_ENV = ("CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID",
                 "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD", "CMUX_TUI_SOCKET", "CMUX_TAG",
-                "CMUX_BUNDLE_ID", "CMUX_SOCKET")
+                "CMUX_BUNDLE_ID", "CMUX_SOCKET", "MUX_AGENT_TOKEN_FILE")
 
 
 class TourError(Exception):
@@ -178,7 +196,42 @@ def load_tour(path: Path) -> dict[str, Any]:
             if (not isinstance(expect.get("fields"), dict) or not expect["fields"]
                     or not all(isinstance(field, str) and field for field in expect["fields"])):
                 raise TourError(f"{where}: `expect.fields` must be a non-empty object of field names")
+    focus_after_close(path, steps)
     return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings")}
+
+
+def _action(step: dict[str, Any]) -> str | None:
+    """The action id a `cmux action run ID ...` step runs, else None."""
+    command = step.get("cmux") or []
+    return command[2] if len(command) >= 3 and command[:2] == ["action", "run"] else None
+
+
+def _keeps_panes(step: dict[str, Any]) -> bool:
+    """A step that opens no pane: a wait, a setting, a tunable, or a focus move."""
+    command, rpc = step.get("cmux"), step.get("rpc")
+    if command is None and rpc is None:
+        return True
+    if rpc is not None:
+        return command is None and rpc["method"] == "debug.tunables"
+    action = _action(step)
+    return command[0] == "settings" or action in FOCUS_MOVES
+
+
+def focus_after_close(path: Path, steps: list[dict[str, Any]]) -> None:
+    """A directional focus is refused when the last step that changed the panes closed one: the close
+    leaves the focus on a neighbour, and when it left one pane the move fails with "no pane left of
+    the focused pane", which fails the whole capture (#27839's main-pane tour)."""
+    for number, step in enumerate(steps, 1):
+        if _action(step) not in DIRECTIONAL_FOCUS:
+            continue
+        for earlier in reversed(steps[:number - 1]):
+            if _action(earlier) in PANE_CLOSES:
+                raise TourError(
+                    f"{path}: step {number} runs {_action(step)} after {_action(earlier)} with no pane opened "
+                    "between: the close already focused a neighbour, and with one pane left the move fails. "
+                    "Drop the step, or focus a pane by number (focusPaneByNumber)")
+            if not _keeps_panes(earlier):
+                break
 
 
 def command_line(argv: list[str]) -> str:
@@ -409,6 +462,63 @@ def frame_interval(mode: str) -> float:
     return APP_WINDOW_FRAME_INTERVAL if mode == APP_WINDOW_MODE else FRAME_INTERVAL
 
 
+class WindowVideo:
+    def __init__(self, session, pid: int | None, directory: Path, scratch: Path):
+        self.session, self.pid = session, pid
+        self.path = directory / "capture.mov"
+        self.scratch = scratch
+        self.process = None
+        self.log = None
+        self.reason = ""
+        self.log_path = self.scratch / "record-window.log"
+
+    def start(self) -> bool:
+        if sys.platform != "darwin" or self.pid is None:
+            self.reason = "ScreenCaptureKit requires macOS and an app PID"
+            return False
+        binary = self.scratch / "record-window"
+        source = Path(__file__).with_name("record-window.swift")
+        try:
+            built = subprocess.run(["xcrun", "swiftc", "-parse-as-library", str(source), "-o", str(binary)],
+                                   capture_output=True, text=True, timeout=120)
+            if built.returncode:
+                self.reason = "ScreenCaptureKit helper unavailable: " + built.stderr[-500:]
+                return False
+            # Both existing console routes can have different Screen Recording grants.
+            for mode, prefix in self.session.capture_routes:
+                self.path.unlink(missing_ok=True)
+                self.log = self.log_path.open("w+")
+                self.process = subprocess.Popen(prefix + [str(binary), str(self.pid), str(self.path)],
+                                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.log,
+                                                text=True)
+                with selectors.DefaultSelector() as ready:
+                    ready.register(self.process.stdout, selectors.EVENT_READ)
+                    if ready.select(timeout=30) and self.process.stdout.readline().strip() == "READY":
+                        return True
+                self.stop()
+                self.reason = f"ScreenCaptureKit unavailable through {mode}: " + self.log_path.read_text()[-500:].strip()
+        except (OSError, subprocess.SubprocessError) as error:
+            self.reason = str(error)
+            self.stop()
+        self.path.unlink(missing_ok=True)
+        return False
+
+    def stop(self) -> bool:
+        if self.process is None:
+            return False
+        process, self.process = self.process, None
+        try:
+            process.communicate(input="\n", timeout=20)
+        except (OSError, subprocess.TimeoutExpired):
+            process.kill()
+            process.communicate()
+        finally:
+            if self.log:
+                self.log.close()
+                self.log = None
+        return process.returncode == 0 and self.path.is_file() and self.path.stat().st_size > 0
+
+
 class Recorder(threading.Thread):
     """Frames of the app's window about every `interval` seconds, tagged with the step."""
 
@@ -422,9 +532,12 @@ class Recorder(threading.Thread):
         self.stopping = threading.Event()
         self.lock = threading.Lock()
         self.interval = frame_interval(screen.mode)
+        self.started = 0.0
+        self.elapsed = 0.0
 
     def run(self) -> None:
-        while not self.stopping.is_set():
+        self.started = time.monotonic()
+        while not self.stopping.is_set() and time.monotonic() - self.started < MAX_SECONDS:
             started = time.monotonic()
             with self.lock:
                 if self.stopping.is_set():
@@ -441,13 +554,15 @@ class Recorder(threading.Thread):
                 if problem:
                     self.error = problem
                 else:
-                    self.frames.append({"file": f"frames/{path.name}", "step": self.step})
+                    self.frames.append({"file": f"frames/{path.name}", "step": self.step,
+                                        "time": started - self.started})
             self.stopping.wait(max(0.0, self.interval - (time.monotonic() - started)))
 
     def stop(self) -> list[dict[str, Any]]:
         """Stop recording; the frames kept, which nothing appends to afterwards."""
         with self.lock:
             self.stopping.set()
+            self.elapsed = min(MAX_SECONDS, time.monotonic() - self.started) if self.started else 0.0
             frames = list(self.frames)
         if self.is_alive():
             # A capture in flight is bounded (60 s for the helper); its frame is dropped.
@@ -464,8 +579,13 @@ class App:
     """One launch of the app on a private socket, driven through its bundled CLI."""
 
     def __init__(self, app_path: Path, session: Session, workdir: Path, *, fresh_state: bool = False,
-                 settings: dict[str, Any] | None = None) -> None:
+                 settings: dict[str, Any] | None = None, launch_env: dict[str, str] | None = None,
+                 launch_args: list[str] | None = None) -> None:
         self.app_path = app_path
+        # Extra environment knobs and app arguments for one launch (the nightly
+        # visual gate's states launch with --showcase, for example).
+        self.launch_env = dict(launch_env or {})
+        self.launch_args = list(launch_args or [])
         self.session = session
         self.fresh_state = fresh_state
         self.cli_path = app_path / "Contents/Resources/bin/cmux"
@@ -474,6 +594,7 @@ class App:
         self.executable = app_path / "Contents/MacOS" / info["CFBundleExecutable"]
         self.bundle_tag = clean_tag((info.get("LSEnvironment") or {}).get("CMUX_TAG"))
         # sun_path holds 104 bytes, so the socket lives in a short private directory.
+        self.workdir = workdir
         self.socket_path = session.shareable(workdir) / "s.sock"
         self.log_path = workdir / "app.log"
         # The tour's own settings file; None keeps the session user's.
@@ -519,16 +640,27 @@ class App:
             self.session.run(["rm", "-rf", str(directory)])
             print(f"fresh state: cleared {directory}", flush=True)
 
+    def write_shell_home(self) -> Path:
+        """The tour's own zsh startup folder (FIXTURE_ZSHRC), readable by the session's user."""
+        home = self.session.shareable(self.workdir / "shell-home")
+        rc = home / ".zshrc"
+        rc.write_text(FIXTURE_ZSHRC, encoding="utf-8")
+        rc.chmod(0o644)
+        return home
+
     def launch(self) -> None:
         self.stop_daemon()
         self.clear_leftovers()
         self.clear_state()
         # CMUX_NEXT_NO_ACTIVATE: the app refuses every activation, so tours side by side on one Mac never take
         # focus or the key window from each other; debug.key and the CLI work on a window that is never key.
-        knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll", "CMUX_NEXT_NO_ACTIVATE=1"]
+        knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll", "CMUX_NEXT_NO_ACTIVATE=1",
+                 f"CMUX_CAPTURE_SHELL_HOME={self.write_shell_home()}"]
         if self.settings_path:
             knobs.append(f"CMUX_NEXT_CONFIG_FILE={self.settings_path}")
-        argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES"]
+        knobs += [f"{key}={value}" for key, value in sorted(self.launch_env.items())]
+        argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES",
+                                      *self.launch_args]
         with self.log_path.open("wb") as log:
             self.process = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT,
                                             env=self.environment(), start_new_session=True)
@@ -765,6 +897,13 @@ def shoot_other_windows(app: App, main_shot: Path) -> tuple[list[dict[str, Any]]
     return shots, "; ".join(problems)[:500] or None
 
 
+def step_label(result: dict[str, Any]) -> str:
+    """A step's status as reports show it: "unchecked" for an ok step whose shot no `expect` checked."""
+    if result.get("status") == "ok" and result.get("shot") and result.get("checked") is False:
+        return "unchecked"
+    return str(result.get("status", ""))
+
+
 def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: Path) -> dict[str, Any]:
     started = time.monotonic()
     result: dict[str, Any] = {"index": index, "title": step["title"], "status": "ok"}
@@ -805,6 +944,9 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
         "status": postcondition_status,
         "detail": postcondition_detail,
     }
+    # Whether an `expect` read the app's state and matched it. A step without one reports "ok" once
+    # it ran, whatever its shot shows, so its shot is unchecked (see `step_label`).
+    result["checked"] = postcondition_status == "passed"
     if postcondition_status in ("failed", "unavailable"):
         result["status"] = postcondition_status
         result["detail"] = (result.get("detail", "") + " " + postcondition_detail).strip()
@@ -843,6 +985,8 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"))
     screen = Screen(session, session.shareable(workdir / "raw"), app)
     recorder = Recorder(screen, frames)
+    video = WindowVideo(session, None, session.shareable(directory), screen.scratch)
+    video_started = False
     manifest: dict[str, Any] = {"name": tour["name"], "title": tour["title"], "steps": [], "frames": [],
                                 "frame_interval": recorder.interval, "console_user": session.user,
                                 "capture_mode": screen.mode}
@@ -874,12 +1018,19 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         if screen.rect is None:
             manifest["frames_error"] = f"no app window on screen within {WINDOW_TIMEOUT:.0f}s"
         else:
-            recorder.start()
+            video.pid = app.pid()
+            video_started = video.start()
+            if video_started:
+                manifest["video_mode"] = "ScreenCaptureKit window, requested 60 fps"
+            else:
+                manifest["video_fallback"] = video.reason
+                print(f"[{tour['name']}] still-only video fallback: {video.reason}", flush=True)
+                recorder.start()
         for index, step in enumerate(tour["steps"], 1):
             recorder.step = index
             result = run_step(app, screen, step, index, shots)
             manifest["steps"].append(result)
-            print(f"[{tour['name']}] {index:02d} {result['status']:<11} {step['title']}"
+            print(f"[{tour['name']}] {index:02d} {step_label(result):<11} {step['title']}"
                   + (f": {result['detail']}" if result.get("detail") else ""), flush=True)
             if not app.alive():
                 manifest["error"] = "the app exited during the tour: " + app.log_tail()
@@ -892,9 +1043,19 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         # whatever was behind it on the shared console.
         with recorder.lock:
             recorder.stopping.set()
+        # Finalize video while its window still exists. Never capture what is behind a closed app.
+        video_ok = video.stop()
+        if video_started:
+            if video_ok:
+                manifest["video"] = "capture.mov"
+            else:
+                manifest["frames_error"] = "window video could not be finalized"
+        manifest["frames"] = recorder.stop() if recorder.ident else []
+        if manifest["frames"] and recorder.elapsed:
+            manifest["frame_interval"] = recorder.elapsed / len(manifest["frames"])
+            manifest["capture_fps"] = len(manifest["frames"]) / recorder.elapsed
         # Then the app: a leftover app or daemon would serve the next run on this Mac.
         app.stop()
-        manifest["frames"] = recorder.stop() if recorder.ident else []
         if recorder.error and not manifest["frames"]:
             manifest.setdefault("frames_error", recorder.error)
         manifest["capture_rect"] = screen.rect

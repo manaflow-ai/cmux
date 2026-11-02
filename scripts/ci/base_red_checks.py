@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Classify push check-job reds against the immediately previous tip.
 
-The checks job is warning-only for failures already present on the previous push;
-missing or unreadable base evidence fails closed so a new red cannot be excused.
+The checks job stays red for every red check; this only names, in annotations, which reds
+the push added and which the previous tip already had (or had not finished), so the commit
+that broke a check is the one told to fix it.
 """
 from __future__ import annotations
 
@@ -16,18 +17,35 @@ import urllib.parse
 import urllib.request
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+# The job-logs endpoint starts every line with its time, "2026-10-27T22:43:14.6689782Z ".
+STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[0-9:.]+Z ")
 RED_LINE = re.compile(r"^- (.+?) \((?:failure|cancelled|timed_out|not run)\)$")
 JOB_ID = re.compile(r"/job/(\d+)(?:$|[/?#])")
 CHECKS_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+# Only these read as "not finished yet"; a missing or unknown status fails closed.
+PENDING = {"queued", "in_progress", "waiting", "requested", "pending"}
 
 
 def failed_names(text: str) -> set[str]:
     out = set()
     for line in ANSI.sub("", text).splitlines():
-        match = RED_LINE.match(line.strip())
+        match = RED_LINE.match(STAMP.sub("", line).strip())
         if match:
             out.add(match.group(1))
     return out
+
+
+class DropAuthOnRedirect(urllib.request.HTTPRedirectHandler):
+    # The job-logs endpoint answers 302 to a signed blob URL on another host.
+    # urllib carries the Authorization header along, and the blob store refuses
+    # the request with 401 (push run 40596227506), so a token never leaves the
+    # API host.
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        old, moved = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
+        if new is not None and (moved.scheme, moved.netloc) != (old.scheme, old.netloc):
+            new.remove_header("Authorization")
+        return new
 
 
 def api(base: str, token: str, path: str):
@@ -36,7 +54,7 @@ def api(base: str, token: str, path: str):
         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
                  "X-GitHub-Api-Version": "2022-11-28"},
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with urllib.request.build_opener(DropAuthOnRedirect).open(request, timeout=30) as response:
         return response.read()
 
 
@@ -50,10 +68,13 @@ def base_reds(repo: str, before: str, base: str, token: str) -> set[str] | None:
         raise RuntimeError("previous tip has no cmux-next checks job")
     # A push can start before the previous tip's checks job has finished.  Leo's
     # feat-cmux-next rule is that pending and queued base checks never block a
-    # landing, so let the caller classify this push's reds as warning-only until
+    # landing, so let the caller name this push's reds as inherited until
     # the next completed tip provides comparable evidence.
-    if runs[0].get("status") != "completed":
+    status = runs[0].get("status")
+    if status in PENDING:
         return None
+    if status != "completed":
+        raise RuntimeError(f"previous checks job has status {status!r}")
     details = runs[0].get("details_url", "")
     match = JOB_ID.search(details)
     if not match:
@@ -82,7 +103,7 @@ def main() -> int:
         print(f"base-red: unable to read previous tip {args.before}: {error}", file=sys.stderr)
         return 2
     if previous is None:
-        print(f"base-red: previous tip {args.before} is still pending; current reds are warning-only",
+        print(f"base-red: previous tip {args.before} is still pending; current reds are named as inherited",
               file=sys.stderr)
         for name in sorted(current):
             print(f"BASE_RED {name}")

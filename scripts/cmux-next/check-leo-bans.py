@@ -36,6 +36,7 @@ import re
 import struct
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 TYPE_SCALE = "schemas/type-scale/type-scale.json"
@@ -75,8 +76,13 @@ class Tree:
         if not wanted:
             return
         request = "".join(f"{self.rev}:{p}\n" for p in wanted).encode()
-        out = subprocess.run(["git", "-C", str(self.repo), "cat-file", "--batch"], input=request,
-                             capture_output=True).stdout
+        # The request goes through a file, never `input=` (git_batch.py): over a pipe, Python can
+        # block writing it while git blocks writing a big blob back, and the push hangs for good.
+        with tempfile.TemporaryFile() as stdin:
+            stdin.write(request)
+            stdin.seek(0)
+            out = subprocess.run(["git", "-C", str(self.repo), "cat-file", "--batch"], stdin=stdin,
+                                 capture_output=True).stdout
         cursor = 0
         for path in wanted:
             end = out.index(b"\n", cursor)

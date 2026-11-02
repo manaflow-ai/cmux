@@ -31,6 +31,8 @@ fn config(dir: Option<&Path>) -> Config {
     }))
     .unwrap();
     cfg.store.mode = if dir.is_some() { StoreMode::Local } else { StoreMode::Memory };
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     cfg
 }
 
@@ -910,4 +912,61 @@ async fn a_lazy_restart_resumes_a_pause_the_person_prompts_from_either_side_in_o
     assert_eq!(ids, ["v2", "v3"], "released in the order held");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `session`'s queue row for `prompt_id`, once it waits there.
+async fn queued_row(c: &mut Client, session: &str, prompt_id: &str) -> Value {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let attached = c.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+        let rows = attached["session"]["queue"].as_array().cloned().unwrap_or_default();
+        if let Some(row) = rows.into_iter().find(|q| q["promptId"] == prompt_id) {
+            return row;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "{prompt_id} never queued: {attached}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// A message another session sent (`acpmux send` from inside it: `session_message`) that a
+/// paused pair held and a resume released is still that session's message, with the class it was
+/// sent with (`prompt_class.rs`): its queue row behind the receiver's running turn says both.
+#[tokio::test]
+async fn a_released_message_keeps_its_sender_and_its_class() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    let sender = hub.resolve(&a).unwrap().meta().name;
+    let mut from_a = Client::as_session(&hub, &a).await;
+    let send = |id: &str, run: u32, class: Option<&str>| {
+        let mut mux = json!({"promptId": id});
+        if let Some(class) = class {
+            mux["class"] = json!(class);
+        }
+        let text = format!("Please check the build, run {run}");
+        json!({"sessionId": b, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": mux}})
+    };
+    for run in 1..=2 {
+        let sent = from_a.reply("session/prompt", send(&format!("k{run}"), run, None)).await;
+        assert!(sent.get("error").is_none(), "{sent}");
+    }
+    let third = from_a.reply("session/prompt", send("k3", 3, Some("block"))).await;
+    assert!(held(&third), "the third near-identical message is held: {third}");
+
+    // The receiver busy with a turn that is not the person's (it resumes nothing), so the
+    // released message waits in its queue.
+    let busy = json!({"sessionId": b, "prompt": [{"type": "text", "text": "until-cancel"}],
+                      "_meta": {"acpmux": {"promptId": "k-busy"}}});
+    c.0.send(Message::request(9_999, "session/prompt", busy).to_line()).await.unwrap();
+    c.wait_ran(&b, "k-busy").await;
+    let mut person = Client::person(&hub).await;
+    let resumed = person.call(RESUME, json!({"sessionId": b})).await;
+    assert_eq!(resumed["delivered"], 1, "{resumed}");
+
+    let row = queued_row(&mut c, &b, "k3").await;
+    assert_eq!(row["fromAgent"], sender.as_str(), "{row}");
+    assert_eq!(row["class"], "block", "{row}");
+    c.0.send(Message::notification("session/cancel", json!({"sessionId": b})).to_line())
+        .await
+        .unwrap();
 }
