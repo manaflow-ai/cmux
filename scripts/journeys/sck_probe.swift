@@ -69,7 +69,6 @@ enum Probe {
             result["screen"] = ["frame": "\(screen.frame)", "scale": screen.backingScaleFactor,
                                 "max_fps": screen.maximumFramesPerSecond]
         }
-        let counter = Counter()
         do {
             let content = try await SCShareableContent.currentProcess
             let number = await MainActor.run { CGWindowID(window.windowNumber) }
@@ -78,43 +77,65 @@ enum Probe {
                 print(String(data: try JSONSerialization.data(withJSONObject: result), encoding: .utf8) ?? "{}")
                 exit(0)
             }
-            let configuration = SCStreamConfiguration()
-            configuration.width = 1800
-            configuration.height = 1200
-            configuration.minimumFrameInterval = CMTime(value: 1, timescale: 240)
-            configuration.pixelFormat = kCVPixelFormatType_32BGRA
-            configuration.showsCursor = false
-            configuration.queueDepth = 8
-            let stream = SCStream(filter: SCContentFilter(desktopIndependentWindow: target), configuration: configuration, delegate: counter)
-            try stream.addStreamOutput(counter, type: .screen, sampleHandlerQueue: DispatchQueue(label: "probe"))
-            try await stream.startCapture()
-            var phases: [String: [Int]] = [:]
-            for phase in ["still", "layer", "draw"] {
-                let before = counter.snapshot()
-                let end = Date().addingTimeInterval(seconds / 3)
-                var hue: CGFloat = 0
-                while Date() < end {
-                    hue = (hue + 0.01).truncatingRemainder(dividingBy: 1)
-                    let h = hue
-                    await MainActor.run {
-                        guard let view = window.contentView as? DrawView else { return }
-                        if phase == "layer" {
-                            CATransaction.begin(); CATransaction.setDisableActions(true)
-                            view.layer?.sublayers?.first?.backgroundColor = NSColor(hue: h, saturation: 1, brightness: 1, alpha: 1).cgColor
-                            CATransaction.commit()
-                        } else if phase == "draw" {
-                            view.hue = h
-                            view.needsDisplay = true
-                        }
+            result["current_process_displays"] = content.displays.count
+            result["current_process_windows"] = content.windows.count
+            var all: [String: [String: [Int]]] = [:]
+            for filterKind in ["window", "display"] {
+                let counter = Counter()
+                let configuration = SCStreamConfiguration()
+                configuration.width = 1800
+                configuration.height = 1200
+                configuration.minimumFrameInterval = CMTime(value: 1, timescale: 240)
+                configuration.pixelFormat = kCVPixelFormatType_32BGRA
+                configuration.showsCursor = false
+                configuration.queueDepth = 8
+                let filter: SCContentFilter
+                if filterKind == "window" {
+                    filter = SCContentFilter(desktopIndependentWindow: target)
+                } else {
+                    guard let display = content.displays.first(where: { $0.frame.intersects(target.frame) }) ?? content.displays.first else {
+                        all[filterKind] = ["error-no-display": []]
+                        continue
                     }
-                    try? await Task.sleep(for: .milliseconds(8))
+                    filter = SCContentFilter(display: display, including: [target])
                 }
-                let after = counter.snapshot()
-                phases[phase] = zip(after, before).map { $0 - $1 }
+                let stream = SCStream(filter: filter, configuration: configuration, delegate: counter)
+                do {
+                    try stream.addStreamOutput(counter, type: .screen, sampleHandlerQueue: DispatchQueue(label: "probe"))
+                    try await stream.startCapture()
+                } catch {
+                    all[filterKind] = ["error: \(error)": []]
+                    continue
+                }
+                var phases: [String: [Int]] = [:]
+                for phase in ["still", "layer", "draw"] {
+                    let before = counter.snapshot()
+                    let end = Date().addingTimeInterval(seconds / 3)
+                    var hue: CGFloat = 0
+                    while Date() < end {
+                        hue = (hue + 0.01).truncatingRemainder(dividingBy: 1)
+                        let h = hue
+                        await MainActor.run {
+                            guard let view = window.contentView as? DrawView else { return }
+                            if phase == "layer" {
+                                CATransaction.begin(); CATransaction.setDisableActions(true)
+                                view.layer?.sublayers?.first?.backgroundColor = NSColor(hue: h, saturation: 1, brightness: 1, alpha: 1).cgColor
+                                CATransaction.commit()
+                            } else if phase == "draw" {
+                                view.hue = h
+                                view.needsDisplay = true
+                            }
+                        }
+                        try? await Task.sleep(for: .milliseconds(8))
+                    }
+                    let after = counter.snapshot()
+                    phases[phase] = zip(after, before).map { $0 - $1 }
+                }
+                try? await stream.stopCapture()
+                phases["stopped:" + (counter.stopped ?? "")] = []
+                all[filterKind] = phases
             }
-            try? await stream.stopCapture()
-            result["phases_callbacks_complete_idle"] = phases
-            result["stopped"] = counter.stopped ?? ""
+            result["filters_phases_callbacks_complete_idle"] = all
         } catch {
             result["error"] = String(describing: error)
         }

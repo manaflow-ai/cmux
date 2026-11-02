@@ -388,22 +388,24 @@ def step_sck_probe(j, step):
                             "-o", os.path.join(exe_dir, "SCKProbe")], capture_output=True, text=True, timeout=300)
     if built.returncode:
         raise D.StepError(f"sck_probe: build failed: {built.stderr[-600:]}")
-    with open(os.path.join(work, "SCKProbe.app", "Contents", "Info.plist"), "w") as f:
+    with open(os.path.join(work, "SCKProbe.app", "Contents", "Info.plist"), "w") as f:  # noqa: PTH123
         f.write('<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleExecutable</key>'
                 '<string>SCKProbe</string><key>CFBundleIdentifier</key><string>ai.manaflow.resize-videos.sckprobe</string>'
-                '<key>CFBundlePackageType</key><string>APPL</string></dict></plist>')
+                '<key>CFBundleName</key><string>SCKProbe</string><key>CFBundlePackageType</key><string>APPL</string>'
+                '<key>LSMinimumSystemVersion</key><string>14.4</string></dict></plist>')
     subprocess.run(["codesign", "-s", "-", "--force", os.path.join(work, "SCKProbe.app")], capture_output=True, timeout=60)
     out = os.path.join(work, "probe.out")
     if os.path.exists(out):
         os.remove(out)
     seconds = str(step.get("seconds", 9))
-    subprocess.run(["open", "-W", "--stdout", out, "--stderr", out + ".err", os.path.join(work, "SCKProbe.app"),
-                    "--args", seconds], capture_output=True, timeout=float(seconds) + 60)
+    opened = subprocess.run(["open", "-W", "--stdout", out, "--stderr", out + ".err", os.path.join(work, "SCKProbe.app"),
+                             "--args", seconds], capture_output=True, text=True, timeout=float(seconds) * 2 + 60)
     text = open(out).read() if os.path.exists(out) else ""
     line = next((l for l in reversed(text.splitlines()) if l.startswith("{")), None)
     if not line:
         err = open(out + ".err").read()[-400:] if os.path.exists(out + ".err") else ""
-        raise D.StepError(f"sck_probe: no result: {text[-300:]} {err}")
+        raise D.StepError(f"sck_probe: no result (open exit {opened.returncode}: {(opened.stdout + opened.stderr)[-300:]}): "
+                          f"{text[-300:]} {err}")
     return json.loads(line)
 
 
