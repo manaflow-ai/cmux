@@ -27,14 +27,27 @@ fn a_poisoned_roster_does_not_break_agent_list_or_terminal_close() {
     poison(&mux.agent_roster);
     poison(&mux.agent_roster_fold);
 
-    let listed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        mux.list_agents(None, None).len()
-    }));
-    assert!(listed.is_ok(), "list_agents panicked on a poisoned roster lock");
-
+    let caught = |run: &dyn Fn()| {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            run();
+        }))
+        .is_ok()
+    };
     let terminal = TerminalPublicId::parse(format!("term_{:032x}", 7)).unwrap();
-    let purged = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        mux.purge_terminal_side_tables(&terminal);
-    }));
-    assert!(purged.is_ok(), "a terminal close panicked on a poisoned roster lock");
+    let survived = [
+        (
+            "agent list",
+            caught(&|| {
+                mux.list_agents(None, None);
+            }),
+        ),
+        ("terminal close", caught(&|| mux.purge_terminal_side_tables(&terminal))),
+        (
+            "terminal respawn or adoption",
+            caught(&|| mux.reconcile_agent_roster_projections_for_terminal(&terminal)),
+        ),
+        ("daemon start", caught(&|| mux.reconcile_agent_roster_projections())),
+    ];
+    let failed = survived.iter().filter(|(_, ok)| !ok).map(|(path, _)| *path).collect::<Vec<_>>();
+    assert!(failed.is_empty(), "panicked on a poisoned roster lock: {failed:?}");
 }
