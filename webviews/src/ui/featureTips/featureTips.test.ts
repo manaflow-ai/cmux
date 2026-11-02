@@ -17,11 +17,11 @@ const TIPS: FeatureTipEntry[] = [
     body: "One sentence.",
     feature: "browser",
   },
-  { id: "inspector-tip", anchor: "agent.inspector", title: "The Inspector", body: "One sentence." },
+  { id: "session-info-tip", anchor: "agent.sessionInfo", title: "Session Info", body: "One sentence." },
 ];
 const ANCHORS: Record<string, TipAnchor> = {
   "agent.browser": { selector: "#browser", side: "bottom", feature: "browser" },
-  "agent.inspector": { selector: "#inspector", side: "bottom" },
+  "agent.sessionInfo": { selector: "#inspector", side: "bottom" },
 };
 
 let dom: JSDOM;
@@ -191,7 +191,7 @@ describe("feature tips", () => {
     wall += 2 * 86_400_000;
     const later = await page();
     await settle(TIP_SETTLE_MS);
-    expect(later.controller.shown?.tip.id).toBe("inspector-tip");
+    expect(later.controller.shown?.tip.id).toBe("session-info-tip");
   });
 
   test("never when the browser was used, by any path the app saw", async () => {

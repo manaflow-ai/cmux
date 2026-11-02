@@ -236,9 +236,15 @@ impl Hub {
         let outcomes = futures::future::join_all(live.map(|session| async move {
             // The turn lock is held through a turn and its route-switch
             // restart (`turns.rs`, `hosts.rs`); holding it, no turn starts
-            // meanwhile.
+            // meanwhile. An open permission prompt is never cut either (the
+            // restart's `detach_child` would cancel it): that session restarts
+            // after its next turn, as `restart_unproven` waits for one.
             let idle = || {
-                if session.turn().is_none() { session.turn_lock.try_lock().ok() } else { None }
+                if session.turn().is_none() && session.pending_permissions().is_empty() {
+                    session.turn_lock.try_lock().ok()
+                } else {
+                    None
+                }
             };
             let mut turn = idle();
             if turn.is_none() {
@@ -311,7 +317,7 @@ pub struct HarnessRestarts {
 /// `cmux.chief`, or named `optchat-…`, or of an `optchat-compact-…` preset
 /// harness (the app's `AcpmuxSessionCensus.isChief`). Update Everything
 /// never counts or restarts one; only a caller naming it in `sessions` does.
-fn is_chief(meta: &SessionMeta) -> bool {
+pub(super) fn is_chief(meta: &SessionMeta) -> bool {
     live_tags(meta).get("cmux.chief").is_some()
         || meta.name.starts_with("optchat-")
         || meta.harness.starts_with("optchat-compact-")

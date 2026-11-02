@@ -21,7 +21,15 @@ compile, the DEV daily, the fast tier and every nightly, DEV or promote build. T
 
 The kick runs serialized (its workflow's concurrency group, cancel-in-progress false): one waits for
 the window and the newest pending one replaces older pending ones, which never started. It waits once
-(one sleep, never a polling loop), reads the tip, and dispatches. It cancels nothing.
+(one sleep, never a polling loop), reads the tip, and dispatches.
+
+Once the tip has a base tier run, an older base tier run none of whose Mac jobs (MAC_JOBS) has started
+and created before the newest base tier run is superseded and the kick cancels it (first attempts
+only): the tip's run covers every landing it would have, and
+base_red_excuse.py reads the newest base verdict, not a given commit's. With the Mac pools saturated
+(2026-10-31) base tier runs waited up to two hours and 682 of their 826 Mac minutes in a day started
+after a newer base tier run had been dispatched. A run whose Mac job had started when read is never
+cancelled, nor is anything that is not a base tier run (a nightly, DEV or promote build above all).
 Needs GH_TOKEN with actions: write and contents: read.
 """
 
@@ -52,6 +60,11 @@ WINDOW_S = 15 * 60
 SETTLE_S = 20
 # The compare API lists at most this many files; a longer diff counts as relevant.
 COMPARE_FILES_MAX = 300
+# The base tier's Mac jobs (cmux-next.yml's daemon-test, generated-files and cmux-scheme-compile names).
+# A base tier run where one of these has started (or finished) is never cancelled.
+MAC_JOBS = ("cmux-next daemon tests", "cmux-next generated files", "cmux app scheme compile (Debug)")
+# A run in one of these states has not finished.
+OPEN = ("queued", "in_progress", "waiting", "pending", "requested")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -144,6 +157,61 @@ def base_tier_runs(api: Api, repo: str) -> dict[str, float]:
     return firsts
 
 
+def mac_job_started(api: Api, repo: str, run_id: int) -> bool:
+    """Whether a Mac job of the base tier run has started. Anything unreadable counts as started."""
+    try:
+        listed = api.get(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
+    except RuntimeError:
+        return True
+    for job in listed.get("jobs") or []:
+        if job.get("name") not in MAC_JOBS:
+            continue
+        if job.get("status") == "in_progress":
+            return True
+        if job.get("status") == "completed" and job.get("conclusion") not in ("skipped", "cancelled"):
+            return True
+    return False
+
+
+def cancel_superseded(api: Api, repo: str, newest: str, log: Callable[[str], None] = print) -> list[int]:
+    """Cancel the open base tier runs that a newer base tier run supersedes and whose Mac jobs have not
+    started; returns their ids. A run is superseded only when it was created before the newest listed
+    base tier run and names another commit than that run and than NEWEST (the tip read before the
+    dispatch): a run the dispatch titled with a commit that landed after that read is the newest listed,
+    so it is kept. First attempts only (a re-run may have finished its Mac jobs in an earlier attempt).
+    Finished runs, runs whose Mac job started and every other workflow's or title's runs are left alone.
+    Each run's jobs are read just before its cancel; a Mac job that starts in the instant between that
+    read and the cancel loses seconds of superseded work, never a verdict anything waits on."""
+    listed = api.get(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={BRANCH}"
+                     f"&event=workflow_dispatch&per_page=100")
+    tier_runs = []
+    for run in listed.get("workflow_runs") or []:
+        title = run.get("display_title") or run.get("name") or ""
+        sha = title[len(TITLE):].strip() if title.startswith(TITLE) else ""
+        if SHA.match(sha) and run.get("created_at"):
+            tier_runs.append((stamp(run["created_at"]), sha, run))
+    if not tier_runs:
+        return []
+    latest_at, latest_sha, _ = max(tier_runs, key=lambda item: item[0])
+    keep = {newest, latest_sha}
+    cancelled: list[int] = []
+    for at, sha, run in tier_runs:
+        run_id = run.get("id")
+        if (sha in keep or at >= latest_at or not isinstance(run_id, int) or run.get("status") not in OPEN
+                or run.get("run_attempt", 1) != 1):
+            continue
+        if mac_job_started(api, repo, run_id):
+            log(f"base tier run {run_id} ({sha[:12]}) has a Mac job running or done; left alone")
+            continue
+        status = api.post(f"repos/{repo}/actions/runs/{run_id}/cancel", {})
+        if status in (202, 204):
+            cancelled.append(run_id)
+            log(f"cancelled base tier run {run_id} ({sha[:12]}): superseded by {latest_sha[:12]}, no Mac job started")
+        else:
+            log(f"could not cancel base tier run {run_id} ({sha[:12]}): HTTP {status}")
+    return cancelled
+
+
 def relevant(api: Api, repo: str, since: str, tip: str, patterns: list[str]) -> tuple[bool, str]:
     """Whether a file the push paths name changed in since..tip. Anything unreadable is relevant."""
     if not patterns:
@@ -172,13 +240,28 @@ def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
         log(f"the last base tier run ({last_sha[:12]}) started {int(window - wait)} s ago; "
             f"waiting {int(wait)} s for the window to open")
         sleep(wait)
+        seen_at = last_at
         firsts = base_tier_runs(api, repo)  # what landed while it waited (a hand dispatch)
         last_sha, last_at = max(firsts.items(), key=lambda item: item[1])
+        # A hand dispatch may have started during our sleep. It owns a fresh
+        # window, so the older run's deadline must not buy another Mac tier.
+        # The next queued kick will handle pushes made after that dispatch.
+        # Only a run created after the one seen before the sleep counts: the
+        # local clock may be behind GitHub's created_at (skew), so comparing
+        # the run seen before the sleep against now() would skip every kick.
+        if last_at > seen_at:
+            log(f"a newer base tier run ({last_sha[:12]}) started during the wait; "
+                "leaving its full window to the next kick")
+            # It still supersedes the older runs no Mac has started; with no
+            # later push, no other kick would cancel them.
+            cancel_superseded(api, repo, last_sha, log)
+            return None
     tip = (api.get(f"repos/{repo}/git/ref/heads/{BRANCH}").get("object") or {}).get("sha") or ""
     if not SHA.match(tip):
         raise RuntimeError(f"could not read the {BRANCH} tip")
     if tip in firsts:
-        log(f"{BRANCH} {tip[:12]} already has a base tier run; nothing to do")
+        log(f"{BRANCH} {tip[:12]} already has a base tier run; nothing to dispatch")
+        cancel_superseded(api, repo, tip, log)
         return None
     if last_sha is not None:
         due, why = relevant(api, repo, last_sha, tip, patterns)
@@ -191,6 +274,7 @@ def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
         raise RuntimeError(f"the base tier dispatch was refused (HTTP {status})")
     log(f"dispatched the base tier on {BRANCH} at {tip[:12]}")
     sleep(SETTLE_S)
+    cancel_superseded(api, repo, tip, log)
     return tip
 
 

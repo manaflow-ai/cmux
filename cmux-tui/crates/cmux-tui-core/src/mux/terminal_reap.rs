@@ -10,9 +10,19 @@
 //!
 //! The reaper is event-driven. It sleeps until the next deadline or until a
 //! topology, terminal-registry, or keep change wakes it; it never polls.
-//! Deadlines are measured by this owner process only, so an owner restart
-//! starts every pending grace period again: a restart can delay a reap but
-//! never make it early.
+//!
+//! The grace runs across owner restarts. The registry keeps the wall-clock
+//! time the owner first saw each terminal unplaced
+//! (`workspace_registry/terminal_unplaced_store.rs`), and a restarted owner
+//! counts the grace from it. Counted from each start instead, restarts
+//! faster than the grace (a crash loop; the restore fuzz's kill every ~14 s
+//! against the app's 30 s) reaped nothing, and the closed terminals' hosts
+//! held the machine's PTYs until every new terminal failed (P0
+//! TERMINAL-HOST LEAK, 2026-10-31). A terminal a restarted owner is still
+//! adopting keeps its time. A wall clock set back only delays a reap; one
+//! set forward (or a machine asleep across a restart) can end a closed
+//! terminal sooner after the restart, never one with a placement or `keep`:
+//! the close re-checks both atomically.
 
 use std::sync::mpsc::RecvTimeoutError;
 use std::thread::JoinHandle;
@@ -46,6 +56,9 @@ pub(crate) struct ReapSchedule {
     deadlines: HashMap<String, Instant>,
     /// Consecutive failed reapable-set scans (retry spacing).
     scan_failures: u32,
+    /// The registry holds no unplaced time (the last pass removed or found
+    /// none): a pass that sees no unplaced terminal skips the registry.
+    unplaced_rows_empty: bool,
 }
 
 impl ReapSchedule {
@@ -66,16 +79,31 @@ impl ReapSchedule {
         }
     }
 
-    /// Reconcile with the current set of reapable terminals. A terminal that
-    /// becomes reapable gets `now + grace`; a terminal that is no longer
-    /// reapable (placed again, kept, or closed) loses its deadline.
-    pub(crate) fn observe(&mut self, now: Instant, grace: Duration, reapable: &HashSet<String>) {
+    /// Reconcile with the current set of reapable terminals, each with how
+    /// long it has already been unplaced (across owner restarts). A terminal
+    /// that becomes reapable gets `now + grace - unplaced_for`; a terminal
+    /// that is no longer reapable (placed again, kept, or closed) loses its
+    /// deadline.
+    pub(crate) fn observe_unplaced(
+        &mut self,
+        now: Instant,
+        grace: Duration,
+        reapable: &HashMap<String, Duration>,
+    ) {
         self.scan_failures = 0;
-        self.deadlines.retain(|terminal_id, _| reapable.contains(terminal_id));
-        let deadline = deadline_after(now, grace);
-        for terminal_id in reapable {
-            self.deadlines.entry(terminal_id.clone()).or_insert(deadline);
+        self.deadlines.retain(|terminal_id, _| reapable.contains_key(terminal_id));
+        for (terminal_id, unplaced_for) in reapable {
+            self.deadlines
+                .entry(terminal_id.clone())
+                .or_insert_with(|| deadline_after(now, grace.saturating_sub(*unplaced_for)));
         }
+    }
+
+    /// [`ReapSchedule::observe_unplaced`] for terminals unplaced just now.
+    #[cfg(test)]
+    pub(crate) fn observe(&mut self, now: Instant, grace: Duration, reapable: &HashSet<String>) {
+        let reapable = reapable.iter().map(|id| (id.clone(), Duration::ZERO)).collect();
+        self.observe_unplaced(now, grace, &reapable);
     }
 
     /// Terminals whose deadline is at or before `now`, in a stable order.
@@ -163,29 +191,34 @@ impl Mux {
     }
 
     /// Host ids of every live hosted terminal that has no tab placement and
-    /// is not marked `keep`.
-    pub(crate) fn reapable_terminals(&self) -> anyhow::Result<HashSet<String>> {
-        let mut unplaced = {
+    /// is not marked `keep` (reapable), and of the other hosted terminals
+    /// this owner serves (placed or kept), whose unplaced times are cleared.
+    pub(crate) fn reapable_and_retained_terminals(
+        &self,
+    ) -> anyhow::Result<(HashSet<String>, HashSet<String>)> {
+        let (mut unplaced, mut retained) = {
             let state = self.state.lock().unwrap();
             let placed_runtimes: HashSet<SurfaceId> =
                 state.surfaces.values().filter_map(|view| view.terminal_runtime_id()).collect();
             let mut unplaced = HashSet::new();
+            let mut placed = HashSet::new();
             for (public_id, runtime) in &state.terminal_catalog {
-                if runtime.terminal_runtime_id().is_some_and(|id| placed_runtimes.contains(&id)) {
+                let Some(identity) = self.resource_terminal_host_identity(runtime) else {
                     continue;
-                }
+                };
                 let content_id = ContentPublicId::Terminal(public_id.clone());
-                if !state.placements_of_content(&content_id).is_empty() {
-                    continue;
-                }
-                if let Some(identity) = self.resource_terminal_host_identity(runtime) {
+                if runtime.terminal_runtime_id().is_some_and(|id| placed_runtimes.contains(&id))
+                    || !state.placements_of_content(&content_id).is_empty()
+                {
+                    placed.insert(identity.terminal_id);
+                } else {
                     unplaced.insert(identity.terminal_id);
                 }
             }
-            unplaced
+            (unplaced, placed)
         };
         if unplaced.is_empty() {
-            return Ok(unplaced);
+            return Ok((unplaced, retained));
         }
         let kept = {
             let mut registry = self.workspace_registry.lock().unwrap();
@@ -197,8 +230,43 @@ impl Mux {
             }
             registry.kept_terminals()?
         };
-        unplaced.retain(|terminal_id| !kept.contains(terminal_id));
-        Ok(unplaced)
+        unplaced.retain(|terminal_id| {
+            let keep = kept.contains(terminal_id);
+            if keep {
+                retained.insert(terminal_id.clone());
+            }
+            !keep
+        });
+        Ok((unplaced, retained))
+    }
+
+    /// The reapable terminals, each with how long it has been unplaced,
+    /// counted from the durable time the owner (this one or an earlier one)
+    /// first saw it so (`terminal_unplaced_store.rs`).
+    /// A pass that sees no unplaced terminal while the registry holds no
+    /// unplaced time (`unplaced_rows_empty`) does not touch the registry.
+    fn reapable_terminals_unplaced_for(
+        &self,
+        unplaced_rows_empty: &mut bool,
+    ) -> anyhow::Result<HashMap<String, Duration>> {
+        let (unplaced, retained) = self.reapable_and_retained_terminals()?;
+        if unplaced.is_empty() && *unplaced_rows_empty {
+            return Ok(HashMap::new());
+        }
+        let wall_ms = now_ms();
+        let synced = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .sync_terminal_unplaced(&unplaced, &retained, wall_ms)?;
+        *unplaced_rows_empty = !synced.rows_left;
+        Ok(synced
+            .since_ms
+            .into_iter()
+            .map(|(terminal_id, since_ms)| {
+                (terminal_id, Duration::from_millis(wall_ms.saturating_sub(since_ms)))
+            })
+            .collect())
     }
 
     /// End one unplaced terminal. The placement and `keep` checks are
@@ -267,8 +335,8 @@ impl Mux {
         now: Instant,
     ) -> Vec<String> {
         let grace = self.terminal_reap_grace();
-        match self.reapable_terminals() {
-            Ok(reapable) => schedule.observe(now, grace, &reapable),
+        match self.reapable_terminals_unplaced_for(&mut schedule.unplaced_rows_empty) {
+            Ok(reapable) => schedule.observe_unplaced(now, grace, &reapable),
             Err(error) => {
                 self.report_internal_diagnostic(format!("terminal reap scan failed: {error}"));
                 schedule.defer_due_after_failed_scan(now);

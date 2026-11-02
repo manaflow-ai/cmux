@@ -616,6 +616,10 @@ async fn an_unknown_session_or_a_missing_argument_is_an_error_the_agent_reads() 
     assert_eq!(text(&r), "to and text are required", "{r}");
     let r = call(&client, &tool("nope", json!({}))).await;
     assert_eq!(text(&r), "unknown tool: nope", "{r}");
+    // A typo of a real tool names the tool it was likely meant to be.
+    let r = call(&client, &tool("team_sned", json!({}))).await;
+    assert_eq!(r["isError"], true, "{r}");
+    assert_eq!(text(&r), "unknown tool: team_sned; did you mean team_send?", "{r}");
 }
 
 /// Arguments that are not an object are an error the agent reads, never a panic.
@@ -695,7 +699,7 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
             serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
         assert_eq!(request["method"], "_acpmux/team/send");
         let response = json!({"jsonrpc": "2.0", "id": request["id"],
-            "error": {"code": -32602, "message": "team messaging is disabled in Labs"}});
+            "error": {"code": -32602, "message": "team messaging is off on this daemon"}});
         write.write_all(format!("{response}\n").as_bytes()).await.unwrap();
     });
     let client = Client::connect(&path).await.unwrap();
@@ -715,6 +719,19 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
     .await
     .unwrap();
     assert_eq!(result["isError"], true, "{result}");
-    assert!(text(&result).contains("team messaging is disabled in Labs"), "{result}");
+    assert!(text(&result).contains("team messaging is off on this daemon"), "{result}");
     server.await.unwrap();
+}
+
+/// A Chief turn's `CMUX_MCP_TOOLS` reaches this server too (`agent_tools::scoped`): standalone,
+/// without a `cmux` server to fold into, it lists only the six coordinator tools, never `bg_*` or
+/// `team_*` (#30082 review).
+#[test]
+fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
+    let names = |v: &Value| crate::mcp_hint::names(v).map(str::to_owned).collect::<Vec<_>>();
+    let all = tools();
+    assert_eq!(names(&allowed(all.clone(), None)), names(&all));
+    let chief = allowed(all.clone(), Some(crate::agent_tools::CHIEF_TURN_TOOLS));
+    assert_eq!(names(&chief), ["send", "inbox_read", "inbox_reply", "ls", "last", "info"]);
+    assert!(names(&allowed(all, Some("render,agents_wait"))).is_empty());
 }

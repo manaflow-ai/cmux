@@ -36,7 +36,20 @@ extension SidebarListViewComponents {
         let offset = clip.bounds.minY
         let anchored = after.anchored(from: before, offset: offset)
         let delta = anchored - offset
-        if abs(delta) > 0.25 {
+        // Where the reveal ends, decided before anything moves (`settle` reads the layouts and this offset only).
+        let target = after.settle(from: before, offset: offset, focused: previousActive, newFocus: active,
+                                  padding: SidebarLayout.revealPadding, userMoved: userMoved,
+                                  extent: selectionReveal(in: layout, height: height))
+        let toNewRow = active.map { before.item($0) == nil && after.item($0) != nil } ?? false
+        // Cmd-N (Lawrence 2026-10-28, sidebar-burst-motion.md): a new row the reveal shows where the list already is
+        // (the list at its top, the row inserted there) needs no scroll at all. The anchor shift would move the rows
+        // and the offset down together and the reveal would jump back in one frame, so the rows below would stand in
+        // their new slots at once and the new row would grow from nothing in a gap already open: an empty slot. Kept
+        // at the offset instead, the rows below make room by the new row motion while the row opens above them. A
+        // reveal that does scroll to a new row (the list scrolled away) jumps there, and the row is in its slot,
+        // whole, in that frame (``apply(_:animated:newRowsInPlace:)``).
+        let keepsOffset = toNewRow && abs(target - offset) <= 0.25
+        if abs(delta) > 0.25, !keepsOffset {
             RowMotion.shift(self, by: delta) // closing rows too; nothing draws until the offset moves with them
             Motion.withoutAnimation {
                 // Rows and the offset move together: no visible change yet.
@@ -51,11 +64,7 @@ extension SidebarListViewComponents {
                 isShiftingViewport = false
             }
         }
-        apply(layout, animated: animated)
-        let target = after.settle(from: before, offset: offset, focused: previousActive, newFocus: active,
-                                  padding: SidebarLayout.revealPadding, userMoved: userMoved,
-                                  extent: selectionReveal(in: layout, height: height))
-        let toNewRow = active.map { before.item($0) == nil && after.item($0) != nil } ?? false
+        apply(layout, animated: animated, newRowsInPlace: toNewRow && !keepsOffset && abs(target - clip.bounds.minY) > 0.25)
         if abs(target - clip.bounds.minY) > 0.25 { scrollClip(to: target, animated: animated && !toNewRow) }
     }
 
