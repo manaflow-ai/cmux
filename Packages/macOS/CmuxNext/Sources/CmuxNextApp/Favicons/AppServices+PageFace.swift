@@ -23,8 +23,7 @@ extension AppServices {
     /// the workspace keeps the daemon's default name, the name the front tab
     /// gives it (hq#1957, `WorkspaceAutoName`; renaming it shows the user's name).
     /// A page beside `work` (an agent's PR in a split) keeps the name `work` gives.
-    /// `tab` and `work` are tabs of `workspace`: their incognito answer is the workspace's own, and a page made or
-    /// closed later is this tab's (`browserFavicon`), so a change in another workspace maps no other row (F6).
+    /// Every read is this row's own (its workspace's incognito answer, its tab's page): no other row's change maps it (F6).
     func sidebarPageFace(_ workspace: WorkspaceModel, tab: TabModel, work: TabModel?) -> SidebarMapping.PageFace {
         let incognito = tab.kind == .browser && windows.isIncognito(workspace: workspace)
         let favicon = tab.kind != .browser ? nil

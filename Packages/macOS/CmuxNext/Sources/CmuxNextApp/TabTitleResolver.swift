@@ -28,8 +28,7 @@ struct TabTitleResolver {
     var conversationTitle: @MainActor (TabModel) -> String = { _ in Strings.untitledBrowser }
     /// The page an app or page tab shows, named and badged like that page.
     var page: @MainActor (TabModel) -> (title: String, icon: TabIcon)? = { _ in nil }
-    /// An incognito browser tab's live title (its daemon record is a placeholder), given whether the tab is incognito
-    /// when the caller knows (its workspace's answer; nil looks the tab up, which reads every tab list).
+    /// An incognito browser tab's live title (its daemon record is a placeholder); nil `Bool`: look the tab up.
     var incognitoTitle: @MainActor (TabModel, Bool?) -> String?? = { _, _ in nil }
 
     /// The app's live sources. `workspace`: the one workspace every asked tab is in, when the
@@ -87,9 +86,11 @@ struct TabTitleResolver {
         }
     }
 
-    /// The name `tab` shows. `incognito`: whether it is an incognito tab, when the caller knows (a sidebar row: its
-    /// workspace's answer, so the row observes no tab list; TYPING UNDER LOAD F6).
-    func title(_ tab: TabModel, incognito: Bool? = nil) -> String {
+    /// The name `tab` shows.
+    func title(_ tab: TabModel) -> String { title(tab, incognito: nil) }
+
+    /// `incognito`: the tab's answer when the caller knows (a sidebar row's workspace: no tab list read, F6).
+    func title(_ tab: TabModel, incognito: Bool?) -> String {
         if let page = page(tab) { return page.title }
         if let incognito = incognitoTitle(tab, incognito) { return incognito ?? Strings.untitledBrowser }
         return TabItemMapping.shared.title(tab, fallbackTitle: untitled(tab))
