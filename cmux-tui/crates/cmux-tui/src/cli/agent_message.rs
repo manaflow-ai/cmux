@@ -783,7 +783,7 @@ pub(super) mod acp {
     }
 
     /// The running daemon's session summaries, without starting it.
-    pub(super) fn sessions() -> Result<Vec<Value>, String> {
+    pub(in crate::cli) fn sessions() -> Result<Vec<Value>, String> {
         runtime()?.block_on(async {
             let client = acpmux::deliver::connect().await.map_err(|error| format!("{error:#}"))?;
             acpmux::deliver::sessions(&client).await.map_err(|error| format!("{error:#}"))
@@ -801,7 +801,7 @@ pub(super) mod acp {
         Err(UNSUPPORTED.to_owned())
     }
 
-    pub(super) fn sessions() -> Result<Vec<Value>, String> {
+    pub(in crate::cli) fn sessions() -> Result<Vec<Value>, String> {
         Err(UNSUPPORTED.to_owned())
     }
 }
