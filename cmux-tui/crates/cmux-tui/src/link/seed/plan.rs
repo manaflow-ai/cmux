@@ -497,6 +497,26 @@ fn build(
             previous.work == work_commit && previous.stash == stash,
         ),
     };
+    // A stash-only deletion has no new Git object. Git refuses an empty bundle,
+    // so carry a tiny synthetic commit, excluded from the destination's seed record.
+    // WORK remains stable: the next unchanged delta stays a zero-byte send.
+    let stash_clear_marker = if let Since::Previous(previous) = since
+        && previous.stash.is_some()
+        && stash.is_none()
+        && previous.work == work_commit
+    {
+        let tree = git::text(git::at(&repo.top).args([
+            "rev-parse",
+            &format!("{work_commit}^{{tree}}"),
+        ]))
+        .map_err(|error| failed("reading the work tree", error))?;
+        Some(commit(repo, &tree, &previous.work, "cmux seed stash cleared")?)
+    } else {
+        None
+    };
+    if let Some(marker) = &stash_clear_marker {
+        refs.push(("refs/cmux-seed/stash-cleared", marker.as_str()));
+    }
     let mut bundle_bytes = 0;
     if !unchanged {
         for (name, id) in &refs {
