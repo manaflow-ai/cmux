@@ -56,7 +56,10 @@ import Testing
             // A choice that is on by default could not be turned off by Remove (it clears the key);
             // a default-on toggle (Now Playing on New Tab) is written false instead.
             if case .choice = feature.on {
-                #expect(descriptor.effectiveValue(in: .object([:])) != SettingsAppFeatures.onValue(feature),
+                let defaultOn = descriptor.effectiveValue(in: .object([:])) == SettingsAppFeatures.onValue(feature)
+                // Compact density is the appearance default. It is still listed as a card so the
+                // complete built-in density family is discoverable; clearing it keeps that default.
+                #expect(!defaultOn || feature.id == "appearance.compact",
                         "\(feature.id) is on by default, so Remove could not turn it off")
             }
         }
@@ -66,7 +69,9 @@ import Testing
     /// are landed keys, so the tab lists them, each under its own category chip.
     @Test func theOffByDefaultSettingsHaveCardsInTheirCategories() throws {
         let expected: [String: AppFeature.Category] = [
-            "appearance.ultraCompact": .appearance, "appearance.calm": .appearance,
+            "appearance.ultraCompact": .appearance, "appearance.compact": .appearance,
+            "appearance.cozy": .appearance, "appearance.comfortable": .appearance,
+            "appearance.spacious": .appearance, "appearance.calm": .appearance,
             "appearance.brailleStatus": .appearance, "appearance.runningCommands": .appearance,
             "chief.suggestedTasks": .chief, "chief.githubFeed": .chief, "chat.needsYou": .chief,
             "editor.splitDiff": .editor, "editor.minimap": .editor,
@@ -201,6 +206,16 @@ import Testing
             return
         }
         let wasOn = bridge.isOn(feature)
+        // Compact density is the default choice. Removing its explicit key leaves the same
+        // effective value, so there is no off state to exercise while preserving that default.
+        if id == "appearance.compact" && wasOn {
+            try await bridge.set(feature, on: false)
+            #expect(bridge.isOn(feature))
+            // Removing the key would re-enable the default and contradict the requested off
+            // press, so the settings bridge records the default explicitly to keep the card on.
+            #expect(settings.fileRoot.value(at: feature.path) == .string("compact"))
+            return
+        }
         try await bridge.set(feature, on: !wasOn)
         #expect(bridge.isOn(feature) == !wasOn)
         #expect(Self.leafKeys(settings.fileRoot) == [feature.setting], "\(id) wrote another key")
