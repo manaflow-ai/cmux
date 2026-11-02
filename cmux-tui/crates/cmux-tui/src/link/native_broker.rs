@@ -78,9 +78,9 @@ fn read_identity(stream: &mut UnixStream) -> io::Result<Identity> {
         || !bootstrap.install.starts_with("inst_")
         || bootstrap.install.len() <= 5
         || !cmux_link::stamp::valid_id(&bootstrap.install)
-        || !bootstrap.team.starts_with("team_")
-        || bootstrap.team.len() != 25
-        || !bootstrap.team[5..].bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        || !bootstrap.team.strip_prefix("team_").is_some_and(|hex| {
+            hex.len() == 20 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        })
         || !native_id(&bootstrap.mesh, "mesh_")
     {
         return Err(refused());
@@ -107,9 +107,9 @@ fn read_identity(stream: &mut UnixStream) -> io::Result<Identity> {
 }
 
 pub(super) fn native_id(value: &str, prefix: &str) -> bool {
-    value.starts_with(prefix)
-        && value.len() == prefix.len() + 26
-        && value[prefix.len()..].bytes().all(|b| b"0123456789abcdefghjkmnpqrstvwxyz".contains(&b))
+    value.strip_prefix(prefix).is_some_and(|id| {
+        id.len() == 26 && id.bytes().all(|b| b"0123456789abcdefghjkmnpqrstvwxyz".contains(&b))
+    })
 }
 
 #[cfg(test)]

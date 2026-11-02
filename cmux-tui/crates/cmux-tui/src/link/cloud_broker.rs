@@ -165,7 +165,7 @@ impl ConnectInfoSource for BrokerSource {
             || services.is_empty()
             || services.len() > 2
             || services.contains(&Service::OwnerSession)
-            || (services.len() == 2 && services[0] == services[1])
+            || matches!(services, [first, second] if first == second)
         {
             return Err(ConnectInfoError::Forbidden);
         }

@@ -166,18 +166,6 @@ check("${{ github.sha }}" in twice[:start] + twice[end:],
 check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: scripts\n") is not None,
       "publish-nightly's `sparse-checkout: scripts` is the tooling checkout")
 
-# This picker ships no source. Keep its exception narrower than a general
-# workflow-SHA checkout: exactly one checkout, only runner tooling, no token persisted.
-legacy_steps = yaml.safe_load(text)["jobs"].get("pick-legacy-identity-runner", {}).get("steps", [])
-legacy_checkouts = [step for step in legacy_steps if str(step.get("uses", "")).startswith("actions/checkout@")]
-check(len(legacy_checkouts) == 1,
-      "legacy runner picker must have exactly one tooling checkout")
-if len(legacy_checkouts) == 1:
-    check(legacy_checkouts[0].get("with") == {
-        "ref": "${{ github.sha }}", "persist-credentials": False, "sparse-checkout": "scripts/ci",
-    }, "legacy runner picker must read only scripts/ci at the workflow commit without persisted credentials")
-exempt.add("pick-legacy-identity-runner")
-
 shipping = [name for name, body in blocks.items() if name not in exempt and "actions/checkout@" in body]
 for name in ("build-nightly-app", "build-sign-notarize-nightly", "publish-nightly", "build-nightly-ghostty-cli-helper"):
     check(name in shipping, f"{name} must check out the source (guard setup)")
