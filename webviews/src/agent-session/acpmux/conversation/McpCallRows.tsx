@@ -7,7 +7,7 @@ import { type ReactNode, useContext, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
-import { ChevronRight, ToolGroup } from "./icons";
+import { ChevronRight, CodeBrackets, ToolGroup } from "./icons";
 import { menuPartRef } from "./menuParts";
 import {
   cleanText,
@@ -389,7 +389,15 @@ export function CmuxExecDetails({
           </pre>,
         )}
       <div className="cv-cmux-exec__raw" data-find-skip>
-        <RawToggle open={rawOpen} onOpenChange={setRawOpen}>
+        <RawToggle
+          open={rawOpen}
+          onOpenChange={setRawOpen}
+          icon={
+            <span className="cv-tool__icon">
+              <CodeBrackets size={16} strokeWidth={1.2} />
+            </span>
+          }
+        >
           <McpCallDetails
             id={`${id}-raw`}
             call={call}
