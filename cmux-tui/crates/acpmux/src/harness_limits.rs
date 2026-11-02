@@ -69,6 +69,11 @@ pub fn lift_claude(
         let source = crate::usage_stats::Source {
             family: "claude".into(),
             argv: Some(command_line(cmd)),
+            cwd: cmd
+                .as_std()
+                .get_current_dir()
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or_default(),
             env: have.into_iter().collect(),
             ..Default::default()
         };

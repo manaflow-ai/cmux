@@ -815,8 +815,9 @@ pub fn launcher(argv: &[String]) -> Option<String> {
 
 /// Whether nothing the person set decides a Claude Code session's autocompact: no
 /// `--autocompact` in its argv, no `CLAUDE_CODE_AUTO_COMPACT_WINDOW` or
-/// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` in its env, and a settings.json that is absent or names
-/// neither `autoCompactWindow` nor either key in its `env`. acpmux then starts it with its own
+/// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` in its env, and no settings file (its own settings.json, a
+/// project's `.claude/settings.json` or `settings.local.json` in its folder or above) that names
+/// `autoCompactWindow` or either key in its `env`. acpmux then starts it with its own
 /// window (`harness_limits::CLAUDE_AUTOCOMPACT_WINDOW`). False when its argv is not this
 /// daemon's, or settings.json cannot be read.
 pub fn claude_autocompact_unset(source: &Source) -> bool {
@@ -827,13 +828,19 @@ pub fn claude_autocompact_unset(source: &Source) -> bool {
         return false;
     }
     let Some(home) = source.home() else { return false };
-    let settings = match std::fs::read(home.join("settings.json")) {
-        Ok(bytes) => bytes,
-        Err(e) => return e.kind() == std::io::ErrorKind::NotFound,
-    };
-    let Ok(settings) = serde_json::from_slice::<Value>(&settings) else { return false };
-    field(&settings, "autoCompactWindow").is_null()
-        && KEYS.iter().all(|k| field(field(&settings, "env"), k).is_null())
+    // Its own settings, then a project's in the chat's folder or above it.
+    let project = source.cwd.ancestors().flat_map(|d| {
+        ["settings.json", "settings.local.json"].map(|name| d.join(".claude").join(name))
+    });
+    std::iter::once(home.join("settings.json")).chain(project).all(|path| {
+        let settings = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(e) => return e.kind() == std::io::ErrorKind::NotFound,
+        };
+        let Ok(settings) = serde_json::from_slice::<Value>(&settings) else { return false };
+        field(&settings, "autoCompactWindow").is_null()
+            && KEYS.iter().all(|k| field(field(&settings, "env"), k).is_null())
+    })
 }
 
 /// Whether the harness's autocompact is capped, and at how many tokens when that is known.

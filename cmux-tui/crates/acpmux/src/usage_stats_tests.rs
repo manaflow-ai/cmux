@@ -434,6 +434,14 @@ fn acpmux_sets_the_claude_window_only_when_the_person_set_none() {
     std::fs::write(&settings, "{not json").unwrap();
     assert!(!claude_autocompact_unset(&source), "settings it cannot read");
     std::fs::remove_file(&settings).unwrap();
+    let project = home.path().join("repo");
+    std::fs::create_dir_all(project.join(".claude")).unwrap();
+    source.cwd = project.join("sub");
+    assert!(claude_autocompact_unset(&source), "a project with no settings");
+    std::fs::write(project.join(".claude/settings.local.json"), r#"{"autoCompactWindow": 600000}"#)
+        .unwrap();
+    assert!(!claude_autocompact_unset(&source), "a project's window, from a folder under it");
+    std::fs::remove_file(project.join(".claude/settings.local.json")).unwrap();
     source.env.insert("CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(), "auto".into());
     assert!(!claude_autocompact_unset(&source), "the env's window");
     source.env.remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
