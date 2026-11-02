@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4150231832001",
+  "notes": "notes/4150231832001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32504,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-bbb2b89006beea85f8a368b7b11e9dd97bd5b134",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32511,
+      "title": "ci(nightly): the primary preparation takes fleet Linux while a runner idles there",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27928,
+      "title": "fix(bookmarks): explain empty folders and unmatched searches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30564,
+      "title": "cloud: publish VM attention operation contract",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32375,
+      "title": "Guest link owner token: mint from the API the daemon's share room names",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
