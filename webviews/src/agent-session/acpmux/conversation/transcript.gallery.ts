@@ -1513,14 +1513,13 @@ export default agentPaneEntry({
     },
     "grid-rhythm-hover": {
       height: 900,
-      note: "The rhythm scene with the reply action row shown; glyphs overlay the existing block gap.",
+      note: "The rhythm scene with the pointer on the reply mid-turn: it draws no action row of its own (Copy once per turn, #29740), so the block gap does not move on hover.",
       snapshot: gridRhythmSnapshot,
       play: async (ctx) => {
         await ctx.hover({ selector: '[data-row-id="grid-message"] .cv-md' });
-        await ctx.waitFor(() => {
-          const actions = ctx.document.querySelector('[data-row-id="grid-message"] .cv-reply-actions');
-          return actions && ctx.document.defaultView!.getComputedStyle(actions).opacity === "1";
-        });
+        await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="grid-message"]')?.matches(":hover"));
+        if (ctx.document.querySelector('[data-row-id="grid-message"] .cv-reply-actions'))
+          throw new Error("A reply mid-turn drew its own action row");
       },
     },
     "activity-tone-secondary": {
@@ -2369,7 +2368,14 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
       play: async (ctx: PlayContext) => {
-        await ctx.click({ selector: ".cv-tool.is-toggle" });
+        // The run of sends and the shell call folds into one line ("Sent 3 messages, ran a command",
+        // MessageRunLine.tsx, #31398): open it, then the shell call under it.
+        const run = () => ctx.document.querySelector("button[data-message-run]");
+        if (run()?.getAttribute("aria-expanded") === "false") {
+          await ctx.click({ selector: "button[data-message-run]" });
+          await ctx.waitFor(() => run()?.getAttribute("aria-expanded") === "true");
+        }
+        await ctx.click({ selector: ".cv-tool.is-toggle:not([data-message-run])" });
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__folder")));
       },
     },

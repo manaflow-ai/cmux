@@ -183,9 +183,21 @@ export default agentPaneEntry({
       play: hoverTime("time.cv-user__time"),
     },
     "answer-time-tooltip": {
-      note: "Play: hover an answer's age at the end of its row; its exact time shows above it.",
+      note: "Play: point at an answer's footer; its exact date and time shows at the row's end, after the buttons (hidden at rest, as ChatGPT's: #31609), its tooltip the turn's time and tokens.",
       snapshot: yesterday(),
-      play: hoverTime("time.cv-turn-time"),
+      play: async (ctx) => {
+        const selector = "time.cv-turn-time";
+        await ctx.waitFor(() => ctx.document.querySelector(selector));
+        await ctx.hover({ selector });
+        await ctx.waitFor(() => {
+          const time = ctx.document.querySelector<HTMLElement>(selector);
+          return (
+            time !== null &&
+            /\d:\d\d/.test(time.textContent ?? "") &&
+            ctx.document.defaultView!.getComputedStyle(time).opacity === "1"
+          );
+        });
+      },
     },
     other: {
       note: "Another agent forks only at a chat's end: prompts offer Copy only.",
