@@ -206,12 +206,12 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
         };
       }),
     );
-    // The finished thought is folded to one line too. The line is the grid's compact row
-    // (design/grid.md 5.5 and section 3: --cv-tool-row-height = --grid-row, 28 since #27580; 22 from
-    // #24565 and #29965), read from the live token.
+    // The finished thought is folded to one line too. The line is the grid's compact row, read from
+    // --grid-row: design/grid.md Rule 1, section 3 "row height = 28 (compact)" and section 6 (28 since
+    // #27580; 22 from #24565 and #29965).
     const line = await page.locator(".acpmux-row .cv-tool").first().evaluate((node) => {
       const probe = document.createElement("div");
-      probe.style.cssText = "position:absolute;visibility:hidden;height:var(--cv-tool-row-height)";
+      probe.style.cssText = "position:absolute;visibility:hidden;height:var(--grid-row)";
       node.parentElement!.appendChild(probe);
       const height = Math.round(probe.getBoundingClientRect().height);
       probe.remove();

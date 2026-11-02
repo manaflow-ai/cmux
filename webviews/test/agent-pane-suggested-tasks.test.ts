@@ -618,11 +618,11 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       expect(await card.locator(".cv-received__preview").innerText()).toBe("Step 1 of the landing report.");
-      // The tool rows' line (design/grid.md 5.5 and section 3: --cv-message-line = --grid-row, 28 since
-      // #27580; 22 under #29965), read from the live token.
+      // The tool rows' line, the grid's compact row, read from --grid-row: design/grid.md Rule 1, section 3
+      // "row height = 28 (compact)" and section 6 (28 since #27580; 22 under #29965).
       const line = await card.evaluate((el) => {
         const probe = document.createElement("div");
-        probe.style.cssText = "position:absolute;visibility:hidden;height:var(--cv-message-line)";
+        probe.style.cssText = "position:absolute;visibility:hidden;height:var(--grid-row)";
         el.appendChild(probe);
         const height = probe.getBoundingClientRect().height;
         probe.remove();

@@ -60,9 +60,10 @@ test("a footer with only hover controls is empty; one with an answer, a label or
 const prompt = (id: string): AcpmuxRow => ({ id, version: 1, at: 0, kind: "user", text: "Next" });
 
 test("an empty footer adds no line and still fits its hover controls", () => {
-  // On the grid (#27580, design/grid.md 5.5) a settled footer has no height of its own: its action row
-  // is laid in the gap under the reply, and the gap is the stack's (transcriptGrid.ts). Every gap that
-  // can hold it is at least the block gap, so its 16px glyphs keep 4px above and at least 4px below.
+  // On the grid (#27580) a settled footer has no height of its own: design/grid.md 5.5, a message's
+  // "hover action row ... takes no layout height: it is laid in the gap under its message", and the gap
+  // is the stack's (transcriptGrid.ts). "Every gap that can follow a message is at least 24", so its
+  // 16px glyphs keep 4px above and at least 4px below.
   const fits = (gap: number) => expect(gap).toBeGreaterThanOrEqual(gridLength("transcript-icon-box") + 8);
   // Between two prompts: no line, and the turn gap between them holds the hover controls.
   const between = layoutConversation([prompt("p"), footer({ durationMs: 0 }), prompt("q")], 720);

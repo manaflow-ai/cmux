@@ -258,12 +258,11 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
         const box = await line(page).evaluate((node) => {
           const label = node.querySelector(".cv-thinking")!.getBoundingClientRect();
           const row = node.getBoundingClientRect();
-          // The line's box is one meta row plus the turn gap it reserves under it (625f2e3d1b32). On the
-          // grid (#27580, design/grid.md 5.5) --cv-meta-row is a calc() of --grid-transcript-action-control
-          // and --cv-turn-gap is 0 (the stack owns the gap), so the tokens are resolved by layout, not
-          // parseFloat (which read NaN from the calc()).
+          // The line's box is one grid row (28 since #27580, read from --grid-row: design/grid.md Rule 1,
+          // section 3 "row height = 28 (compact)" and section 6). The stack owns the gap under it; the
+          // turn gap this read before (625f2e3d1b32, --cv-meta-row + --cv-turn-gap) is not the line's.
           const probe = document.createElement("div");
-          probe.style.cssText = "position:absolute;visibility:hidden;height:calc(var(--cv-meta-row) + var(--cv-turn-gap))";
+          probe.style.cssText = "position:absolute;visibility:hidden;height:var(--grid-row)";
           node.appendChild(probe);
           const oneLine = probe.getBoundingClientRect().height;
           probe.remove();
@@ -279,8 +278,8 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
       };
       const busyBox = await measure(BUSY);
       expect(busyBox).toEqual(await measure(QUIET));
-      // One 20px line, even in a narrow pane: the line's box holds one line and the turn gap it
-      // reserves below it (fec3ac0e5125, 625f2e3d1b32); a second line would grow it by 20px.
+      // One 20px line, even in a narrow pane: the line's box is one grid row (fec3ac0e5125, #27580); a
+      // second line would grow it by 20px.
       expect(busyBox.height).toBe(busyBox.oneLine);
       expect(busyBox.labelHeight).toBe(20);
     }

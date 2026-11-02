@@ -237,11 +237,11 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       await row.waitFor({ timeout: 10_000 });
       expect(await row.count()).toBe(1);
       // Closed: one line on the tool rows' line, the sender and the first line, nothing under it. The
-      // line is the grid's compact row (design/grid.md 5.5 and section 3, --cv-message-line =
-      // --cv-tool-row-height = --grid-row, 28 since #27580; 22 under #29965), read from the live token.
+      // line is the grid's compact row, read from --grid-row: design/grid.md Rule 1, section 3 "row
+      // height = 28 (compact)" and section 6 (28 since #27580; 22 under #29965).
       const line = await row.evaluate((el) => {
         const probe = document.createElement("div");
-        probe.style.cssText = "position:absolute;visibility:hidden;height:var(--cv-message-line)";
+        probe.style.cssText = "position:absolute;visibility:hidden;height:var(--grid-row)";
         el.appendChild(probe);
         const height = probe.getBoundingClientRect().height;
         probe.remove();
