@@ -191,8 +191,11 @@ def case(cid, title, build, play, seconds=20, variants=(("heavy", "dark"),), tai
             steps.append({"do": "sample_start", "name": "closesample", "seconds": 1.0, "interval_ms": 1,
                           "title": "a 1 ms main-thread sample of the app around the motion"})
         if xtp:
-            steps.append({"do": "xtp_start", "name": "xtp", "seconds": 2.0,
-                          "title": "xctrace Time Profiler on the app for 2 s from just before the key"})
+            # xctrace prints "Starting recording" about 280 ms before its first sample (run rv-suite-xtp-before):
+            # the key comes 0.8 s after that line, so the profile holds the key's turn and the whole motion.
+            steps.append({"do": "xtp_start", "name": "xtp", "seconds": 3.0,
+                          "title": "xctrace Time Profiler on the app for 3 s"})
+            steps.append({"do": "wait", "seconds": 0.8, "title": "xctrace's first sample comes about 280 ms after its start line"})
         steps += play[lead:]
         if sample:
             steps.append({"do": "sample_stop", "name": "closesample"})
