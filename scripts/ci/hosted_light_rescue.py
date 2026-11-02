@@ -14,7 +14,7 @@ feat-cmux-next at a pinned commit) runs this:
 
 - lists the in-flight (`queued`, `in_progress`) pull request runs of every workflow file that declares a hosted
   light job, created STALL_SECONDS to WINDOW ago (one listing page per workflow and status);
-- reads the jobs of at most MAX_RUNS of them (attempt 1 only, at the pull request's current head), oldest first;
+- reads the jobs of at most MAX_RUNS of them (plus one re-read per rescue, so at most MAX_RUNS + MAX_RESCUES) (attempt 1 only, at the pull request's current head), oldest first;
 - finds a stalled job: queued, no runner id or name, every label a GitHub-hosted `ubuntu-*` label (in this repo only
   declared hosted light jobs may ask for one, tests/test_ci_self_hosted_guard.sh), created STALL_SECONDS or more ago;
 - when every unfinished job of the run is such a stalled job (so the cancel stops nothing that is running), cancels
@@ -135,7 +135,12 @@ class GitHub:
         return list(self.request("GET", f"/actions/workflows/{workflow}/runs?{query}").get("workflow_runs") or [])
 
     def jobs(self, run_id: int) -> list[dict[str, Any]]:
-        return list(self.request("GET", f"/actions/runs/{run_id}/jobs?filter=latest&per_page=100").get("jobs") or [])
+        page = self.request("GET", f"/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
+        jobs = list(page.get("jobs") or [])
+        if int(page.get("total_count") or 0) > len(jobs):
+            # A second page may hide an unfinished job: stand one in, so verdict() calls the run gated.
+            jobs.append({"name": "(jobs past the first page)", "status": "unknown"})
+        return jobs
 
     def pull_head(self, number: int) -> str | None:
         pull = self.request("GET", f"/pulls/{number}")
@@ -222,6 +227,10 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
             continue
         if rescued >= MAX_RESCUES:
             lines.append(f"{where}: {names} stalled; over this pass's {MAX_RESCUES} re-runs, left to the next")
+            continue
+        if not dry_run and clock() >= deadline:
+            # No settle time left: a cancel now could not be followed by its re-run.
+            lines.append(f"{where}: {names} stalled; this pass's settle time is spent, left to the next")
             continue
         if dry_run:
             lines.append(f"{where}: {names} stalled; would cancel and re-run its failed jobs (dry run)")

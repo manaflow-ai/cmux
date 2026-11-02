@@ -176,6 +176,17 @@ class Sweep(unittest.TestCase):
         self.assertEqual(mutations(fake), [])
         self.assertTrue(any("since the read" in line for line in lines))
 
+    def test_no_cancel_once_the_settle_time_is_spent(self):
+        fake = Fake({"pr-checks.yml": [run(7), run(8)]}, {7: [job("PR size")], 8: [job("PR size")]},
+                    settles_after=10**9)
+        lines = sweep(fake)
+        self.assertEqual(mutations(fake), [("cancel", 7)])
+        self.assertTrue(any("settle time is spent" in line for line in lines))
+
+    def test_a_run_with_a_second_page_of_jobs_is_gated(self):
+        jobs = [job("PR size"), {"name": "(jobs past the first page)", "status": "unknown"}]
+        self.assertEqual(rescue.verdict(jobs, NOW)[0], "gated")
+
     def test_a_dry_run_mutates_nothing(self):
         fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
         lines = sweep(fake, dry_run=True)
