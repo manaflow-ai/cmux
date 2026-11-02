@@ -304,40 +304,38 @@ pub fn transition(
     let mut fail = |invariant, detail| out.push(violation(invariant, window, detail));
     let moved = old.pane != new.pane || old.target != new.target;
     match event {
-        FocusEvent::Expect { generation, .. } if *generation != old.generation => {
-            if moved || new.expectation != old.expectation {
-                fail(
-                    Invariant::NoSteal,
-                    format!("stale expect ({generation} at {}) changed focus", old.generation),
-                );
-            }
+        FocusEvent::Expect { generation, .. }
+            if *generation != old.generation && (moved || new.expectation != old.expectation) =>
+        {
+            fail(
+                Invariant::NoSteal,
+                format!("stale expect ({generation} at {}) changed focus", old.generation),
+            );
         }
         FocusEvent::WindowKey { .. }
         | FocusEvent::AppActive { .. }
         | FocusEvent::OverlayOpened { .. }
         | FocusEvent::OverlayClosed { .. }
-        | FocusEvent::ContentPresented { .. } => {
-            if moved {
-                fail(
-                    Invariant::PassiveEvents,
-                    format!(
-                        "{} moved focus {}/{} -> {}/{}",
-                        event_name(event),
-                        or_nil(old.pane.as_deref()),
-                        old.target.describe(),
-                        or_nil(new.pane.as_deref()),
-                        new.target.describe()
-                    ),
-                );
-            }
+        | FocusEvent::ContentPresented { .. }
+            if moved =>
+        {
+            fail(
+                Invariant::PassiveEvents,
+                format!(
+                    "{} moved focus {}/{} -> {}/{}",
+                    event_name(event),
+                    or_nil(old.pane.as_deref()),
+                    old.target.describe(),
+                    or_nil(new.pane.as_deref()),
+                    new.target.describe()
+                ),
+            );
         }
-        FocusEvent::Responder { .. } if !old.overlays.is_empty() => {
-            if moved {
-                fail(
-                    Invariant::PassiveEvents,
-                    "responder report under an overlay moved focus".to_owned(),
-                );
-            }
+        FocusEvent::Responder { .. } if !old.overlays.is_empty() && moved => {
+            fail(
+                Invariant::PassiveEvents,
+                "responder report under an overlay moved focus".to_owned(),
+            );
         }
         _ => {}
     }
@@ -636,27 +634,23 @@ fn content(window: &ObservedWindow) -> Vec<Violation> {
             ),
         );
     }
-    match resolved {
-        Resolved::Terminal { tab, .. } if window.is_key => {
-            if window.ghostty_focused != [tab.as_str()] {
-                fail(
-                    Invariant::GhosttyMatches,
-                    format!("ghostty {:?} != [{tab}]", window.ghostty_focused),
-                );
-            }
-        }
-        _ if !window.ghostty_focused.is_empty() => {
-            let key = if window.is_key { "" } else { ", window not key" };
+    let key_terminal = match resolved {
+        Resolved::Terminal { tab, .. } if window.is_key => Some(tab),
+        _ => None,
+    };
+    if let Some(tab) = key_terminal {
+        if window.ghostty_focused != [tab.as_str()] {
             fail(
                 Invariant::GhosttyMatches,
-                format!(
-                    "ghostty {:?} while model is {}{key}",
-                    window.ghostty_focused,
-                    resolved.kind()
-                ),
+                format!("ghostty {:?} != [{tab}]", window.ghostty_focused),
             );
         }
-        _ => {}
+    } else if !window.ghostty_focused.is_empty() {
+        let key = if window.is_key { "" } else { ", window not key" };
+        fail(
+            Invariant::GhosttyMatches,
+            format!("ghostty {:?} while model is {}{key}", window.ghostty_focused, resolved.kind()),
+        );
     }
     // Under an overlay the applier leaves page focus alone (keys go to the
     // overlay); closing it re-applies.
