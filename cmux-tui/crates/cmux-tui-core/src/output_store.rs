@@ -847,6 +847,32 @@ impl OutputStore {
         Some(state.memory_window(after, budget))
     }
 
+    /// The daemon's terminal was replaced from its host's snapshot (a host
+    /// reconnect): bytes the host wrote while the daemon had no tap never
+    /// came through [`Self::append`]. Snapshot mode: the tail must not
+    /// continue across that gap; its unwritten bytes fall back to a snapshot
+    /// of the replaced terminal, asked for at the next pass. (Full mode's
+    /// segment reads report the missing bytes as a gap by offset; its
+    /// restore is unchanged here.)
+    pub(crate) fn stream_gap(&self, terminal_id: &TerminalPublicId) {
+        if !self.tail_enabled() {
+            return;
+        }
+        let Some(log) =
+            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
+        else {
+            return;
+        };
+        let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.fall_back_to_snapshot();
+        let wait = state.retry_wait();
+        drop(state);
+        match wait {
+            Some(wait) => self.mark_log_dirty_after(&log, wait),
+            None => self.mark_log_dirty(&log),
+        }
+    }
+
     /// The person cleared this terminal's history: drop the stored output
     /// (memory tail, segment files) and write the snapshot at once.
     pub(crate) fn history_cleared(&self, terminal_id: &TerminalPublicId) {
