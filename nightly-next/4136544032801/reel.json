@@ -1,0 +1,173 @@
+{
+  "version": 1,
+  "build": "4136544032801",
+  "notes": "notes/4136544032801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31471,
+      "title": "Agent pane: Take over on the managed banner shows its label as a quiet button",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31457,
+      "title": "Revert \"NEXT: add Touch Bar controls (#31365)\"",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31455,
+      "title": "cmux NEXT: the working spinner is a faint ring with a turning sweep, not the 3/4 arc or spokes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31458,
+      "title": "fix(ci): listperf base= is fetched the way the step takes its own commit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31463,
+      "title": "ci(nightly): keep the primary preparation off the light-job placement",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27258,
+      "title": "cmux-next: close batch B2 overlay and harness windows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28801,
+      "title": "acpmux: the log kind index works on the musl daemon (statx birth time); restarts stop re-parsing whole logs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31437,
+      "title": "base red: Session Info push clearance reads the chat's page edge live",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31432,
+      "title": "base red: centre the workflow agent icon on its name line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31240,
+      "title": "cmux-tui: remote clients never see or act on incognito workspaces (#31210)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31362,
+      "title": "fix(cloud): coalesce overlapping machine refreshes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31371,
+      "title": "cmux next: skill words show their description, and Codex skill dollars stay correct",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31430,
+      "title": "fix cloud image acpmux service handoff",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31450,
+      "title": "What's New sheet: a loading day holds the rows its index promises (gallery load shift)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31429,
+      "title": "base red: composer-side-inset reads the page edge from --cv-edge (16 px since #27580)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31421,
+      "title": "test(agent-pane): the rail placement test reads the centered box, clamped above the stack",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31434,
+      "title": "fix(ios): Feed read-mark writes run in the order they were numbered; a diff file switch drops the old jump",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31449,
+      "title": "test: the rail card frame test checks the rail's pinned edge, not its width",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31445,
+      "title": "test(next): the no-project New Tab headline names this Mac before a remote pick",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31365,
+      "title": "NEXT: add Touch Bar controls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31438,
+      "title": "fix(next): format no-project headline regression test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27780,
+      "title": "cmux-tui: read the registry identity without the registry lock",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31433,
+      "title": "base red: web-lint, session-chip test drops its unused cue (#31413)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31439,
+      "title": "Session Info: tests follow the push where the gutter cannot hold it; review follow-ups",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31320,
+      "title": "Agent chat: smoother transcript scrolling",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31425,
+      "title": "base red: web-lint check:browser-lanes, #31407's arrow-key test keeps its helper inside its browser lane",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31436,
+      "title": "fix(next): a remote machine picked with its folder ends Do not work in a project",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
