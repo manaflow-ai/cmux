@@ -13061,6 +13061,22 @@
         "Committed items (message, message_updated, read_cursor, conversation) carry the conversation rev they produced; typing and draft items are ephemeral, carry no rev and are never replayed."
       ]
     },
+    "ChiefContinueResult": {
+      "kind": "object",
+      "fields": {
+        "continued": {
+          "required": true,
+          "type": {"kind": "primitive", "name": "boolean"},
+          "description": "true when the last owner-stopped messages were reopened and a turn started."
+        },
+        "reason": {
+          "required": false,
+          "type": {"kind": "primitive", "name": "string"},
+          "description": "busy when a turn, queued message or pending resume prevents Continue."
+        }
+      },
+      "extra": false
+    },
     "ChiefStopResult": {
       "kind": "object",
       "fields": {
@@ -13112,6 +13128,22 @@
             }
           },
           "description": "For restart: one line per subagent that could not go on."
+        }
+      },
+      "extra": false
+    },
+    "ChiefRetryResult": {
+      "kind": "object",
+      "fields": {
+        "retried": {
+          "required": true,
+          "type": {"kind": "primitive", "name": "boolean"},
+          "description": "true when the named owner message was reopened and a retry turn started."
+        },
+        "reason": {
+          "required": false,
+          "type": {"kind": "primitive", "name": "string"},
+          "description": "busy or invalid_message when Retry cannot start."
         }
       },
       "extra": false
@@ -16599,6 +16631,30 @@
         "validation.invalid"
       ]
     },
+    "chief.continue": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": ["machine"],
+      "params": {
+        "selectors": {"machine": "required", "session": "required"},
+        "fields": {
+          "chief": {
+            "required": false,
+            "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 70},
+            "description": "The Chief whose brain receives the owner action; absent selects the default Chief."
+          }
+        },
+        "extra": false
+      },
+      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "ChiefContinueResult"}]},
+      "errors": ["idempotency.conflict", "operation.failed", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it; agent-bound, relayed, WebSocket and page connections are refused before forwarding.",
+        "The daemon forwards one line to the selected Chief brain's tools socket. A missing brain is unavailable and never starts for this operation.",
+        "Reopens the messages closed by the owner's last Stop and starts one Continue turn; with nothing stopped it returns continued false and starts nothing. Busy returns continued false with reason busy."
+      ]
+    },
     "chief.engine.get": {
       "class": "read",
       "idempotency": "forbidden",
@@ -17641,6 +17697,35 @@
         "expected_rev, when given, must be the record's rev, else operation.failed details.reason rev_mismatch with extra.rev the current one.",
         "The idempotency key is per caller (the last 256 keys of each caller are kept): the same key with the same params answers the committed record with replayed true; other params under the key are idempotency.conflict.",
         "Every committed state is kept as a revision (chief.profile.history, the newest 100 per Chief) and can be restored with chief.profile.undo."
+      ]
+    },
+    "chief.retry": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": ["machine"],
+      "params": {
+        "selectors": {"machine": "required", "session": "required"},
+        "fields": {
+          "chief": {
+            "required": false,
+            "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 70},
+            "description": "The Chief whose brain receives the owner action; absent selects the default Chief."
+          },
+          "message": {
+            "required": true,
+            "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128},
+            "description": "The person's message id in the selected Chief conversation to answer again."
+          }
+        },
+        "extra": false
+      },
+      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "ChiefRetryResult"}]},
+      "errors": ["idempotency.conflict", "operation.failed", "origin.forbidden", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it; agent-bound, relayed, WebSocket and page connections are refused before forwarding.",
+        "The daemon forwards one line to the selected Chief brain's tools socket. A missing brain is unavailable and never starts for this operation.",
+        "Reopens and re-answers the named person message using its current contents. Busy returns retried false with reason busy; an unknown, retracted, non-owner or other-conversation message returns retried false with reason invalid_message."
       ]
     },
     "chief.stop": {

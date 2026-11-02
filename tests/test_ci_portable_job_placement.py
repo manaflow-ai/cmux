@@ -59,6 +59,56 @@ def idle(count: int, label: str = SIDE) -> list[dict]:
     return [runner(f"cmux{index}-glaeda", label) for index in range(count)]
 
 
+NIGHTLY_ONLY = "glaeda-nightly-only-m4pro"
+LIGHT = "prepare-nightly-variant-primary prepare-nightly-variant await-nightly-tree-marker"
+
+
+def nightly_only(name: str, *, busy: bool = False, builder: bool = False) -> dict:
+    label = "glaeda-nightly-only-m4pro-builder" if builder else NIGHTLY_ONLY
+    return {"name": name, "status": "online", "busy": busy,
+            "labels": [{"name": item} for item in ("self-hosted", label, f"glaeda-runner-{name}")]}
+
+
+class NightlyOnly(unittest.TestCase):
+    """The all-nightly reservation's light runners take nightly-next's light jobs while they are idle."""
+
+    def config(self, **overrides: str) -> dict:
+        return env(**{"JOBS": LIGHT, "NIGHTLY": "1", "NIGHTLY_WAIT_FOR_FLEET": "1", "REQUIRE_LIVE_CAPACITY": "1",
+                      "FLEET_LINUX": "", "NIGHTLY_ONLY_LABEL": NIGHTLY_ONLY, **overrides})
+
+    def test_idle_reservation_runners_take_the_jobs_while_side_minis_are_busy(self):
+        runners = [runner("cmux1-glaeda", busy=True), nightly_only("cmux15-glaeda-nightly-only-2"),
+                   nightly_only("cmux15-glaeda-nightly-only-3"), nightly_only("cmux7s-glaeda-nightly-only-4")]
+        result = placement.decide(self.config(), runners, snapshot(), NOW)
+        self.assertEqual(result.mini_runner, NIGHTLY_ONLY)
+        self.assertEqual(result.mini_jobs, tuple(LIGHT.split()))
+
+    def test_only_idle_reservation_runners_less_its_queue_count_and_the_builder_never(self):
+        runners = [nightly_only("cmux15-glaeda-nightly-only-1", builder=True),
+                   nightly_only("cmux15-glaeda-nightly-only-2", busy=True),
+                   nightly_only("cmux15-glaeda-nightly-only-3"), nightly_only("cmux7s-glaeda-nightly-only-2")]
+        result = placement.decide(self.config(), runners, snapshot(), NOW)
+        self.assertEqual(result.mini_jobs, tuple(LIGHT.split())[:2])
+        queued = snapshot({NIGHTLY_ONLY: {"queued": 1}})
+        self.assertEqual(placement.decide(self.config(), runners, queued, NOW).mini_jobs, tuple(LIGHT.split())[:1])
+
+    def test_busy_unread_unset_or_later_attempt_falls_back_to_the_side_route(self):
+        busy = [nightly_only("cmux15-glaeda-nightly-only-2", busy=True), runner("cmux1-glaeda")]
+        for config, runners in ((self.config(), busy), (self.config(), None),
+                                (self.config(NIGHTLY_ONLY_LABEL=""), [nightly_only("cmux15-glaeda-nightly-only-2")]),
+                                (self.config(GITHUB_RUN_ATTEMPT="2"), [nightly_only("cmux15-glaeda-nightly-only-2")]),
+                                (self.config(NIGHTLY=""), [nightly_only("cmux15-glaeda-nightly-only-2")])):
+            with self.subTest(config=config, runners=runners):
+                result = placement.decide(config, runners, snapshot(), NOW)
+                self.assertNotEqual(result.mini_runner, NIGHTLY_ONLY)
+
+    def test_nightly_light_placement_reads_the_reservation_variable(self):
+        text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
+        step = text[text.index("- name: Place the light jobs on a free mini"):]
+        step = step[:step.index("run: python3 scripts/ci/portable_job_placement.py")]
+        self.assertIn("NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}", step)
+
+
 class Decide(unittest.TestCase):
     def test_linux_signer_binary_is_never_built_on_a_mini(self):
         config = env(JOBS="control signer-build", LINUX_ONLY="signer-build", NIGHTLY="1")

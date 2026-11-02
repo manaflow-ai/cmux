@@ -55,7 +55,7 @@
     {"name": "transcript-icon-box", "pt": 16, "kind": "edge", "scaled": true, "description": "Tool thinking and status row leading box", "formula": {"icon-box": 1}},
     {"name": "transcript-text-gap", "pt": 24, "kind": "edge", "scaled": true, "description": "Text start relative to the column lead", "formula": {"transcript-icon-box": 1, "gap": 1}},
     {"name": "gap-block", "pt": 24, "kind": "edge", "scaled": true, "description": "Gap between transcript blocks"},
-    {"name": "gap-turn", "pt": 32, "kind": "edge", "scaled": true, "description": "Gap between transcript turns"},
+    {"name": "gap-turn", "pt": 32, "kind": "edge", "scaled": true, "description": "Gap between transcript turns (settled-spacing: turn-gap)"},
     {"name": "gap-inner", "pt": 12, "kind": "edge", "scaled": true, "description": "Gap inside a transcript tool group"},
     {"name": "gap-composer", "pt": 16, "kind": "edge", "scaled": true, "description": "Gap from the last transcript block to the composer"},
     {"name": "gap-foot", "pt": 4, "kind": "edge", "scaled": true, "description": "Gap from the composer box to its quiet row"},

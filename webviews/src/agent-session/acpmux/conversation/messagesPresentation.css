@@ -1,0 +1,11 @@
+/* Messages reuses UserBubble's colours, glass, radius and measure. Agent replies stay left;
+   user prompts already align right. Markdown keeps its normal wrapping inside the bubble. */
+.cv-user__bubble.cv-assistant-bubble {
+  width: fit-content;
+  min-width: 0;
+  white-space: normal;
+}
+
+.cv-assistant-bubble > .cv-md {
+  max-width: 100%;
+}

@@ -22,7 +22,10 @@ A wake passes when the page has its URL and scroll and the terminal its marker.
 
 --hidden-spaces K (leo-workspace design/spaces.md, "Hibernation and the perf plan") measures
 hidden-space hibernation instead: K new spaces of --workspaces workspaces each (the same terminal
-and page), then the window goes back to the default space, so the K spaces are hidden. Nothing asks
+and page; K is 1 to 7, as `space.selectByNumber` reaches spaces 2 to 8), then the window goes back
+to the default space, so the K spaces are hidden. A new space's own first workspace stays empty and is
+not counted. Space k's hidden clock starts when the window leaves it, so --hidden-minutes must exceed
+the setup time: shown-settled records how many were already hibernated (app_counts). Nothing asks
 for hibernation: cmux.json sets `workspaces.hibernation.idleMinutes` to a week and
 `hiddenSpaceMinutes` to --hidden-minutes (default 5, the setting's minimum). Phases, each with
 --idle-seconds of idle CPU and wakeups:
@@ -172,7 +175,8 @@ def wake(app: bm.App, sock: str, entry: dict, port: int) -> dict:
 
 
 def build_workspace(app: bm.App, sock: str, port: int, index: int) -> dict | None:
-    """One bench workspace in the window's current space: a terminal with a marker and a scrolled page."""
+    """One bench workspace in the window's current space: a terminal with a marker and a scrolled page.
+    The typed command does not contain the marker (printf builds it), so only its output shows it."""
     created = app.run("workspace.newAtBottom")
     workspace = next((str(i) for i in created.get("created", []) if str(i).startswith("ws_")), None)
     if workspace is None:
@@ -323,6 +327,8 @@ def run(argv: list[str]) -> int:
     args, _ignored = parser.parse_known_args(argv)  # tab-hibernation.sh's own flags (--tabs, --pressure...) do not apply
     if sys.platform != "darwin":
         raise SystemExit("bench-workspace-hibernation: macOS only (a fleet or capture mini)")
+    if args.hidden_spaces > 7:
+        raise SystemExit("bench-workspace-hibernation: --hidden-spaces is at most 7 (space.selectByNumber reaches spaces 2 to 8)")
     if args.hidden_spaces > 0:
         return run_hidden_spaces(args)
     port = serve(args.heap_mb)
@@ -337,26 +343,9 @@ def run(argv: list[str]) -> int:
     made: list[dict] = []
     try:
         for index in range(args.workspaces):
-            created = app.run("workspace.newAtBottom")
-            workspace = next((str(i) for i in created.get("created", []) if str(i).startswith("ws_")), None)
-            if workspace is None:
-                print(f"   workspace {index}: {created}", file=sys.stderr)
-                continue
-            app.action("goToWorkspace", workspace=workspace)
-            terminal = created_tab(app.run("newSurface"))
-            # The typed command does not contain the marker (printf builds it), so only its output shows it.
-            marker = f"WSHIB-{index}-DONE"
-            if terminal:
-                bp.rpc(sock, "action.run", {"action": "terminal.sendText", "target": f"tab:{terminal}",
-                                            "args": {"text": f"seq 1 400; printf 'WSHIB-%s-DONE\\n' {index}\r"}})
-            url = f"http://s{index}.localhost:{port}/?w={index}"
-            page = created_tab(app.run("openBrowser.chromium", url=url))
-            if page is None or terminal is None:
-                print(f"   workspace {index}: terminal={terminal} page={page}", file=sys.stderr)
-                continue
-            if evaluate(sock, page, SET_SCROLL) is None:
-                print(f"   {page}: page did not answer", file=sys.stderr)
-            made.append({"workspace": workspace, "terminal": terminal, "page": page, "url": url, "marker": marker})
+            entry = build_workspace(app, sock, port, index)
+            if entry:
+                made.append(entry)
         front = app.run("workspace.newAtBottom")
         front_ws = next((str(i) for i in front.get("created", []) if str(i).startswith("ws_")), None)
         if front_ws:
