@@ -202,15 +202,22 @@ jobs:
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           # Red on the base is the point here: its exit says so, and its verdict is read from health.json
           # below. A replay that wrote no health.json gave no verdict, and says so here.
+          # The head keeps a state red only when it is red on every retry; the base renders twice with
+          # no retries and a state red in either render is the base's. Holding the base to every retry
+          # too called states that flake on the base (layout shift) the pull request's own.
+          bases=()
+          for pass in 1 2; do
+            rc=0
+            bun health.ts --manifest "$RUNNER_TEMP/base-manifest.json" --gallery-dir "$RUNNER_TEMP/base-gallery" \
+              --retries 0 --output-dir "$RUNNER_TEMP/health/base/$pass" || rc=$?
+            if [ ! -s "$RUNNER_TEMP/health/base/$pass/health.json" ]; then
+              echo "::error::the base replay of $entries wrote no health.json (health.ts exited $rc): no base verdict, so nothing is excused"
+              exit 1
+            fi
+            bases+=(--base "$RUNNER_TEMP/health/base/$pass/health.json")
+          done
           rc=0
-          bun health.ts --manifest "$RUNNER_TEMP/base-manifest.json" --gallery-dir "$RUNNER_TEMP/base-gallery" \
-            --output-dir "$RUNNER_TEMP/health/base" || rc=$?
-          if [ ! -s "$RUNNER_TEMP/health/base/health.json" ]; then
-            echo "::error::the base replay of $entries wrote no health.json (health.ts exited $rc): no base verdict, so nothing is excused"
-            exit 1
-          fi
-          rc=0
-          python3 "$classify" gallery --head "$head" --base "$RUNNER_TEMP/health/base/health.json" \
+          python3 "$classify" gallery --head "$head" "${bases[@]}" \
             --base-name "base ${BASE_SHA:0:12}" --annotate | tee "$RUNNER_TEMP/verdict.txt" || rc=$?
           grep -v '^::' "$RUNNER_TEMP/verdict.txt" >> "$GITHUB_STEP_SUMMARY" || true
           exit "$rc"

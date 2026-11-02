@@ -36,7 +36,7 @@ head's own. gallery-health.yml replays a pull request's red states on the base i
 
     test_reds.py gallery --head HEAD/health.json --entries               the entries of those states
     test_reds.py gallery --head HEAD/health.json --states                the red states (entry#variant) it replays
-    test_reds.py gallery --head HEAD/health.json --base BASE/health.json [--annotate] [--json]
+    test_reds.py gallery --head HEAD/health.json --base BASE/health.json [--base ...] [--annotate] [--json]
 
 with the same exit codes (`--entries` and `--states` exit 1 when the head's red is its own whatever the base shows).
 """
@@ -914,16 +914,23 @@ def gallery_entries(text: str | None) -> list[str]:
     return sorted({state.rsplit("#", 1)[0] for state in gallery_states(text)})
 
 
-def gallery_classify(head_text: str | None, base_text: str | None, base: str = "the base") -> Verdict | None:
+def gallery_classify(head_text: str | None, base_text, base: str = "the base") -> Verdict | None:
     """A gallery health shard's red judged per state against the same states rendered on the base; None when the
-    head's shard is whole and has nothing red."""
+    head's shard is whole and has nothing red. `base_text` may be several base renders: a state red the same way
+    in any of them is the base's. The head keeps a state red only when every retry shows it, so a base render that
+    had to show it every time too would call a state that flakes on the base the head's own."""
     head = gallery_read(head_text)
     if not head.failed and not head.crashes and not head.truncated:
         return None
     reasons = list(head.crashes)
     if head.truncated:
         reasons.append(f"gallery health: per-state results are not whole ({head.truncated[0]})")
-    seen = gallery_read(base_text, keep_known=True)
+    renders = base_text if isinstance(base_text, (list, tuple)) else [base_text]
+    seen = Result()
+    for text in renders or [None]:
+        found = gallery_read(text, keep_known=True)
+        seen.truncated.extend(found.truncated)
+        seen.failed |= found.failed
     if seen.truncated:
         reasons.append(f"no whole base result on {base} to compare {len(head.failed)} red state(s) with "
                        f"({seen.truncated[0]})")
@@ -942,7 +949,7 @@ def gallery_main(args) -> int:
             return 1
         print(",".join(gallery_states(head) if args.states else gallery_entries(head)))
         return 0 if found.failed else 2
-    verdict = gallery_classify(head, read_text(args.base) if args.base else None, args.base_name)
+    verdict = gallery_classify(head, [read_text(path) for path in args.base or []] or None, args.base_name)
     if args.json:
         print(json.dumps(None if verdict is None else
                          {"own": verdict.own, "reasons": verdict.reasons, "shared": verdict.shared}))
@@ -973,7 +980,7 @@ def main(argv: list[str] | None = None) -> int:
     one.add_argument("--json", action="store_true")
     gallery = sub.add_parser("gallery", help="a gallery health shard's health.json against the base's")
     gallery.add_argument("--head", required=True, type=Path)
-    gallery.add_argument("--base", type=Path)
+    gallery.add_argument("--base", type=Path, action="append", help="a base render's health.json; repeat for several")
     gallery.add_argument("--base-name", default="the base")
     gallery.add_argument("--entries", action="store_true", help="print the entries to replay on the base")
     gallery.add_argument("--states", action="store_true", help="print the red states (entry#variant) to replay on the base")

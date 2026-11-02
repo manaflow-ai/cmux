@@ -118,8 +118,15 @@ class GalleryHealthBaseReds(unittest.TestCase):
         run = step("Judge the red states against the base")["run"]
         replay = run[run.index("bun health.ts"):]
         self.assertNotIn("|| true", replay.split("\n", 2)[0] + replay.split("\n", 2)[1])
-        self.assertIn('[ ! -s "$RUNNER_TEMP/health/base/health.json" ]', run)
-        self.assertLess(run.index('[ ! -s "$RUNNER_TEMP/health/base/health.json" ]'), run.index("--base \"$RUNNER_TEMP/health/base/health.json\""))
+        self.assertIn('[ ! -s "$RUNNER_TEMP/health/base/$pass/health.json" ]', run)
+        self.assertLess(run.index('[ ! -s "$RUNNER_TEMP/health/base/$pass/health.json" ]'), run.index('"${bases[@]}"'))
+
+    def test_a_state_red_in_any_base_render_is_the_bases(self) -> None:
+        # The head holds a state red only when every retry shows it; the base must not need that too, or a state
+        # that flakes on the base is the pull request's own (pages.home-channels#emoji-return, run 41393541781).
+        run = step("Judge the red states against the base")["run"]
+        self.assertIn("for pass in 1 2", run)
+        self.assertIn("--retries 0", run)
 
     def test_one_classifier_judges_it_and_fails_closed(self) -> None:
         run = step("Judge the red states against the base")["run"]
