@@ -59,11 +59,13 @@ public final class CreationKeyboardClaims {
     }
 
     /// The person acted in the window numbered `window` (a click after its dispatch, one of their actions), answering the
-    /// input of timestamp `input`: a claim there ends. The input that asked for the claim does not end it.
-    public func personActed(inWindow window: Int, input: TimeInterval?) {
-        guard let claim = claims[window] else { return }
-        if let input, input == claim.inputTimestamp { return }
+    /// input of timestamp `input`: a claim there ends. The input that asked for the claim does not end it. True when one ended.
+    @discardableResult
+    public func personActed(inWindow window: Int, input: TimeInterval?) -> Bool {
+        guard let claim = claims[window] else { return false }
+        if let input, input == claim.inputTimestamp { return false }
         claims[window] = nil
+        return true
     }
 
     /// Ends the claim of the window numbered `window`.

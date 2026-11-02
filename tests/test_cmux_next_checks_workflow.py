@@ -2393,10 +2393,19 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         # its verdict output is what the admission job turns red.
         compile_step = next(step for step in fast["steps"] if step.get("id") == "compile")
         self.assertIs(compile_step.get("continue-on-error"), True)
-        self.assertEqual(fast["runs-on"], "${{ needs.macos-placement.outputs.gateway_runner }}")
+        # An idle gateway runner from this attempt submits the check; otherwise a Linux runner reads the build
+        # fleet's own Release (-Onone) compile of the push, fail closed on sha, repo, recipe and configuration.
+        self.assertTrue(fast["runs-on"].startswith(
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+            "needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && "
+            "needs.macos-placement.outputs.gateway_runner != '' && needs.macos-placement.outputs.gateway_runner || "),
+            fast["runs-on"])
+        self.assertIn("'blacksmith-2vcpu-ubuntu-2404'", fast["runs-on"])
         run = next(step["run"] for step in fast["steps"] if step.get("id") == "compile")
         self.assertIn("compile-check --ref", run)
         self.assertIn("--app", run)
+        self.assertIn('.recipe_version != 2 or .configuration != "release-onone"', run)
+        self.assertEqual(compile_step["env"]["RESULTS"], "https://gh-events.cmux.com/compile-checks/v1")
         for name in ("release-compile-fast", "release-compile"):
             with self.subTest(job=name):
                 self.assertNotIn("CI_NEXT_PROMOTE_POOL", str(jobs[name]["runs-on"]))
@@ -2854,6 +2863,11 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
                  # Only while macos-placement lists the tier in fleet_jobs (GatewayRunsOnlyTheFleetClient).
                  "fast-tier-fleet": ("fast-tier", "pull_request")}
     PINS = ("CI_COMPILE_CHECK_GATEWAY", "side-light", "gateway_runner")
+    # Gateway jobs that, with no idle gateway reading, run on Linux instead of skipping: they read the build
+    # fleet's own compile of the same sha (2026-11-02: every gateway runner busy from 09:39Z sent pushes 622a6b75
+    # and 0fa148c5 to the Mac Release queue for over two hours while cmux-next/compile had passed both). Their
+    # Mac fallback runs only when that read gives no verdict.
+    LINUX_ROUTE = {"release-compile-fast": ("blacksmith-2vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404")}
 
     def jobs(self) -> dict:
         return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -2910,9 +2924,20 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
                 context = self.context(event, attempt, reading)
                 idle = reading is not None and reading[0] == str(attempt) and reading[1] != ""
                 with self.subTest(job=name, attempt=attempt, reading=reading):
-                    self.assertEqual(bool(evaluate(job["if"], context)), idle)
+                    self.assertEqual(bool(evaluate(job["if"], context)), idle or name in self.LINUX_ROUTE)
                     if idle:
                         self.assertEqual(evaluate(job["runs-on"], context), reading[1])
+                        continue
+                    if name in self.LINUX_ROUTE:
+                        # Never the gateway (busy, or judged in another attempt): a Linux runner.
+                        self.assertIn(evaluate(job["runs-on"], context), self.LINUX_ROUTE[name])
+                        self.assertIn(evaluate(job["runs-on"], {**context, "vars.CI_CLOUD_OVERFLOW_SAVED": "1"}),
+                                      self.LINUX_ROUTE[name])
+                        unavailable = {**context, f"needs.{name}.result": "success",
+                                       f"needs.{name}.outputs.verdict": "unavailable",
+                                       "needs.app-compile-fleet.outputs.verdict": ""}
+                        self.assertTrue(evaluate(jobs[fallback]["if"], unavailable),
+                                        f"{fallback} must run when {name} gives no verdict")
                         continue
                     # Skipped: the Mac fallback runs, and is one of the cascade's jobs on this route.
                     skipped = {**context, f"needs.{name}.result": "skipped", f"needs.{name}.outputs.verdict": "",

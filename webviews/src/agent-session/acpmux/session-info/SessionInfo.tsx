@@ -27,7 +27,7 @@
 // document (Leo, 2026-10-22: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING
 // CLOSABLE!?"). Its left edge drags to resize it. Open, width and folds are each pane's own
 // (Leo, 2026-10-25: "they should all be individual per pane"), kept under the chat's session
-// (sessionInfoState.ts). Debug Settings `agent.inspector` (on by default)
+// (sessionInfoState.ts). Debug Settings `agent.sessionInfo` (on by default)
 // turns it off, which brings back the summary card it replaces (summary/SummaryCard.tsx). It reads
 // only acpmux's common snapshot and the App's header state, never one harness's own fields.
 // While the pane shows a subagent's own view, it lists that subagent's things alone, under
@@ -206,7 +206,7 @@ export function chatContentOverflow(shell: HTMLElement, paneWidth: number, colum
   return Math.max(0, Math.floor(reach - end + 0.5));
 }
 
-/// Whether Session Info shows: on (Debug Settings `agent.inspector`), open (the viewer's, in every
+/// Whether Session Info shows: on (Debug Settings `agent.sessionInfo`), open (the viewer's, in every
 /// chat tab), not stepped aside for a diff split, and only over the chat: never while a view takes
 /// the pane in its place (`covered`: a turn's diff in place hides the header, and the toggle with it).
 export const sessionInfoShown = ({
@@ -317,7 +317,7 @@ function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, besid
 const REVEAL_LIT_MS = 1200;
 
 /// The header's toggle and Session Info for the chat's pane. `on` is Debug Settings
-/// `agent.inspector`: off, there is neither, and the App shows its summary card instead.
+/// `agent.sessionInfo`: off, there is neither, and the App shows its summary card instead.
 export function useSessionInfo({
   snapshot,
   machineName,
@@ -730,7 +730,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
   // panel keeps clear of, so it never lies over the document.
   const { width: paneWidth, side, height: paneHeight } = usePaneRoom(shell, drawn, beside);
-  const usage = compactingUsage(summary?.usage, summary?.usageStats);
   // How far the chat's content reaches past the column the model expects (chatContentOverflow),
   // read while the panel floats: a panel that would lie over any of it pushes the chat left (Leo,
   // 2026-11-01: "why does the session info not push the layout left ever anymore"). It keeps its
@@ -811,6 +810,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
     [drawn, scopedAgent, snapshot.summary, rows],
   );
+  // After `summary`: read before its declaration, it threw on every render (a temporal dead zone).
+  const usage = compactingUsage(summary?.usage, summary?.usageStats);
   const made = useMemo(
     () => (drawn ? sessionSummary(rows, repository ?? null, summary?.cwd) : undefined),
     [drawn, rows, repository, summary?.cwd],
