@@ -860,6 +860,16 @@
       "owner": "abe4e792b0edd3ffa",
       "receipt": "Review (opus-reviewer): SHIP at 7490a5f384721e937d570212ee7a3e611f11cf12",
       "expiry": "2026-11-14"
+    },
+    {
+      "date": "2026-11-02",
+      "row": "app_lines",
+      "allow": 68,
+      "why": "Dogfood port of #27952 (each window gets its own Home) and #31844 (MW-1b: a window's own Home is pinned to its window's space), both already on feat-cmux-next; fixes MW-1 on the dogfood line (Cmd-1 or a Home click in window 2 switched window 1 to Home). The logic is in CmuxNextHomeEngine (WindowHomes, WindowHomeHost); the App lines are the 22 one-line WindowHomeHost forwards (AppServices+WindowHomeHost.swift), showHome/withDock resolving the window's own Home, and the WindowManager reads it needs (show(inWindow:), membersByWindow, openOwner, closeSurplus call). Moving them only on dogfood would make later feat cherry-picks conflict.",
+      "author": "mw1-dogfood-port (agent)",
+      "owner": "mw1-dogfood-port (agent)",
+      "receipt": "Review (claude-review-subagent): SHIP at 46bd750a99eb67de6749245370a1d75b77d982c7",
+      "expiry": "2026-11-16"
     }
   ],
   "escape_reviews": [

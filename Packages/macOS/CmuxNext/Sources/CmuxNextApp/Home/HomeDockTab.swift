@@ -115,9 +115,10 @@ final class HomeDockTab: InternalPageProvider {
         return found.provider.saved[found.key]?.messages?.shown
     }
 
-    /// The docked Home's provider and its tab's provider key.
+    /// The active window's docked Home (cmux#27880: each window has its own): its provider and its tab's provider key.
     private static func dockTab(_ services: AppServices) -> (provider: HomeDockTab, key: String)? {
-        guard let tab = services.home.homeWorkspace.flatMap(HomeDock.pageTab(in:))?.tab,
+        let home = services.windows.active.map { services.windowHomes.home(in: $0.state.id) } ?? services.home.homeWorkspace
+        guard let tab = home.flatMap(HomeDock.pageTab(in:))?.tab,
               let provider = services.pages.provider(.homeDock) as? HomeDockTab else { return nil }
         return (provider, services.pages.storeKey(of: tab.id) ?? tab.id)
     }
