@@ -27,14 +27,11 @@ struct SidebarPreviewProjectionTests {
             SidebarDocRow(key: "group-store", kind: "item", section: machine, parent: "machine-group", depth: 1, item: "group-store"),
             SidebarDocRow(key: "docs", kind: "item", section: machine, item: "docs"),
         ], records: records, revision: 1)
-        let prior = SidebarDocStore.current
-        defer { SidebarDocStore.current = prior }
         let store = SidebarDocStore(remote: nil, mirror: nil)
         store.shown = projection
-        SidebarDocStore.current = store
         let model = SidebarModel()
-        model.docDrag = SidebarDocDrag(item: { _ in nil }, section: { _ in machine }, begin: { _ in [:] }, drop: { _, _ in })
-        let rows = SidebarRows(model: model)
+        model.docDrag = SidebarDocDrag(document: store, item: { _ in nil }, section: { _ in machine }, begin: { _ in [:] }, drop: { _, _ in })
+        let rows = SidebarRows(model: model, document: { store })
         let raw = [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
             .group(SidebarGroup(id: GroupID("machine-group"), name: "Group", workspaces: [])),
         ])]

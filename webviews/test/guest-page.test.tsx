@@ -199,6 +199,7 @@ test("the room ends the share: the ended page replaces the chat", async () => {
 test("only a share that is over ends the page; offline and network failures may be retried", () => {
   expect(endedBy("share.expired")).toBe("expired");
   expect(endedBy("share.revoked")).toBe("revoked");
+  expect(endedBy("share.closed")).toBe("closed");
   expect(endedBy("share.kicked")).toBe("kicked");
   expect(endedBy("share.used")).toBe("used");
   expect(endedBy("share.left")).toBe("used");

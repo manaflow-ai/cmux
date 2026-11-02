@@ -419,6 +419,7 @@ impl Hub {
             self.store.close_log(&meta.id);
             tracing::warn!(session = %meta.id, "a failed import's staged durable state waits for the next start to roll it back");
         } else {
+            self.remove_cached_closed_summary(&meta.id);
             let _ = self.store.delete(&meta.id);
         }
     }

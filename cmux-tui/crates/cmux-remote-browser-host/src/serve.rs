@@ -699,6 +699,30 @@ unsafe extern "C" fn on_dialog_reset(_: *mut c_void, _browser: c_int) {
     });
 }
 
+/// Chromium dropped one dialog without an answer (its frame went away, or
+/// the tab closed): the viewers close it (`rb.dialog.cancel`).
+unsafe extern "C" fn on_dialog_dropped(_: *mut c_void, _browser: c_int, token: i64) {
+    eprintln!("serve: dialog {token} dropped by the page");
+    dispatch(move |h| {
+        let out = h.tab.dialog_dropped(token);
+        h.send_rb(out);
+    });
+}
+
+/// A find result of the running search (`rb.find.result` when it moved).
+unsafe extern "C" fn on_find_result(
+    _: *mut c_void,
+    _browser: c_int,
+    count: c_int,
+    active: c_int,
+    _final_update: c_int,
+) {
+    dispatch(move |h| {
+        let out = h.tab.find_result(count, active);
+        h.send_rb(out.into_iter().collect());
+    });
+}
+
 unsafe extern "C" fn on_frame(_: *mut c_void, _browser: c_int, f: *const RbFrame) {
     // SAFETY: valid for the call.
     let f = unsafe { &*f };
@@ -929,6 +953,8 @@ pub fn run(argv: &mut [*mut c_char], opts: Options) -> i32 {
         on_open_tab: Some(on_open_tab),
         on_file_load: Some(on_file_load),
         on_text_input: Some(on_text_input),
+        on_dialog_dropped: Some(on_dialog_dropped),
+        on_find_result: Some(on_find_result),
     };
     // SAFETY: argv, the strings and the callbacks outlive the call.
     unsafe {

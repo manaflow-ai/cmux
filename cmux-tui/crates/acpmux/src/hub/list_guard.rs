@@ -49,11 +49,18 @@ pub(crate) const MAX_WAIT: Duration = Duration::from_secs(30);
 pub(crate) struct Events {
     tx: broadcast::Sender<HubEvent>,
     changes: AtomicU64,
+    /// Any event may change a field in a closed row (for example attached/shown or usage).
+    /// Closed summary bytes carry this generation so they are rebuilt only after a change.
+    pub(super) summary_generation: Arc<AtomicU64>,
 }
 
 impl Events {
     pub(super) fn new(capacity: usize) -> Self {
-        Self { tx: broadcast::channel(capacity).0, changes: AtomicU64::new(0) }
+        Self {
+            tx: broadcast::channel(capacity).0,
+            changes: AtomicU64::new(0),
+            summary_generation: Arc::new(AtomicU64::new(0)),
+        }
     }
 
     /// Counts the change, then sends it.
@@ -72,6 +79,7 @@ impl Events {
     /// A change no event carries (an attach): the next list is built anew.
     pub(super) fn changed(&self) {
         self.changes.fetch_add(1, Ordering::SeqCst);
+        self.summary_generation.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -231,7 +239,7 @@ impl Snapshot {
                 None => p.remove("cursor"),
             };
         }
-        let picked = super::session_pages::session_list_reply(keys.clone(), &filters)?;
+        let picked = super::session_pages::session_list_reply_borrowed(keys, &filters)?;
         let rows =
             picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
         let row = |key: &Value| row_text(text, spans, key, budget);
@@ -291,7 +299,7 @@ impl Snapshot {
             Some(full) => (full.whole.as_str(), &full.spans, &full.keys),
             None => (self.whole.as_str(), &self.spans, &self.keys),
         };
-        let picked = super::session_pages::session_list_reply(keys.clone(), params)?;
+        let picked = super::session_pages::session_list_reply_borrowed(keys, params)?;
         let rows =
             picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
         let mut next = picked.get("nextCursor").cloned();
@@ -704,6 +712,60 @@ mod tests {
         assert!(list.page(None, &json!({"cursor": 3}), usize::MAX).is_err());
     }
 
+    /// A many-session daemon keeps the full keyset in its snapshot, but a one-row
+    /// request copies and serializes only its selected row, with the same cursors
+    /// and exact filters as the old owned path.
+    #[test]
+    fn three_thousand_key_snapshot_pages_only_selected_rows() {
+        let rows: Vec<Value> = (0..3_000)
+            .map(|i| {
+                json!({
+                    "sessionId": format!("s{i:04}"),
+                    "updatedAt": 3_000 - i,
+                    "peer": (i % 5 == 0).then_some("machine"),
+                    "status": if i % 3 == 0 { "closed" } else { "idle" },
+                })
+            })
+            .collect();
+        let list = Snapshot::new(
+            (false, 0, 0, Vec::new()),
+            0,
+            Duration::ZERO,
+            false,
+            Snapshot::serialize(&rows),
+        );
+        let first: Value =
+            serde_json::from_str(&list.page(None, &json!({"limit": 1}), usize::MAX).unwrap())
+                .unwrap();
+        assert_eq!(first["sessions"].as_array().unwrap().len(), 1);
+        assert_eq!(first["sessions"][0]["sessionId"], "s0000");
+        let second: Value = serde_json::from_str(
+            &list
+                .page(None, &json!({"limit": 1, "cursor": first["nextCursor"]}), usize::MAX)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(second["sessions"][0]["sessionId"], "s0001");
+        let filter = json!({"localOnly": true, "excludeStatus": ["closed"],
+            "orderBy": "sessionId", "limit": 1});
+        let picked: Value =
+            serde_json::from_str(&list.page(None, &filter, usize::MAX).unwrap()).unwrap();
+        assert_eq!(picked["sessions"][0]["sessionId"], "s0001");
+        assert_eq!(picked["nextCursor"], "s:s0001");
+        // The existing owned API and the borrowed one remain byte-for-byte identical.
+        for params in [
+            json!({}),
+            json!({"limit": 1}),
+            json!({"status": "closed", "peer": "machine", "limit": 2}),
+            filter,
+        ] {
+            let owned =
+                super::super::session_pages::session_list_reply(rows.clone(), &params).unwrap();
+            let borrowed =
+                super::super::session_pages::session_list_reply_borrowed(&rows, &params).unwrap();
+            assert_eq!(owned, borrowed, "{params}");
+        }
+    }
     /// A list read from a session list cursor (`k...`) with no `limit`, too large for one page,
     /// keeps that cursor's cutoff on every page: the rows after the session it names, each once.
     #[tokio::test]
@@ -767,6 +829,138 @@ mod tests {
         assert_eq!(listed.len(), 2, "{first}");
         assert_eq!(by_id("small"), &rows[1], "{first}");
         assert!(first.get("nextCursor").is_none(), "{first}");
+    }
+
+    fn cached_rows_equal_uncached(hub: &Hub) {
+        let mut uncached: Vec<Value> =
+            hub.sessions().iter().map(|session| hub.session_summary(session)).collect();
+        super::super::session_pages::sort_session_summaries(&mut uncached);
+        assert_eq!(hub.all_session_summaries(), uncached);
+
+        let mut uncached_list: Vec<Value> = hub
+            .sessions()
+            .iter()
+            .map(|session| hub.session_list_summary(session))
+            .collect();
+        super::super::session_pages::sort_session_summaries(&mut uncached_list);
+        let mut cached_list = Vec::new();
+        hub.visit_session_summaries(false, |row| cached_list.push(row));
+        assert_eq!(cached_list, uncached_list);
+    }
+
+    /// Closed rows are serialized once, but every metadata and list-visible runtime change must
+    /// still produce the exact same row as the uncached walk. This exercises the fields that have
+    /// historically changed after close: names, tags/archive, seen state, usage, child counts,
+    /// reopen, and a closed parent's folded child preview.
+    #[tokio::test]
+    async fn closed_summary_cache_matches_uncached_after_every_mutation() {
+        let cfg: crate::config::Config =
+            serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
+        let hub = Hub::new(
+            cfg.clone(),
+            crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap(),
+        );
+        let parent_meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "parent", "name": "parent",
+            "harness": "claude", "family": "claude", "cwd": "/w", "status": "idle",
+            "createdAt": 1, "updatedAt": 1, "preview": "parent preview", "unread": true,
+        }))
+        .unwrap();
+        let child_meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "child", "name": "child",
+            "harness": "claude", "family": "claude", "cwd": "/w", "status": "ready",
+            "createdAt": 2, "updatedAt": 2, "subsession": {
+                "startedBy": "parent", "shortName": "child", "depth": 1
+            }
+        }))
+        .unwrap();
+        let parent = hub.make_session(parent_meta);
+        let child = hub.make_session(child_meta);
+        hub.sessions
+            .lock()
+            .unwrap()
+            .extend([(parent.id.clone(), parent.clone()), (child.id.clone(), child.clone())]);
+        hub.update_live_session_index(&parent);
+        hub.update_live_session_index(&child);
+        hub.subsessions.note_status(&parent.id, &child.id, SessionStatus::Ready);
+
+        hub.set_status(&parent, SessionStatus::Closed);
+        cached_rows_equal_uncached(&hub); // close and the parent's folded child preview
+
+        // A list build followed by the full form keeps both serialized rows coherent.
+        hub.visit_session_summaries(false, |_| {});
+        cached_rows_equal_uncached(&hub);
+
+        // Appending after close changes the event-visible preview without a metadata write.
+        hub.append(&parent, "mux", "message", json!({"text": "after close"}));
+        hub.visit_session_summaries(false, |_| {});
+        cached_rows_equal_uncached(&hub);
+
+        // Opening a closed chat changes attached/shown fields in its full row.
+        hub.attach_count(&parent, 1, true);
+        cached_rows_equal_uncached(&hub);
+        hub.attach_count(&parent, -1, true);
+        cached_rows_equal_uncached(&hub);
+
+        parent.meta.lock().unwrap().name = "renamed".into();
+        hub.save_meta_answered(&parent).unwrap(); // rename
+        cached_rows_equal_uncached(&hub);
+
+        hub.set_tags_answered(
+            &parent,
+            Some(&serde_json::Map::from_iter([(String::from("team"), json!("red"))])),
+            &[],
+            None,
+        )
+        .unwrap(); // tag
+        cached_rows_equal_uncached(&hub);
+        hub.set_tags_answered(
+            &parent,
+            Some(&serde_json::Map::from_iter([(String::from("archived"), json!(true))])),
+            &[],
+            None,
+        )
+        .unwrap(); // archive tag
+        cached_rows_equal_uncached(&hub);
+
+        parent.meta.lock().unwrap().tags.insert(
+            "expires".into(),
+            crate::store::Tag { value: "soon".into(), expires_at: Some(crate::store::now_ms() + 20) },
+        );
+        hub.save_meta_answered(&parent).unwrap();
+        cached_rows_equal_uncached(&hub);
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        cached_rows_equal_uncached(&hub); // time-expiring tags invalidate without an event
+
+        hub.set_visible(&parent, true); // mark-seen
+        cached_rows_equal_uncached(&hub);
+
+        parent.meta.lock().unwrap().usage = Some(json!({"inputTokens": 12, "size": 4096}));
+        hub.save_meta_answered(&parent).unwrap(); // usage metadata
+        cached_rows_equal_uncached(&hub);
+
+        std::thread::scope(|scope| {
+            for title in ["writer-a", "writer-b"] {
+                scope.spawn(|| {
+                    parent.meta.lock().unwrap().title = Some(title.into());
+                    hub.save_meta(&parent);
+                });
+            }
+        });
+        cached_rows_equal_uncached(&hub); // concurrent metadata writers
+
+        hub.set_status(&child, SessionStatus::Closed); // child count/fold changes
+        cached_rows_equal_uncached(&hub);
+
+        assert!(hub.reopen(&parent, parent.stops.load(Ordering::SeqCst))); // reopen
+        cached_rows_equal_uncached(&hub);
+        hub.set_status(&parent, SessionStatus::Closed);
+        cached_rows_equal_uncached(&hub);
+
+        // A purge removes the serialized row even when a late metadata writer runs afterward.
+        parent.purged.store(true, Ordering::SeqCst);
+        hub.remove_cached_closed_summary(&parent.id);
+        assert!(!hub.closed_summary_cache.lock().unwrap().contains_key(&parent.id));
     }
 
     #[test]
