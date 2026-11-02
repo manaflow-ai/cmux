@@ -210,6 +210,21 @@ export type EventsResult = {
   pageThrough: number;
 } & Record<string, unknown>;
 
+/**
+ * `acp.session.fork`: a completed-turn, live, or before-prompt fork.
+ * Before-prompt requests require requestId and omit both throughSeq and live.
+ */
+export type ForkParams = {
+  _meta?: unknown;
+  /** Recorded prompt identity, nonempty and at most 512 UTF-8 bytes. Claude/Codex only. */
+  beforePromptId?: (string | null);
+  live?: (boolean | null);
+  /** Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source. */
+  requestId?: (string | null);
+  sessionId: string;
+  throughSeq?: (number | null);
+} & Record<string, unknown>;
+
 export interface HarnessUpdatePlanParams {
   cli: string;
 }
@@ -807,6 +822,8 @@ export type SessionAuthState = "ready" | "signedOut" | "expired" | "routeAuthNee
  * spawn).
  */
 export type SessionAuthTarget = {
+  /** Absolute project directory on the destination daemon. Absent: project auth is unknown. */
+  cwd?: (string | null);
   harness: string;
   host?: (string | null);
   routeId?: (string | null);

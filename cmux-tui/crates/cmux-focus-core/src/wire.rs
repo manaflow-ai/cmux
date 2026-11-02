@@ -1,11 +1,13 @@
 //! The JSON requests the app sends over the app FFI for the per-key rules
 //! (`cmux_layout_reducer_json` operations `focus_type_ahead`,
-//! `focus_child_window_key`) and for the input invariants of the debug
+//! `focus_child_window_key`), the per-agent-event cursor visibility rule
+//! (`agent_cursor_visibility`) and the input invariants of the debug
 //! monitor, `debug.focus` and the journal replay (`focus_input_world`,
 //! `focus_input_step`, `focus_debug_window`), and their responses. The focus machine itself
 //! is a handle with typed events and replies (the FFI crate's `focus`
 //! module), not JSON.
 
+use crate::agent_cursor_visibility::{self, Snapshot, Visibility};
 use crate::child_window::{self, Decision, Facts};
 use crate::event::{FocusEvent, Responder};
 use crate::invariants::{self, Model, Observation, Violation, WorldResult};
@@ -161,4 +163,18 @@ pub fn debug_window(request: &DebugWindowRequest) -> DebugWindowResponse {
             request.is_key,
         ),
     }
+}
+
+/// `agent_cursor_visibility`: the target tab id and the snapshot the app
+/// took when the agent input event arrived. The answer is a
+/// [`Visibility`]: `{"kind":"visible","window","viewport","clip","zoom","scale"}`,
+/// `{"kind":"hidden","window","anchor","rect"}` or `{"kind":"notDrawn","reason"}`.
+#[derive(Debug, Deserialize)]
+pub struct AgentCursorVisibilityRequest {
+    pub target: String,
+    pub snapshot: Snapshot,
+}
+
+pub fn agent_cursor_visibility(request: &AgentCursorVisibilityRequest) -> Visibility {
+    agent_cursor_visibility::resolve(&request.target, &request.snapshot)
 }

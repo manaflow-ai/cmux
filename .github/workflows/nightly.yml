@@ -1814,6 +1814,8 @@ jobs:
       light_mini_runner: ${{ steps.place-light.outputs.mini_runner }}
       light_mini_jobs: ${{ steps.place-light.outputs.mini_jobs }}
       light_attempt: ${{ steps.place-light.outcome == 'success' && github.run_attempt || '' }}
+      # The cx-f58x scan of the archived app passed here; prepare skips its own.
+      browser_data_proven: ${{ steps.browser-data-proof.outcome == 'success' && 'true' || '' }}
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     # nightly-next: pick-nightly-build-runner's dedicated builder, else an idle owned
     # label, else the moving Blacksmith label; never one label with no fallback. Main's
@@ -2431,6 +2433,15 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
         run: bash scripts/ci/nightly-steps/app-archive-unsigned.sh
 
+      # The cx-f58x browser-data scan of the bundle just archived (the bundle prepare
+      # restores), in the background beside the uploads below: it took 74-77 s after
+      # packaging on prepare's critical path (runs 41416268105, 41413478144). The
+      # finish step below gates the job, so prepare and signing never see an
+      # unproven app; prepare scans only when this job did not prove it.
+      - name: Prove the browser-data import is compiled out (cx-f58x notary test)
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.notary_test_browser_data == 'true'
+        run: bash scripts/ci/nightly-steps/browser-data-proof-start.sh
+
       # The run cannot publish once a job publish-nightly needs, running beside
       # this one, has failed (run 40460194731 compiled and uploaded for 65 min
       # after its Ghostty helper failed): stop and give the Mac back. One read
@@ -2500,6 +2511,11 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
         continue-on-error: true
         run: bash -e scripts/ci/nightly-steps/app-finish-dsym-upload.sh
+
+      - name: Finish the browser-data import proof
+        id: browser-data-proof
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.notary_test_browser_data == 'true'
+        run: bash scripts/ci/nightly-steps/browser-data-proof-finish.sh
 
       # A failed or cancelled job leaves no background helper build running.
       # The record a later build looks up; record=true only on a fresh VM that started clean.
@@ -3032,41 +3048,18 @@ jobs:
             tar -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
           fi
 
-      # The cx-f58x browser-data scan runs here, on the per-run hosted lane,
-      # before anything is injected or signed. In build-nightly-app it took
-      # 54-55 s of the 12-14 minute warm slot that serializes every nightly-next
-      # build (runs 39371003711, 39373745957, 39374887542). It scans file
-      # contents, so the strip before transfer does not hide anything from it;
-      # it now also covers what build-nightly-app adds after the compile (the
-      # Computer Use helper, cmux-symbols.bin), which is the bundle that ships.
-      # The password-reader proof reads symbols with nm, which the strip
-      # removes, so it stays right after the compile in build-nightly-app.
-      # The scan reads every file of the bundle (93-121 s in runs 39508830200,
-      # 39509829525, 39519824930), so it runs in the background on a copy
-      # of the bundle as it is here, while the steps below change the
-      # original; "Finish the browser-data import proof" waits for it before
-      # the prepared app is uploaded. The FIFO write blocks until that step
-      # reads it, so the status is never lost and nothing polls.
+      # The cx-f58x browser-data scan (browser-data-proof-start.sh) normally runs in
+      # build-nightly-app, beside the unsigned-app upload, on the same bundle this job
+      # restores; it runs here only when that job did not prove this app (an unsigned
+      # resume, or a build_sha without the step). It scans file contents, so the strip
+      # before transfer does not hide anything from it, and it covers what
+      # build-nightly-app adds after the compile (the Computer Use helper,
+      # cmux-symbols.bin). The password-reader proof reads symbols with nm, which the
+      # strip removes, so it stays right after the compile in build-nightly-app.
       - &prove-the-browser-data-import
         name: Prove the browser-data import is compiled out (cx-f58x notary test)
-        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.notary_test_browser_data == 'true') }}
-        run: |
-          set -euo pipefail
-          state="$RUNNER_TEMP/browser-data-proof"
-          rm -rf "$state"
-          mkdir -p "$state/snapshot"
-          app="build-universal/Build/Products/Release/cmux.app"
-          cp -a "$app" "$state/snapshot/cmux.app"
-          # The proof scans the whole bundle, the cmux-tui client build-nightly-app
-          # installs in Contents/Resources/bin included: the client carries only
-          # browser ids and names (#26120).
-          mkfifo "$state/status.fifo"
-          (
-            status=0
-            scripts/ci/check-browser-data-import-absent.sh "$state/snapshot/cmux.app" || status=$?
-            echo "$status" >"$state/status.fifo"
-          ) >"$state/proof.log" 2>&1 </dev/null &
-          echo "browser-data import proof started on a clone of the bundle (PID $!)"
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.notary_test_browser_data == 'true') && (needs.build-nightly-app.outputs.browser_data_proven != 'true') }}
+        run: bash scripts/ci/nightly-steps/browser-data-proof-start.sh
 
 
       - &inject-universal-ghostty-cli-he
@@ -3240,20 +3233,8 @@ jobs:
 
       - &finish-the-browser-data-import
         name: Finish the browser-data import proof
-        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.notary_test_browser_data == 'true') }}
-        run: |
-          set -euo pipefail
-          state="$RUNNER_TEMP/browser-data-proof"
-          [ -p "$state/status.fifo" ] || { echo "the browser-data import proof was never started" >&2; exit 1; }
-          status=""
-          read -r status <"$state/status.fifo" || true
-          cat "$state/proof.log"
-          rm -rf "$state"
-          case "$status" in
-            0) ;;
-            "") echo "the browser-data import proof ended without a status" >&2; exit 1 ;;
-            *) echo "the browser-data import proof failed (status $status)" >&2; exit 1 ;;
-          esac
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.notary_test_browser_data == 'true') && (needs.build-nightly-app.outputs.browser_data_proven != 'true') }}
+        run: bash scripts/ci/nightly-steps/browser-data-proof-finish.sh
 
       - &upload-prepared-app-for-signin
         name: Upload prepared app for signing
@@ -3353,21 +3334,7 @@ jobs:
 
       - *restore-unsigned-nightly-produ
 
-      # The cx-f58x browser-data scan runs here, on the per-run hosted lane,
-      # before anything is injected or signed. In build-nightly-app it took
-      # 54-55 s of the 12-14 minute warm slot that serializes every nightly-next
-      # build (runs 39371003711, 39373745957, 39374887542). It scans file
-      # contents, so the strip before transfer does not hide anything from it;
-      # it now also covers what build-nightly-app adds after the compile (the
-      # Computer Use helper, cmux-symbols.bin), which is the bundle that ships.
-      # The password-reader proof reads symbols with nm, which the strip
-      # removes, so it stays right after the compile in build-nightly-app.
-      # The scan reads every file of the bundle (93-121 s in runs 39508830200,
-      # 39509829525, 39519824930), so it runs in the background on an APFS
-      # clone of the bundle as it is here, while the steps below change the
-      # original; "Finish the browser-data import proof" waits for it before
-      # the prepared app is uploaded. The FIFO write blocks until that step
-      # reads it, so the status is never lost and nothing polls.
+      # The cx-f58x browser-data scan, when build-nightly-app did not prove this app.
       - *prove-the-browser-data-import
 
 
@@ -3448,7 +3415,12 @@ jobs:
       # while `attempt` is the run's own attempt (a re-run of failed jobs that keeps this job takes
       # `alternate`). Outside attempt 1 of a push (the rescue's workflow_run watch) it stands only once
       # the owned-pool-watch marker is uploaded, as pick-nightly-build-runner's does.
-      owned: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.owned.outputs.owned || '' }}
+      # The all-nightly reservation is the first owned choice for the secret-free
+      # verify and DMG-image jobs. It is deliberately an exact capability check:
+      # an unset, stale or foreign value falls through to the normal owned picker.
+      # Release-pool signing jobs consume sign_owned instead and keep their
+      # existing keychain and claim contract.
+      owned: ${{ github.repository == 'manaflow-ai/cmux' && github.ref_name == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.owned.outputs.owned || '' }}
       # A drained (or draining) owned Mac for the release signing jobs (sign-nightly-identity-legacy), as the JSON runs-on
       # array scripts/ci/signing_runner.py prints, or empty, under the same marker and `attempt` rules as `owned`.
       sign_owned: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.sign-owned.outputs.owned || '' }}
@@ -3532,7 +3504,7 @@ jobs:
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
           # In order; only labels ci-owned-pool-rescue.yml watches are offered.
           OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
-          # The all-nightly reservation first, while two of its runners are idle (nightly_build_runner.py).
+          # Attempt 1 of a nightly-next push takes the all-nightly reservation with no runner read (nightly_build_runner.py).
           NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
           # As the build pick: unread runners (run 41335987427's 403 rate limit on the routing App) queue the

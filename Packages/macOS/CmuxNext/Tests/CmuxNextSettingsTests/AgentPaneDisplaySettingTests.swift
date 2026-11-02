@@ -15,6 +15,9 @@ struct AgentPaneDisplaySettingTests {
     }
 
     static let rows: [Row] = [
+        Row(key: "agentPane.display.harnessPlacement", fallback: .string("symbols"),
+            accepted: [.string("symbols"), .string("left"), .string("top"), .string("compact")],
+            refused: [.string("right"), .bool(true)]),
         Row(key: "agentPane.display.width", fallback: .number(800), accepted: [.number(480), .number(1200), .number(4000)],
             refused: [.number(100), .number(5000), .string("wide")]),
         Row(key: "agentPane.display.fullWidth", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("yes")]),
@@ -53,6 +56,15 @@ struct AgentPaneDisplaySettingTests {
         for value in row.accepted { #expect(descriptor.accepts(value), "\(row.key) accepts \(value)") }
         for value in row.refused { #expect(!descriptor.accepts(value), "\(row.key) refuses \(value)") }
         #expect(SettingsSchema.agentSettableKeys.contains(row.key))
+    }
+
+    @Test func harnessPlacementPreservesAbsenceAndForwardsManagedValueSeparately() {
+        let key = "agentPane.display.harnessPlacement"
+        #expect(AgentPaneDisplaySetting(fileRoot: .object([:])).values[key] == nil)
+        let root: JSONValue = ["agentPane": ["display": ["harnessPlacement": "symbols"]]]
+        let value = AgentPaneDisplaySetting(fileRoot: root, managedHarnessPlacement: .string("left"))
+        #expect(value.values[key] == .string("symbols"))
+        #expect(value.values[key + ".managed"] == .string("left"))
     }
 
     @Test func thePageGetsTheChatKeysAndTheFollowedMarkdownKeysOnly() {

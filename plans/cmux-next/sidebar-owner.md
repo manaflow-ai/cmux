@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-02: the Priority view's machine tag takes the machine's identity colour, `MachineColor(name:)`, not its own
+  hash into the group palette (#32081, carrying Leo's handoff of 2026-10-21: "When #22763 merges, replace that body
+  with `MachineColor(name: machine).color`"). The tag text now matches the machine's colour elsewhere and follows the
+  person's `appearance.machineColors` picks; This Mac's rows still carry no tag. Workspace-row machine marks are
+  unchanged (neutral `Palette.textTertiary`, #29833).
+
 - 2026-11-01: Leo's three sidebar prototypes are App Store toggles that work in every build. Leo (2026-10-21):
   "not even, like, plugins. They're just f***ing toggles in the app store area". Workspaces as Tabs
   (`sidebar.workspacesAsTabs`), Chrome-Style Groups (`sidebar.chromeGroups`) and Workspaces Side by Side
@@ -1035,3 +1041,7 @@ An empty group now keeps only its header at rest. The header's existing + appear
   visible and clickable left of the end action, with overflow on the next free shared slot.
   Regression: SidebarSearchColumnTests and ProfileBarPlusPlacementTests. Builds on #27954 (bb5fb9695d26)
   and its inset-contract repair (9a79771762c4); it does not change row insets or sidebar widths.
+
+## Each space owns its pins and groups (2026-10-29)
+
+- Leo 2026-10-29: "could u guys also now work on the per space pins and groups? rn anything u make in teh default space goes across to new ones". No visual change: rows, headers, insets and the Pinned block look the same. What changes is which space draws a group or a Pinned link, tab or app: a new group stores the acting window's space as its `profile`, a Pinned item stores it as `extra.room`, and a window on space S draws only the ones that belong to S (anything made before reads as the default space's). Commits 68c7d49b5bc and 9fcf4ab6c1c carry no trailer; reviewed and logged here as no visual change. A link, tab or app moved into Pinned from another band (the band's Move, a document drag) stores the acting window's space too, in the same change (`item.update {room}`): 4e44c4baef8 and af2b1a3f8eb, no trailer, logged here as no visual change. A machine section's group lists with its parent in every space (`SidebarDocSections.sections`). Test: `SidebarSpaceOwnsPinsAndGroupsTests`. Pending `item.update` fields and a pending New Group's space (28d1f36386e, no trailer) are logged here as no visual change. An item or group naming a space that is gone (deleted, not mirrored back yet) reads as the default space's (`SidebarDocItem.owningRoom`), so none is left in no window; Delete Space with `moveTo` and Move Group to Space move the stored space with it.

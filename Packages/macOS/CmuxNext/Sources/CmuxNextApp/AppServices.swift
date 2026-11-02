@@ -29,6 +29,7 @@ import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextPalette
 import CmuxNextAccounts
+import CmuxNextAppCore
 import CmuxNextPages
 import CmuxNextPopups
 import CmuxNextBrowserImport
@@ -763,6 +764,7 @@ final class AppServices {
             self?.linkHints.cancel()
             self?.windowHints.cancel()
             self?.keyRouter.cancelChord()
+            self?.keyRouter.creationInputCoordinator.personActed(in: event.window, event: event) // the person's click ends their claim
         }
         (NSApp as? CmuxApplication)?.keyDownObserver = { [weak self] _ in self?.notifications.endViewHolds() }
         (NSApp as? CmuxApplication)?.leftButtonObserver = { [weak self] event in
@@ -813,6 +815,8 @@ final class AppServices {
         }
         return nil
     }
+    func locatePane(_ id: String) -> PaneModel? { machines.daemons.uniquePane(id)?.pane }
+    func locatePane(_ id: String, onMachine machineID: String) -> PaneModel? { machines.daemon(machine: machineID)?.store.pane(idOrResource: id) }
     /// The tab on `surface` (the local daemon's surfaces).
     func locateTab(surface: SurfaceID) -> TabModel? {
         _ = daemon.store.tabListRevision // a tracked wait hears the tab appear
@@ -852,15 +856,15 @@ final class AppServices {
         }
     }
 
-    /// The pane controller showing `pane` in the active window, if any.
-    /// The controller showing `pane` itself. Handles are daemon-local
-    /// numbers that repeat across machines, so a handle match counts only
-    /// when the controller shows this very model.
+    /// The controller showing `pane` itself. Handles are daemon-local numbers that repeat across machines, so a
+    /// handle match counts only when the controller shows this very model; else the controller holding the model: an
+    /// optimistic split's echo gives its record the daemon's handle in place before the window's handle map follows,
+    /// and a Cmd-D in that step found no controller, so it split with no focus and no key hold (smoke step 23).
     func paneController(for pane: PaneModel) -> PaneController? {
         for controller in windows.controllers {
             if let found = controller.content?.pane(for: pane.handle), found.pane === pane { return found }
         }
-        return nil
+        return windows.controllers.lazy.compactMap { $0.content?.controller(for: pane) }.first // keyed by the pane's public id: O(windows)
     }
 
     /// A quit deadline's end: it names and records the state files still saving (a paired-phones save is
