@@ -152,15 +152,26 @@ def round_journey(group: list[dict], presses: int) -> dict:
     first = group[0]
     cond = f"{first['arm']}-{first['load']}-{first['theme']}-anim-{first['animations']}"
     jid = f"sf-{slug('-'.join(c['action'] for c in group))[:60]}-{cond}"
+    # A workspace of its own (action.run newTab: New Workspace with a terminal), not Home: Home's Chief chat streams
+    # and would change frames beside the press.
     steps = [{"do": "smoke_ready", "timeout": 60}, {"do": "smoke_make_key"},
-             {"do": "new_terminal", "via": "key", "name": "p0"}, {"do": "neutral_prompt"},
+             {"do": "new_terminal", "via": "socket", "name": "p0"}, {"do": "neutral_prompt"},
              settings(first["theme"], first["animations"] == "on")] + load_steps(first["load"])
     steps.append(wait(1.0, "the layout and the load settle (nothing observable to wait on)"))
-    for case in group:
+    if first["arm"] == "warm":
+        # ONE recording per journey (a second recording in the same app process fails: STATUS 4418), the cases one
+        # after the other in it.
+        video = f"sf-{cond}"
+        steps.append(kit_record_start(video, min(118.0, PRE_RECORD_S + len(group) * presses * 3.2 + 4), REQUIRE_HZ))
+        for case in group:
+            steps += context_steps(case)
+            steps += press_block(case, video, presses)[1:-1]
+        steps.append(kit_record_stop(video))
+    for case in group if first["arm"] != "warm" else []:
         steps += context_steps(case)
         video = f"sf-{slug(case['action'])}-{cond}"
-        if first["arm"] == "warm":
-            steps += press_block(case, video, presses)
+        if False:
+            pass
         else:
             for i in range(presses):
                 steps.append({"do": "relaunch", "how": "quit", "title": "cold: quit and open again; the next press is the first after launch"})

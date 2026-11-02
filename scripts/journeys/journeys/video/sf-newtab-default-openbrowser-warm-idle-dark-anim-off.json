@@ -44,7 +44,7 @@
   },
   {
    "do": "new_terminal",
-   "via": "key",
+   "via": "socket",
    "name": "p0"
   },
   {
@@ -75,10 +75,10 @@
   },
   {
    "do": "video_start",
-   "name": "sf-newtab-default-warm-idle-dark-anim-off",
-   "seconds": 34.5,
+   "name": "sf-warm-idle-dark-anim-off",
+   "seconds": 69.5,
    "lead": 1.5,
-   "title": "start the recording (sf-newtab-default-warm-idle-dark-anim-off); its first 1.5 s are the judge's frames before the press"
+   "title": "start the recording (sf-warm-idle-dark-anim-off); its first 1.5 s are the judge's frames before the press"
   },
   {
    "do": "hid_key",
@@ -429,19 +429,6 @@
    "do": "wait",
    "seconds": 1.0,
    "title": "the undo settles before the next press"
-  },
-  {
-   "do": "video_stop",
-   "name": "sf-newtab-default-warm-idle-dark-anim-off",
-   "tail": 0.6,
-   "title": "stop the recording (sf-newtab-default-warm-idle-dark-anim-off); its files go to the result"
-  },
-  {
-   "do": "video_start",
-   "name": "sf-openbrowser-warm-idle-dark-anim-off",
-   "seconds": 34.5,
-   "lead": 1.5,
-   "title": "start the recording (sf-openbrowser-warm-idle-dark-anim-off); its first 1.5 s are the judge's frames before the press"
   },
   {
    "do": "hid_key",
@@ -805,9 +792,9 @@
   },
   {
    "do": "video_stop",
-   "name": "sf-openbrowser-warm-idle-dark-anim-off",
+   "name": "sf-warm-idle-dark-anim-off",
    "tail": 0.6,
-   "title": "stop the recording (sf-openbrowser-warm-idle-dark-anim-off); its files go to the result"
+   "title": "stop the recording (sf-warm-idle-dark-anim-off); its files go to the result"
   },
   {
    "do": "type",
