@@ -21,14 +21,11 @@ final class TerminalCatchUp {
     /// Hidden now (rendering suspended), and whether content was queued since it hid: its frame is older then.
     private var hidden = false
     private var queuedWhileHidden = false
-    /// The frame on screen at the show, and whether content was queued since (or still waited on the lane then).
-    private var frameAtShow: AnyObject?
+    /// Content was queued since it hid (parsed but never drawn) or since the show: the frame on screen is older.
     private var queuedSinceShow = false
     /// Every byte owed at the show is parsed: the frame then, and the ticks since. A frame captured before the parse
     /// can still present on the next tick, so only a change seen two ticks on counts (as ``TerminalFrameHold``).
     private var parsed: (frame: AnyObject?, ticks: Int)?
-    /// The marker came and nothing was queued since the show: the first new frame after the show is current.
-    private var awaitsShownFrame = false
     private var generation = 0
     private var waiters: [() -> Void] = []
     private let deadline = DemandTimer(owner: "TerminalCatchUp.limit")
@@ -50,7 +47,6 @@ final class TerminalCatchUp {
         generation &+= 1
         isPending = true
         self.surface = surface
-        frameAtShow = surface.presentedFrame
         queuedSinceShow = queuedWhileHidden || (surface.lane?.pendingBytes ?? 0) > 0
         let generation = generation
         deadline.schedule(after: Self.limit) { @MainActor [weak self] in
@@ -67,14 +63,10 @@ final class TerminalCatchUp {
 
     /// The owner's marker: every byte printed before the show was queued before this.
     func caughtUp() {
-        guard isPending, parsed == nil, !awaitsShownFrame, let surface, let lane = surface.lane else { return }
+        guard isPending, parsed == nil, let surface, let lane = surface.lane else { return }
+        // Nothing came since it hid: what it shows is the newest screen.
+        guard queuedSinceShow else { return finish() }
         frames.activate()
-        guard queuedSinceShow else {
-            // Nothing came since it hid: the frame the show draws is the newest one.
-            awaitsShownFrame = true
-            if surface.presentedFrame !== frameAtShow { finish() }
-            return
-        }
         let generation = generation
         Task { [weak self] in
             await lane.drained()
@@ -98,9 +90,7 @@ final class TerminalCatchUp {
         frames.deactivate()
         deadline.cancel()
         surface = nil
-        frameAtShow = nil
         parsed = nil
-        awaitsShownFrame = false
         let waiting = waiters
         waiters = []
         waiting.forEach { $0() }
@@ -108,11 +98,6 @@ final class TerminalCatchUp {
 
     private func tick() -> Bool {
         guard isPending, let surface else {
-            finish()
-            return false
-        }
-        if awaitsShownFrame {
-            guard surface.presentedFrame !== frameAtShow else { return true }
             finish()
             return false
         }

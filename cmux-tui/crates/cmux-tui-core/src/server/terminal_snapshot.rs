@@ -583,9 +583,9 @@ struct SnapshotWorker {
     images_cap: Option<u64>,
     /// Output held while the viewer is hidden (`set-attach-visibility`), sent as one `output` event.
     hidden_batch: Vec<u8>,
-    /// The gate's show count this worker answered, and the stream position a newer show owes `shown` at.
+    /// The gate's show count this worker answered, and the output offset a newer show owes `shown` at.
     shows_seen: u64,
-    owed_shown: Option<(u64, u64)>,
+    owed_shown: Option<u64>,
 }
 
 /// A hidden viewer's batch goes out at once past this many bytes (a hidden `yes` stays bounded).
@@ -621,11 +621,12 @@ impl SnapshotWorker {
         let shows = self.gate.shows();
         if shows != self.shows_seen {
             self.shows_seen = shows;
-            let at_show = self.surface.snapshot_stream_position();
-            self.owed_shown = Some(at_show.unwrap_or((self.generation, self.offset)));
+            // The output offset runs on across grid generations: the byte count printed before the show.
+            let at_show = self.surface.snapshot_stream_position().map(|(_, offset)| offset);
+            self.owed_shown = Some(at_show.unwrap_or(self.offset));
         }
         let Some(owed) = self.owed_shown else { return true };
-        if !self.hidden_batch.is_empty() || (self.generation, self.offset) < owed {
+        if !self.hidden_batch.is_empty() || self.offset < owed {
             return true;
         }
         self.owed_shown = None;
