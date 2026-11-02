@@ -10,8 +10,9 @@ import Testing
 /// REOPEN-F4 review note N5 (#32207): the focus moves to a browser tab whose page is not made yet (a tab this
 /// window never showed; its page comes on a later frame) while a terminal in another pane has the keyboard. Keys
 /// typed then are for the browser tab: they wait for its page or reach it, and never go into the terminal that had
-/// the keyboard. Before the fix, the focus effect for a browser page with no page did nothing, so that terminal
-/// kept the keyboard and a plain key typed at once ran in its shell.
+/// the keyboard. The window's key hold for the cold page takes them first; but the focus effect for a browser page
+/// with no page did nothing, so that terminal kept the keyboard, and keys the hold let go (at its bound, the page still
+/// to come: a slow Chromium start) ran in its shell.
 ///
 /// The test spends the frame's surface budget, selects and focuses the browser tab in the same turn (so its page is
 /// not made in that turn), and types a plain line at once through the app's key path (the key router, then the
@@ -27,6 +28,17 @@ struct ColdBrowserFocusKeysTests {
     }
 
     @Test func plainKeysTypedAsTheFocusMovesToAColdBrowserTabNeverReachTheTerminalThatHadTheKeyboard() async throws {
+        try await Self.typeAsTheFocusMovesToAColdBrowserTab(holdLimit: nil)
+    }
+
+    /// The hold's bound passes before the page comes (a slow page start; here a bound of 1 ms): the keys still never go
+    /// into the terminal that had the keyboard, because the focus took the keyboard from it in the focus turn.
+    @Test func plainKeysPastTheHoldBoundForAColdBrowserTabNeverReachTheTerminalThatHadTheKeyboard() async throws {
+        try await Self.typeAsTheFocusMovesToAColdBrowserTab(holdLimit: .milliseconds(1))
+    }
+
+    /// `holdLimit`: the window key hold's bound for this run (nil: the app's).
+    private static func typeAsTheFocusMovesToAColdBrowserTab(holdLimit: Duration?) async throws {
         try await PinnedPageTests.withApp(heldKeyReplay: { event, window, router in
             if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
         }) { services, connection in
@@ -35,6 +47,7 @@ struct ColdBrowserFocusKeysTests {
             let window = try #require(controller.window)
             window.setFrame(NSRect(x: 0, y: 0, width: 1100, height: 760), display: true)
             let router = services.keyRouter, coordinator = router.creationInputCoordinator
+            if let holdLimit { coordinator.holdLimit = holdLimit }
             @MainActor func describe() -> String {
                 "panes \(controller.workspaceContent?.panes.values.map { "\($0.paneKey): \($0.currentTabKey ?? "-")" } ?? [])"
                     + " focus \(controller.focus.state.resolved) first responder \(String(describing: window.firstResponder))"
@@ -82,6 +95,7 @@ struct ColdBrowserFocusKeysTests {
             // In one turn: the frame's surface budget is spent, the browser tab is selected and focused, and a line is typed.
             let nonce = String(UInt32.random(in: 100_000...999_999))
             _ = services.presentation.showNow(BudgetSpender()) // false: another pane spent it already
+            #expect((window.firstResponder as? NSView)?.isDescendant(of: left.view) == true, "the left terminal lost the keyboard before the focus moved")
             right.select(TabID(browser))
             PaneHandlers.focus(right.layoutPaneID, in: content)
             #expect(controller.focus.currentState().resolved == .browserPage(pane: right.paneKey, tab: browser),
