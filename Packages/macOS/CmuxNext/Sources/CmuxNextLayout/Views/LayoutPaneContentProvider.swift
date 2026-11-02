@@ -156,21 +156,33 @@ final class LayoutViewContext {
     /// tree, the content released to the provider: its pane controller and a terminal's surface going) is work no
     /// frame shows; done in the close's first frame it added to that frame's main turn and Core Animation commit,
     /// which missed refreshes (RESIZE VIDEOS F1).
-    private(set) var retired: [PaneID: (host: PaneHostView, screen: ScreenID)] = [:]
+    /// A zoom keeps the panes it covers the same way, until the screen unzooms (`Retirement.zoom`): they come back
+    /// with the unzoom as they were (RESIZE VIDEOS Z1: the landing tore down every other pane, 11 pane controllers in
+    /// one frame of 42 ms, and the unzoom made them all again in one frame of 48 ms).
+    private(set) var retired: [PaneID: (host: PaneHostView, screen: ScreenID, until: Retirement)] = [:]
+
+    /// Until when a retired host is kept.
+    enum Retirement {
+        /// A close: until its screen's motion lands.
+        case landing
+        /// A zoom's covered pane: until its screen unzooms (it comes back then, or is torn down).
+        case zoom
+    }
 
     /// Takes `pane`'s host out of the layout without tearing it down: hidden now (no hit, no focus, no AX, its ring
-    /// with it), released when `screen`'s motion lands. A pane with no host does nothing.
-    func retire(_ pane: PaneID, from screen: ScreenID) {
+    /// with it; a hidden terminal stops drawing), released at `until`. A pane with no host does nothing.
+    func retire(_ pane: PaneID, from screen: ScreenID, until: Retirement = .landing) {
         guard let host = hosts.removeValue(forKey: pane) else { return }
         host.isHidden = true
         host.chrome.isHidden = true
-        retired[pane] = (host, screen)
+        retired[pane] = (host, screen, until)
     }
 
-    /// Tears down the hosts `screen` retired (its motion landed, it went away or it settles at once).
-    func releaseRetired(of screen: ScreenID) {
-        guard retired.values.contains(where: { $0.screen == screen }) else { return }
-        for (pane, entry) in retired where entry.screen == screen {
+    /// Tears down the hosts `screen` retired until `until` (a close's: its motion landed or it settles at once; a
+    /// zoom's: it unzoomed and they did not come back), or every one with nil (the screen went away).
+    func releaseRetired(of screen: ScreenID, until: Retirement? = .landing) {
+        guard retired.values.contains(where: { $0.screen == screen && (until == nil || $0.until == until) }) else { return }
+        for (pane, entry) in retired where entry.screen == screen && (until == nil || entry.until == until) {
             retired[pane] = nil
             tearDown(entry.host)
         }

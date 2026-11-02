@@ -298,6 +298,8 @@ final class ScreenContentView: NSView {
             }
             context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius, wholeCard: style.floatingPanes)
         }
+        // Out of a zoom: the covered panes it kept that this layout did not take back (closed while zoomed) go now.
+        if structural, !zoomed { context.releaseRetired(of: screenID, until: .zoom) }
         for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {
             let frame = paneFrames.removeValue(forKey: pane)
             if covering, context.hosts[pane]?.superview === self, frame != nil {
@@ -407,10 +409,12 @@ final class ScreenContentView: NSView {
         return moving
     }
 
-    /// Lets go of the panes a zoom covered once it landed (every one with `all`).
+    /// Lets go of the panes a zoom covered once it landed: hidden and kept until the screen unzooms
+    /// (`LayoutViewContext.retire(until: .zoom)`), so the unzoom shows them again as they were instead of making
+    /// every one again. `all` (the screen goes away): torn down.
     func releaseCovered(all: Bool = false) {
         for pane in zoomMotion.settled(all: all) where paneFrames[pane] == nil && !context.livePanes.contains(pane) {
-            context.release(pane)
+            if all { context.release(pane) } else { context.retire(pane, from: screenID, until: .zoom) }
         }
     }
 
@@ -453,6 +457,6 @@ final class ScreenContentView: NSView {
         }
         paneFrames.removeAll()
         releaseCovered(all: true)
-        context.releaseRetired(of: screenID)
+        context.releaseRetired(of: screenID, until: nil)
     }
 }
