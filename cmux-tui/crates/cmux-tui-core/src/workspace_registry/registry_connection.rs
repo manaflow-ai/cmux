@@ -77,6 +77,12 @@ pub(crate) struct RegistryConnection {
     /// Flushes the WAL to disk off every request path (`wal_durability`);
     /// `None` for an in-memory registry.
     durability: Option<super::wal_durability::WalDurability>,
+    /// A read-only connection to the same file for reads of committed data
+    /// that need neither the workspace registry lock nor this connection's
+    /// lock ([`Self::read_committed`]). In WAL mode a reader sees the last
+    /// committed state and never waits for a writer. `None` for an
+    /// in-memory registry or when it could not open.
+    reader: Option<std::sync::Mutex<Connection>>,
     #[cfg(test)]
     pub(super) journal_hooks: std::sync::Mutex<JournalCommitHooks>,
 }
@@ -170,8 +176,17 @@ impl RegistryConnection {
                 false,
             )
         });
+        let reader =
+            database_path.and_then(|path| match super::open_registry_database_read_only(path) {
+                Ok(reader) => Some(std::sync::Mutex::new(reader)),
+                Err(error) => {
+                    eprintln!("cmux-tui: registry reader connection unavailable: {error:#}");
+                    None
+                }
+            });
         Arc::new(Self {
             connection: Arc::new(ReentrantMutex::new(connection)),
+            reader,
             write_path_stats: crate::diagnostics::WritePathStats::default(),
             intent_sink: std::sync::OnceLock::new(),
             unsettled: std::sync::Mutex::default(),
@@ -179,6 +194,19 @@ impl RegistryConnection {
             #[cfg(test)]
             journal_hooks: std::sync::Mutex::default(),
         })
+    }
+
+    /// Run `read` on the registry's read-only connection: committed data,
+    /// with no workspace registry lock and no wait for a writer (WAL). Its
+    /// own mutex is a leaf held only for `read`. `None` when there is no
+    /// reader (an in-memory registry): the caller reads under the registry.
+    pub(crate) fn read_committed<T>(
+        &self,
+        read: impl FnOnce(&Connection) -> anyhow::Result<T>,
+    ) -> Option<anyhow::Result<T>> {
+        let reader = self.reader.as_ref()?;
+        let connection = reader.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        Some(read(&connection))
     }
 
     /// Flush every registry commit made so far, soon, off this thread

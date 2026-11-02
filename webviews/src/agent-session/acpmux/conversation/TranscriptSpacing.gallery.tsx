@@ -4,6 +4,7 @@ import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { assistant, summary, user } from "../../../gallery/fixtures/acpmux";
 import { VirtualTranscript } from "../App";
+import { gridLength, TRANSCRIPT_BLOCK_GAP } from "../transcriptGrid";
 import { turnView } from "./turns";
 
 const received = (name: string, text: string, id: string, minutes: number) =>
@@ -61,10 +62,13 @@ function TranscriptSpacing({ gap, emptyFooter }: SpacingProps) {
   );
 }
 
-// Measure the real virtual rows, including their padding and the received line's margin: the 26px
-// disclosure line sits under a 2px top margin, 2px beyond the shared turn gap.
+// Measure the real virtual rows. A finished reply's footer is a row of its own (#31690: ChatGPT's 32
+// line, 8 under the reply), and the virtual stack puts the grid's block gap between it and the next
+// sender's line (transcriptGrid.ts `transcriptGap`, `TRANSCRIPT_BLOCK_GAP`). The gap is the grid's
+// since #27580: `--cv-turn-gap` no longer places rows, so the older variants below draw the same
+// spacing as the shipped one and are kept only as the record of what was compared.
 const checkSpacing =
-  (gap: number, emptyFooter = false): Play =>
+  (emptyFooter = false): Play =>
   async (ctx) => {
     const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
     const footer = (suffix: string) => `[data-row-id="spacing-footer-${suffix}"] .cv-turn-actions`;
@@ -75,7 +79,7 @@ const checkSpacing =
     await ctx.waitFor(() => rect(footer("a")).height > 0 && rect(chip("b")).height > 0);
     const before = measure();
     for (const value of before) {
-      const expected = gap + 2;
+      const expected = TRANSCRIPT_BLOCK_GAP;
       if (Math.abs(value - expected) > 0.5) throw new Error(`Footer-to-sender gap ${value}px; expected ${expected}px`);
     }
 
@@ -91,14 +95,16 @@ const checkSpacing =
       const middle = '[data-row-id="spacing-empty-middle"]';
       const controls = `${middle} .cv-turn-actions`;
       await ctx.waitFor(() => rect(controls).height > 0);
-      if (rect(middle).height !== 24 || rect(middle).height !== rect(controls).height)
+      // An empty footer takes no height: its hover controls lie over the turn gap under the row above
+      // (conversation.css `article.acpmux-turnSummary:has(.cv-turn-actions--empty)`).
+      if (rect(middle).height !== 0 || Math.abs(rect(controls).height - gridLength("transcript-action-control")) > 0.5)
         throw new Error("Empty footer clips its hover controls or reserves an extra line");
       await ctx.hover({ selector: controls });
       if (rect(controls).bottom > rect('[data-row-id="spacing-tail-prompt"]').top + 0.5)
         throw new Error("Empty footer actions overlap the next prompt");
       const last = '[data-row-id="spacing-empty-last"]';
-      if (rect(last).height !== 24 || rect(`${last} .cv-turn-actions`).height !== 0)
-        throw new Error("Last empty footer no longer keeps its gap with hidden controls");
+      if (rect(last).height !== 0 || rect(`${last} .cv-turn-actions`).height !== 0)
+        throw new Error("Last empty footer reserves a line or draws its hidden controls");
       await ctx.scroll({ selector: ".acpmux-scroll" }, "bottom");
     }
     const held = rect(chip("b")).top;
@@ -128,15 +134,35 @@ export default componentEntry<SpacingProps>({
   load: async () => TranscriptSpacing,
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   variants: {
-    shipped: { props: {}, note: "Selected: a paragraph gap plus a small separator (16px).", play: checkSpacing(16) },
-    compact: { props: { gap: 12 }, note: "12px: tighter than the paragraph rhythm.", play: checkSpacing(12) },
-    balanced: { props: { gap: 16 }, note: "16px: paragraph rhythm plus 2px; recommended.", play: checkSpacing(16) },
-    relaxed: { props: { gap: 20 }, note: "20px: more separation between messages.", play: checkSpacing(20) },
-    before: { props: { gap: 24 }, note: "Before: 24px leaves a larger empty band.", play: checkSpacing(24) },
+    shipped: {
+      props: {},
+      note: "Selected: the grid's block gap (24px) between a reply's footer row and the next sender.",
+      play: checkSpacing(),
+    },
+    compact: {
+      props: { gap: 12 },
+      note: "Was 12px; the grid's block gap places rows now (#27580), so this draws as shipped.",
+      play: checkSpacing(),
+    },
+    balanced: {
+      props: { gap: 16 },
+      note: "Was 16px; the grid's block gap places rows now (#27580), so this draws as shipped.",
+      play: checkSpacing(),
+    },
+    relaxed: {
+      props: { gap: 20 },
+      note: "Was 20px; the grid's block gap places rows now (#27580), so this draws as shipped.",
+      play: checkSpacing(),
+    },
+    before: {
+      props: { gap: 24 },
+      note: "Was 24px; the grid's block gap places rows now (#27580), so this draws as shipped.",
+      play: checkSpacing(),
+    },
     "empty-footer": {
       props: { emptyFooter: true },
-      note: "Empty footers keep their existing hover-control floor.",
-      play: checkSpacing(16, true),
+      note: "Empty footers take no height; their hover controls lie over the turn gap.",
+      play: checkSpacing(true),
     },
   },
 });

@@ -6,7 +6,7 @@ public nonisolated enum AgentPaneFilePutFailure: Error, Equatable, Sendable {
     /// This Mac's acpmux or the peer's takes no files (a build from before `_acpmux/file_put`), or
     /// the host has no acpmux: the chat takes no uploads and the composer keeps its own note.
     case unsupported
-    /// Past ``AgentPaneUpload/maximumPeerFileBytes``.
+    /// The peer refused the file as too large (`filePut.tooLarge`); this Mac sets no size limit.
     case tooLarge
     /// No answer, a refusal, or a write that failed on the peer.
     case failed
@@ -45,7 +45,6 @@ extension AcpmuxStatusClient {
     /// there. Throws ``AgentPaneFilePutFailure``.
     @concurrent static func putFile(socketPath: String, sessionId: String, name: String, data: Data,
                                     deadline: Duration = .seconds(120)) async throws -> String {
-        guard data.count <= AgentPaneUpload.maximumPeerFileBytes else { throw AgentPaneFilePutFailure.tooLarge }
         if data.count <= legacyFilePutBytes {
             return try await putFile(sessionId: sessionId, name: name, data: data) { params in
                 try await call(socketPath: socketPath, method: filePutMethod, params: params, deadline: deadline,
@@ -62,7 +61,6 @@ extension AcpmuxStatusClient {
     @concurrent static func putFile(socketPath: String, sessionId: String, name: String, file: URL,
                                     deadline: Duration = .seconds(120)) async throws -> String {
         let size = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.intValue ?? 0
-        guard size <= AgentPaneUpload.maximumPeerFileBytes else { throw AgentPaneFilePutFailure.tooLarge }
         if size <= legacyFilePutBytes {
             return try await putFile(socketPath: socketPath, sessionId: sessionId, name: name,
                                      data: try Data(contentsOf: file), deadline: deadline)
@@ -76,7 +74,6 @@ extension AcpmuxStatusClient {
     /// ``putFile(socketPath:sessionId:name:data:deadline:)`` with `send`, which runs the request.
     static func putFile(sessionId: String, name: String, data: Data,
                         send: @Sendable (_ params: [String: any Sendable]) async throws -> [String: Any]) async throws -> String {
-        guard data.count <= AgentPaneUpload.maximumPeerFileBytes else { throw AgentPaneFilePutFailure.tooLarge }
         let result: [String: Any]
         do {
             result = try await send(["sessionId": sessionId, "fileName": name, "data": data.base64EncodedString()])
@@ -91,7 +88,6 @@ extension AcpmuxStatusClient {
     /// exchange, so a peer WebSocket never receives the entire base64 file in one frame.
     static func putFileChunked(sessionId: String, name: String, data: Data,
                                send: @escaping @Sendable (_ method: String, _ params: [String: any Sendable]) async throws -> [String: Any]) async throws -> String {
-        guard data.count <= AgentPaneUpload.maximumPeerFileBytes else { throw AgentPaneFilePutFailure.tooLarge }
         var upload: String?
         let started: [String: Any]
         do {

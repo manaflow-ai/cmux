@@ -16,6 +16,8 @@ fn wire_name_round_trips_through_serde() {
         "git.files.search",
         "stream.cancel",
         "origin.confirmation.issue",
+        "chief.continue",
+        "chief.retry",
     ] {
         let operation: ResourceOperation =
             serde_json::from_str(&format!("\"{name}\"")).expect("known operation");

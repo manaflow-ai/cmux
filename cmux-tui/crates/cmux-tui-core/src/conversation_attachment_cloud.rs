@@ -254,3 +254,91 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(all(test, target_os = "linux"))]
+mod memory_tests {
+    use super::*;
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn attachment_cloud_handoff_memory_is_independent_of_file_size() {
+        const CHILD: &str = "CMUX_TEST_ATTACHMENT_MEMORY_CHILD";
+        if let Ok(size) = std::env::var(CHILD) {
+            let size: u64 = size.parse().unwrap();
+            let path = std::env::temp_dir()
+                .join(format!("cmux-attachment-memory-{}", super::super::new_upload_id().unwrap()));
+            let file = fs::File::create(&path).unwrap();
+            file.set_len(size).unwrap();
+            let declaration = UploadDeclaration {
+                sha256: "a".repeat(64),
+                byte_count: size,
+                mime_type: "application/octet-stream".into(),
+                name: "sparse.bin".into(),
+                width: None,
+                height: None,
+                duration_ms: None,
+                poster: None,
+                preview: None,
+            };
+            let (record, _) = declared_record(&declaration).unwrap();
+            let upload = CloudUpload {
+                conversation: "conv_memory".into(),
+                plan: serde_json::Value::Null,
+                record,
+                pieces: vec![PendingPiece {
+                    piece: Piece::Original,
+                    hash: "a".repeat(64),
+                    byte_count: size,
+                    received: size,
+                    hasher: Sha256::new(),
+                    sink: Sink::File { path: path.clone(), file },
+                }],
+            };
+            let high_water_kib = || -> u64 {
+                fs::read_to_string("/proc/self/status")
+                    .unwrap()
+                    .lines()
+                    .find_map(|line| {
+                        line.strip_prefix("VmHWM:")
+                            .and_then(|value| value.split_whitespace().next())
+                            .map(|value| value.parse().unwrap())
+                    })
+                    .unwrap()
+            };
+            let before = high_water_kib();
+            let (pieces, partial) = upload.bodies().unwrap();
+            std::hint::black_box(&pieces);
+            let increase = high_water_kib().saturating_sub(before);
+            drop(pieces);
+            drop(partial);
+            println!("{size}-byte attachment handoff allocated {increase} KiB");
+            assert!(!path.exists(), "staged file must be removed after the request ends");
+            assert!(
+                increase < 16 * 1024,
+                "{size}-byte attachment handoff allocated {increase} KiB; expected under 16 MiB"
+            );
+            return;
+        }
+        // Isolate VmHWM from other parallel tests. Sparse files make the fixture cheap;
+        // the old read_to_end path still has to allocate and touch their entire contents.
+        for size in [64_u64 << 20, 256_u64 << 20] {
+            let output = cmux_process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "attachment_cloud_handoff_memory_is_independent_of_file_size",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env(CHILD, size.to_string())
+                .output()
+                .unwrap();
+            print!("{}", String::from_utf8_lossy(&output.stdout));
+            print!("{}", String::from_utf8_lossy(&output.stdout));
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+}

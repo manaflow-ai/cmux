@@ -31,24 +31,25 @@ const script = [
     },
   },
   {
-    name: "a second starts: a header, and its count ticks",
+    name: "a second starts: a header, its count ticks, and the list folds to it",
     run: async (ctx: PlayContext) => {
       await ctx.click(stage("start"));
       await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
-    },
-  },
-  {
-    name: "fold the list",
-    run: async (ctx: PlayContext) => {
-      await ctx.click({ selector: ".acpmux-running-tray__head" });
       await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-running-tray__fold"));
     },
   },
   {
-    name: "open it again",
+    name: "open the list",
     run: async (ctx: PlayContext) => {
       await ctx.click({ selector: ".acpmux-running-tray__head" });
       await ctx.waitFor(() => lines(ctx) === 2);
+    },
+  },
+  {
+    name: "fold it again",
+    run: async (ctx: PlayContext) => {
+      await ctx.click({ selector: ".acpmux-running-tray__head" });
+      await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-running-tray__fold"));
     },
   },
   {
@@ -90,6 +91,13 @@ export default componentEntry<Props>({
       note: "Two subagents running, list open: a third starts and its line rises into the list on the same entrance as a new transcript row (cv-enter), not the popup's.",
       props: { start: 2 },
       play: async (ctx) => {
+        // Headed trays start folded; this variant is explicitly the open-list joining case.
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
+        if (head?.getAttribute("aria-expanded") !== "true") {
+          await ctx.click({ selector: ".acpmux-running-tray__head" });
+        }
+        await ctx.waitFor(() => lines(ctx) === 2);
         await ctx.click(stage("start"));
         await ctx.waitFor(() => lines(ctx) === 3);
       },

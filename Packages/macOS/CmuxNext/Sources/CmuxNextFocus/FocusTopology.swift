@@ -81,5 +81,20 @@ public nonisolated struct FocusTopology: Hashable, Sendable, Codable {
 
     public func contains(pane id: String) -> Bool { panes.contains { $0.id == id } }
 
+    /// This topology without `pane`, as the daemon's tree without it will show it: its column keeps
+    /// its id and loses the pane, and a column left empty goes (`PaneController.showPaneClose`).
+    public func removing(pane id: String) -> FocusTopology {
+        var topology = self
+        topology.panes.removeAll { $0.id == id }
+        topology.screens = screens.map { columns in
+            columns.compactMap { column in
+                var column = column
+                column.panes.removeAll { $0 == id }
+                return column.panes.isEmpty ? nil : column
+            }
+        }
+        return topology
+    }
+
     public var allTabIDs: Set<String> { Set(panes.flatMap { $0.tabs.map(\.id) }) }
 }

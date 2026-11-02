@@ -38,6 +38,12 @@ struct AgentTabRemoteStartTests {
         #expect(request["harness"] as? String == "claude")
     }
 
+    @Test func aModernCloudDaemonReceivesNoFolderForRustToChoose() async throws {
+        let request = try await start(harness: nil, model: nil, seedCwd: nil, expectedCwd: nil,
+                                     supportsNoCwd: true, remoteFolder: "/home/cmux/work/stale-chat")
+        #expect(request["cwd"] == nil)
+    }
+
     @Test func theFolderListIsTheWorkspacesThenTheMachinesEachOnce() {
         let folders = AgentTabRemoteStart.folders(listed: ["/srv/app", "/home/cmux/work"],
                                                   machine: ["/home/cmux/work", "/home/cmux/work/repo"])
@@ -92,9 +98,11 @@ struct AgentTabRemoteStartTests {
     /// Exercise the tab store's first-Send route through the real attach client, including
     /// capability negotiation, and inspect the frame received by the remote daemon.
     private func start(harness: String?, model: String?, seedCwd: String? = "/home/dev/project",
-                       expectedCwd: String = "/home/dev/project") async throws -> [String: Any] {
+                       expectedCwd: String? = "/home/dev/project", supportsNoCwd: Bool = false,
+                       remoteFolder: String? = nil) async throws -> [String: Any] {
         let (tabs, key) = try makeTabs(seedCwd: seedCwd)
-        let daemon = try RemoteStartDaemon()
+        tabs.remoteFolder = { _ in remoteFolder }
+        let daemon = try RemoteStartDaemon(supportsNoCwd: supportsNoCwd)
         async let received = daemon.firstStart()
         let started = try await tabs.startRemoteChat(key, machine: "Cloud fixture", harness: harness, model: model,
                                                     ownerLink: { 1 }, endpoint: { DaemonEndpoint(socketPath: daemon.path) })
@@ -114,9 +122,11 @@ struct AgentTabRemoteStartTests {
 /// Blocking socket reads run on a dedicated thread; only received bytes cross back to the test.
 private nonisolated final class RemoteStartDaemon: Sendable {
     let path: String
+    let supportsNoCwd: Bool
     private let descriptor: Int32
 
-    init() throws {
+    init(supportsNoCwd: Bool = false) throws {
+        self.supportsNoCwd = supportsNoCwd
         path = NSTemporaryDirectory() + "remote-start-\(UUID().uuidString.prefix(8)).sock"
         descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw POSIXError(.EMFILE) }
@@ -140,9 +150,10 @@ private nonisolated final class RemoteStartDaemon: Sendable {
     func firstStart() async throws -> Data {
         let descriptor = descriptor
         let path = path
+        let noCwdCapability = self.supportsNoCwd
         let line: Data? = await withCheckedContinuation { continuation in
             Thread.detachNewThread {
-                let line = Self.serve(descriptor, until: Date().addingTimeInterval(20))
+                let line = Self.serve(descriptor, until: Date().addingTimeInterval(20), supportsNoCwd: noCwdCapability)
                 // The serving thread alone owns closure. It has already closed its accepted
                 // socket before these bytes return; no cleanup retains an fd that can be reused.
                 Darwin.close(descriptor)
@@ -160,17 +171,17 @@ private nonisolated final class RemoteStartDaemon: Sendable {
         return poll(&entry, 1, Int32(remaining * 1000)) > 0
     }
 
-    private static func serve(_ listener: Int32, until deadline: Date) -> Data? {
+    private static func serve(_ listener: Int32, until deadline: Date, supportsNoCwd: Bool) -> Data? {
         while readable(listener, until: deadline) {
             let client = accept(listener, nil, nil)
             guard client >= 0 else { return nil }
-            if let line = serveClient(client, until: deadline) { return line }
+            if let line = serveClient(client, until: deadline, supportsNoCwd: supportsNoCwd) { return line }
         }
         return nil
     }
 
     /// One connection until it closes (nil) or sends its start (that line).
-    private static func serveClient(_ client: Int32, until deadline: Date) -> Data? {
+    private static func serveClient(_ client: Int32, until deadline: Date, supportsNoCwd: Bool) -> Data? {
         defer { Darwin.close(client) }
         var noSignal: Int32 = 1
         _ = setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
@@ -188,10 +199,12 @@ private nonisolated final class RemoteStartDaemon: Sendable {
                 let data: [String: Any]
                 switch command {
                 case "identify":
-                    data = ["app": "cmux-tui", "protocol": 12, "generation": "remote-start-fixture", "capabilities": [
+                    var capabilities = [
                         "agent-session-attach-v1", "agent-session-start-v1",
                         "agent-session-start-model-v1", "agent-session-start-vm-kind-v1", "agent-session-folders-v1",
-                    ]]
+                    ]
+                    if supportsNoCwd { capabilities.append("agent-session-start-no-cwd-v1") }
+                    data = ["app": "cmux-tui", "protocol": 12, "generation": "remote-start-fixture", "capabilities": capabilities]
                 case "agent-session-folders": data = ["default": "/home/cmux/work", "folders": ["/home/cmux/work"]]
                 case "agent-session-start": data = ["session": "remote-session"]
                 default: data = [:]

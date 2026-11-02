@@ -5,8 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import {
   clickFold,
-  FOLD_HOLD_MAX_MS,
-  FOLD_SETTLE_MS,
+  FOLD_HOLD_MIN_MS,
   foldHoldTarget,
   foldHolding,
   foldRoomFor,
@@ -88,9 +87,14 @@ describe("foldToggleAt", () => {
     ["a sub-session's Raw", '<button class="cv-subsession__toggle" aria-expanded="false">Raw</button>', "button"],
     ["a file list's +N more", '<button class="acpmux-edited-more" aria-expanded="false">+3 more</button>', "button"],
     [
-      "an agent message's words",
-      '<div class="cv-tool cv-agentmsg__line"><span class="cv-agentmsg__words" data-interactive="">Asked</span></div>',
-      "span",
+      "an agent message's line",
+      '<div class="cv-tool cv-agentmsg__line" data-header-toggle=""><span class="cv-agentmsg__words">Asked</span></div>',
+      ".cv-agentmsg__words",
+    ],
+    [
+      "the edits card's header, at its icon",
+      '<div class="acpmux-edited-head" data-header-toggle=""><span class="acpmux-edited-icon"><svg></svg></span></div>',
+      ".acpmux-edited-icon",
     ],
     ["a summary", "<details><summary>Context</summary>body</details>", "summary"],
     [
@@ -156,6 +160,12 @@ describe("foldToggleAt", () => {
     expect(at(".to")).toBeUndefined();
     expect(at(".w")).toBeDefined();
   });
+  test("leaves a file link inside a tool line alone", () => {
+    const { at } = row(
+      '<button class="cv-tool is-toggle" aria-expanded="false"><span class="f" role="link">App.tsx</span></button>',
+    );
+    expect(at(".f")).toBeUndefined();
+  });
   test("leaves plain text alone", () => {
     expect(row("<p>words</p>").at("p")).toBeUndefined();
   });
@@ -196,13 +206,11 @@ describe("foldHoldTarget", () => {
 describe("foldHolding", () => {
   const toggle = { isConnected: true } as HTMLElement;
   test("holds until its time is up", () => {
-    expect(foldHolding({ toggle, top: 0, until: 100, cap: 100 }, 50)).toBe(true);
-    expect(foldHolding({ toggle, top: 0, until: 100, cap: 100 }, 101)).toBe(false);
+    expect(foldHolding({ toggle, top: 0, until: 100 }, 50)).toBe(true);
+    expect(foldHolding({ toggle, top: 0, until: 100 }, 101)).toBe(false);
   });
   test("lets go of a line that left the transcript", () => {
-    expect(foldHolding({ toggle: { isConnected: false } as HTMLElement, top: 0, until: 100, cap: 100 }, 50)).toBe(
-      false,
-    );
+    expect(foldHolding({ toggle: { isConnected: false } as HTMLElement, top: 0, until: 100 }, 50)).toBe(false);
   });
   test("nothing held", () => {
     expect(foldHolding(undefined)).toBe(false);
@@ -214,28 +222,34 @@ describe("hold timing", () => {
     ({ isConnected: true, getBoundingClientRect: () => ({ top }) }) as unknown as HTMLElement;
   test("a click keeps the place its press held, timed from the click", () => {
     const toggle = line(300);
-    const pressed = { toggle, top: 200, until: 1_000, cap: 2_000 };
+    const pressed = { toggle, top: 200, until: 1_000 };
     const held = clickFold(toggle, pressed, 500);
     expect(held.top).toBe(200);
     expect(held.until).toBeGreaterThan(500);
   });
   test("a click on another line, or after its press let go, holds where the line is now", () => {
     const toggle = line(300);
-    expect(clickFold(toggle, { toggle: line(0), top: 200, until: 1_000, cap: 2_000 }, 500).top).toBe(300);
-    expect(clickFold(toggle, { toggle, top: 200, until: 400, cap: 2_000 }, 500).top).toBe(300);
+    expect(clickFold(toggle, { toggle: line(0), top: 200, until: 1_000 }, 500).top).toBe(300);
+    expect(clickFold(toggle, { toggle, top: 200, until: 400 }, 500).top).toBe(300);
   });
-  test("a line still settling holds a little longer, never past its cap", () => {
+  test("a toggle with no fold (Reduce Motion) is still held while what it opened is placed", () => {
+    expect(holdFold(line(300), 1_000).until).toBeGreaterThanOrEqual(1_000 + FOLD_HOLD_MIN_MS);
+  });
+  test("a hold that puts its line back does not outlast its time", () => {
     let top = 120;
     const toggle = { isConnected: true, getBoundingClientRect: () => ({ top }) } as unknown as HTMLElement;
     const scroller = { scrollTop: 0 } as HTMLElement;
-    const anchor = { toggle, top: 100, until: 200, cap: 100 + FOLD_HOLD_MAX_MS };
+    const anchor = { toggle, top: 100, until: 200 };
     expect(keepFold(anchor, scroller, 190)).toBe(true);
     expect(scroller.scrollTop).toBe(20);
-    expect(anchor.until).toBe(190 + FOLD_SETTLE_MS);
+    expect(anchor.until).toBe(200);
     top = 140;
-    for (let now = 300; now < anchor.cap; now += 100) expect(keepFold(anchor, scroller, now)).toBe(true);
-    expect(anchor.until).toBe(anchor.cap);
-    expect(keepFold(anchor, scroller, anchor.cap + 1)).toBe(false);
+    expect(keepFold(anchor, scroller, 201)).toBe(false);
+  });
+  test("press, click, then the row's own anchored-collapse event: the line stays where it was pressed", () => {
+    const toggle = line(300);
+    const clicked = clickFold(toggle, { toggle, top: 200, until: 1_000 }, 500);
+    expect(clickFold(toggle, clicked, 501).top).toBe(200);
   });
   test("only a vertical wheel lets go", () => {
     expect(verticalWheel({ deltaX: 0, deltaY: 40 })).toBe(true);

@@ -64,3 +64,16 @@ export function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return typeof error === "string" ? error : "";
 }
+
+/// A New Tab start that ended because it was cancelled, not because it failed: Not now on the
+/// folder's Trust question, a newer folder request, or another chat or another start taking the page
+/// before it finished. Its sender settles (the page can send again), and no notice calls it a failure.
+const START_CANCELLED = "start.cancelled";
+
+export function startCancelled(): Error {
+  return Object.assign(new Error(translate("switch.cancelled")), { code: START_CANCELLED });
+}
+
+export function isStartCancelled(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { code?: unknown }).code === START_CANCELLED;
+}

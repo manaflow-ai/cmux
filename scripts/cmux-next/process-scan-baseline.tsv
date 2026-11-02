@@ -20,6 +20,7 @@ cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook/tmux_route.rs	1	remove	cx-t2sqm.8
 cmux-tui/crates/cmux-tui-platform/src/windows_processes.rs	4	remove	cx-t2sqm.9
 cmux-tui/crates/cmux-tui/src/config/ghostty_helper.rs	1	remove	cx-t2sqm.10
 cmux-tui/crates/cmux-tui/src/link/machine_update/apply.rs	1	remove	cx-t2sqm.10
+cmux-tui/crates/cmux-link/src/caller/supervised.rs	1	keep	peer authentication of the retained Child only: verify its captured Linux start ticks before admitting a connected socket; no enumeration or caller-selected pid
 cmux-tui/crates/cmux-host/src/github_cli.rs	2	keep	this helper's own ancestors only (at most 8, no enumeration): the git command that called it, to ask for a read token on a fetch and write on a push; the credential protocol does not say which
 cmux-tui/crates/cmux-host/src/linux/procs.rs	2	remove	cx-t2sqm.10
 cmux-tui/crates/cmux-host/src/team_ssh/linux_host.rs	2	remove	cx-t2sqm.10

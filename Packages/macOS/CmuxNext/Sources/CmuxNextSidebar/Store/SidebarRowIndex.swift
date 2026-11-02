@@ -115,7 +115,8 @@ extension SidebarListView {
         let shownGroupCard = hoverCard.shownGroupID
         for ws in patched {
             // The hover cards show no "Now:" step: a working agent's new step (many a second) rebuilds no card.
-            let cardChanged = workspaces[ws.id].map { var old = $0; old.agentStep = ws.agentStep; return old != ws } ?? true
+            let previous = workspaces[ws.id]
+            let cardChanged = previous.map { var old = $0; old.agentStep = ws.agentStep; return old != ws } ?? true
             workspaces[ws.id] = ws
             for path in model.rowIndex?.paths(of: ws.id) ?? [] {
                 let section = model.sections[path.section]
@@ -133,8 +134,9 @@ extension SidebarListView {
             }
             if cardChanged, shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
             guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else {
-                // A session a folded parent hides: the parent's roll-up counts it, so the list lays out again.
-                if SidebarSessionTree.shared.drawn?.hidesInFold(ws.id) == true { heightChanged = true }
+                // A session a folded parent hides: the parent's roll-up counts its state, so the list lays out
+                // again when that state moves, not on each step or title it reports.
+                if SidebarSessionTree.shared.drawn?.patchChangesRollUp(from: previous, to: ws) == true { heightChanged = true }
                 continue
             }
             let o = options ?? self.options(includeGap: true)
@@ -175,7 +177,7 @@ nonisolated extension SidebarLayout {
     /// workspaces, which read as one collapsible "Chief" group of their own, never as the rows
     /// after the last group above them (Leo 2026-10-21). The one rule for every header kind.
     static func keepsHeaderInOneList(_ section: SidebarSection) -> Bool {
-        section.isHostGroup
+        section.isHostGroup && !section.drawsAsGroup
     }
 
     /// The computer a workspace row of `section` names in the one-list sidebar

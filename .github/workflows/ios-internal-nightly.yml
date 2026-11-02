@@ -84,6 +84,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 8
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           DEDICATED_LABEL: ${{ vars.CI_IOS_INTERNAL_RUNNER }}
         run: python3 scripts/ci/ios_internal_runner.py

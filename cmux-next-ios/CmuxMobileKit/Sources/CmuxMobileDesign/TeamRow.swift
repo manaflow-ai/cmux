@@ -57,12 +57,12 @@ public struct SidebarTeamRow: View {
         .contentShape(.rect)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(name))
-        .accessibilityValue(Text(dots.isEmpty ? "No Macs yet" : "\(onlineCount) of \(dots.count + overflow) Macs online"))
+        .accessibilityValue(Text(dots.isEmpty ? "No Macs" : "\(onlineCount) of \(dots.count + overflow) Macs online"))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
 
-/// Up to five 7 pt dots, 4 pt apart, then "+N"; "No Macs yet" when empty.
+/// Up to five 7 pt dots, 4 pt apart, then "+N"; "No Macs" when empty.
 public struct MacPresenceDots: View {
     let dots: [Bool]
     let overflow: Int
@@ -75,7 +75,7 @@ public struct MacPresenceDots: View {
     public var body: some View {
         HStack(spacing: theme.metrics.macDotSpacing) {
             if dots.isEmpty {
-                Text("No Macs yet").font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                Text("No Macs").font(theme.type.meta).foregroundStyle(theme.colors.label2)
             }
             ForEach(Array(dots.enumerated()), id: \.offset) { _, online in
                 Circle()
