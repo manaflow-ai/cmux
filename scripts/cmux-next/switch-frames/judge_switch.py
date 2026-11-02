@@ -318,14 +318,32 @@ def judge_event(ev: dict, frames: list[tuple[float, np.ndarray, np.ndarray]], hz
     ty, tx = old.ref.shape[:2]
     k = TILE * DOWN
     if sidebar_right is None:
-        xs = [s.x - s.bw for s in list(old.beacons.values()) + list(tgt.beacons.values())]
+        # The leftmost beacon starts at the leftmost pane's first column; the sidebar ends left of it.
+        xs = [s.x - s.bw / 2 for s in list(old.beacons.values()) + list(tgt.beacons.values())]
         sidebar_right = int(min(xs)) - k if xs else 0
+    # A tile column that holds the sidebar's edge votes for neither side: sidebar tiles end at or before
+    # sidebar_right, content tiles start at or after it.
+    col_start = np.arange(tx) * k
     side_cols = np.zeros((ty, tx), bool)
-    side_cols[:, : max(0, sidebar_right // k)] = True
+    side_cols[:, (col_start + k) <= sidebar_right] = True
+    straddle = np.zeros((ty, tx), bool)
+    straddle[:, (col_start < sidebar_right) & (col_start + k > sidebar_right)] = True
     base_vote = (np.abs(old.ref - tgt.ref).mean(axis=2) > DISCRIM + np.maximum(old.noise, tgt.noise)) \
         & (old.noise < MOVING) & (tgt.noise < MOVING)
-    vote_side, vote_content = base_vote & side_cols, base_vote & ~side_cols
+    # Beacon areas never vote: their clock bits are steady inside a reference window but differ between the two
+    # (rows 0-2), and the label row counts frames. The beacon reads decide there.
+    nbits = bc.WS_BITS + bc.PANE_BITS + 1
+    for st in (old, tgt):
+        for site in st.beacons.values():
+            x0, x1 = site.x - site.bw, site.x + (nbits + 2) * site.bw
+            y0, y1 = site.y - site.bh, site.y + 5 * site.bh
+            base_vote[max(0, int(y0 // k)): int(y1 // k) + 1, max(0, int(x0 // k)): int(x1 // k) + 1] = False
+    vote_side, vote_content = base_vote & side_cols, base_vote & ~side_cols & ~straddle
     res["old_ws"], res["target_ws"] = sorted(old.ws), sorted(tgt.ws)
+    if old.ws and old.ws == tgt.ws and not vote_content.any():
+        res["verdict"] = "NOVERDICT"
+        res["reason"] = f"no switch: the same workspace {sorted(old.ws)} before and after the input"
+        return res
     res["votes"] = {"sidebar": int(vote_side.sum()), "content": int(vote_content.sum())}
     res["sidebar_right_px"] = sidebar_right
 
@@ -350,17 +368,21 @@ def judge_event(ev: dict, frames: list[tuple[float, np.ndarray, np.ndarray]], hz
         lab_c, fo, ft, fb, bbox = label_region(tl, old, tgt, vote_content)
         lab_s = label_region(tl, old, tgt, vote_side)[0]
         reads = {}
+        absent = 0
         if full is not None:
             for key, s in sites.items():
                 r = read_beacon(full, s)
                 if r is None:
+                    absent += key[0] == "tgt"
                     continue
                 age = None
                 if r.clock is not None and live_off is not None:
                     live_clock = int(round((t * 1000.0 + live_off) / bc.CLOCK_UNIT_MS)) % (1 << bc.CLOCK_BITS)
                     age = clock_diff_ms(live_clock, r.clock)
                 reads[f"{key[0]}:{r.ws}:{r.pane}"] = {"ws": r.ws, "pane": r.pane, "age_ms": age}
-        out_frames.append(Frame(t, lab_c, lab_s, fo, ft, fb, bbox, reads))
+        fr = Frame(t, lab_c, lab_s, fo, ft, fb, bbox, reads)
+        fr.absent = absent  # target beacon sites with no beacon at all (an empty or other pane there)
+        out_frames.append(fr)
 
     # Beacons decide content when tiles cannot vote (busy panes): a beacon of an OLD-only workspace after the
     # first target frame is old content; a missing target beacon is half-drawn.
@@ -374,7 +396,14 @@ def judge_event(ev: dict, frames: list[tuple[float, np.ndarray, np.ndarray]], hz
     def refreshes(t):
         return max(0, math.ceil((t - t0) / period - 1e-6))
 
-    first_change = next((f for f in out_frames if f.label != "OLD" or f.side not in ("OLD", "NONE")), None)
+    # With no voting content tile (busy panes everywhere) the beacons label the content.
+    if not vote_content.any() and (old.beacons or tgt.beacons):
+        for f in out_frames:
+            has_old, has_all = beacon_state(f)
+            seen_tgt = any(v["ws"] in tgt.ws and v["ws"] not in old.ws for v in f.beacons.values())
+            f.label = ("TARGET" if has_all and not has_old else "OLD" if has_old and not seen_tgt
+                       else "MIXED" if has_old else "BLANK" if not f.beacons else "OTHER")
+    first_change = next((f for f in out_frames if f.label not in ("OLD", "NONE") or f.side not in ("OLD", "NONE")), None)
     first_tgt = None
     for f in out_frames:
         has_old, has_all = beacon_state(f)
@@ -412,7 +441,8 @@ def judge_event(ev: dict, frames: list[tuple[float, np.ndarray, np.ndarray]], hz
         # Frames before the first complete target frame: anything but OLD there is a half-drawn or blank frame.
         if first_tgt is None or f.t < first_tgt.t:
             if f.label in ("MIXED", "OTHER", "BLANK") or (f.label == "TARGET" and not has_all) or (has_old and f.label == "TARGET"):
-                add({"MIXED": "half-drawn", "BLANK": "blank", "OTHER": "half-drawn"}.get(f.label, "half-drawn"), f,
+                kind = "blank" if f.label == "BLANK" or (not has_old and getattr(f, "absent", 0)) else "half-drawn"
+                add(kind, f,
                     {"content": f.label, "old_tiles": round(f.content_old, 3), "target_tiles": round(f.content_tgt, 3),
                      "bbox": f.old_bbox, "beacons": f.beacons})
             if f.side == "TARGET" and f.label == "OLD":
@@ -422,7 +452,7 @@ def judge_event(ev: dict, frames: list[tuple[float, np.ndarray, np.ndarray]], hz
         if f.label == "OLD" or has_old:
             add("old-after-switch", f, {"content": f.label, "beacons": f.beacons})
         elif f.label in ("MIXED", "OTHER", "BLANK") or not has_all:
-            add("blank" if f.label == "BLANK" else "half-drawn", f,
+            add("blank" if f.label == "BLANK" or getattr(f, "absent", 0) else "half-drawn", f,
                 {"content": f.label, "old_tiles": round(f.content_old, 3), "target_tiles": round(f.content_tgt, 3),
                  "bbox": f.old_bbox, "missing_beacons": sorted(map(list, set(tgt.beacons) - {(v['ws'], v['pane']) for v in f.beacons.values()}))})
         if f.side == "OLD" and vote_side.any() and f.label != "OLD" and not has_old:  # a whole old frame is one defect

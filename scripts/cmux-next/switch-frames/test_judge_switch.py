@@ -41,10 +41,16 @@ GAP = 1.2  # s between switches
 T0 = 0.6
 
 
+PLAIN = "--plain" in sys.argv
+
+
 def texture(ws, pane, w, h):
     rng = np.random.default_rng(ws * 100 + pane)
     cells = rng.integers(40, 220, size=(h // 16 + 1, w // 8 + 1, 3), dtype=np.uint8)
-    cells[rng.random(cells.shape[:2]) < 0.5] = BG
+    # --plain: a real terminal: mostly background, a few short text lines at the top.
+    cells[rng.random(cells.shape[:2]) < (0.5 if not PLAIN else 0.97)] = BG
+    if PLAIN:
+        cells[12:, :] = BG
     return np.repeat(np.repeat(cells, 16, axis=0), 8, axis=1)[:h, :w]
 
 
@@ -133,6 +139,7 @@ def build(path: Path):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep")
+    ap.add_argument("--plain", action="store_true", help="mostly-empty panes (a real terminal) instead of full texture")
     args = ap.parse_args()
     d = Path(args.keep or tempfile.mkdtemp(prefix="judge-switch-"))
     d.mkdir(parents=True, exist_ok=True)

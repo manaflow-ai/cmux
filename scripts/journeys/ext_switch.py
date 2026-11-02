@@ -24,12 +24,12 @@ Steps (`do`):
               beacon (id 40) that a tab switch must leave alone. Focus: the left pane, tab 1.
   switch_record {action: start|stop, name: "switch", codec: hevc|prores, mbps: 80, seconds: 110}
               debug.motion record_* (the HARNESS recorder, branch perf/debug-screen-record): the window as the
-              window server composites it, every frame, into <journey out>/<name>.mov (+ .frames.json, .scan).
+              window server composites it, every frame, into <journey out>/video/<name>.mov (+ .frames.json; run.py brings back the movie, not the .scan).
   switch_adopt_shown  the focused pane of the shown workspace becomes the journey's terminal (for the end checks).
   switch_keys {keys: [[mods, key, case], ...] | digits: "1234567892...", gap: 1.2, via: hid|socket,
               action: "selectWorkspaceByNumber", name: "switch"}
               each key by CuaDriver HID (foreground delivery), `gap` seconds apart; then reads the action runs from
-              debug.action_budget and writes <out>/<name>.events.json: per key the HID key-down host time
+              debug.action_budget and writes <out>/video/<name>.events.json: per key the HID key-down host time
               (start_uptime_ns - input_age_ms, the clock of the recorder's frames.json), the case, and the
               workspace the app shows after it (debug.surfaces).
 """
@@ -131,12 +131,11 @@ def beacon_main(argv):
     label = args.label or "WS %d  PANE %d" % (args.ws, args.pane)
     size = [80, 24]
 
+    resized = [True]
+
     def resize(*_):
-        try:
-            size[0], size[1] = os.get_terminal_size()
-        except OSError:
-            pass
-        out.write("\x1b[2J")
+        # Only a flag: writing from the handler can re-enter a blocked stdout write ("reentrant call").
+        resized[0] = True
 
     def stop(*_):
         out.write("\x1b[0m\x1b[?25h\x1b[?1049l")
@@ -146,13 +145,20 @@ def beacon_main(argv):
     signal.signal(signal.SIGWINCH, resize)
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    resize()
-    out.write("\x1b[?1049h\x1b[?25l\x1b[2J")
+    out.write("\x1b[?1049h\x1b[?25l")
     period = 1.0 / args.hz
     next_at = time.monotonic()
     frame = 0
     while True:
-        text = ["\x1b[?2026h", ansi(args.ws, args.pane, clock_units(), args.cell_cols)]
+        text = ["\x1b[?2026h"]
+        if resized[0]:
+            resized[0] = False
+            try:
+                size[0], size[1] = os.get_terminal_size()
+            except OSError:
+                pass
+            text.append("\x1b[2J")
+        text.append(ansi(args.ws, args.pane, clock_units(), args.cell_cols))
         text.append("\x1b[5;1H\x1b[1m%s\x1b[0m  frame %9d" % (label, frame))
         if args.fill:
             text.append(_fill(frame, size[0], size[1], 7))
@@ -250,6 +256,11 @@ def step_switch_profile(j, step):
     prefix = j.sub(step.get("prefix", "sw"))
     made, beacons = [], []
     began = D.now()
+    # Cmd-1..9 number workspaces only, and Cmd-9 is the ninth (defaults: every sidebar item, Home first; Cmd-9 the
+    # last). The slot has its own HOME, so its settings file is the slot's.
+    settings = {}
+    for path, value in (("sidebar.numbering", "workspacesOnly"), ("sidebar.cmd9", "ninth")):
+        settings[path] = j.app.rpc("settings.set", {"path": path, "value": value})
     for i in range(1, count + 1):
         name = "%s-%d" % (prefix, i)
         j.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": True,
@@ -300,7 +311,7 @@ def step_switch_profile(j, step):
         return out
     digits = digit_map()
     moved = 0
-    if len({v["beacon_ws"] for v in digits.values()} - {None}) < min(count, 9) and step.get("order_top", True):
+    if any(digits[str(d)]["beacon_ws"] != d for d in range(1, min(count, 9) + 1)) and step.get("order_top", True):
         # New workspaces went below the others: move the beacon workspaces to the top, the last first, so
         # Cmd-1..9 reach them in order (socket actions: set-up, not under test).
         for m in reversed(made[:9]):
@@ -311,6 +322,10 @@ def step_switch_profile(j, step):
                 moved += 1
         time.sleep(0.5)
         digits = digit_map()
+    unmapped = [d for d in sorted(digits) if int(d) <= count and digits[d]["beacon_ws"] != int(d)]
+    if unmapped:
+        raise D.StepError("switch_profile: Cmd-%s do not show beacon workspaces 1..%d in order: %s"
+                          % (",".join(unmapped), min(count, 9), json.dumps({d: digits[d]["beacon_ws"] for d in digits})))
     first = next((d for d in sorted(digits) if digits[d]["beacon_ws"]), None)
     if first:
         j.key(first, ["cmd"])
@@ -320,7 +335,8 @@ def step_switch_profile(j, step):
     j.switch_profile = {"workspaces": made, "digits": digits, "background": background, "beacons": len(beacons),
                         "session": {"workspaces": len(topo), "terminal_tabs": tabs}, "setup_s": setup_s, "reorder_actions": moved,
                         "id_match": sorted(getattr(j, "switch_id_match", set()) - {None})}
-    (j.out / "switch-profile.json").write_text(json.dumps(j.switch_profile, indent=1))
+    (j.out / "video").mkdir(exist_ok=True)
+    (j.out / "video" / "switch-profile.json").write_text(json.dumps(j.switch_profile, indent=1, default=str))
     return {"workspaces": len(made), "beacons": len(beacons), "session": j.switch_profile["session"],
             "setup_s": setup_s, "digits": {d: v["beacon_ws"] for d, v in digits.items()}}
 
@@ -360,7 +376,7 @@ def _grid(j, name, first_term, cols, rows_, ws, step, fills):
         pid = _pane_of(j, name, t)
         if rows_ > 1 and pid:
             j.app.cmux("pane", pid, "focus")
-            time.sleep(0.05)
+            _wait(lambda: _shown_tab(j)[0] == pid, 10, "pane %s did not take the focus" % pid)
         for r in range(1, rows_):
             order.append(_new_terminal(j, name, "splitDown", prompt=False))
     j.app.rpc("action.run", {"action": "equalizeSplits", "args": {}})
@@ -419,14 +435,16 @@ def step_switch_tabs_profile(j, step):
     j.key("1", ["control"])  # selectSurfaceByNumber 1 (socket key: set-up, not under test)
     time.sleep(0.5)
     j.switch_profile = {"tabs_workspace": _ws_named(j, name), "left_pane": left_pane, "digits": {}}
-    (j.out / "switch-profile.json").write_text(json.dumps(j.switch_profile, indent=1))
+    (j.out / "video").mkdir(exist_ok=True)
+    (j.out / "video" / "switch-profile.json").write_text(json.dumps(j.switch_profile, indent=1, default=str))
     return {"workspace": name, "tabs": tabs, "left_pane": left_pane, "shown_tab": list(_shown_tab(j))}
 
 
 def step_switch_record(j, step):
     name = step.get("name", "switch")
     if step.get("action", "start") == "start":
-        params = {"action": "record_start", "path": str(j.out / (name + ".mov")),
+        (j.out / "video").mkdir(exist_ok=True)
+        params = {"action": "record_start", "path": str(j.out / "video" / (name + ".mov")),
                   "codec": step.get("codec", "hevc"), "mbps": float(step.get("mbps", 80)),
                   "seconds": float(step.get("seconds", 110))}
         reply = j.app.rpc("debug.motion", params) or {}
@@ -546,7 +564,8 @@ def step_switch_keys(j, step):
             ev["t"] = start - age / 1000.0 if age >= 0 else start
             ev["t_source"] = "keydown" if age >= 0 else "action-start"
         events.append(ev)
-    (j.out / (name + ".events.json")).write_text(json.dumps({"events": events, "runs": runs}, indent=1))
+    (j.out / "video").mkdir(exist_ok=True)
+    (j.out / "video" / (name + ".events.json")).write_text(json.dumps({"events": events, "runs": runs}, indent=1))
     missing = [e["case"] for e in events if "t" not in e]
     wrong = [e["case"] for e in events if e.get("expect") and e.get("shown") != e["expect"]]
     return {"keys": len(sent), "runs": len(runs), "missing_runs": missing, "wrong_target": wrong,

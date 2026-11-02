@@ -40,7 +40,7 @@
    "do": "switch_record",
    "action": "start",
    "name": "switch",
-   "mbps": 60,
+   "mbps": 25,
    "seconds": 100
   },
   {
@@ -49,7 +49,7 @@
    "name": "switch",
    "via": "hid",
    "gap": 1.2,
-   "digits": "234567891928374655"
+   "digits": "234567891928374656"
   },
   {
    "do": "switch_record",

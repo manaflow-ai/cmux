@@ -72,8 +72,11 @@ LEASE_SECONDS = 540
 SETUP_RESERVE = 240
 JOURNEY_SECONDS = LEASE_SECONDS - SETUP_RESERVE - 40
 RESULT_FILE = re.compile(r"(?:\./)?((?:[a-z0-9][a-z0-9-]*/)?(?:result\.json|check-\d{2,3}\.png|clip/frame-\d{5}\.png"
-                         r"|restore-trace\.json|fuzz\.json|diag-[a-z]+\.(?:json|png|txt)|diag-app-sample\.txt)|host\.json|summary\.json)")
+                         r"|restore-trace\.json|fuzz\.json|diag-[a-z]+\.(?:json|png|txt)|diag-app-sample\.txt"
+                         r"|video/[a-z0-9][a-z0-9-]*\.(?:mov|mov\.frames\.json|events\.json|json))|host\.json|summary\.json)")
 RESULT_MAX_BYTES = 64 << 20
+# A screen movie a journey recorded (`<id>/video/NAME.mov`, the debug.motion record_* recorder): kept up to this size.
+RESULT_MOVIE_MAX_BYTES = 640 << 20
 RESULT_TAR_MAX_BYTES = 768 << 20
 STEP_NAMES = {name[len("step_"):] for name in dir(driver.Journey) if name.startswith("step_")}
 # The files of a run in its OUT folder: a folder that holds one of them was used by an earlier run.
@@ -557,7 +560,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
             log(f"[{host}] {line}")
         if drove.returncode not in (0, 1):
             log(f"driver exited {drove.returncode}: {drove.stderr.decode(errors='replace').strip()[-600:]}")
-        files = remote(host, f"cd {q(work + '/out')} && tar c --exclude 'frames' . | head -c {RESULT_TAR_MAX_BYTES}",
+        files = remote(host, f"cd {q(work + '/out')} && tar c --exclude 'frames' --exclude '*.scan' . | head -c {RESULT_TAR_MAX_BYTES}",
                        timeout=left(150), check=False).stdout
         take_results(files, out, set(ids))
         set_phase(ch, lease, "idle")  # the journeys ran and their results are here: only the clean-up and release left
@@ -603,7 +606,8 @@ def take_results(files, out, ids):
     with tarfile.open(fileobj=io.BytesIO(files)) as tar:
         for member in tar:
             match = RESULT_FILE.fullmatch(member.name)
-            if not match or not member.isreg() or member.size > RESULT_MAX_BYTES:
+            limit = RESULT_MOVIE_MAX_BYTES if member.name.endswith(".mov") else RESULT_MAX_BYTES
+            if not match or not member.isreg() or member.size > limit:
                 continue
             name = match.group(1)
             if "/" in name and name.split("/", 1)[0] not in ids:
