@@ -2426,6 +2426,11 @@ lane = "manual"
 reason = "Portable source-contract test; run python3 tests/test_nightly_tree_source_marker.py through cmux-ci when tree observations change. No new CI gate."
 
 [[test]]
+path = "tests/test_ci_hosted_light_rescue.py"
+lane = "manual"
+reason = "Portable unit tests for the overflow watch's hosted light rescue (main runs the script at a pinned commit). Run python3 -m unittest tests.test_ci_hosted_light_rescue. No new CI gate."
+
+[[test]]
 path = "tests/test_ci_linux_pool_spill.py"
 lane = "manual"
 reason = "Cross-branch integration: the end-to-end cases need RUNNER_POOL_POLICY_ROOT pointing at the trusted main policy checkout; the spill rules run without it. Run python3 -m unittest tests.test_ci_linux_pool_spill with that variable set. No new CI gate."
