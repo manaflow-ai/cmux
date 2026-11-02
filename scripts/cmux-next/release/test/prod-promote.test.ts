@@ -334,6 +334,22 @@ describe("paid Cloud entitlements (CLOUD_PLAN_ENTITLEMENTS) in production", () =
   })
 })
 
+describe("the platform cutover (PLATFORM_SURFACES) in production", () => {
+  const approvals = (guarded: Record<string, string> = {}): Approvals => ({ required_secrets: [], do_tags: {}, guarded_vars: guarded })
+  const env = (vars: Record<string, string>) => ({ vars: { ENVIRONMENT: "production", ...vars }, migrations: [] })
+
+  it("G7: forwarding a surface to cmux-platform needs an approved value; leaving it unchanged does not", () => {
+    const off = env({})
+    const on = env({ PLATFORM_SURFACES: "cloud" })
+    expect(guardedVarGate(off, on, approvals())).toEqual(["PLATFORM_SURFACES=cloud: not in scripts/cmux-next/release/production-approvals.json guarded_vars"])
+    expect(guardedVarGate(off, on, approvals({ "PLATFORM_SURFACES=cloud": "reviewed" }))).toEqual([])
+    expect(guardedVarGate(on, on, approvals())).toEqual([])
+    expect(guardedVarGate(on, env({ PLATFORM_SURFACES: "cloud,chat" }), approvals({ "PLATFORM_SURFACES=cloud": "reviewed" }))).toEqual([
+      "PLATFORM_SURFACES=cloud,chat: not in scripts/cmux-next/release/production-approvals.json guarded_vars",
+    ])
+  })
+})
+
 const lineageRepo = () => {
   const root = mkdtempSync(join(tmpdir(), "prod-promote-lineage-"))
   const run: GitRunner = (args, input) => execFileSync("git", ["-C", root, ...args], { encoding: "utf8", ...(input === undefined ? {} : { input }) }).trim()
