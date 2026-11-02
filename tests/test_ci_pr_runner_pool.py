@@ -530,19 +530,16 @@ def _nested(depth: int) -> str:
     return group
 
 
-PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|" + _nested(5) + r")*vars\.MACOS_RUNNER_PR[^()]*)\)")
-
-
 def retry_lane(key: str) -> str:
     """The pull-request lane of the job whose owned_jobs key is `key`."""
     return (f"(github.run_attempt > 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
-            "|| inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+            "|| inputs.pr_runner || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_15")
 
 
 def root_lane(key: str) -> str:
     """retry_lane() for a root job: the root label, when the picker named one, before the pool label."""
     return (f"(github.run_attempt > 2 && (contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
-            "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+            "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_15")
 
 
 def gui_lane(key: str) -> str:
@@ -553,7 +550,7 @@ def gui_lane(key: str) -> str:
 def side_lane(key: str) -> str:
     """retry_lane() for a side lane: the side label, when the picker named one, before the pool label."""
     return (f"(github.run_attempt > 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
-            "|| inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+            "|| inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_15")
 
 
 def warm_lane(index: str = "") -> str:
@@ -2494,8 +2491,13 @@ class Wiring(unittest.TestCase):
         self.assertEqual(changes["outputs"]["macos_pr_retry_runner"], "${{ steps.macos-pool.outputs.retry_runner }}")
 
     def lanes(self, name):
+        # The fork-safety branch may be wrapped around the route and its
+        # fallback at different nesting depths. Inspect route-bearing fields
+        # directly instead of depending on that branch's position.
         text = (WORKFLOWS / name).read_text()
-        return [match.group("lane") for match in PR_ROUTE.finditer(text)]
+        return [line.strip() for line in text.splitlines()
+                if ("runs-on:" in line or "CMUX_PRODUCT_RUNNER:" in line)
+                and "vars.MACOS_RUNNER_PR" in line]
 
     def test_every_pr_route_in_the_run_reads_the_choice(self):
         expected = {
@@ -2507,7 +2509,14 @@ class Wiring(unittest.TestCase):
         for name, lane in expected.items():
             lanes = self.lanes(name)
             self.assertTrue(lanes, name)
-            self.assertEqual(set(lanes), lane if isinstance(lane, set) else {lane}, name)
+            if name == "ci-macos.yml":
+                self.assertEqual(len(lanes), 2, name)
+                self.assertTrue(all("inputs.pr_runner" in route for route in lanes), name)
+                self.assertTrue(all("fromJSON(vars.RUNNER_POOLS).macos_15" in route for route in lanes), name)
+            else:
+                self.assertEqual(len(lanes), 1, name)
+                self.assertIn("inputs.pr_runner", lanes[0], name)
+                self.assertIn("fromJSON(vars.RUNNER_POOLS).macos_15", lanes[0], name)
 
     def test_a_rerun_of_failed_jobs_leaves_the_owned_pool_only_past_attempt_two(self):
         cli = self.workflow("ci-macos.yml")["jobs"]["cli-product-tests"]
@@ -2671,7 +2680,9 @@ class Wiring(unittest.TestCase):
         self.assertIn("contains(inputs.pr_owned_jobs, ' swift-package ')", job["env"]["CMUX_CI_XCODE_APP"])
         self.assertIn("inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR", job["env"]["CMUX_CI_XCODE_APP"])
         self.assertEqual(job["runs-on"].count("swift-package"), 1)
-        self.assertEqual(job["runs-on"].count("blacksmith-6vcpu-macos-15"), 2)
+        # The fork pull request keeps the label (a fork's run has no variables); every other run reads the pool.
+        self.assertEqual(job["runs-on"].count("'blacksmith-6vcpu-macos-15'"), 1)
+        self.assertEqual(job["runs-on"].count("fromJSON(vars.RUNNER_POOLS).macos_15"), 1)
         # The Xcode follows the same condition: the lane pin on the owned
         # label, the macOS 15 pin everywhere else.
         self.assertIn("inputs.owned_head_repos", job["env"]["CMUX_CI_XCODE_APP"])
@@ -3800,7 +3811,7 @@ class E2EQueueRounds(unittest.TestCase):
 class IrohReleaseGateWiring(unittest.TestCase):
     """iroh-release-gate.yml offers its Tailscale job to the owned Macs."""
 
-    BLACKSMITH = "(vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15')"
+    BLACKSMITH = "(vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15)"
 
     def setUp(self):
         self.jobs = yaml.safe_load((WORKFLOWS / "iroh-release-gate.yml").read_text())["jobs"]
@@ -3932,7 +3943,7 @@ class IOSWiring(unittest.TestCase):
                 self.assertNotIn(routed, text, f"{name} must not route to an owned Mac")
         validate = self.workflow("ios-streamed-validate.yml")["jobs"]["validate"]
         self.assertEqual(validate["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                              "'blacksmith-6vcpu-macos-26' }}")
+                                              "fromJSON(vars.RUNNER_POOLS).macos_26 }}")
 
     def test_home_secrets_are_removed_however_the_job_ends(self):
         # A reused runner keeps $HOME: every job that writes a secret file there

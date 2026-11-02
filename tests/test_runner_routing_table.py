@@ -118,6 +118,13 @@ class RoutingTableTests(unittest.TestCase):
             with self.subTest(expression=changed):
                 self.assertTrue(table.portable_order(changed, nightly=True))
 
+    def test_portable_order_resolves_declared_pool_members(self) -> None:
+        expression = ("${{ needs.portable-placement.outputs.linux_runner || "
+                      "needs.portable-placement.outputs.mini_runner || "
+                      "fromJSON(vars.RUNNER_POOLS).linux_16 }}")
+        self.assertIn("blacksmith-16vcpu-ubuntu-2404", table.pool_members()["linux_16"])
+        self.assertEqual(table.portable_order(expression), "")
+
     def test_hosted_light_policy_is_central_and_rejects_release_and_hosted_mac(self):
         route = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}"
         with tempfile.TemporaryDirectory() as directory:
