@@ -97,4 +97,36 @@ struct CmdWOnReplacedStandInTests {
                                             report: { "Cmd-W closed nothing: the pane holds \(store.pane(handle)?.tabs.map(\.id) ?? [])" })
         }
     }
+
+    /// Close Other Tabs (Opt-Cmd-T) in that step keeps the selected tab: it names the stand-in the strip shows, and the
+    /// store's tab that replaced it survives. Review of #31918 at 92644d5512c: with the store tab's id as the selected tab,
+    /// the stand-in counted as another tab and its close resolved to the very tab the person kept.
+    @Test func closeOtherTabsInThatStepKeepsTheReplacedTab() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let pane = try #require(services.windows.active?.focusedPane)
+            let handle = pane.pane.handle
+            let other = try await connection.newFrontendBrowserTab(url: "https://example.com/other", engine: .webkit, in: handle, activate: false)
+            let made = try await connection.newFrontendBrowserTab(url: "https://example.com/kept", engine: .webkit, in: handle, activate: false)
+            try await PinnedPageTests.until({ [other, made].allSatisfy { store.tab(surface: $0.surface).map { pane.orderedIDs.map(\.rawValue).contains($0.id) } == true } })
+            let madeID = try #require(store.tab(surface: made.surface)).id
+
+            // The stand-in, selected; the strip does not list the store's tab yet (the store hides a guessed tab).
+            let standIn = ProvisionalTab()
+            let transaction = ClientTransactionID.generate()
+            store.intend(.createTab(pane: handle, provisional: standIn.browser(url: "https://example.com/kept", engine: "webkit", profile: nil)),
+                         transaction: transaction)
+            pane.selectWhenReported(surface: standIn.surface)
+            pane.stripModel.tabs.removeAll { $0.id.rawValue == madeID }
+            try #require(pane.stripModel.selectedID?.rawValue == standIn.id && !pane.orderedIDs.contains { $0.rawValue == madeID })
+            pane.pendingSelectSurface = made.surface
+            ProvisionalTab.created(transaction, surface: made.surface, in: store)
+            store.noteSettledAtNextSnapshot(transaction)
+
+            #expect(services.registry.perform("closeOtherTabsInPane", invocation: ActionInvocation(origin: .user)))
+            try await PinnedPageTests.until({ store.tab(surface: other.surface) == nil }, within: .seconds(5),
+                                            report: { "Close Other Tabs did not close the other tab: \(store.pane(handle)?.tabs.map(\.id) ?? [])" })
+            #expect(store.tab(surface: made.surface) != nil, "Close Other Tabs closed the selected tab \(madeID)")
+        }
+    }
 }
