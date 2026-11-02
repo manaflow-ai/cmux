@@ -256,9 +256,10 @@
   position: relative;
   display: block;
 }
+/* The arrow, as every cmux control has (no pointing hand), not the image's zoom-in. */
 .cv-user__images .cv-user__video,
 .cv-user__inline-image .cv-user__video {
-  cursor: pointer;
+  cursor: default;
 }
 .cv-user__video-play {
   position: absolute;
