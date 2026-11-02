@@ -20,7 +20,24 @@ import driver as D  # noqa: E402
 WON_FRAME = ["$ echo w3-543646-$((6*7))", "₩3-543646-42"]
 
 
+# The OCR lines of check-80.png, smoke round 5 on cmux22, job fc4afadcd8212e736b76177f (tip d5e0073cb091): the frame shows
+# "t2-445843-42" in the focused pane's third tab (the daemon and app checks of the same step passed), but recognition
+# read the "t" as "+" on every try of step 55. The same misread: job of tip 3bcae6ca5d46 (2026-10-31), "+2-942934-42".
+PLUS_FRAME = ["$ D", "S \u0428", "0~0-0x+v:", "$ echo t2-445843-$((6*7))", "+2-445843-42", "Did you know?",
+              "Command Palette", "Run any cmux action by typing", "its name.", "Try It", "196P", "a"]
+
+
 class OcrFold(unittest.TestCase):
+    def test_a_t_read_as_plus_still_shows_the_output_line(self):
+        self.assertTrue(D.ocr_contains(PLUS_FRAME, "t2-445843-42"))
+        self.assertTrue(D.ocr_contains(["+2-942934-42"], "t2-942934-42"))
+
+    def test_plus_folding_still_needs_the_token_the_nonce_and_the_result(self):
+        self.assertFalse(D.ocr_contains(["+1-445843-42"], "t2-445843-42"))
+        self.assertFalse(D.ocr_contains(["+2-445844-42"], "t2-445843-42"))
+        self.assertFalse(D.ocr_contains(["+2-445843-41"], "t2-445843-42"))
+        self.assertFalse(D.ocr_contains(["$ echo t2-445843-$((6*7))"], "t2-445843-42"))
+
     def test_the_won_sign_read_for_w_still_shows_the_output_line(self):
         self.assertTrue(D.ocr_contains(WON_FRAME, "w3-543646-42"))
 
