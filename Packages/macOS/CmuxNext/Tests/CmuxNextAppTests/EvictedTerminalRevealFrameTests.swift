@@ -68,4 +68,44 @@ import Testing
         frames.show("tab", on: fresh)
         #expect(fresh.diagnostics.lastFrameHolds == 1, "the revealed terminal showed no last frame: an empty pane in the switch frame (\(frames.report))")
     }
+
+    /// The real-app case (sw-sf2fix-light2, cmux24: last_frames kept +2 and dropped +2 per switch, shown 0): 18
+    /// terminals in 9 workspaces cycled by Cmd-1..9 on a 16 GB Mac. A terminal evicted 8 evictions ago must still
+    /// have its last frame when a switch shows it again.
+    @Test func aTerminalEvictedEightEvictionsAgoStillHasItsLastFrame() async throws {
+        _ = NSApplication.shared
+        let drew = WindowDrawPolicy.drawsWhenOccluded
+        WindowDrawPolicy.drawsWhenOccluded = true
+        defer { WindowDrawPolicy.drawsWhenOccluded = drew }
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 480, height: 240), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        var ios: [ScriptedTerminalIO] = []
+        defer {
+            ios.forEach { $0.finish() }
+            window.close()
+        }
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 240))
+        window.contentView = host
+        window.orderFrontRegardless()
+        var frames = TerminalLastFrames()
+        // The warm set of a 16 GB Mac (WarmSetBudget.forMemory: 8): 9 terminals leave it.
+        let capacity = 8
+        for index in 0..<9 {
+            let io = ScriptedTerminalIO()
+            ios.append(io)
+            let session = TerminalSession(io: io)
+            try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+            session.view.frame = host.bounds
+            host.addSubview(session.view)
+            session.view.layoutSubtreeIfNeeded()
+            io.send(.output(Data("\u{1b}[2J\u{1b}[Hterminal \(index)\r\nline\r\nline\r\n".utf8)))
+            try await Self.drawn(session)
+            session.isRenderingSuspended = true
+            frames.evict(session, key: "tab-\(index)", capacity: capacity, atOnce: false)
+            session.view.removeFromSuperview()
+            session.close()
+        }
+        #expect(frames["tab-0"] != nil, "the first evicted terminal's frame was dropped after 8 more evictions (warm capacity \(capacity)): \(frames.report)")
+    }
 }
