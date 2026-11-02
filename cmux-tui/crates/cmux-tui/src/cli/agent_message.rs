@@ -756,10 +756,12 @@ fn inbox_text(messages: &[Value], recipient: Option<&str>) -> String {
 }
 
 #[cfg(unix)]
-mod acp {
+pub(super) mod acp {
     //! acpmux, linked into this binary, reached at the same home `cmux acp`
     //! uses. A message never starts the acpmux daemon: an acpmux recipient
     //! exists only while its daemon runs.
+
+    use serde_json::Value;
 
     fn runtime() -> Result<tokio::runtime::Runtime, String> {
         crate::acp::configure_home();
@@ -790,8 +792,10 @@ mod acp {
 }
 
 #[cfg(not(unix))]
-mod acp {
+pub(super) mod acp {
     const UNSUPPORTED: &str = "acpmux sessions are not available on this platform";
+
+    use serde_json::Value;
 
     pub(super) fn resolve(_key: &str) -> Result<String, String> {
         Err(UNSUPPORTED.to_owned())
