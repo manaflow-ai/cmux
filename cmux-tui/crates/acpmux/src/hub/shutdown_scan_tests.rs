@@ -8,10 +8,12 @@ use crate::store::{EventRecord, MemoryStore, SessionMeta, Store};
 use anyhow::Result;
 use std::time::{Duration, Instant};
 
-/// A memory store whose backward scans take `SCAN` each, as a large log on disk does.
+/// A memory store whose backward scans pass `LINES` lines of a large log first, `LINE` each, as
+/// a file store reads them: each line goes through `skip`, so a scan can be cut short.
 struct SlowScan(MemoryStore);
 
-const SCAN: Duration = Duration::from_millis(200);
+const LINES: usize = 80;
+const LINE: Duration = Duration::from_millis(50);
 
 impl Store for SlowScan {
     fn list(&self) -> Result<Vec<SessionMeta>> {
@@ -43,7 +45,23 @@ impl Store for SlowScan {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        std::thread::sleep(SCAN);
+        for seq in (1..=LINES as u64).rev() {
+            std::thread::sleep(LINE);
+            if skip(b"in", b"agent_message_chunk") {
+                continue;
+            }
+            let record = EventRecord {
+                seq,
+                at: seq,
+                dir: "in".into(),
+                kind: "agent_message_chunk".into(),
+                msg: json!({}),
+                host_seq: None,
+            };
+            if !visit(record) {
+                return Ok(());
+            }
+        }
         self.0.scan_back(id, after, before, skip, visit)
     }
 }
@@ -56,8 +74,8 @@ fn meta(id: &str) -> SessionMeta {
     .unwrap()
 }
 
-/// Twenty chats whose stops take 200 ms each would hold the shutdown 4 s: it ends within the
-/// daemon's shutdown budget instead.
+/// Twenty chats whose stops each read 4 s of log would hold the shutdown 80 s, and one alone 4 s:
+/// it ends within the daemon's shutdown budget instead.
 #[tokio::test]
 async fn an_explicit_shutdown_ends_within_its_budget_however_slow_the_retry_scans() {
     let mut cfg: crate::config::Config = serde_json::from_value(json!({})).unwrap();
