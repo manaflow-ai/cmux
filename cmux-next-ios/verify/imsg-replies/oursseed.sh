@@ -4,9 +4,13 @@
 set -e
 source ~/imsgreply/udids
 P=4871; ROOT=${SIMROOT:-$HOME/imsgreply/wt-base}
-pkill -f "conversation-sim/server.ts" 2>/dev/null || true
+# Stop the conversation-sim this script started last time, by its recorded PID (never by name:
+# another run's server on this Mac is not ours).
+SIMPID=/tmp/imsgreply-sim.pid
+p=$(cat $SIMPID 2>/dev/null) && ps -p "$p" -o command= 2>/dev/null | grep -q "conversation-sim/server.ts" && kill "$p" 2>/dev/null || true
 for i in $(seq 1 100); do lsof -ti tcp:$P -sTCP:LISTEN >/dev/null 2>&1 || break; sleep 0.1; done
 (cd $ROOT && PORT=$P HOST=127.0.0.1 SEED=1337 exec nohup ~/imsgreply/bun/bin/bun run services/conversation-sim/server.ts) > /tmp/imsgreply-sim.log 2>&1 < /dev/null &
+echo $! > $SIMPID
 for i in $(seq 1 300); do curl -sf -m 2 127.0.0.1:$P/healthz >/dev/null && break; sleep 0.2; done
 curl -sf -m 10 -X POST 127.0.0.1:$P/admin/knobs -d '{"latencyScale":0.2,"failRate":0,"historyFailRate":0,"duplicateRate":0,"disconnectEverySeconds":0,"botIntervalScale":100000,"botLinkRate":0,"effectRate":0,"statusEverySeconds":0,"focusEverySeconds":0,"botBackgroundRate":0}' >/dev/null
 post() { curl -sf -m 10 -X POST "127.0.0.1:$P/admin/say" -H 'content-type: application/json' -d "$1" >/dev/null; }

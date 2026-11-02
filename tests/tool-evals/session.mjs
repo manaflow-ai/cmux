@@ -61,15 +61,21 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
   };
   let daemon;
   let launcher = null;
+  let remotePidFile = null;
   const ssh = remote && ((args) => pexec("ssh", [...SSH_OPTS, remote.host, ...args], { maxBuffer: 16 << 20 }));
   if (remote) {
     // The same paths there: the daemon's cwd, the stub helpers and the markers they write.
     const stub = Buffer.from(evalAgentStub(dir)).toString("base64");
     const q = JSON.stringify;
     const stubPath = join(dir, "bin", "cmux-eval-agent");
+    // setsid makes the daemon its own process group. The shell setsid starts writes its own PID
+    // (the new group's id) beside the socket and then execs the daemon, so the recorded PID is the
+    // daemon and the stop below signals that group, never a process found by name. ($! after the
+    // backgrounded && chain would be the wrapping subshell, not the daemon.)
+    remotePidFile = `${socket}.pid`;
     // Fire and forget: the remote shell outlives its backgrounded daemon over Tailscale ssh, so
     // waiting on it never returned. The ready loop below waits for the daemon's socket.
-    launcher = spawn("ssh", [...SSH_OPTS, "-n", remote.host, `mkdir -p /tmp/cte ${q(work)} ${q(join(dir, "bin"))} ${q(join(dir, "markers"))} && echo ${stub} | base64 -d > ${q(stubPath)} && chmod +x ${q(stubPath)} && cd ${q(work)} && PATH=${q(join(dir, "bin"))}:$PATH setsid nohup ${remote.cli} daemon start --session ${name} --socket ${socket} --ephemeral --headless < /dev/null > /dev/null 2>&1 &`], { stdio: "ignore", detached: true });
+    launcher = spawn("ssh", [...SSH_OPTS, "-n", remote.host, `mkdir -p /tmp/cte ${q(work)} ${q(join(dir, "bin"))} ${q(join(dir, "markers"))} && echo ${stub} | base64 -d > ${q(stubPath)} && chmod +x ${q(stubPath)} && cd ${q(work)} && PATH=${q(join(dir, "bin"))}:$PATH setsid nohup sh -c 'echo $$ > ${q(remotePidFile)} && exec ${remote.cli} daemon start --session ${name} --socket ${socket} --ephemeral --headless' < /dev/null > /dev/null 2>&1 &`], { stdio: "ignore", detached: true });
     launcher.unref();
     rmSync(socket, { force: true });
     daemon = spawn("ssh", [...SSH_OPTS, "-o", "StreamLocalBindUnlink=yes", "-N", "-L", `${socket}:${socket}`, remote.host], { stdio: "ignore", detached: true });
@@ -83,9 +89,10 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
   const stopDaemon = async () => {
     await pexec(cli, ["daemon", "stop", "--socket", socket, "--end-terminals", "--force"], { env }).catch(() => {});
     // A remote daemon outlives a stop sent through a closed forward (1,000+ daemons of old
-    // runs were still up on the remote host, 2026-10-31): stop it there by its session name.
+    // runs were still up on the remote host, 2026-10-31): stop it there by the process group the
+    // launcher recorded.
     if (remote) {
-      const stop = `${remote.cli} daemon stop --socket ${socket} --end-terminals --force; pkill -f "[d]aemon start --session ${name} "`;
+      const stop = `${remote.cli} daemon stop --socket ${socket} --end-terminals --force; p=$(cat ${JSON.stringify(remotePidFile)} 2>/dev/null) && kill -TERM -- -"$p" 2>/dev/null; true`;
       await pexec("ssh", [...SSH_OPTS, "-n", remote.host, stop]).catch(() => {});
     }
     try { process.kill(-daemon.pid, "SIGTERM"); } catch {}
