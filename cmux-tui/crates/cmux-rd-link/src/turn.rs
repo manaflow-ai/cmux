@@ -600,10 +600,12 @@ impl TurnClient {
         if class != CLASS_SUCCESS && class != CLASS_ERROR {
             return TurnReceive::Ignored;
         }
-        let Some(index) = self.requests.iter().position(|r| r.tx == message.tx) else {
+        let Some((index, request)) =
+            self.requests.iter().enumerate().find(|(_, r)| r.tx == message.tx)
+        else {
             return TurnReceive::Ignored;
         };
-        let expected = match self.requests[index].purpose {
+        let expected = match request.purpose {
             Purpose::Allocate => ALLOCATE_REQUEST,
             Purpose::Refresh { .. } => REFRESH_REQUEST,
             Purpose::Permission(_) => CREATE_PERMISSION_REQUEST,
@@ -612,12 +614,11 @@ impl TurnClient {
         if message.kind & !CLASS_MASK != expected {
             return TurnReceive::Handled;
         }
+        let authenticated = request.authenticated;
         if class == CLASS_SUCCESS {
             // A success to an authenticated request must prove the server knows the key;
             // otherwise keep retransmitting and wait for a genuine answer.
-            if self.requests[index].authenticated
-                && !self.key.as_ref().is_some_and(|key| message.verify(key))
-            {
+            if authenticated && !self.key.as_ref().is_some_and(|key| message.verify(key)) {
                 return TurnReceive::Handled;
             }
             let request = self.requests.swap_remove(index);
