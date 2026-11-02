@@ -149,6 +149,95 @@ struct ClaudeAccountPaneEnvironmentTests {
         #expect(respawned.claudeAccountEnvironment == account)
     }
 
+    // MARK: Dock
+
+    /// A switched pane moved into the Dock is the same panel, so it must keep its account across a
+    /// relaunch there too: the Dock snapshot saves the record and the Dock restore replays it.
+    @Test
+    func dockSnapshotRoundTripsTheAccountEnvironment() throws {
+        let source = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { NSTemporaryDirectory() })
+        defer { source.closeAllPanels() }
+        let panelID = UUID()
+        source.restoreSessionSnapshot(dockSnapshot(panelID: panelID, account: nil))
+        let panel = try #require(source.panels.values.compactMap { $0 as? TerminalPanel }.first)
+        let account = ClaudeAccountPaneEnvironment(overrides: [configKey: "/Users/t/.claude-work"], removedKeys: [])
+        panel.claudeAccountEnvironment = account
+
+        let saved = source.sessionSnapshot(includeScrollback: false)
+
+        #expect(saved.panels.first?.terminal?.claudeAccountEnvironment == account)
+    }
+
+    @Test
+    func dockRestoreGivesTheShellItsAccountAndUnsetsTheClearedKeysOnResume() throws {
+        let defaultsName = "cmux-claude-account-dock-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { AgentResumeLaunchGuard.shared.releaseResumeLaunch(kind: "claude", sessionId: sessionID) }
+        let panelID = UUID()
+        let custom = ClaudeAccountPaneEnvironment(overrides: [configKey: "/Users/t/.claude-work"], removedKeys: [])
+        var snapshot = dockSnapshot(panelID: panelID, account: custom)
+        snapshot.panels[0].terminal?.agent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionID,
+            workingDirectory: NSTemporaryDirectory(),
+            launchCommand: nil
+        )
+        snapshot.panels[0].terminal?.wasAgentRunning = true
+
+        let customStore = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { NSTemporaryDirectory() },
+            agentSessionAutoResumeDefaults: defaults
+        )
+        defer { customStore.closeAllPanels() }
+        let customPanel = try #require(customStore.restoreSessionSnapshot(snapshot)[panelID]
+            .flatMap { customStore.panels[$0] as? TerminalPanel })
+        #expect(customPanel.surface.startupEnvironmentValue(configKey) == "/Users/t/.claude-work")
+        #expect(customPanel.claudeAccountEnvironment == custom)
+
+        snapshot.panels[0].terminal?.claudeAccountEnvironment = defaultAccount
+        let defaultStore = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { NSTemporaryDirectory() },
+            agentSessionAutoResumeDefaults: defaults
+        )
+        defer { defaultStore.closeAllPanels() }
+        let defaultPanel = try #require(defaultStore.restoreSessionSnapshot(snapshot)[panelID]
+            .flatMap { defaultStore.panels[$0] as? TerminalPanel })
+        #expect(defaultPanel.claudeAccountEnvironment == defaultAccount)
+        #expect(defaultPanel.surface.debugInitialInputForTesting()
+            == " /usr/bin/env -u \(configKey) -u \(secureStorageKey) cmux restore claude \(sessionID)\n")
+    }
+
+    private func dockSnapshot(panelID: UUID, account: ClaudeAccountPaneEnvironment?) -> SessionSplitContainerSnapshot {
+        var terminal = SessionTerminalPanelSnapshot(workingDirectory: NSTemporaryDirectory())
+        terminal.claudeAccountEnvironment = account
+        return SessionSplitContainerSnapshot(
+            focusedPanelId: panelID,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panelID], selectedPanelId: panelID)),
+            panels: [
+                SessionPanelSnapshot(
+                    id: panelID,
+                    type: .terminal,
+                    title: "Claude",
+                    customTitle: nil,
+                    directory: NSTemporaryDirectory(),
+                    isPinned: false,
+                    isManuallyUnread: false,
+                    listeningPorts: [],
+                    ttyName: nil,
+                    terminal: terminal,
+                    browser: nil,
+                    markdown: nil,
+                    filePreview: nil,
+                    rightSidebarTool: nil
+                ),
+            ]
+        )
+    }
+
     @Test
     func paneWithoutAnAccountEnvironmentRestoresAsBefore() throws {
         let workspaceEnvironment = [configKey: "/Users/t/.claude-work"]
