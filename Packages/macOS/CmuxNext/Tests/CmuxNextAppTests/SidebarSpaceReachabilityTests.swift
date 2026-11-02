@@ -172,11 +172,11 @@ import Testing
     }
 
     /// The ops of Move Group to Space for `group`, as the store sends them.
-    static func movingGroup(_ group: String, to room: String, in state: State) async throws -> [[String: Any]] {
+    static func movingGroup(_ group: String, to room: String, from: String? = nil, in state: State) async throws -> [[String: Any]] {
         let (store, remote) = try await store(state)
         var refused: [String] = []
         store.onRefused = { refused.append($0) }
-        store.moveGroup(group, toSpace: room)
+        store.moveGroup(group, toSpace: room, from: from)
         await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !remote.applied.isEmpty || !refused.isEmpty }
         #expect(refused.isEmpty, "Move Group to Space was refused: \(refused)")
         return remote.applied.flatMap { $0 }
@@ -244,5 +244,18 @@ import Testing
         let moved = ops.filter { $0["op"] as? String == "group.update" }
             .map { "\($0["id"] as? String ?? "") \(($0["patch"] as? [String: Any])?["profile"] as? String ?? "")" }.sorted()
         #expect(moved == ["itm_bc \(Self.play)", "itm_bp \(Self.play)"], "\(ops)")
+    }
+
+    /// The review of #27308 at 5e328e3: Move Group to Space on a personal group sends the personal update first (it
+    /// moves the workspace pins, and only while the stored space differs), then the document's ops. By then the
+    /// group's own space may already read the target (the personal update syncs it); the nested groups that stored
+    /// the space it had before the move still go with it.
+    @Test func movingAGroupWhoseSpaceAlreadySyncedStillCarriesItsNestedGroups() async throws {
+        var state = State()
+        state.apply([["op": "group.update", "id": "itm_bp", "patch": ["profile": Self.play]]])
+        let ops = try await Self.movingGroup("itm_bp", to: Self.play, from: Spaces.work, in: state)
+        let moved = ops.filter { $0["op"] as? String == "group.update" }
+            .map { "\($0["id"] as? String ?? "") \(($0["patch"] as? [String: Any])?["profile"] as? String ?? "")" }
+        #expect(moved == ["itm_bc \(Self.play)"], "\(ops)")
     }
 }

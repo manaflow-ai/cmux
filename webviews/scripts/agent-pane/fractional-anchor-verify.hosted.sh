@@ -32,7 +32,10 @@ if (( red_status == 0 )); then
 fi
 printf 'fractional-anchor: controlled-reversion status=%s\n' "$red_status"
 # The last reviewed source retained a canceled upward input until an unrelated native clamp.
-git fetch --no-tags --depth=1 origin ebb38fe7eadafb72485bcb023120b2b8a9e91e3c
+# A full clone stays full: only a checkout that is already shallow gets a depth-limited fetch.
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+git fetch --no-tags ${depth[@]+"${depth[@]}"} origin ebb38fe7eadafb72485bcb023120b2b8a9e91e3c
 saved=$(mktemp /tmp/cmux-anchor-app.XXXXXXXX)
 cp "$app" "$saved"
 trap restore EXIT
