@@ -137,9 +137,18 @@ strings_fresh() { # <sha>
 # (empty otherwise). It bounds the --tree-ready search from below, and a commit
 # it already contains is never requested again: main's promote job keeps one
 # waiting request, so a stale request would evict a newer one.
-promoted="" promoted_unknown=""
-if line="$(git ls-remote origin refs/heads/nightly-next 2>/dev/null)"; then
-  [[ ! "${line%%[[:space:]]*}" =~ ^[0-9a-f]{40}$ ]] || promoted="${line%%[[:space:]]*}"
+# One read gives nightly-next and the commit its feed last published (the publish moves the
+# nightly-next tag to it, scripts/ci/update-release-tag.py): no second round trip.
+promoted="" promoted_unknown="" published=""
+if refs="$(git ls-remote origin refs/heads/nightly-next refs/tags/nightly-next 'refs/tags/nightly-next^{}' 2>/dev/null)"; then
+  while read -r oid ref; do
+    [[ "$oid" =~ ^[0-9a-f]{40}$ ]] || continue
+    case "$ref" in
+      refs/heads/nightly-next) promoted="$oid" ;;
+      refs/tags/nightly-next) [[ -n "$published" ]] || published="$oid" ;;
+      'refs/tags/nightly-next^{}') published="$oid" ;;  # an annotated tag's commit
+    esac
+  done <<<"$refs"
 else
   promoted_unknown=1
 fi
@@ -150,12 +159,42 @@ already_promoted() { # <sha>
   git cat-file -e "$promoted^{commit}" 2>/dev/null && git merge-base --is-ancestor "$1" "$promoted" 2>/dev/null
 }
 
+# app_unchanged <sha>: 0 when nothing that can change the app the nightly publishes changed
+# between the published commit and <sha>, by scripts/ci/nightly_build_inputs.py (the classifier
+# main's nightly skips with: the cmux-next target and what it bundles, the cmux-tui client paths,
+# and every path the nightly workflow runs). Such a promotion builds and publishes the same app
+# again: of 92 NEXT nightlies published 2026-11-01/02 only 3 were app-identical, but each costs a
+# full build, signing and two notarizations. Any doubt (no published commit, history too shallow,
+# not a descendant, an unreadable classifier) answers 1, and the commit is promoted.
+app_unchanged_reason=""
+app_unchanged() { # <sha>
+  app_unchanged_reason=""
+  [[ -n "$published" && "$published" != "$1" ]] || return 1
+  git cat-file -e "$published^{commit}" 2>/dev/null || return 1
+  git merge-base --is-ancestor "$published" "$1" 2>/dev/null || return 1
+  [[ -f "$repo_root/scripts/ci/nightly_build_inputs.py" ]] || return 1
+  local files verdict
+  files="$(git diff --name-only "$published" "$1")" || return 1
+  if [[ -z "$files" ]]; then
+    app_unchanged_reason="the same tree"
+    return 0
+  fi
+  verdict="$(printf '%s\n' "$files" | python3 "$repo_root/scripts/ci/nightly_build_inputs.py" --files-from - 2>/dev/null)" || return 1
+  [[ "$verdict" == *'"build_inputs_changed": false'* ]] || return 1
+  app_unchanged_reason="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["reason"])' "$verdict" 2>/dev/null || echo unchanged)"
+}
+
 # request <sha>: 0 = requested or already on nightly-next, 1 = not promotable
 # (no gate, stale strings), 2 = the dispatch itself failed (an API error) or
 # the promoting run has no node to check the strings with (the caller exits 1).
 request() { # <sha>
   if already_promoted "$1"; then
     echo "not requesting ${1:0:12}: it is already on nightly-next (${promoted:0:12})"
+    return 0
+  fi
+  # The tick's walk stops on "already on nightly-next": an older commit changes even less.
+  if app_unchanged "$1"; then
+    echo "not requesting ${1:0:12}: nothing that reaches the app changed since the published ${published:0:12} ($app_unchanged_reason), so its app is already on nightly-next"
     return 0
   fi
   if ! has_notary_gate "$1"; then

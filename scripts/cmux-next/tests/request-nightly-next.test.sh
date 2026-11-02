@@ -650,6 +650,40 @@ request --tree-ready "$pending"
 rm -f "$TMP/gh-runs"
 git_q -C "$src" checkout -q --detach "$head"
 
+# A commit whose app is the one the feed already publishes is not requested: nothing that
+# reaches the app changed since the commit the nightly-next tag names. The classifier
+# (scripts/ci/nightly_build_inputs.py) is stubbed: only App.swift and cmux-tui/ reach the app.
+git_q -C "$src" checkout -q -b app-identical "$head"
+git_q -C "$src" tag -f nightly-next "$head"
+cat > "$src/scripts/ci/nightly_build_inputs.py" <<'PY'
+import json, sys
+paths = [line.strip() for line in sys.stdin if line.strip()]
+hit = [p for p in paths if p == "App.swift" or p.startswith("cmux-tui/")]
+print(json.dumps({"build_inputs_changed": bool(hit),
+                  "reason": f"{hit[0]} reaches the app" if hit else "no changed path reaches the app the Nightly publishes"}))
+PY
+echo notes > "$src/NOTES.md"; git_q -C "$src" add -A; git_q -C "$src" commit -m "notes only"
+same=$(git -C "$src" rev-parse HEAD)
+request --sha "$same" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$same" || fail "an app-identical commit must not be promoted:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "nothing that reaches the app changed since the published ${head:0:12} (no changed path reaches" <<<"$out" \
+  && grep -q "already on nightly-next" <<<"$out" || fail "the skip must name the published commit and stop the tick's walk:" "$out"
+# The next app change is promoted at once: a skip never holds a real update back.
+echo app2 > "$src/App.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "app change"
+changed=$(git -C "$src" rev-parse HEAD)
+request --sha "$changed" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$changed" || fail "an app change since the published commit must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+# A classifier that cannot answer, or no published commit, promotes as before.
+git_q -C "$src" checkout -q --detach "$same"
+echo 'raise SystemExit(3)' > "$src/scripts/ci/nightly_build_inputs.py"
+request --sha "$same" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$same" || fail "an unreadable classifier must not hold back a promotion:" "$out" "$(cat "$TMP/gh.log")"
+git -C "$src" checkout -q -- scripts/ci/nightly_build_inputs.py
+git_q -C "$src" tag -d nightly-next
+request --sha "$same" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$same" || fail "with no published commit the promotion is requested:" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" checkout -q --detach "$head"
+
 # The checkout must be the commit it asks for; bad input is a usage error.
 request --sha "$app" --release-compile-green
 [[ "$status" == 2 ]] || fail "a --sha other than HEAD must exit 2, got $status:" "$out"
