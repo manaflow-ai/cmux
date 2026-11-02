@@ -334,6 +334,7 @@ async fn save_refuses_before_any_request_and_reads_a_refusal_with_its_code() {
     assert_eq!(r["isError"], true);
     assert!(text.contains("HTTP 404 artifacts.not_found"), "{text}");
     assert!(text.contains("not be on for this deployment"), "{text}");
+    assert!(!text.contains("artifact not found"), "{text}");
 }
 
 #[tokio::test]

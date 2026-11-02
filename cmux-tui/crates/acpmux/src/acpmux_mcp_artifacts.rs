@@ -444,7 +444,11 @@ async fn read_capped(mut response: reqwest::Response, max: usize) -> Result<Vec<
     Ok(out)
 }
 
-/// The API's refusal as the agent reads it: the status, the stable code and a bounded message.
+/// The API's refusal as the agent reads it: the status and stable code.
+///
+/// The response body is untrusted platform data. It is used only to recognize the stable
+/// not-found case and is never copied into an MCP error, where it could be interpreted as
+/// instructions by the agent.
 async fn refusal(what: &str, response: reqwest::Response) -> anyhow::Error {
     let status = response.status();
     let body: Value = match read_capped(response, 64 << 10).await {
@@ -467,7 +471,7 @@ async fn refusal(what: &str, response: reqwest::Response) -> anyhow::Error {
         (403, _) => " (this machine's credential cannot use artifacts; a cmux sign-in can)",
         _ => "",
     };
-    anyhow!("{what} refused: HTTP {} {code}: {message}{hint}", status.as_u16())
+    anyhow!("{what} refused: HTTP {} {code}{hint}", status.as_u16())
 }
 
 fn data(text: String, value: Value) -> Value {
