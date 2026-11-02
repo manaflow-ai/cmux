@@ -72,9 +72,13 @@ test("a newer session_changed and a purge beat an in-flight stale page", async (
   expect(first).toBeDefined();
   if (!first) return;
   let held = first.sessions.slice();
-  const read = pager.rest(first, () => held, (fresh) => {
-    held = [...held, ...fresh];
-  });
+  const read = pager.rest(
+    first,
+    () => held,
+    (fresh) => {
+      held = [...held, ...fresh];
+    },
+  );
   await pageRequested;
   // direct.ts applies the notice immediately; the late page still carries old s250.
   const changed = { sessionId: "s250", updatedAt: 9_999 };

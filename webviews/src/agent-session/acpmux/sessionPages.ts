@@ -160,9 +160,7 @@ export class SessionPager<S extends Summary> {
       if (run !== this.run) return false;
       const fresh = page.sessions.filter(
         (session) =>
-          !known.has(session.sessionId) &&
-          !this.changed.has(session.sessionId) &&
-          !this.purged.has(session.sessionId),
+          !known.has(session.sessionId) && !this.changed.has(session.sessionId) && !this.purged.has(session.sessionId),
       );
       if (fresh.length > 0) {
         // Only learn IDs after filtering, preserving the previous behavior for duplicate
