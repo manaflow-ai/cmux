@@ -114,4 +114,13 @@ extension WindowManager {
             openWindow(id: windowID, workspaces: [workspaceID], frame: frame)
         }
     }
+
+    /// A create for a window failed or a close cancelled it: its row goes and, unless it listed, its claim, so its
+    /// window stops waiting for it (one that entered an empty room for it shows a room with workspaces, #31502).
+    func createDidFail(workspaceID id: String) {
+        PendingWorkspaceRows.shared.remove(id)
+        guard services.machines.workspace(id: id) == nil, pendingClaims.removeValue(forKey: id) != nil else { return }
+        quietClaims.remove(id) // backgroundClaims follows pendingClaims in reconcile
+        repairSelections(previous: membersByWindow)
+    }
 }

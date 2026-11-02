@@ -36,12 +36,13 @@ extension WindowManager {
         }
         guard !visible.isEmpty else {
             // Nothing to show there yet: the window enters the profile with
-            // a new workspace (no empty window, REWRITE.md round 1). It is
-            // claimed before the create command, so the switch shows it as
-            // soon as the daemon mirrors it.
+            // a new workspace (no empty window, REWRITE.md round 1), claimed in
+            // this turn: a repair before its create runs keeps the profile (#31502),
+            // and the switch shows it as soon as the daemon mirrors it.
             state.enterProfile(profile)
             recordSaver.stateDidChange(state)
-            Task { [services] in await createWorkspace(into: state.id); withExtendedLifetime(services) {} }
+            let create = startWorkspace(WorkspaceSpawn(cwd: nil, newTabPage: false), into: state.id)
+            Task { [services] in do { _ = try await create() } catch { services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)") } }
             return
         }
         let remembered = state.profileWorkspaces[profile].flatMap { visible.contains($0) ? $0 : nil }
