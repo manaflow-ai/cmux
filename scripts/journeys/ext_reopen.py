@@ -1330,6 +1330,7 @@ def step_hid_click(j, step):
     if step.get("mark"):
         j.marks[step["mark"]] = D.now()
     sx, sy = win["x"] + x, win["y"] + y
+    reply = None
     if can_post_events():
         post_click(sx, sy)
         path = "CGEventPost HID"
@@ -1338,13 +1339,13 @@ def step_hid_click(j, step):
         scale = float((_jxa_json(SCREEN_JXA, {}) or {}).get("scale") or 1)
         cua = Cua()
         try:
-            cua.tool("click", {"scope": "desktop", "x": sx * scale, "y": sy * scale}, check=False)
+            reply = cua.tool("click", {"scope": "desktop", "x": sx * scale, "y": sy * scale}, check=False)
         finally:
             cua.close()
         path = "cua click, desktop scope"
     time.sleep(0.3)
-    return {"window": {k: win[k] for k in ("x", "y", "w", "h")}, "point": [x, y], "path": path,
-            "after": focus_probe(j)}
+    return {"window": {k: win[k] for k in ("x", "y", "w", "h")}, "point": [x, y], "screen_point": [sx, sy],
+            "path": path, "cua_reply": reply, "after": focus_probe(j)}
 
 
 def focus_probe(j):
@@ -1382,6 +1383,7 @@ def step_window_probe(j, step):
         except (D.StepError, OSError, ValueError) as error:
             out[method] = {"error": str(error)[:300]}
     out["server_windows"] = [w for w in _jxa_json(ALL_WINDOWS_JXA, []) if w.get("pid") == j.app.pid]
+    out["ax"] = ax_focus(j.app.pid)
     try:
         out["snapshot"] = j.app.snapshot(Path(j.out) / f"probe-{name}.png").name
     except (D.StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
@@ -1392,7 +1394,137 @@ def step_window_probe(j, step):
     return {"file": f"probe-{name}.json", "front_is_app": out["front_pid"] == j.app.pid,
             "key_window": focus.get("key_window"),
             "key_windows": [{k: w.get(k) for k in ("id", "kind", "class", "parent", "visible")} for w in wins if w.get("key")],
-            "windows": len(wins), "server_windows": len(out["server_windows"])}
+            "windows": len(wins), "server_windows": len(out["server_windows"]), "ax": out["ax"]}
+
+
+# ---- Accessibility: the app's focused window as AX reports it (no prompt: an untrusted process gets an error) ----
+
+def ax_focus(pid):
+    """AXIsProcessTrusted, and the app's AXFocusedWindow (role, subrole, title) and AXFocusedUIElement (role)."""
+    try:
+        ax = ctypes.CDLL("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
+        cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    except OSError as error:
+        return {"error": str(error)[:200]}
+    ax.AXIsProcessTrusted.restype = ctypes.c_bool
+    ax.AXUIElementCreateApplication.argtypes = [ctypes.c_int]
+    ax.AXUIElementCreateApplication.restype = ctypes.c_void_p
+    ax.AXUIElementCopyAttributeValue.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+    ax.AXUIElementCopyAttributeValue.restype = ctypes.c_int32
+    cf.CFStringCreateWithCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
+    cf.CFStringCreateWithCString.restype = ctypes.c_void_p
+    cf.CFStringGetCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_long, ctypes.c_uint32]
+    cf.CFStringGetCString.restype = ctypes.c_bool
+    cf.CFGetTypeID.argtypes = [ctypes.c_void_p]
+    cf.CFGetTypeID.restype = ctypes.c_ulong
+    cf.CFStringGetTypeID.restype = ctypes.c_ulong
+    cf.CFRelease.argtypes = [ctypes.c_void_p]
+    utf8 = 0x08000100
+
+    def cfstr(text):
+        return cf.CFStringCreateWithCString(None, text.encode(), utf8)
+
+    def attr(element, name):
+        key = cfstr(name)
+        value = ctypes.c_void_p()
+        err = ax.AXUIElementCopyAttributeValue(element, key, ctypes.byref(value))
+        cf.CFRelease(key)
+        return err, value.value
+
+    def text(value):
+        if not value or cf.CFGetTypeID(value) != cf.CFStringGetTypeID():
+            return None
+        buf = ctypes.create_string_buffer(1024)
+        return buf.value.decode(errors="replace") if cf.CFStringGetCString(value, buf, 1024, utf8) else None
+
+    out = {"trusted": bool(ax.AXIsProcessTrusted())}
+    app = ax.AXUIElementCreateApplication(pid)
+    for name in ("AXFocusedWindow", "AXFocusedUIElement"):
+        err, element = attr(app, name)
+        row = {"error": err}
+        if err == 0 and element:
+            for field in ("AXRole", "AXSubrole", "AXTitle"):
+                ferr, value = attr(element, field)
+                row[field] = text(value) if ferr == 0 else f"error {ferr}"
+                if value:
+                    cf.CFRelease(value)
+            cf.CFRelease(element)
+        out[name] = row
+    cf.CFRelease(app)
+    return out
+
+
+def step_cua_schema(j, step):
+    """Saves CuaDriver's tools/list (every tool's input schema) to probe-cua-tools.json; returns the tool names and
+    the schemas of click, press_key, hotkey and type_text (when present)."""
+    cua = Cua()
+    try:
+        reply = cua.rpc("tools/list", {})
+    finally:
+        cua.close()
+    tools = ((reply or {}).get("result") or {}).get("tools") or []
+    (Path(j.out) / "probe-cua-tools.json").write_text(json.dumps(reply, indent=1) + "\n")
+    keep = {t.get("name"): t.get("inputSchema") for t in tools if t.get("name") in ("click", "press_key", "hotkey", "type_text", "type")}
+    return {"tools": sorted(t.get("name") for t in tools), "schemas": keep}
+
+
+def step_textedit_control(j, step):
+    """Control A: CuaDriver's desktop click and keys into a plain app. Opens a new plain-text file (/tmp/jr-te-NONCE.txt)
+    in TextEdit, a CuaDriver desktop click in its window's middle (its text), 5 CuaDriver desktop letters, Cmd-S
+    (CuaDriver hotkey), then reads the file from disk (no Apple event: no consent prompt). Quits TextEdit with Cmd-Q
+    and brings this app back to the front (open -a, as a Dock click). Evidence: whether the letters were saved."""
+    word = "qzvkw"
+    path = f"/tmp/jr-te-{j.nonce}.txt"
+    Path(path).write_text("start\n")
+    j.files.append(path)
+    out = {"file": path}
+    subprocess.run(["/usr/bin/open", "-a", "TextEdit", path], capture_output=True, timeout=30)
+    end, te = time.monotonic() + 20, None
+    while time.monotonic() < end:
+        pids = subprocess.run(["/usr/bin/pgrep", "-x", "TextEdit"], capture_output=True, text=True).stdout.split()
+        te = int(pids[0]) if pids else None
+        wins = [w for w in _jxa_json(WINDOWS_JXA, []) if te and w.get("pid") == te and w.get("w", 0) > 100]
+        if te and front_pid() == te and wins:
+            break
+        time.sleep(0.2)
+    out["textedit_pid"], out["front_is_textedit"] = te, front_pid() == te
+    wins = [w for w in _jxa_json(WINDOWS_JXA, []) if te and w.get("pid") == te and w.get("w", 0) > 100]
+    if not wins:
+        out["error"] = "TextEdit showed no window"
+    else:
+        win = max(wins, key=lambda w: w["w"] * w["h"])
+        sx, sy = win["x"] + win["w"] / 2, win["y"] + win["h"] / 2
+        scale = float((_jxa_json(SCREEN_JXA, {}) or {}).get("scale") or 1)
+        cua = Cua()
+        try:
+            out["click_reply"] = cua.tool("click", {"scope": "desktop", "x": sx * scale, "y": sy * scale}, check=False)
+            time.sleep(0.4)
+            out["front_after_click_is_textedit"] = front_pid() == te
+            out["ax_after_click"] = ax_focus(te)
+            out["key_replies"] = [cua.tool("press_key", {"scope": "desktop", "key": ch}, check=False) for ch in word][:1]
+            time.sleep(0.4)
+            cua.tool("hotkey", {"scope": "desktop", "keys": ["cmd", "s"]}, check=False)
+            time.sleep(1.0)
+            saved = Path(path).read_text(errors="replace")
+            out["saved_text"] = saved[:200]
+            out["letters_reached_textedit"] = word in saved
+            cua.tool("hotkey", {"scope": "desktop", "keys": ["cmd", "q"]}, check=False)
+        finally:
+            cua.close()
+    end = time.monotonic() + 10
+    while time.monotonic() < end and te and subprocess.run(["/bin/kill", "-0", str(te)], capture_output=True).returncode == 0:
+        time.sleep(0.2)
+    out["textedit_quit"] = not (te and subprocess.run(["/bin/kill", "-0", str(te)], capture_output=True).returncode == 0)
+    subprocess.run(["/usr/bin/open", "-a", j.app.bundle], capture_output=True, timeout=30)
+    end = time.monotonic() + 15
+    while time.monotonic() < end and front_pid() != j.app.pid:
+        time.sleep(0.2)
+    out["app_front_again"] = front_pid() == j.app.pid
+    (Path(j.out) / "probe-textedit.json").write_text(json.dumps(out, indent=1, default=str) + "\n")
+    if not out["app_front_again"]:
+        raise D.StepError("textedit_control: this app did not come back to the front")
+    return {k: out.get(k) for k in ("front_is_textedit", "front_after_click_is_textedit", "letters_reached_textedit",
+                                    "saved_text", "textedit_quit", "app_front_again", "error")}
 
 
 def step_focus_probe(j, step):
@@ -1499,7 +1631,7 @@ def cond_terminal_in_other_workspace(j, want, cache):
     return wa != wb, {"workspace": pa[0].get("name"), "other_workspace": pb[0].get("name")}
 
 
-STEPS = {"window_probe": step_window_probe, "focus_probe": step_focus_probe, "hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
+STEPS = {"cua_schema": step_cua_schema, "textedit_control": step_textedit_control, "window_probe": step_window_probe, "focus_probe": step_focus_probe, "hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
 CONDITIONS = {"key_window_focus": ("app", cond_key_window_focus),
               "terminal_in_other_workspace": ("app", cond_terminal_in_other_workspace),
               "reopen_window_frame_within": ("app", cond_reopen_window_frame_within),

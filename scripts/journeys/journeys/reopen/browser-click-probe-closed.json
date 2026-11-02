@@ -159,11 +159,16 @@
    "var": "page_url",
    "lines": [
     "<!doctype html><html><head><title>keys</title><script>",
-    "var s='';",
-    "addEventListener('keydown',function(e){if(e.key.length==1){s+=e.key;document.getElementById('o').textContent='seen'+s.split('').reverse().join('')}},true);",
-    "</script></head><body style='font:28px sans-serif'>",
-    "<p id=r></p><input id=f autofocus autocomplete=off style='font:28px sans-serif;width:600px'><p id=o></p>",
-    "<script>document.getElementById('r').textContent='pg'+'ok'+(6*7)</script>",
+    "var s='',ev=[];",
+    "function show(){document.getElementById('o').textContent='seen'+s.split('').reverse().join('');",
+    "document.getElementById('e').textContent='ev '+ev.slice(-12).join(' ');",
+    "var a=document.activeElement;document.getElementById('h').textContent='hasfocus '+(document.hasFocus()?'yes':'no')+' active '+(a?a.tagName.toLowerCase():'none')}",
+    "addEventListener('keydown',function(e){if(e.key.length==1){s+=e.key}ev.push('kd');show()},true);",
+    "['mousedown','mouseup','click','focus','blur','focusin','focusout'].forEach(function(n){addEventListener(n,function(e){ev.push(n+(e.target&&e.target.tagName?'.'+e.target.tagName.toLowerCase():''));show()},true)});",
+    "setInterval(show,200);",
+    "</script></head><body style='font:24px sans-serif'>",
+    "<p id=r></p><input id=f autofocus autocomplete=off style='font:24px sans-serif;width:600px'><p id=o></p><p id=h></p><p id=e></p>",
+    "<script>document.getElementById('r').textContent='pg'+'ok'+(6*7);show()</script>",
     "</body></html>"
    ],
    "title": "set-up: a local page (127.0.0.1) with a focused text field; its script shows every key the page gets, reversed"
