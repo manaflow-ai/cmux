@@ -66,6 +66,25 @@ describe("olderReserve", () => {
     expect(step.state?.pinId).toBe("u46");
   });
 
+  test("a divider above the first prompt that is replaced keeps the room", () => {
+    const divider = (id: string) => ({ id, kind: "date" }) as unknown as AcpmuxRow;
+    const first = pass(undefined, [divider("d1"), ...turns(40, 50)], { earlier: 40 });
+    expect(first.state?.pinId).toBe("u40");
+    // The page brings the turn before it, under its own divider; the old one goes.
+    const step = pass(first.state, [divider("d0"), ...turns(39, 50)], { earlier: 39 });
+    expect(step.state?.pinId).toBe("u40");
+    // The pin (and every row under it) stays on its pixel: row 1 before, row 3 after.
+    expect(step.reserve + 3 * 100).toBe(first.reserve + 1 * 100);
+  });
+
+  test("a count that arrives after the rows sets up the room", () => {
+    const rows = turns(40, 50);
+    const none = pass(undefined, rows, {});
+    expect(none.reserve).toBe(0);
+    expect(pass(none.state, rows, {}).reserve).toBe(0);
+    expect(pass(none.state, rows, { earlier: 40 }).reserve).toBe(8000);
+  });
+
   test("another chat starts its own room, and the room is capped", () => {
     const first = pass(undefined, turns(0, 10), { earlier: 10 });
     const other = olderReserve(first.state, {

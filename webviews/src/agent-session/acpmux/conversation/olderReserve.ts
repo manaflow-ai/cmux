@@ -25,11 +25,15 @@ export type OlderReserve = {
   /// The row the room is held against, and where it was last found.
   pinId: string;
   pinIndex: number;
+  /// The pin's index when the room was estimated: still there, no page has landed since.
+  pinFirst: number;
   rowCount: number;
   /// The room plus the pin's top among the rows: constant while the pin is held.
   end: number;
   /// The room this pass held.
   room: number;
+  /// The counts the estimate read (`earlier`, `promptCount`): a count that arrives later estimates again.
+  counts: string;
 };
 
 export type OlderReserveInput = {
@@ -52,6 +56,14 @@ function findPin(state: OlderReserve, rows: readonly AcpmuxRow[]): number {
   const shifted = state.pinIndex + rows.length - state.rowCount;
   if (rows[shifted]?.id === state.pinId) return shifted;
   return rows.findIndex((row) => row.id === state.pinId);
+}
+
+const countsOf = (input: OlderReserveInput) => `${input.earlier ?? ""}:${input.promptCount ?? ""}`;
+
+/// The first prompt among the rows (bounded: a page starts with whole turns), else the first row.
+function firstPrompt(rows: readonly AcpmuxRow[]): number {
+  for (let index = 0; index < Math.min(rows.length, 64); index += 1) if (rows[index]!.kind === "user") return index;
+  return 0;
 }
 
 /// The height the unloaded history is estimated to take: the loaded rows' height per prompt, for
@@ -81,22 +93,27 @@ export function olderReserve(
     const pin = findPin(state, rows);
     if (pin >= 0) {
       const reserve = Math.max(0, state.end - input.rowTop(pin));
-      // Still room, or the estimate already ran out for these rows: no new count until a page lands.
-      if (reserve > 0 || (pin === 0 && state.end <= 0))
+      // Still room, or the estimate already ran out for these rows and counts: no new count until a
+      // page lands or a count arrives.
+      if (reserve > 0 || (pin === state.pinFirst && state.room === 0 && state.counts === countsOf(input)))
         return { reserve, state: { ...state, pinIndex: pin, rowCount: rows.length, room: reserve } };
     }
   }
   // A new chat, a pin that left, or room that ran out with history still to load: estimate again,
-  // held against the first row.
+  // held against the first prompt. Not a row above it: a date divider there is replaced when the
+  // turn before it lands, and a pin that leaves would estimate again on every page.
   const estimate = estimateOlderHeight(input) ?? 0;
+  const pin = firstPrompt(rows);
   return {
     reserve: estimate,
     state: {
       sessionId: input.sessionId,
-      pinId: rows[0]!.id,
-      pinIndex: 0,
+      pinId: rows[pin]!.id,
+      pinIndex: pin,
+      pinFirst: pin,
+      counts: countsOf(input),
       rowCount: rows.length,
-      end: estimate,
+      end: estimate + input.rowTop(pin),
       room: estimate,
     },
   };
