@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 import Testing
 
@@ -15,6 +16,9 @@ import Testing
         var approved: [String] = []
         var pending = true
         var confirms = true
+        /// The hold was answered elsewhere: this Mac finds its feed item closed, and the op goes on (or not).
+        var closedElsewhere = false
+        var answersAfterClose = true
     }
 
     private nonisolated static let machine: JSONValue = .object(["id": .string("vm_00000000000000000009"), "status": .string("provisioning")])
@@ -29,7 +33,13 @@ import Testing
                 return .object(["machine": Self.machine])
             },
             confirm: { prompt in calls.prompts.append(prompt); return calls.confirms },
-            approve: { request, _, _ in calls.approved.append(request); calls.pending = false },
+            approve: { request, _, _ in
+                if calls.closedElsewhere {
+                    calls.pending = !calls.answersAfterClose
+                    throw CloudApprovalAnswer.Failure.mismatch(request: request, reason: CloudApprovalAnswer.closedItem)
+                }
+                calls.approved.append(request); calls.pending = false
+            },
             pause: { _ in })
     }
 
@@ -48,6 +58,27 @@ import Testing
         #expect(calls.prompts.count == 1)
         if case .agentRequest = calls.prompts.first {} else { Issue.record("expected the agent request prompt, got \(calls.prompts)") }
         #expect(calls.approved == ["apr_1"])
+    }
+
+    @Test func aHoldAnsweredElsewhereFirstGoesOnWithTheSameKey() async throws {
+        let calls = Calls()
+        calls.closedElsewhere = true
+        var recorded: [String] = []
+        let made = try await flow(calls).create(name: nil, startedByPerson: true, onApproved: { recorded.append($0) })
+        #expect(made == Self.machine)
+        #expect(calls.prompts.isEmpty)
+        #expect(recorded.isEmpty, "nothing was answered here, so nothing is recorded as answered")
+        #expect(calls.ops == ["cloud.machine.create", "cloud.machine.create"])
+    }
+
+    @Test func aClosedItemWhoseHoldStaysPendingEndsStillPending() async throws {
+        let calls = Calls()
+        calls.closedElsewhere = true
+        calls.answersAfterClose = false
+        await #expect(throws: CloudMachineCreateFlow.Failure.stillPending(request: "apr_1")) {
+            try await flow(calls).create(name: nil, startedByPerson: true)
+        }
+        #expect(calls.approved.isEmpty)
     }
 
     @Test func aDeclinedAgentRequestSendsNothing() async throws {

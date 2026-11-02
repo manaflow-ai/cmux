@@ -158,6 +158,12 @@ struct CloudMachineCreateFlow {
                             where Self.alreadyAnswered(failure, request: request, answeredEarlier: request == answering) {
                     // An earlier attempt answered it and was cancelled before it could record that: the
                     // item is closed, so wait for the approved op like any answered request.
+                } catch let failure as CloudApprovalAnswer.Failure where Self.itemClosed(failure, request: request) {
+                    // Answered elsewhere (the feed on a phone, the dashboard) before this Mac could: nothing
+                    // was answered here, so it is not recorded; the bounded same-key retries read the op's answer.
+                    approved = request
+                    attempt = 1
+                    continue
                 }
                 approved = request
                 onApproved(request)
@@ -198,6 +204,11 @@ struct CloudMachineCreateFlow {
         case .mismatch(let r, let reason) where r == request: reason == "state" || (answeredEarlier && reason == CloudApprovalAnswer.closedItem)
         case .notInFeed, .mismatch, .refused: false
         }
+    }
+
+    /// The open feed item for `request` is gone (answered elsewhere, or another team's).
+    static func itemClosed(_ failure: CloudApprovalAnswer.Failure, request: String) -> Bool {
+        if case .mismatch(request, CloudApprovalAnswer.closedItem) = failure { true } else { false }
     }
 
     /// 1, 2, 4 … 8 s between the same-key retries after the approval.
