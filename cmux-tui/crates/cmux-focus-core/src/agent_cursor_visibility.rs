@@ -86,7 +86,8 @@ mod non_finite {
 }
 
 /// A rect in one window's content-view coordinates, flipped.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[repr(C)]
 pub struct Rect {
     #[serde(with = "non_finite")]
     pub x: f64,
