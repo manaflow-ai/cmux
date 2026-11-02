@@ -4113,5 +4113,81 @@ class LiveIdleRunners(unittest.TestCase):
         self.assertEqual(pool.Routed(owned={MINI: 7, LIGHT: 0}).runs(), {MINI: 1})
 
 
+class SharedRunnerStateTests(unittest.TestCase):
+    def document(self):
+        return {"schema": "runner-state/v1", "repository": "manaflow-ai/cmux", "complete": True,
+                "generated_at": "2026-11-02T05:00:00Z", "repository_runners": [],
+                "runner_groups": {pool.RUNNER_GROUP: [{"id": 101, "name": "synthetic-dedicated",
+                    "status": "online", "busy": False, "labels": [{"name": MINI}]}]},
+                "scale_sets": {"blacksmith-12vcpu-macos-26": 3, "blacksmith-6vcpu-macos-26": 4}}
+
+    @staticmethod
+    def encode(doc):
+        import base64
+        import gzip
+        return base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode()
+
+    def test_accepted_document_returns_registered_runners_without_a_live_read(self):
+        doc = self.document()
+        doc["generated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(doc)}), \
+                unittest.mock.patch.object(pool.GitHub, "get_api", side_effect=AssertionError("live read")):
+            rows = pool.GitHub("synthetic-token", "manaflow-ai/cmux").runners()
+        self.assertEqual([row["name"] for row in rows], ["synthetic-dedicated"])
+        self.assertEqual(pool.live_owned_free(rows, (MINI,)), {MINI: 1})
+
+    def test_document_age_scope_schema_and_runner_types_are_validated(self):
+        clock = dt.datetime(2026, 11, 2, 5, 1, tzinfo=dt.timezone.utc)
+        doc = self.document()
+        self.assertIsNotNone(pool.runner_state("manaflow-ai/cmux", raw=self.encode(doc), now=clock))
+        for key, value in (("repository", "untrusted/repo"), ("complete", False),
+                           ("schema", "other/v1"), ("generated_at", "2026-11-02T04:54:59Z"),
+                           ("generated_at", "2026-11-02T05:01:01Z"),
+                           ("generated_at", "2026-11-02T05:00:00")):
+            with self.subTest(key=key, value=value):
+                bad = {**doc, key: value}
+                self.assertIsNone(pool.runner_state("manaflow-ai/cmux", raw=self.encode(bad), now=clock))
+        for update in ({"busy": "false"}, {"status": "unknown"}, {"labels": [MINI]}, {"id": True}):
+            with self.subTest(update=update):
+                bad = self.document()
+                bad["runner_groups"][pool.RUNNER_GROUP][0].update(update)
+                self.assertIsNone(pool.runner_state("manaflow-ai/cmux", raw=self.encode(bad), now=clock))
+        self.assertIsNone(pool.runner_state("untrusted/repo", raw=self.encode(doc), now=clock))
+
+    def test_document_groups_cannot_expand_the_existing_trusted_groups(self):
+        clock = dt.datetime(2026, 11, 2, 5, 1, tzinfo=dt.timezone.utc)
+        doc = self.document()
+        doc["runner_groups"]["unapproved"] = []
+        self.assertIsNone(pool.runner_state("manaflow-ai/cmux", raw=self.encode(doc), now=clock))
+        doc = self.document()
+        doc["repository_runners"] = doc["runner_groups"][pool.RUNNER_GROUP]
+        self.assertIsNone(pool.runner_state("manaflow-ai/cmux", raw=self.encode(doc), now=clock))
+
+    def test_malformed_compressed_oversized_and_truncated_documents_fail_closed(self):
+        for raw in ("", "invalid-base64", "eA==", self.encode({}), "A" * (48 * 1024 + 1),
+                    self.encode({"padding": "x" * (pool.RUNNER_STATE_MAX_BYTES + 1)})):
+            with self.subTest(length=len(raw)):
+                self.assertIsNone(pool.runner_state("manaflow-ai/cmux", raw=raw))
+        encoded = self.encode(self.document())
+        self.assertIsNone(pool.runner_state("manaflow-ai/cmux", raw=encoded[:-8]))
+
+    def test_unavailable_document_retains_the_exact_existing_api_fallback(self):
+        paths = []
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        def get(path):
+            paths.append(path)
+            return {"runner_groups": [{"name": pool.RUNNER_GROUP, "id": 23}]} if "visible_to_repository" in path else {"runners": []}
+        with unittest.mock.patch.object(pool, "runner_state", return_value=None), \
+                unittest.mock.patch.object(client, "get_api", side_effect=get):
+            self.assertEqual(client.runners(), [])
+        self.assertEqual(len(paths), 3)
+        self.assertTrue(paths[0].startswith("/repos/manaflow-ai/cmux/actions/runners?"))
+
+    def test_all_requested_picker_workflows_receive_repository_context(self):
+        for name in ("cmux-next.yml", "cmux-next-guards.yml", "cmux-tui-artifacts.yml", "nightly.yml"):
+            with self.subTest(workflow=name):
+                doc = yaml.safe_load((WORKFLOWS / name).read_text())
+                self.assertEqual(doc["env"]["CI_RUNNER_STATE"], "${{ vars.CI_RUNNER_STATE }}")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
