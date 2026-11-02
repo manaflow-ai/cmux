@@ -179,9 +179,11 @@ def pan_round(app, name, mode, index, session, point):
     app.rpc("debug.frames", {"action": "start"})
     started = uptime()
     delivered = session.gesture(point, dx, command=mode == "command")
+    gesture_end = uptime()
     time.sleep(opts.settle)  # bench harness: the frames run until the strip's spring rests
     window = (started, uptime())
-    frames = app.rpc("debug.frames", {"action": "stop"}) or {}
+    frames = app.rpc("debug.frames", {"action": "stop", "raw": True}) or {}
+    parts = split_parts(frames, gesture_end - started)
     # The main-thread stalls of the pan (over the hang threshold): the longest one's stack says what a long frame was.
     hangs = app.rpc("debug.hangs", {"limit": 8}) or {}
     stalls = sorted(hangs.get("hangs") or [], key=lambda h: -(h.get("duration_ms") or 0)) if isinstance(hangs, dict) else []
@@ -194,7 +196,8 @@ def pan_round(app, name, mode, index, session, point):
            "layout_took": taken, "delivered_to": took,
            "frames": frames.get("frames"), "refresh_ms": frames.get("refresh_ms"), "p50_ms": frames.get("p50_ms"),
            "p95_ms": frames.get("p95_ms"), "max_ms": frames.get("max_ms"), "missed": frames.get("missed"),
-           "missed_at_ms": frames.get("missed_at_ms"), "stalls": len(stalls),
+           "missed_at_ms": frames.get("missed_at_ms"), "stalls": len(stalls), "gesture_s": round(gesture_end - started, 4),
+           "parts": parts,
            "longest_stall": {"ms": round(stalls[0].get("duration_ms") or 0, 2), "cpu_ms": round(stalls[0].get("cpu_ms") or 0, 2),
                              "frames": (stalls[0].get("frames") or [])[:48]} if stalls else None}
     if stalls:
@@ -203,6 +206,50 @@ def pan_round(app, name, mode, index, session, point):
     print(f"  {name:<6} {mode:<7} #{index} dx {dx:+.0f}: layout took {taken}/{len(delivered)}, {run['frames']} frames, "
           f"p95 {run['p95_ms']} max {run['max_ms']} ms, missed {run['missed']} (refresh {run['refresh_ms']} ms)", flush=True)
     return run
+
+
+def split_parts(frames, gesture_s):
+    """B1 A/B (never-merge refs): the round's display frames split at the gesture's end (the `ended` reply):
+    the gesture part (the 42 debug.mouse events, whose length is RPC time) and the release part (from the
+    release until the settle ends, the spring's own motion). Per part: frames, missed vsyncs (an interval over
+    1.5 refresh periods), p50/p95/max. `rest_ms`: the last release frame with main-thread work over 1 ms,
+    from the release (the spring's last presented step; the display link ticks on after it with no work)."""
+    intervals = frames.get("intervals_ms") or []
+    work = frames.get("main_ms") or []
+    refresh = frames.get("refresh_ms") or 8.33
+    ends, at = [], 0.0
+    for i in intervals:
+        at += i
+        ends.append(at)
+    cut = gesture_s * 1000
+
+    def stats(values):
+        values = sorted(values)
+        if not values:
+            return {"frames": 0, "missed": 0, "p50_ms": None, "p95_ms": None, "max_ms": None}
+        return {"frames": len(values), "missed": sum(1 for v in values if v > refresh * 1.5),
+                "p50_ms": pct(values, 0.5), "p95_ms": pct(values, 0.95), "max_ms": round(values[-1], 2)}
+
+    gesture = [i for i, e in zip(intervals, ends) if e <= cut]
+    release = [i for i, e in zip(intervals, ends) if e > cut]
+    busy = [e - cut for e, w in zip(ends, work) if e > cut and w > 1.0]
+    return {"gesture": stats(gesture), "release": stats(release), "rest_ms": round(busy[-1], 1) if busy else None}
+
+
+def parts_summary(runs):
+    """The rounds' parts summed: frames, missed, p95 as the median of the rounds', max, rest_ms median."""
+    out = {}
+    for part in ("gesture", "release"):
+        rows = [r["parts"][part] for r in runs if r.get("parts")]
+        p95 = sorted(x["p95_ms"] for x in rows if x["p95_ms"] is not None)
+        out[part] = {"frames": sum(x["frames"] for x in rows), "missed": sum(x["missed"] for x in rows),
+                     "p95_ms": p95[len(p95) // 2] if p95 else None,
+                     "max_ms": max((x["max_ms"] for x in rows if x["max_ms"] is not None), default=None)}
+    rests = sorted(r["parts"]["rest_ms"] for r in runs if r.get("parts") and r["parts"]["rest_ms"] is not None)
+    out["rest_ms_median"] = rests[len(rests) // 2] if rests else None
+    out["rest_ms_max"] = rests[-1] if rests else None
+    out["gesture_s_mean"] = round(sum(r["gesture_s"] for r in runs) / len(runs), 3) if runs else None
+    return out
 
 
 def scroll_frames(intervals, runs):
@@ -232,7 +279,8 @@ def summarize(name, mode, runs, report, intervals=None):
            "refresh_ms": pct([r["refresh_ms"] for r in runs], 0.5),
            "missed_total": sum(r["missed"] or 0 for r in runs), "frames_total": sum(r["frames"] or 0 for r in runs),
            "p95_ms": pct([r["p95_ms"] for r in runs], 0.5), "max_ms": pct([r["max_ms"] for r in runs], 1.0),
-           "events_to_layout": sum(r["layout_took"] for r in runs), "events": sum(r["events"] for r in runs)}
+           "events_to_layout": sum(r["layout_took"] for r in runs), "events": sum(r["events"] for r in runs),
+           "parts": parts_summary(runs)}
     if intervals is not None:
         row.update(scroll_frames(intervals, runs))
         if not row["input_to_frame"]:
