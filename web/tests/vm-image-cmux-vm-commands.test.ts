@@ -86,14 +86,17 @@ describe("Freestyle key by path", () => {
 describe("cmux VM image apt index", () => {
   test("an index outage gets one bounded retry with backoff before failing", async () => {
     expect(bake.APT_UPDATE_COMMAND).toContain("timeout \"${timeout_s}s\" apt-get update -q --error-on=any");
-    expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=240");
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=180");
     expect(bake.APT_UPDATE_COMMAND).toContain("apt_update_ok=1; break;");
     expect(bake.APT_UPDATE_COMMAND).not.toContain("then exit 0");
-    expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=45");
+    expect(bake.APT_UPDATE_COMMAND).toContain("timeout_s=30");
     expect(bake.APT_UPDATE_COMMAND).toContain("sleep 5");
     expect(bake.APT_UPDATE_COMMAND).toContain("falling back to archive.ubuntu.com/security.ubuntu.com");
-    expect(bake.APT_UPDATE_COMMAND).toContain("archive.ubuntu.com/ubuntu");
-    expect(bake.APT_UPDATE_COMMAND).toContain("security.ubuntu.com/ubuntu");
+    const payload = bake.APT_UPDATE_COMMAND.match(/printf %s ([A-Za-z0-9+/=]+) \| base64 -d/)?.[1];
+    expect(payload).toBeDefined();
+    const fallbackSources = Buffer.from(payload!, "base64").toString("utf8");
+    expect(fallbackSources).toContain("archive.ubuntu.com/ubuntu");
+    expect(fallbackSources).toContain("security.ubuntu.com/ubuntu");
     await bashSyntax(bake.APT_UPDATE_COMMAND);
   });
 

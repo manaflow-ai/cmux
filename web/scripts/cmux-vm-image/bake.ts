@@ -324,7 +324,7 @@ export const APT_BATCH_BYTES = 20_000_000;
 export const APT_UPDATE_COMMAND = [
   "apt_update_ok=0;",
   "for attempt in 1 2; do",
-  "  if [ \"$attempt\" -eq 1 ]; then timeout_s=240; else timeout_s=45; fi;",
+  "  if [ \"$attempt\" -eq 1 ]; then timeout_s=180; else timeout_s=30; fi;",
   "  if timeout \"${timeout_s}s\" apt-get update -q --error-on=any >/tmp/apt-update.log 2>&1; then apt_update_ok=1; break; fi;",
   "  [ \"$attempt\" -eq 2 ] || sleep 5;",
   "done;",
