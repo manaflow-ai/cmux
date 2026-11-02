@@ -331,6 +331,7 @@
 .nt-all-search input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none}
 .nt-all-active{flex:none;margin:2px 0 0;padding:0 0 4px;list-style:none;border-bottom:.5px solid var(--acpmux-composer-edge)}
 .nt-all-active li{height:30px;padding:1px 0;box-sizing:border-box}
+.nt-all-leads-head{display:flex;align-items:center;gap:var(--ds-space-2,8px);padding:0 var(--ui-row-padding-inline)!important;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:500;letter-spacing:var(--text-detail--letter-spacing);white-space:nowrap}
 .nt-all-host,.nt-all-scroll{flex:1;min-height:0;display:flex;flex-direction:column}
 .nt-all-host{margin-top:4px}
 .nt-all-list{flex:1;min-height:0}

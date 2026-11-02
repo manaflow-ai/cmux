@@ -218,7 +218,7 @@ import Testing
         case .newSubgroup:
             let records = try SidebarDocRecords(document: document(state.items))
             for (parent, id) in [("itm_mw", "itm_new"), ("itm_cp", "itm_new2"), ("itm_bc", "itm_new3")] {
-                let plan = SidebarDocSubgroupPlan(parent: GroupID(parent), id: GroupID(id), name: "Sub", color: .blue, records: records)
+                let plan = SidebarDocSubgroupPlan(parent: GroupID(parent), id: GroupID(id), name: "Sub", color: .palette(.blue), records: records)
                 state.apply(try #require(plan.ops, "\(parent): \(String(describing: plan.refusal))"))
             }
         case .nestUnderAnotherSpace:
