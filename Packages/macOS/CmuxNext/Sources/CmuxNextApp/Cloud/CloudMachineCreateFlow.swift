@@ -78,6 +78,9 @@ struct CloudMachineCreateFlow {
     var approve: @MainActor (_ request: String, _ op: String, _ params: JSONValue) async throws -> Void
     /// Waits before the next same-key retry after the approval (cancellable).
     var pause: @MainActor (_ attempt: Int) async throws -> Void
+    /// Waits between the same-key calls that watch, while the approval sheet is open, for the person
+    /// answering the hold elsewhere (cancellable); nil watches nothing and only the sheet answers.
+    var watchPause: (@MainActor (_ attempt: Int) async throws -> Void)?
     var newKey: () -> String = { UUID().uuidString }
     /// Same-key calls after the approval before ``Failure/stillPending``.
     var retries = 8
@@ -111,10 +114,11 @@ struct CloudMachineCreateFlow {
         if let name = machine.name { args["name"] = .string(name) }
         if let environment { args["environment"] = .string(environment) }
         let op = environment == nil ? "cloud.machine.create" : "cloud.environment.boot"
-        let answer = try await approvalLoop(op, args: .object(args), key: key ?? newKey(), confirmed: confirmed,
+        let sent = key ?? newKey()
+        let answer = try await approvalLoop(op, args: .object(args), key: sent, confirmed: confirmed,
                                             approved: key == nil ? nil : approved, onApproved: onApproved,
-                                            answering: key == nil ? nil : answering, onAnswering: onAnswering) { request in
-            await confirm(.approval(request: request, machine))
+                                            answering: key == nil ? nil : answering, onAnswering: onAnswering) { [self] request in
+            await confirmUnlessAnsweredElsewhere(.approval(request: request, machine), op: op, args: .object(args), key: sent, request: request)
         }
         return answer["machine"] ?? answer
     }
@@ -169,6 +173,27 @@ struct CloudMachineCreateFlow {
             }
         }
         throw Failure.stillPending(request: approved ?? "")
+    }
+
+    /// The approval sheet, closed when the person answers the hold elsewhere first (the feed on their
+    /// phone, the dashboard; G8 lets their own session answer it): the same-key call goes on at `watchPause`'s
+    /// pace, and an answer other than this request's pending ends the sheet as a yes, so the loop finds the
+    /// request ended (``alreadyAnswered``) and the next same-key call replays the op's answer.
+    private func confirmUnlessAnsweredElsewhere(_ prompt: Prompt, op: String, args: JSONValue, key: String, request: String) async -> Bool {
+        guard let watchPause else { return await confirm(prompt) }
+        return await CloudWait.firstAnswer(ask: { await confirm(prompt) }) { [run] in
+            await CloudWait.untilAnswered(pause: watchPause) {
+                do { _ = try await run(op, args, key, .user) } catch let failure as CloudAppOpFailure where failure.code == CloudAppOpFailure.approvalPending {
+                    return failure.approvalRequest == request ? nil : false
+                } catch { return isDefinitiveAnswer(error) }
+                return true
+            }
+        }
+    }
+
+    /// A denied or expired hold was answered too; anything else leaves the answer to the sheet.
+    private func isDefinitiveAnswer(_ error: any Error) -> Bool {
+        (error as? CloudAppOpFailure).map { failure in ["approval_denied", "approval.denied", "approval_expired", "approval.expired"].contains { failure.code.hasSuffix($0) } } ?? false
     }
 
     /// The legacy `/api/vm` create (the default link). A plan that cannot create (`gate`, or the

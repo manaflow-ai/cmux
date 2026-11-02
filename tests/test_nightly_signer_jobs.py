@@ -377,10 +377,24 @@ class LegacyPool(unittest.TestCase):
                        "needs.legacy-identity-target.outputs.source_run == format('{0}', github.run_id)",
                        "needs.legacy-identity-target.outputs.build == needs.build-nightly-app.outputs.daemon_build",
                        "needs.decide.outputs.notary_paused != 'true'",
-                       # A requirement is checked on the build's commit by the macOS signer only.
-                       "vars.NIGHTLY_LEGACY_REQUIRED_COMMITS == ''",
                        "vars.NIGHTLY_NEXT_LEGACY_POOL != 'off'", "vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"):
             self.assertIn(clause, gate)
+
+    def test_the_pool_checks_the_requirement_before_any_secret(self):
+        # A set NIGHTLY_LEGACY_REQUIRED_COMMITS once turned this path off, so every cmux NIGHTLY copy
+        # waited on the macOS signer's exclusive Mac. The pool checks it on the build's own commit.
+        job = JOBS["legacy-signer-app"]
+        self.assertNotIn("NIGHTLY_LEGACY_REQUIRED_COMMITS", job["if"])
+        steps = job["steps"]
+        names = [s.get("name", "") for s in steps]
+        check = names.index("Check the build's commit carries NIGHTLY_LEGACY_REQUIRED_COMMITS")
+        step = steps[check]
+        self.assertIn("nightly-next-legacy-requirement.sh --commit", step["run"])
+        self.assertEqual(step["env"]["BUILD_SHA"], "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}")
+        self.assertEqual(step["env"]["REQUIRED"], "${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}")
+        self.assertNotIn("continue-on-error", step)
+        for later in steps[:check]:
+            self.assertNotIn("secrets.", yaml.safe_dump(later))
 
     def test_secrets_stay_in_the_hosted_signer_jobs(self):
         for name in LEGACY_POOL_JOBS:
