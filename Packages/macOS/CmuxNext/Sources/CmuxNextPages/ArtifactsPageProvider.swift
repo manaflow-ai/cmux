@@ -150,13 +150,25 @@ public final class ArtifactsPageProvider: PageProvider {
             guard let access = try await token() else { return ArtifactsReply(status: 401, body: Data()) }
             guard let url = url(read, base: base) else { throw URLError(.badURL) }
             var request = URLRequest(url: url)
+            request.timeoutInterval = 60
             request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
-            let (body, response) = try await URLSession.shared.data(for: request)
+            let (body, response) = try await noStoreSession.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
             return ArtifactsReply(status: http.statusCode, body: body, contentType: http.value(forHTTPHeaderField: "Content-Type"),
                                   commit: http.value(forHTTPHeaderField: "X-Artifacts-Commit"))
         }
     }
+
+    /// Artifact replies carry account data. Keep them out of shared URLSession caches and cookies,
+    /// and never follow a redirect that could move the bearer to another origin.
+    private static let noStoreSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
+    }()
 
     /// `read`'s URL under `base`, whose own path (a deployment under a prefix) is kept. Each query
     /// value is encoded whole (`&`, `=`, `+`, `;` and `#` included), so a path can never add a param.
@@ -228,5 +240,12 @@ public final class ArtifactsPageProvider: PageProvider {
 
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, bundle: .module)
+    }
+}
+
+private final class RefuseRedirects: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }
