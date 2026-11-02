@@ -470,8 +470,69 @@ impl<Id> HoverCardMachine<Id> {
 impl<Id: Clone + PartialEq> HoverCardMachine<Id> {
     /// Applies one event and returns what the coordinator must do, in order.
     pub fn reduce(&mut self, event: HoverCardEvent<Id>) -> Effects<Id> {
-        let _ = event;
-        Effects::new()
+        match event {
+            HoverCardEvent::Hit { target, moved, aiming, bridging } => {
+                self.hit(target, moved, aiming, bridging)
+            }
+            HoverCardEvent::PointerOnCard(on) => {
+                self.pointer_on_card = on;
+                Effects::new()
+            }
+            HoverCardEvent::Deadline(token) => self.deadline(token),
+            HoverCardEvent::Dismiss => {
+                self.quiet = true;
+                self.end()
+            }
+            HoverCardEvent::Suppress(reason) => {
+                self.suppressions.insert(reason);
+                self.quiet = true;
+                self.end()
+            }
+            HoverCardEvent::Unsuppress(reason) => {
+                self.suppressions.remove(reason);
+                // A pointer that moved during the drag or scroll gets its card.
+                self.resume()
+            }
+            HoverCardEvent::TargetRemoved(id) => {
+                if self.last_hit.as_ref().is_some_and(|t| t.id == id) {
+                    self.last_hit = None;
+                }
+                if !self.active_target().is_some_and(|t| t.id == id) {
+                    return Effects::new();
+                }
+                let ended = self.end();
+                ended.extend(self.resume())
+            }
+            HoverCardEvent::Owned(shown) => {
+                self.owned_card_shown = shown;
+                if !shown {
+                    return Effects::new();
+                }
+                // The owner's card takes the window: no card of a target is
+                // pending or shown, and nothing hides (the window morphs).
+                self.quiet = false;
+                let had_timer = self.armed_token().is_some();
+                self.phase = HoverCardPhase::Idle;
+                if had_timer {
+                    Effects::new().with(HoverCardEffect::CancelTimer)
+                } else {
+                    Effects::new()
+                }
+            }
+            HoverCardEvent::Pin(target) => {
+                // No card during a drag or scroll, pinned or not.
+                if !self.suppressions.is_empty() {
+                    return Effects::new();
+                }
+                self.quiet = false;
+                let was_shown = self.shown_target().is_some();
+                let token = self.take_token();
+                self.phase = HoverCardPhase::Pinned { target: target.clone(), token };
+                Effects::new()
+                    .with(HoverCardEffect::Schedule { token, after: self.pin_lifetime })
+                    .with(HoverCardEffect::Show { target, sliding: was_shown })
+            }
+        }
     }
 
     fn deadline(&mut self, token: u64) -> Effects<Id> {

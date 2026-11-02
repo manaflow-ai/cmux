@@ -138,8 +138,76 @@ fn count(n: usize) -> u64 {
 /// The card's blocks for `request`.
 #[must_use]
 pub fn summarize(request: &Request) -> Response {
-    let _ = request;
-    Response::default()
+    let members = &request.members;
+    let mut blocks = Vec::new();
+    for section in &request.sections {
+        match section {
+            Section::Status => blocks.push(status(members)),
+            Section::Members => {
+                let limit = usize::try_from(request.max_members.max(1)).unwrap_or(usize::MAX);
+                let mut lines = vec![Line::Count { count: count(members.len()) }];
+                lines.extend(
+                    members.iter().take(limit).map(|m| Line::Member { title: m.title.clone() }),
+                );
+                let shown = members.len().min(limit);
+                if members.len() > shown {
+                    lines.push(Line::More { count: count(members.len().saturating_sub(shown)) });
+                }
+                blocks.push(Block { section: Section::Members, tone: Tone::Secondary, lines });
+            }
+            Section::Activity => {
+                // The first member with the latest time (Swift's `max(by:)` keeps the first).
+                let mut latest: Option<(&Member, f64)> = None;
+                for member in members {
+                    if let Some(date) = member.last_activity
+                        && latest.is_none_or(|(_, best)| best < date)
+                    {
+                        latest = Some((member, date));
+                    }
+                }
+                if let Some((member, date)) = latest {
+                    let age_seconds = request.now - date;
+                    // Swift's `guard seconds >= 60`: NaN reads "Just now" too.
+                    let just_now = age_seconds < JUST_NOW_SECONDS || age_seconds.is_nan();
+                    blocks.push(Block {
+                        section: Section::Activity,
+                        tone: Tone::Secondary,
+                        lines: vec![Line::Latest {
+                            title: member.title.clone(),
+                            age_seconds,
+                            just_now,
+                        }],
+                    });
+                }
+            }
+            Section::Git => {
+                let branches = unique(members.iter().filter_map(|m| m.branch.clone()));
+                if !branches.is_empty() {
+                    let (listed, more) = joined(&branches);
+                    blocks.push(Block {
+                        section: Section::Git,
+                        tone: Tone::Secondary,
+                        lines: vec![Line::Branches { listed, more }],
+                    });
+                }
+            }
+            Section::Ports => {
+                let ports =
+                    unique(members.iter().filter_map(|m| m.ports.as_deref()).flat_map(|ports| {
+                        ports.split(',').map(|p| trim_whitespaces(p).to_owned()).collect::<Vec<_>>()
+                    }));
+                if !ports.is_empty() {
+                    let (listed, more) = joined(&ports);
+                    blocks.push(Block {
+                        section: Section::Ports,
+                        tone: Tone::Secondary,
+                        lines: vec![Line::Ports { listed, more }],
+                    });
+                }
+            }
+        }
+    }
+    Response { blocks }
 }
 
 /// "Working: 2 · Waiting: 1 · Unread: 3", or "All idle" (no parts).

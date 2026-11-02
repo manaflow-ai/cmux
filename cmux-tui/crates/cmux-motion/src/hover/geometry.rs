@@ -134,8 +134,46 @@ impl HoverRect {
     /// take the card over.
     #[must_use]
     pub fn aimed_at(&self, from: Option<HoverPoint>, to: Option<HoverPoint>) -> bool {
-        let _ = (from, to);
-        false
+        let (Some(from), Some(to)) = (from, to) else { return false };
+        let has_area = self.std_width() > 0. && self.std_height() > 0.;
+        if !has_area || from == to {
+            return false;
+        }
+        if self.contains(to) {
+            return true;
+        }
+        let beside = from.x < self.min_x() || from.x > self.max_x();
+        // The move must head for the card more than it runs along it: a
+        // pointer sliding across a tab strip or down a list with a pixel of
+        // drift toward the card is not aiming.
+        let dx = to.x - from.x;
+        let dy = to.y - from.y;
+        let toward = if beside {
+            if from.x < self.min_x() { dx } else { -dx }
+        } else if from.y < self.min_y() {
+            dy
+        } else {
+            -dy
+        };
+        let along = if beside { dy.abs() } else { dx.abs() };
+        let heads_for_it = toward > 0. && toward * 2. >= along;
+        if !heads_for_it {
+            return false;
+        }
+        let (a, b) = if beside {
+            let x = if from.x < self.min_x() { self.min_x() } else { self.max_x() };
+            (HoverPoint { x, y: self.min_y() }, HoverPoint { x, y: self.max_y() })
+        } else {
+            let y = if from.y < self.min_y() { self.min_y() } else { self.max_y() };
+            (HoverPoint { x: self.min_x(), y }, HoverPoint { x: self.max_x(), y })
+        };
+        // Inside the triangle `from a b` (either winding).
+        let side =
+            |p: HoverPoint, q: HoverPoint| (q.x - p.x) * (to.y - p.y) - (q.y - p.y) * (to.x - p.x);
+        let ab = side(from, a);
+        let bc = side(a, b);
+        let ca = side(b, from);
+        (ab >= 0. && bc >= 0. && ca >= 0.) || (ab <= 0. && bc <= 0. && ca <= 0.)
     }
 }
 
@@ -194,8 +232,7 @@ pub const HOVER_ROW_GAP: f64 = 0.;
 /// request badge's card): one device pixel of `scale`.
 #[must_use]
 pub fn hover_edge_gap(scale: f64) -> f64 {
-    let _ = scale;
-    0.
+    1. / swift_max(scale, 1.)
 }
 
 /// A sidebar row's anchor for its card: `row`'s vertical extent across
@@ -203,8 +240,7 @@ pub fn hover_edge_gap(scale: f64) -> f64 {
 /// never moves the card sideways.
 #[must_use]
 pub fn hover_row_band(row: HoverRect, column: HoverRect) -> HoverRect {
-    let _ = (row, column);
-    HoverRect::ZERO
+    HoverRect::new(column.min_x(), row.min_y(), column.std_width(), row.std_height())
 }
 
 /// The room a row's card rests in: the screen's visible frame less `margin`,
@@ -214,8 +250,16 @@ pub fn hover_row_band(row: HoverRect, column: HoverRect) -> HoverRect {
 /// window is no wider than the sidebar.
 #[must_use]
 pub fn hover_card_room(visible: HoverRect, window: Option<HoverRect>, margin: f64) -> HoverRect {
-    let _ = (window, margin);
-    visible
+    let screen = visible.inset_by(margin, margin);
+    let Some(window) = window else { return screen };
+    let bottom = swift_max(screen.min_y(), window.min_y());
+    let top = swift_min(screen.max_y(), window.max_y());
+    // Swift's `guard top > bottom else { return screen }` (NaN: the screen).
+    if top > bottom {
+        HoverRect::new(screen.min_x(), bottom, screen.std_width(), top - bottom)
+    } else {
+        screen
+    }
 }
 
 impl HoverCardEscapeGeometry {
@@ -233,14 +277,95 @@ impl HoverCardEscapeGeometry {
         gap: Option<f64>,
         alignment: HoverRowAlignment,
     ) -> Self {
-        let _ = (size, visible, scale, gap, alignment);
-        Self {
-            anchor,
-            card: HoverRect::ZERO,
-            escape_slot: HoverRect::ZERO,
-            gap_strip: HoverRect::ZERO,
-            is_leading: false,
+        let (width, height) = size;
+        let scale = swift_max(scale, 1.);
+        let gap = gap.unwrap_or(HOVER_ROW_GAP);
+        let up = |v: f64| (v * scale).ceil() / scale;
+        let down = |v: f64| (v * scale).floor() / scale;
+        let middle = down(anchor.mid_y());
+        // Snap toward the row so a fractional edge never leaves a visible seam.
+        let mut x = down(anchor.max_x()) + gap;
+        let mut leading = false;
+        if let Some(visible) = visible
+            && x + width > visible.max_x()
+            && up(anchor.min_x()) - gap - width >= visible.min_x()
+        {
+            x = up(anchor.min_x()) - gap - width;
+            leading = true;
         }
+        let mut below = true;
+        let mut y = match alignment {
+            // The card's top on the row's top, on a device pixel; the clamp
+            // below keeps it on screen.
+            HoverRowAlignment::Top => (anchor.max_y() * scale).round() / scale - height,
+            // Below the slot: the card's top on the row's middle; above it
+            // near the screen's bottom.
+            HoverRowAlignment::Middle => {
+                let mut y = middle - height;
+                if let Some(visible) = visible
+                    && y < visible.min_y()
+                    && middle + height <= visible.max_y()
+                {
+                    y = middle;
+                    below = false;
+                }
+                y
+            }
+        };
+        if let Some(visible) = visible {
+            x = swift_min(swift_max(x, visible.min_x()), visible.max_x() - width);
+            y = swift_min(swift_max(y, visible.min_y()), visible.max_y() - height);
+        }
+        let card = HoverRect::new(x, y, width, height);
+        // The slot spans from the row to the card's far edge, beside the
+        // row's far half (the row's upper half when the card is below).
+        let slot_x = if leading { card.min_x() } else { anchor.max_x() };
+        let slot_width = if leading {
+            swift_max(0., anchor.min_x() - slot_x)
+        } else {
+            swift_max(0., card.max_x() - slot_x)
+        };
+        let slot = if below {
+            HoverRect::new(
+                slot_x,
+                card.max_y(),
+                slot_width,
+                swift_max(0., anchor.max_y() - card.max_y()),
+            )
+        } else {
+            HoverRect::new(
+                slot_x,
+                anchor.min_y(),
+                slot_width,
+                swift_max(0., card.min_y() - anchor.min_y()),
+            )
+        };
+        let escape_slot = if alignment == HoverRowAlignment::Middle
+            && slot.std_width() > 0.
+            && slot.std_height() > 0.
+        {
+            slot
+        } else {
+            HoverRect::ZERO
+        };
+        let strip = if leading {
+            HoverRect::new(
+                card.max_x(),
+                card.min_y(),
+                swift_max(0., anchor.min_x() - card.max_x()),
+                card.std_height(),
+            )
+        } else {
+            HoverRect::new(
+                anchor.max_x(),
+                card.min_y(),
+                swift_max(0., card.min_x() - anchor.max_x()),
+                card.std_height(),
+            )
+        };
+        let gap_strip =
+            if strip.std_width() > 0. && strip.std_height() > 0. { strip } else { HoverRect::ZERO };
+        Self { anchor, card, escape_slot, gap_strip, is_leading: leading }
     }
 
     /// What `point` is: the card first, then the row, the slot and the gap.

@@ -147,19 +147,68 @@ impl<T> HoverIntent<T> {
 impl<T: Clone + PartialEq> HoverIntent<T> {
     /// The target under the pointer now (`None`: none).
     pub fn hover(&mut self, target: Option<T>) -> IntentEffects<T> {
-        let _ = target;
-        IntentEffects::new()
+        match self.phase.clone() {
+            HoverIntentPhase::Idle => {
+                let Some(target) = target else { return IntentEffects::new() };
+                self.arm(target)
+            }
+            HoverIntentPhase::Pending { target: pending, .. } => {
+                let Some(target) = target else {
+                    self.phase = HoverIntentPhase::Idle;
+                    return IntentEffects::new().with(HoverIntentEffect::CancelTimer);
+                };
+                if target == pending { IntentEffects::new() } else { self.arm(target) }
+            }
+            HoverIntentPhase::Shown { target: shown } => {
+                let Some(target) = target else {
+                    let token = self.take_token();
+                    self.phase = HoverIntentPhase::Warm { token };
+                    return IntentEffects::new()
+                        .with(HoverIntentEffect::Hide)
+                        .with(HoverIntentEffect::Schedule { token, after: self.warm_for });
+                };
+                if target == shown {
+                    return IntentEffects::new();
+                }
+                self.phase = HoverIntentPhase::Shown { target: target.clone() };
+                IntentEffects::new().with(HoverIntentEffect::Show(target))
+            }
+            HoverIntentPhase::Warm { .. } => {
+                let Some(target) = target else { return IntentEffects::new() };
+                self.phase = HoverIntentPhase::Shown { target: target.clone() };
+                IntentEffects::new()
+                    .with(HoverIntentEffect::CancelTimer)
+                    .with(HoverIntentEffect::Show(target))
+            }
+        }
     }
 
     /// The one timer for `token` fired.
     pub fn deadline(&mut self, token: u64) -> IntentEffects<T> {
-        let _ = token;
-        IntentEffects::new()
+        match self.phase.clone() {
+            HoverIntentPhase::Pending { target, token: armed } if armed == token => {
+                self.phase = HoverIntentPhase::Shown { target: target.clone() };
+                IntentEffects::new().with(HoverIntentEffect::Show(target))
+            }
+            HoverIntentPhase::Warm { token: armed } if armed == token => {
+                self.phase = HoverIntentPhase::Idle;
+                IntentEffects::new()
+            }
+            _ => IntentEffects::new(),
+        }
     }
 
     /// A click, a key or a scroll: whatever shows goes, and the group is cold again.
     pub fn dismiss(&mut self) -> IntentEffects<T> {
-        IntentEffects::new()
+        let effects = match self.phase {
+            HoverIntentPhase::Idle => IntentEffects::new(),
+            HoverIntentPhase::Pending { .. } | HoverIntentPhase::Warm { .. } => {
+                IntentEffects::new().with(HoverIntentEffect::CancelTimer)
+            }
+            HoverIntentPhase::Shown { .. } => IntentEffects::new().with(HoverIntentEffect::Hide),
+        };
+        self.phase = HoverIntentPhase::Idle;
+        effects
     }
 
     fn arm(&mut self, target: T) -> IntentEffects<T> {
