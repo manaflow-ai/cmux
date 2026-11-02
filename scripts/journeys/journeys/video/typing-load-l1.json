@@ -143,7 +143,7 @@
       "name": "typing-load-l1-part1",
       "seconds": 75,
       "codec": "hevc",
-      "mbps": 120
+      "mbps": 60
     },
     {
       "do": "typist_play",
@@ -163,7 +163,7 @@
       "name": "typing-load-l1-part2",
       "seconds": 75,
       "codec": "hevc",
-      "mbps": 120
+      "mbps": 60
     },
     {
       "do": "typist_play",

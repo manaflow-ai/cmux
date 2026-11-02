@@ -52,9 +52,9 @@ def steps(profile, film):
     for half, (lo, hi) in enumerate(((0, 60), (60, 120)), 1):
         name = f"typing-load-{profile.lower()}-part{half}"
         if film:
-            # HEVC at 120 Mbit/s: ProRes 4444 movies of 60 s did not fetch within run.py's 240 s (round
+            # HEVC at 60 Mbit/s: ProRes 4444 and (under L3's moving pages) 120 Mbit/s movies did not fetch in time (round
             # tul-l0-feat-film); the judge's threshold (24 levels) is far above HEVC's error on terminal text.
-            s.append({"do": "video_start", "name": name, "seconds": 75, "codec": "hevc", "mbps": 120})
+            s.append({"do": "video_start", "name": name, "seconds": 75, "codec": "hevc", "mbps": 60})
         s.append({"do": "typist_play", "seed": SEED, "seconds": 120, "from": lo, "to": hi, "label": name})
         if film:
             s.append({"do": "video_stop", "name": name, "tail": 0.6})

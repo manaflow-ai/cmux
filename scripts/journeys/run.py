@@ -570,7 +570,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         take_results(files, out, set(ids))
         # ext_video's recordings (handoff resize-videos/KIT.md): movies are hundreds of MB, fetched on their own.
         videos = remote(host, f"cd {q(work + '/out')} && ls -d */video >/dev/null 2>&1 && tar c */video || true",
-                        timeout=left(240), check=False).stdout
+                        timeout=left(420), check=False).stdout
         take_videos(videos, out, set(ids))
         if hog_started:
             hog_log = remote(host, f"tail -c 2000000 {q(work + '/hog.jsonl')}", timeout=left(60), check=False).stdout
