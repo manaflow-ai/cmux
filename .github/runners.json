@@ -152,9 +152,10 @@
       ]
     },
     "macos_latest": {
-      "why": "Jobs that build on Blacksmith's macos-latest image (coderouter release binaries)",
+      "why": "Jobs that build on Blacksmith's macos-latest image (coderouter release binaries); the pinned macOS 26 image takes them when it stalls",
       "members": [
-        "blacksmith-6vcpu-macos-latest"
+        "blacksmith-6vcpu-macos-latest",
+        "blacksmith-6vcpu-macos-26"
       ]
     },
     "provenance": {

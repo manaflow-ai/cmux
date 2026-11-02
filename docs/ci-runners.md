@@ -1007,7 +1007,7 @@ nobody serves.
 | `macos_15` | Blacksmith macOS 15 |
 | `macos_26` | Blacksmith macOS 26 (6, then 12 vCPU) |
 | `macos_26_large` | Blacksmith macOS 26 (12, then 6 vCPU) |
-| `macos_latest` | Blacksmith macOS latest image |
+| `macos_latest` | Blacksmith macOS latest image, then macOS 26 |
 | `provenance` | GitHub-hosted `ubuntu-24.04`: npm and PyPI provenance and artifact attestations accept only GitHub's OIDC |
 | `macos_intel` | GitHub-hosted `macos-15-intel`: Blacksmith has no Intel Mac (the dispatch-only compatibility leg) |
 
