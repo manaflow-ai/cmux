@@ -181,3 +181,73 @@ fn a_progress_report_frees_the_session_lock_while_it_writes_the_registry() {
     assert!(waited.is_ok(), "a key's session lookup waited for a progress report's registry write");
     published.unwrap();
 }
+
+/// CLI-1 / TUL-F7 (STATUS 6838): under the L1 storm a state commit held the
+/// registry lock up to 281 ms, and `workspace.list`, `session.ping` and the
+/// scoped pane and tab lists read committed rows only but queued behind it.
+/// They read the registry's read-only WAL connection: no registry lock, no
+/// wait for a writer, and the same values as under the lock.
+#[test]
+fn list_reads_answer_while_a_writer_holds_the_registry_lock() {
+    use std::sync::mpsc::sync_channel;
+    let (mux, root) = persistent_mux("lists-read-committed");
+    let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+    mux.new_workspace(None, Some((80, 24))).unwrap();
+    let pane = mux.with_state(|state| {
+        state.resource_indexes.pane_ids.get(&state.pane_of(first.id).unwrap()).unwrap().to_string()
+    });
+    let call = |mux: &Arc<Mux>, operation: &str, params: serde_json::Value| {
+        let mut params = params;
+        params["machine"] = serde_json::json!("current");
+        params["session"] = serde_json::json!("current");
+        let envelope = serde_json::json!({"protocol":"cmux.protocol/2","type":"request",
+            "id":operation,"operation":operation,"params":params});
+        crate::resource_router::handle_resource_message(mux, &envelope.to_string()).unwrap()
+    };
+    let reads = [
+        ("workspace.list", serde_json::json!({"order": "session"})),
+        ("session.ping", serde_json::json!({})),
+        ("tab.list", serde_json::json!({"pane": pane})),
+        ("pane.list", serde_json::json!({"pane": pane})),
+    ];
+    let expected = reads
+        .iter()
+        .map(|(operation, params)| call(&mux, operation, params.clone())["result"].clone())
+        .collect::<Vec<_>>();
+
+    let (entered, entered_receiver) = sync_channel(1);
+    let (release, release_receiver) = sync_channel(1);
+    let holder = {
+        let mux = mux.clone();
+        std::thread::spawn(move || mux.hold_workspace_registry_for_test(entered, release_receiver))
+    };
+    entered_receiver.recv().unwrap();
+    let (answered, answered_receiver) = std::sync::mpsc::channel();
+    let reader = {
+        let mux = mux.clone();
+        std::thread::spawn(move || {
+            for (operation, params) in reads {
+                let response = call(&mux, operation, params);
+                answered.send((operation, response)).unwrap();
+            }
+        })
+    };
+    let mut during = Vec::new();
+    for _ in 0..4 {
+        match answered_receiver.recv_timeout(Duration::from_secs(2)) {
+            Ok(answer) => during.push(answer),
+            Err(_) => break,
+        }
+    }
+    release.send(()).unwrap();
+    holder.join().unwrap();
+    reader.join().unwrap();
+    assert_eq!(during.len(), 4, "a list read waited for the registry lock: answered {during:?}");
+    for ((operation, response), expected) in during.iter().zip(&expected) {
+        assert_eq!(response["ok"], true, "{operation}: {response}");
+        assert_eq!(&response["result"], expected, "{operation} read the same committed rows");
+    }
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
