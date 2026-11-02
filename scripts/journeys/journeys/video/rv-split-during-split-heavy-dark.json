@@ -149,6 +149,11 @@
    "title": "start the movie and the geometry trace (rv-split-during-split-heavy-dark)"
   },
   {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "lead: the recorder's start stall passes before the motion"
+  },
+  {
    "do": "hid_key",
    "key": "d",
    "modifiers": [

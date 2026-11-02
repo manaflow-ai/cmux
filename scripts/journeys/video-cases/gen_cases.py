@@ -126,7 +126,7 @@ def columns(n, heavy, rows=1, start=0):
     `rows` panes stacked (splitDown). Names p0..p(n*rows-1), column-major."""
     if n not in WIDTH_PRESET:
         raise ValueError(f"{n} strip columns do not fit on screen with the width presets")
-    width = {"do": "action", "action": WIDTH_PRESET[n], "title": f"set-up: the focused column 1/{n} of the viewport"}
+    width = {"do": "try_action", "action": WIDTH_PRESET[n], "title": f"set-up: the focused column 1/{n} of the viewport (may hold already)"}
     steps, idx = [], start
     for c in range(n):
         if c > 0 or idx > 0:
@@ -167,7 +167,7 @@ def close(pane, mark, title=None):
 CASES = []
 
 
-def case(cid, title, build, play, seconds=20, variants=(("heavy", "dark"),), tail=1.2):
+def case(cid, title, build, play, seconds=20, variants=(("heavy", "dark"),), tail=1.2, sample=False):
     for load, look in variants:
         heavy, dark = load == "heavy", look == "dark"
         jid = f"rv-{cid}-{load}-{look}"
@@ -183,7 +183,15 @@ def case(cid, title, build, play, seconds=20, variants=(("heavy", "dark"),), tai
                       {"do": "rpc", "method": "debug.main_budget", "params": {}, "title": "probe: main budget since the reset"},
                       {"do": "rpc", "method": "debug.hangs", "params": {}, "title": "probe: hangs"}]
         steps = [theme(dark)] + first_pane(jid, heavy) + build(heavy) + play[:lead] + [settle(1.5)] + probes_on + [kit_record_start(jid, seconds)]
-        steps += play[lead:] + [kit_record_stop(jid, tail)] + probes_off + after_check()
+        # The recorder's record_start stalls the main thread 48-72 ms (STATUS 4500): 0.6 s of lead before the motion.
+        steps.append({"do": "wait", "seconds": 0.6, "title": "lead: the recorder's start stall passes before the motion"})
+        if sample:
+            steps.append({"do": "sample_start", "name": "closesample", "seconds": 1.0, "interval_ms": 1,
+                          "title": "a 1 ms main-thread sample of the app around the motion"})
+        steps += play[lead:]
+        if sample:
+            steps.append({"do": "sample_stop", "name": "closesample"})
+        steps += [kit_record_stop(jid, tail)] + probes_off + after_check()
         CASES.append({"id": jid, "priority": "P1", "title": f"{title} ({load} load, {look})",
                       "why": "Lawrence 2026-11-02: every layout animation pixel perfect at 120 Hz with a 12-pane TUI load. "
                              "The movie and trace are judged per frame (gap, overlap, stretch, stale content, jump, dropped frames).",
@@ -198,6 +206,11 @@ case("close-mid-3col", "Close the middle of 3 strip columns with Cmd-W: the righ
      lambda h: columns(3, h), close("p1", "close"), variants=ALL)
 case("close-mid-3col-12", "12 panes (3 strip columns of 4): Cmd-W on the 2nd pane of the middle column, the other 3 grow",
      lambda h: columns(3, h, rows=4), close("p5", "close"), variants=(("heavy", "dark"), ("heavy", "light")))
+# F1 cause (lead 01:5xZ): the same closes with a 1 ms sample of the app's threads around the Cmd-W.
+case("close-in-row-sampled", "Close the middle of 3 split panes in a row, with a 1 ms sample of the app (F1 cause)",
+     lambda h: splits_in_row(3, h), close("p1", "close"), variants=(("heavy", "dark"), ("idle", "dark")), sample=True)
+case("close-mid-3col-sampled", "Close the middle of 3 strip columns, with a 1 ms sample of the app (F1 cause)",
+     lambda h: columns(3, h), close("p1", "close"), variants=(("heavy", "dark"),), sample=True)
 # 2. Close a pane in a column (3 stacked): the other two grow.
 case("close-in-column", "Close the middle of 3 panes stacked in one column: the other two grow to fill",
      lambda h: splits_in_column(3, h), close("p1", "close"), variants=ALL)

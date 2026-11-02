@@ -211,9 +211,9 @@
    ]
   },
   {
-   "do": "action",
+   "do": "try_action",
    "action": "column.widthOneThird",
-   "title": "set-up: the focused column 1/3 of the viewport"
+   "title": "set-up: the focused column 1/3 of the viewport (may hold already)"
   },
   {
    "do": "action",
@@ -336,9 +336,9 @@
    ]
   },
   {
-   "do": "action",
+   "do": "try_action",
    "action": "column.widthOneThird",
-   "title": "set-up: the focused column 1/3 of the viewport"
+   "title": "set-up: the focused column 1/3 of the viewport (may hold already)"
   },
   {
    "do": "action",
@@ -441,9 +441,9 @@
    "title": "set-up: focus the column on the left"
   },
   {
-   "do": "action",
+   "do": "try_action",
    "action": "column.widthOneThird",
-   "title": "set-up: the focused column 1/3 of the viewport"
+   "title": "set-up: the focused column 1/3 of the viewport (may hold already)"
   },
   {
    "do": "use_pane",
@@ -477,6 +477,11 @@
    "name": "rv-split-12pane-heavy-dark",
    "seconds": 20,
    "title": "start the movie and the geometry trace (rv-split-12pane-heavy-dark)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "lead: the recorder's start stall passes before the motion"
   },
   {
    "do": "hid_key",
