@@ -189,7 +189,7 @@ export function startupChecklist(
         ? "skipped"
         : failedStep === "setup"
           ? "error"
-          : (stoppedSetupState ?? (start.initialized ? "done" : "pending")),
+          : (stoppedSetupState ?? "pending"),
     duration: elapsed(start.setup?.startedAt, start.setup?.finishedAt, now),
     ...(start.setup?.status === "ready" ? { detail: t("cloudStartup.cached") } : {}),
     ...(start.setup?.logTail || start.setup?.error
