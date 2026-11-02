@@ -19,7 +19,7 @@ export function AddAccountDialog({
   onAdded(): void;
 }) {
   const t = useT();
-  const [kind, setKind] = useState(kinds[0] ?? "direct-subscription");
+  const [kind, setKind] = useState<string>(kinds[0] ?? "direct-subscription");
   const [values, setValues] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const sending = useRef(false);
