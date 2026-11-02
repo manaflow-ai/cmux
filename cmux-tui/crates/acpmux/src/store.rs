@@ -413,7 +413,7 @@ pub struct SessionMeta {
 
 /// The turn whose auth evidence a credential replacement made obsolete. It proves a change,
 /// not that the new credential works; the next turn supplies that evidence.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AuthChange {
     pub at: u64,
     pub turn_id: Option<String>,
