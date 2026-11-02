@@ -1,6 +1,7 @@
 // l10n-allow-file: deterministic workflow names and failure messages in behavioral fixtures.
 import { expect, test } from "bun:test";
 import { translate } from "../src/agent-session/acpmux/i18n";
+import { compactTokens } from "../src/agent-session/acpmux/conversation/CompactionNote";
 import { NativeInfoActions } from "../src/agent-session/acpmux/session-info/native/model";
 import {
   reconcileNativeWorkflowPhases,
@@ -156,4 +157,30 @@ test("running workflows sort ahead of finished ones and Stop reflects pending or
   expect(actions.run(failed.action)).toBe(true);
   await Promise.resolve();
   expect(stopped).toEqual(["work"]);
+});
+
+test("native workflow subtitles omit kind and grouped Completed, but keep other outcomes", () => {
+  const completed = { ...fixture([], "completed"), id: "completed", tokens: 1200 };
+  const failed = { ...fixture([], "failed"), id: "failed", tokens: 1200 };
+  const running = { ...fixture([], "running"), id: "running" };
+  const completedStatus = translate("bgTask.state.completed");
+  const failedStatus = translate("subagents.state.failed");
+  const kind = translate("workflow.kind");
+  const count = translate("subagents.pill", { n: 0 });
+  const tokens = translate("subagents.tokens", { n: 1200, tokens: compactTokens(1200) });
+
+  const solo = model(base([completed])).rows.find((row) => row.id === "workflow:completed")!;
+  expect(solo.subtitle).toContain(completedStatus);
+  expect(solo.subtitle).toContain(count);
+  expect(solo.subtitle).toContain(tokens);
+  expect(solo.subtitle).not.toContain(kind);
+
+  const mixed = model(base([running, completed, failed])).rows;
+  const groupedCompleted = mixed.find((row) => row.id === "workflow:completed")!;
+  const groupedFailed = mixed.find((row) => row.id === "workflow:failed")!;
+  expect(groupedCompleted.subtitle).not.toContain(completedStatus);
+  expect(groupedCompleted.subtitle).toContain(count);
+  expect(groupedCompleted.subtitle).toContain(tokens);
+  expect(groupedFailed.subtitle).toContain(`${failedStatus} ·`);
+  expect(groupedFailed.subtitle).not.toContain(kind);
 });
