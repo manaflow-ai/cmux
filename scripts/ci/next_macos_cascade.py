@@ -1004,8 +1004,9 @@ class Api:
             raise
 
     def in_flight(self) -> dict[str, int] | None:
-        # The owned census and optional complete scale-set counts share one
-        # trusted variable; absent counts retain this client's live group read.
+        # Scale counts match this live path's first-page (per_page=100)
+        # approximation of online occupancy, including busy runners. They share
+        # the owned census's trusted variable; absent counts retain live reads.
         from pr_runner_pool import runner_state
         document = runner_state(self.repository)
         counts = document.get("scale_sets", {}) if document is not None else {}
