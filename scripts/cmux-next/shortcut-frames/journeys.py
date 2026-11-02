@@ -134,14 +134,39 @@ def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
+# Per action: steps before each press (the object the press acts on), the strokes to alternate, and steps once
+# before the action's presses. Only for actions whose plain setup/undo does not give a press a fresh effect.
+BEFORE_EACH = {
+    "closeTab": [{"do": "rpc", "method": "action.run", "params": {"action": "newSurface"}, "title": "set-up: a tab for Cmd-W to close"},
+                 {"do": "wait", "seconds": 1.0, "title": "the new tab settles"}],
+    "terminal.clear": [{"do": "type", "text": "seq 1 60", "enter": True, "title": "set-up: text for Cmd-K to clear"},
+                       {"do": "wait", "seconds": 0.8, "title": "the text settles"}],
+}
+ONCE_BEFORE = {
+    "prevSurface": [{"do": "rpc", "method": "action.run", "params": {"action": "newSurface"}, "title": "set-up: a second tab"},
+                    {"do": "wait", "seconds": 1.0, "title": "the tab settles"}],
+    "nextSurface": [],
+    "selectWorkspaceByNumber": [],
+}
+# Strokes to alternate (each press then switches): Cmd-1 / Cmd-2 between Home and the journey's workspace.
+ALTERNATE = {"selectWorkspaceByNumber": ["cmd+1", "cmd+2"]}
+NO_UNDO = {"prevSurface", "nextSurface", "selectWorkspaceByNumber", "closeTab", "terminal.clear"}
+
+
 def press_block(case: dict, video: str, presses: int) -> list[dict]:
     """One recording of PRESSES presses of the case's key, each with its settle, its run read and its undo."""
     steps = [kit_record_start(video, PRE_RECORD_S + presses * 3.0 + 3, REQUIRE_HZ)]
+    steps += ONCE_BEFORE.get(case["action"], [])
+    strokes = ALTERNATE.get(case["action"], [case["stroke"]])
     for i in range(presses):
-        steps.append(kit_key(case["stroke"], f"{case['name']}/{i + 1}"))
+        steps += BEFORE_EACH.get(case["action"], [])
+        stroke = strokes[i % len(strokes)]
+        label = case["name"].replace(f"[{case['stroke']}]", f"[{stroke}]") + f"/{i + 1}"
+        steps.append(kit_key(stroke, label))
         steps.append(wait(SETTLE_S, "settle: content that loads later fills in"))
         steps.append(budget_read())
-        steps += undo_steps(case)
+        if case["action"] not in NO_UNDO:
+            steps += undo_steps(case)
         steps.append(wait(1.0, "the undo settles before the next press"))
     steps.append(kit_record_stop(video))
     return steps
@@ -202,6 +227,8 @@ def main() -> int:
     p.add_argument("--only", action="append", default=[], help="a substring of the case name (repeatable)")
     p.add_argument("--build", default="feat-tip", help="the plan's build label; journeys do not depend on it")
     p.add_argument("--presses", type=int, default=10)
+    p.add_argument("--group", action="append", default=[],
+                   help="comma-separated action ids that share one journey (repeatable); default: one journey per condition")
     a = p.parse_args()
     cases = json.load(open(a.cases, encoding="utf-8"))["cases"]
     os.makedirs(a.out, exist_ok=True)
@@ -217,7 +244,16 @@ def main() -> int:
         if case["setup"] == "todo":
             skipped += 1
             continue
-        groups.setdefault((case["arm"], case["load"], case["theme"], case["animations"]), []).append(case)
+        if a.group:
+            names = [i for i, g in enumerate(a.group) if case["action"] in g.split(",")]
+            if not names:
+                continue
+            if case["action"] in ALTERNATE and case["stroke"] != ALTERNATE[case["action"]][0]:
+                continue  # one case for the family: its presses alternate the strokes
+            key = (names[0], case["arm"], case["load"], case["theme"], case["animations"])
+        else:
+            key = (case["arm"], case["load"], case["theme"], case["animations"])
+        groups.setdefault(key, []).append(case)
     ids = []
     for group in groups.values():
         j = round_journey(group, a.presses)
