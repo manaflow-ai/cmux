@@ -100,13 +100,20 @@ const openTurn: Play = async (ctx) => {
   }
 };
 
-/// Opens the turn, then the first message's Raw: the whole shell function stays one click away.
+/// Opens the turn, then the first message's call (behind Raw when the message has words): the whole
+/// shell function stays at most one click away.
 const openRaw: Play = async (ctx) => {
   await openTurn(ctx);
   await ctx.click({ selector: ".cv-sent" });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-subsession__toggle"));
-  await ctx.click({ selector: ".cv-subsession__under .cv-subsession__toggle" });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-shell"));
+  // A message whose words the transcript never held (its text read from a file) opens straight to
+  // its call, with no Raw toggle (SentMessageLine.tsx); one with words keeps the call behind Raw.
+  const shell = () => ctx.document.querySelector(".cv-subsession__under .cv-shell");
+  const toggle = () => ctx.document.querySelector(".cv-subsession__under .cv-subsession__toggle");
+  await ctx.waitFor(() => shell() ?? toggle());
+  if (!shell()) {
+    await ctx.click({ selector: ".cv-subsession__under .cv-subsession__toggle" });
+    await ctx.waitFor(shell);
+  }
 };
 
 const ALL = [FUNCTION_BATCH, LOOP_BATCH, CHAIN, MCP_BATCH];
