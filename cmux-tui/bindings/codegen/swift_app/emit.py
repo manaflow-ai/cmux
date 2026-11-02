@@ -63,7 +63,7 @@ _KEYWORDS = frozenset({
     "fallthrough", "for", "guard", "if", "in", "repeat", "return", "switch", "where", "while", "as", "catch",
     "false", "is", "nil", "self", "Self", "super", "throw", "throws", "true", "try", "Any", "Type",
 })
-_TOP_KEYS = frozenset({"$comment", "output_root", "ids", "types", "families"})
+_TOP_KEYS = frozenset({"$comment", "sources_root", "ids", "types", "families"})
 _FAMILY_KEYS = frozenset({"$comment", "enums", "requests"})
 _ENUM_KEYS = frozenset({"doc"})
 _REQUEST_KEYS = frozenset({

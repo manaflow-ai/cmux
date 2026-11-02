@@ -1447,7 +1447,15 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextDaemon",
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
-            swiftSettings: daemonSwiftSettings
+            swiftSettings: daemonSwiftSettings,
+            // The request types that cmux-tui/bindings/codegen/swift_app/bindings.json lists, generated from
+            // cmux-tui/spec/sdk-schema.json before every build (never committed).
+            plugins: ["DaemonWireTypes"]
+        ),
+        .plugin(
+            name: "DaemonWireTypes",
+            capability: .buildTool(),
+            path: "Plugins/DaemonWireTypes"
         ),
         .testTarget(
             name: "CmuxNextDaemonTests",
