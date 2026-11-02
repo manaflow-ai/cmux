@@ -321,6 +321,18 @@ impl Seed {
         if branch != requested {
             return Err(changed("the checkout branch differs from this seed's branch"));
         }
+        if seeded_head.is_none() {
+            // A clean Git status can still hide unpushed commits: resetting
+            // this branch with checkout -B would orphan them. Only a pristine
+            // branch at its known origin-tracking commit may be adopted.
+            let Some(branch) = self.params.branch.as_deref() else {
+                return Err(changed("an existing detached checkout cannot be reseeded"));
+            };
+            let upstream = format!("refs/remotes/origin/{branch}^{{commit}}");
+            if recorded(&upstream).as_deref() != Some(head.as_str()) {
+                return Err(changed("the existing checkout has unpublished commits or no origin-tracking ref"));
+            }
+        }
         let stash = recorded("refs/stash^{commit}");
         if seeded_head.is_some() {
             if stash != recorded("refs/cmux-seed/stash^{commit}") {
