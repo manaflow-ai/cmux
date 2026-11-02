@@ -109,7 +109,7 @@ extension TabDragSession {
             moveSourceWorkspace(outcome, drag: drag)
             land(drag, at: drag.source.screenFrame, cardness: 0, opacity: 0, scale: 1)
         default:
-            winner?.provider.dropEnded(committed: winner?.proposal)
+            drag.settleDrop = winner?.provider.dropEnded(committed: winner?.proposal)
             guard let transaction = drag.lifecycle.beginCommit() else { return land(drag, at: drag.motion.targetRect, cardness: 0, opacity: 0, scale: 1) }
             execute(outcome, drag: drag, transaction: transaction)
             if let slot = winner?.proposal.ghostFrame {

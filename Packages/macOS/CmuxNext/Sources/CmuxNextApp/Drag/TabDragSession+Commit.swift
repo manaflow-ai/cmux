@@ -33,6 +33,8 @@ extension TabDragSession {
                 self.services.registry.refuse(TabDropStrings.failed)
             }
             let end: @MainActor () -> Void = { [weak self] in
+                drag.settleDrop?(ok)
+                drag.settleDrop = nil
                 lifecycle.settle(transaction, ok: ok)
                 self?.commitsInFlight.remove(transaction)
                 self?.services.input.monitor?.noteChange()
@@ -72,7 +74,7 @@ extension TabDragSession {
                     pane?.syncGroupMembership(of: tab, to: groupID)
                     StripOrder.settle([pane])
                 } else {
-                    pane?.resyncStrip()
+                    pane?.syncStripFromStore()
                 }
                 settle(ok)
             }
@@ -130,7 +132,7 @@ extension TabDragSession {
         case .strip(let stripID, let index, _):
             guard let pane = paneController(stripID: stripID) else { return gone(settle) }
             TabGroupMoves.move(group, to: pane.pane, index: index, services: services, transaction: transaction) { [weak pane] ok in
-                if !ok { pane?.resyncStrip() }
+                if !ok { pane?.syncStripFromStore() }
                 settle(ok)
             }
         case .newSplit(let paneID, let edge):
