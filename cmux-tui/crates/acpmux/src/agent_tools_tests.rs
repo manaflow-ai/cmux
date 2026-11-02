@@ -226,7 +226,7 @@ fn cloud_repo_tools_receive_complete_protected_caller_identity() {
 
 /// The session's tool allowlist reaches the `acpmux` server as well as `cmux`, so with
 /// no `cmux` to fold into (cmux.json turns MCP off) the standalone server still filters
-/// its own tools (#30082 review).
+/// its own tools, after `for_session` too (#30082 review).
 #[test]
 fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
     let server = |name: &str| super::McpServer {
@@ -243,7 +243,8 @@ fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
         (super::SERVERS_ENV.to_owned(), "cmux,acpmux".to_owned()),
         (super::MCP_TOOLS_ENV.to_owned(), super::CHIEF_TURN_TOOLS.to_owned()),
     ]);
-    let folded = tools.scoped(&env).folded();
+    // As production builds them: `for_session` resets the server's env to its credentials.
+    let folded = tools.scoped(&env).for_session("s-allowlist").folded();
     assert_eq!(folded.servers.len(), 1, "{:?}", folded.servers);
     let acpmux = &folded.servers[0];
     assert_eq!(acpmux.name, crate::acpmux_mcp::SERVER_NAME);

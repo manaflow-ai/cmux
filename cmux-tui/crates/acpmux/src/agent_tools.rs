@@ -730,16 +730,21 @@ impl AgentTools {
     /// an allowlisted env to a stdio MCP server (Codex does).
     pub fn for_session(mut self, session_id: &str) -> Self {
         for server in &mut self.servers {
-            let repo_route: Vec<_> = if server.name == crate::cloud_repo_mcp::SERVER_NAME {
-                server
-                    .env
-                    .iter()
-                    .filter(|(k, _)| matches!(k.as_str(), "CMUX_BIN" | "CMUX_SOCKET_PATH"))
-                    .cloned()
-                    .collect()
-            } else {
-                Vec::new()
-            };
+            // What survives the env reset below: the Cloud repo route, and the
+            // `acpmux` server's tool allowlist (`scoped`), its only filter when
+            // there is no `cmux` server to fold into.
+            let kept: Vec<_> = server
+                .env
+                .iter()
+                .filter(|(k, _)| match server.name.as_str() {
+                    crate::cloud_repo_mcp::SERVER_NAME => {
+                        matches!(k.as_str(), "CMUX_BIN" | "CMUX_SOCKET_PATH")
+                    }
+                    crate::acpmux_mcp::SERVER_NAME => k == MCP_TOOLS_ENV,
+                    _ => false,
+                })
+                .cloned()
+                .collect();
             server.env.retain(|(k, _)| k != AGENT_SESSION_ENV);
             if server.name == "cmux" || server.name == MEMORY_SERVER_NAME {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
@@ -788,7 +793,7 @@ impl AgentTools {
             if server.name == crate::cloud_repo_mcp::SERVER_NAME {
                 server.env.push(("ACPMUX_SESSION_ID".to_owned(), session_id.to_owned()));
             }
-            server.env.extend(repo_route);
+            server.env.extend(kept);
         }
         self
     }
