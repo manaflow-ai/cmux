@@ -302,55 +302,74 @@ fn logical_writes(pid: u32) -> Option<u64> {
     }
 }
 
-/// Measurement, not a check (ignored: `cargo test --test terminal_host_recovery
-/// kill_all_heavy -- --ignored --nocapture`): the daemon's disk writes
-/// under the HEAVY load of the reopen films, 12 panes of a full-screen TUI
-/// that repaints 40 rows with new content at about 60 Hz. Prints
-/// `kill-all-heavy: {...}` with the logical write bytes per pane per second
-/// and the state folder size. Run it at the base and at the fix for the
-/// before/after.
+/// MEASUREMENT (scratch): workloads x compaction policies.
 #[test]
-#[ignore = "measurement: run it with --ignored"]
 fn kill_all_heavy_load_disk_writes_per_pane() {
     const PANES: usize = 12;
-    const WINDOW: Duration = Duration::from_secs(20);
+    const WINDOW: Duration = Duration::from_secs(15);
     let _exclusive = exclusive_process_test();
-    let window = WINDOW;
-    let harness = production_harness("kill-all-heavy");
-    let frame = "i=0; while :; do i=$((i+1)); printf '\\033[?2026h\\033[H'; j=0; \
-                 while [ $j -lt 40 ]; do printf 'row %02d frame %08d build step output text\\033[K\\r\\n' $j $i; \
-                 j=$((j+1)); done; printf '\\033[?2026l'; sleep 0.016; done";
-    for index in 0..PANES {
-        request(
-            &harness.socket,
-            serde_json::json!({
-                "id":index,"cmd":"run","argv":["/bin/sh","-c",frame],
-                "new_workspace":true,"cols":120,"rows":40,
-            }),
-        );
+    // scroll: 40 rows per frame and a newline that scrolls one row into history;
+    // repaint: 40 rows by cursor address, no scroll (an inline TUI);
+    // alt: the same on the alternate screen (a full-screen TUI).
+    let rows = "j=0; while [ $j -lt 40 ]; do printf '\\033[%d;1Hrow %02d frame %08d build step output text\\033[K' $((j+1)) $j $i; j=$((j+1)); done";
+    let workloads = [
+        ("scroll", "i=0; while :; do i=$((i+1)); printf '\\033[?2026h\\033[H'; j=0; while [ $j -lt 40 ]; do printf 'row %02d frame %08d build step output text\\033[K\\r\\n' $j $i; j=$((j+1)); done; printf '\\033[?2026l'; sleep 0.016; done".to_string()),
+        ("repaint", format!("i=0; while :; do i=$((i+1)); printf '\\033[?2026h'; {rows}; printf '\\033[?2026l'; sleep 0.016; done")),
+        ("alt", format!("printf '\\033[?1049h'; i=0; while :; do i=$((i+1)); printf '\\033[?2026h'; {rows}; printf '\\033[?2026l'; sleep 0.016; done")),
+    ];
+    let mut report = Vec::new();
+    for (workload, frame) in &workloads {
+        for policy in ["memory", "v0", "small", "ratio:1", "ratio:4", "min"] {
+            let mut harness = RecoveryHarness::start_unstarted(&format!(
+                "heavy-{workload}-{}",
+                policy.replace(':', "")
+            ));
+            let mode = if policy == "memory" { "memory" } else { "snapshot" };
+            harness.extra_env.push(("CMUX_TUI_TERMINAL_PERSISTENCE".into(), mode.into()));
+            harness.extra_env.push(("CMUX_TUI_TEST_TAIL_POLICY".into(), policy.into()));
+            harness.restart();
+            for index in 0..PANES {
+                request(
+                    &harness.socket,
+                    serde_json::json!({
+                        "id":index,"cmd":"run","argv":["/bin/sh","-c",frame],
+                        "new_workspace":true,"cols":120,"rows":40,
+                    }),
+                );
+            }
+            wait_for_host_records(&harness.host_root(), PANES);
+            std::thread::sleep(Duration::from_secs(3));
+            let pid = harness.child.as_ref().unwrap().id();
+            let before = logical_writes(pid);
+            let started = Instant::now();
+            let mut snap_writes = 0_u64;
+            let mut last_mtimes = std::collections::HashMap::new();
+            let mut max_snap = 0_u64;
+            while started.elapsed() < WINDOW {
+                for path in walk_files(&harness.state) {
+                    if path.extension().is_some_and(|e| e == "snap") {
+                        if let Ok(meta) = fs::metadata(&path) {
+                            max_snap = max_snap.max(meta.len());
+                            let mtime = meta.modified().ok();
+                            if last_mtimes.insert(path.clone(), mtime) != Some(mtime) {
+                                snap_writes += 1;
+                            }
+                        }
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            let after = logical_writes(pid);
+            let seconds = started.elapsed().as_secs_f64();
+            let written = before.zip(after).map(|(b, a)| a.saturating_sub(b)).unwrap_or(0);
+            report.push(serde_json::json!({
+                "workload": workload, "policy": policy,
+                "bytes_per_pane_per_second": (written as f64 / PANES as f64 / seconds).round(),
+                "snapshot_writes_seen_per_pane": snap_writes as f64 / PANES as f64,
+                "largest_snapshot_bytes": max_snap,
+            }));
+            drop(harness);
+        }
     }
-    wait_for_host_records(&harness.host_root(), PANES);
-    std::thread::sleep(Duration::from_secs(3));
-    let pid = harness.child.as_ref().unwrap().id();
-    let before = logical_writes(pid);
-    let started = Instant::now();
-    std::thread::sleep(window);
-    let after = logical_writes(pid);
-    let seconds = started.elapsed().as_secs_f64();
-    let folder = walk_files(&harness.state)
-        .iter()
-        .filter_map(|path| fs::metadata(path).ok())
-        .map(|metadata| metadata.len())
-        .sum::<u64>();
-    let written = before.zip(after).map(|(before, after)| after.saturating_sub(before));
-    eprintln!(
-        "kill-all-heavy: {}",
-        serde_json::json!({
-            "panes": PANES,
-            "seconds": seconds,
-            "daemon_logical_write_bytes": written,
-            "bytes_per_pane_per_second": written.map(|bytes| bytes as f64 / PANES as f64 / seconds),
-            "state_folder_bytes": folder,
-        })
-    );
+    panic!("kill-all-heavy-matrix: {}", serde_json::to_string(&report).unwrap());
 }

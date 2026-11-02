@@ -282,8 +282,12 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                     size.1,
                     &replay,
                 ) {
-                    Ok(()) => {
+                    Ok(file_bytes) => {
                         wrote = true;
+                        log.state
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .snapshot_file_bytes = file_bytes;
                         snapshot_written(
                             directory,
                             &log,
@@ -342,6 +346,8 @@ struct Plan {
     interval_due: bool,
     force: bool,
     tail_bytes: u64,
+    tail_file_bytes: u64,
+    snapshot_file_bytes: u64,
     pending: usize,
 }
 
@@ -356,6 +362,8 @@ impl Plan {
             interval_due: state.snapshot_at.is_none_or(|at| at.elapsed() >= interval),
             force: state.force_snapshot,
             tail_bytes: state.tail_bytes,
+            tail_file_bytes: state.tail_file_bytes,
+            snapshot_file_bytes: state.snapshot_file_bytes,
             pending: state.pending.len(),
         }
     }
@@ -382,7 +390,20 @@ impl Plan {
             || self.snapshot_generation.as_deref() != Some(&*self.generation)
             || self.snapshot_size != Some(size)
             || (changed && self.interval_due)
-            || self.tail_bytes >= super::TAIL_MAX_BYTES
+            || self.tail_bytes >= tail_policy().max_raw
+            || tail_policy().ratio.is_some_and(|ratio| {
+                self.snapshot_file_bytes > 0
+                    && self.tail_file_bytes as f64 >= ratio * self.snapshot_file_bytes as f64
+            })
+            || (tail_policy().min && self.snapshot_file_bytes > 0 && {
+                // The pending bytes would cost about the tail's own ratio.
+                let per_raw = if self.tail_bytes > 0 {
+                    self.tail_file_bytes as f64 / self.tail_bytes as f64
+                } else {
+                    0.125
+                };
+                self.pending as f64 * per_raw >= self.snapshot_file_bytes as f64
+            })
             || self.pending >= super::TAIL_IDLE_BYTES
             || (quitting && (changed || self.pending > 0 || self.tail_bytes > 0))
     }
@@ -434,6 +455,7 @@ fn snapshot_written(
     state.pending_start += covered as u64;
     state.tail_end = Some(stream_end);
     state.tail_bytes = 0;
+    state.tail_file_bytes = 0;
     state.tail_digest = Some(digest);
     state.tail_unsynced = false;
 }
@@ -492,7 +514,8 @@ fn flush_tail(
         && state.pending_start == start
         && state.pending.len() >= bytes.len();
     match result {
-        Ok(()) if ours => {
+        Ok(frame_bytes) if ours => {
+            state.tail_file_bytes += frame_bytes;
             state.pending.drain(..bytes.len());
             state.pending_start = start + bytes.len() as u64;
             state.tail_end = Some(state.pending_start);
@@ -507,7 +530,7 @@ fn flush_tail(
                 store.mark_log_dirty(log);
             }
         }
-        Ok(()) => {
+        Ok(_) => {
             // A new generation or a clear replaced the bytes meanwhile.
             state.force_snapshot = true;
             drop(state);
@@ -583,7 +606,7 @@ fn write(
     cols: u16,
     rows: u16,
     replay: &[u8],
-) -> anyhow::Result<()> {
+) -> anyhow::Result<u64> {
     fs::create_dir_all(directory)?;
     let header = serde_json::json!({
         "generation": generation,
@@ -595,6 +618,7 @@ fn write(
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
     encoder.write_all(replay)?;
     let compressed = encoder.finish()?;
+    let compressed_len = compressed.len() as u64;
     let target = path(directory, terminal_id);
     let staged = target.with_extension(format!("{SUFFIX}.tmp"));
     {
@@ -606,7 +630,7 @@ fn write(
         file.sync_all()?;
     }
     fs::rename(&staged, &target)?;
-    Ok(())
+    Ok(compressed_len)
 }
 
 /// The header line of a snapshot file (it is short; the replay follows).
@@ -743,4 +767,30 @@ pub(super) fn enforce_total(directory: &Path, suffix: &str, cap: u64) {
             total -= len;
         }
     }
+}
+
+/// MEASUREMENT ONLY (scratch): the compaction policy from
+/// CMUX_TUI_TEST_TAIL_POLICY: v0 (1 MiB raw), small (64 KiB raw),
+/// ratio:K (tail file >= K x snapshot file), min (a snapshot when it is
+/// cheaper than the pending bytes).
+struct TailPolicy {
+    max_raw: u64,
+    ratio: Option<f64>,
+    min: bool,
+}
+
+fn tail_policy() -> &'static TailPolicy {
+    static POLICY: std::sync::OnceLock<TailPolicy> = std::sync::OnceLock::new();
+    POLICY.get_or_init(|| {
+        let value = std::env::var("CMUX_TUI_TEST_TAIL_POLICY").unwrap_or_default();
+        let mut policy = TailPolicy { max_raw: super::TAIL_MAX_BYTES, ratio: None, min: false };
+        if value == "small" {
+            policy.max_raw = 64 * 1024;
+        } else if let Some(ratio) = value.strip_prefix("ratio:") {
+            policy.ratio = ratio.parse().ok();
+        } else if value == "min" {
+            policy.min = true;
+        }
+        policy
+    })
 }

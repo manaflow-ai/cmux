@@ -249,6 +249,9 @@ struct LogState {
     tail_end: Option<u64>,
     /// Snapshot mode: raw bytes in the tail file.
     tail_bytes: u64,
+    /// Bytes of the tail file and of the last snapshot file on disk.
+    tail_file_bytes: u64,
+    snapshot_file_bytes: u64,
     /// Snapshot mode: content digest at the last stored byte.
     tail_digest: Option<u64>,
     /// Snapshot mode: when the tail file was last fsynced, and whether a
@@ -283,6 +286,8 @@ impl LogState {
             snapshot_size: None,
             tail_end: None,
             tail_bytes: 0,
+            tail_file_bytes: 0,
+            snapshot_file_bytes: 0,
             tail_digest: None,
             tail_synced_at: None,
             tail_unsynced: false,
@@ -726,6 +731,7 @@ impl OutputStore {
             state.segment_digest = None;
             state.tail_end = None;
             state.tail_bytes = 0;
+            state.tail_file_bytes = 0;
             state.tail_digest = None;
             state.force_snapshot = true;
             state.dirty = true;

@@ -58,7 +58,7 @@ pub(super) fn append(
     start: u64,
     bytes: &[u8],
     sync: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<u64> {
     fs::create_dir_all(directory)?;
     let target = path(directory, terminal_id);
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
@@ -81,7 +81,7 @@ pub(super) fn append(
     if sync {
         file.sync_data()?;
     }
-    Ok(())
+    Ok(frame.len() as u64)
 }
 
 /// Fsync a tail written without one.
