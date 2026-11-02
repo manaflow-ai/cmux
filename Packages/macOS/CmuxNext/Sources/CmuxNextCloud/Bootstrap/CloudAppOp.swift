@@ -31,4 +31,3 @@ public nonisolated struct CloudAppOpFailure: Error, Equatable, Sendable, CustomS
 /// One Cloud app op: `op`, JSON `args`, an idempotency key for a mutation
 /// (nil for a read), and the wire origin.
 public typealias CloudAppOp = @Sendable (_ op: String, _ args: JSONValue, _ key: String?, _ origin: AppsRunRequest.Origin) async throws -> JSONValue
-
