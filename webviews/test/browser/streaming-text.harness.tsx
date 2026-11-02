@@ -183,6 +183,8 @@ type Frame = {
   blocks: { tag: string; top: number; height: number; text: string }[];
   /// The reply row's top on screen (transforms included): followed, it only moves up.
   rowTop?: number;
+  /// How far the followed view's glide draws the thread back (its animated `translate`, followGlide.ts).
+  glide?: number;
   /// How far the view rests from its end, when it can scroll.
   fromEnd?: number;
   /// Room between the reply's last drawn line and the top of the bottom stack.
@@ -245,6 +247,8 @@ function sampleFrame(t: number, live: boolean): Frame {
   if (!row || !markdown) return frame;
   frame.length = markdown.textContent?.length ?? 0;
   frame.rowTop = row.getBoundingClientRect().top;
+  const thread = document.querySelector<HTMLElement>(".acpmux-thread");
+  if (thread) frame.glide = Number.parseFloat(getComputedStyle(thread).translate.split(" ")[1] ?? "0") || 0;
   const origin = layoutTop(markdown);
   frame.blocks = [...markdown.children].map((child) => {
     const block = child as HTMLElement;
@@ -380,11 +384,24 @@ function analyze(
   // Follow steps: how far the reply's row moves on screen from one frame to the next while it
   // streams. A followed view that takes each new line at once moves it a whole line in one frame.
   const steps: number[] = [];
+  const snapEvents: { t: number; px: number; ms: number; layout: number; glide: number; tail: string }[] = [];
   for (let index = 1; index < live.length; index += 1) {
     const before = live[index - 1]!.rowTop;
     const now = live[index]!.rowTop;
     if (before === undefined || now === undefined || Math.abs(now - before) <= 0.5) continue;
     steps.push(Math.abs(now - before));
+    if (Math.abs(now - before) > SNAP_PX) {
+      const glideNow = live[index]!.glide ?? 0;
+      const glideBefore = live[index - 1]!.glide ?? 0;
+      snapEvents.push({
+        t: at(live[index]!.t),
+        px: round2(now - before),
+        ms: round2(live[index]!.t - live[index - 1]!.t),
+        layout: round2(now - glideNow - (before - glideBefore)),
+        glide: round2(glideNow - glideBefore),
+        tail: tailOf(live[index]!),
+      });
+    }
   }
   // Bottom-edge reversals over the whole run: the reply's top, which a followed view only lifts,
   // coming back down by more than half a pixel in one frame.
@@ -468,6 +485,7 @@ function analyze(
       moving: steps.length,
       ...stats(steps),
       overSnap: steps.filter((px) => px > SNAP_PX).length,
+      snapEvents: snapEvents.slice(0, 60),
     },
     settle: {
       moves: settleMoves.length,

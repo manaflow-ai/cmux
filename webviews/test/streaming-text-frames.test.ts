@@ -165,6 +165,7 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
     const eased = await stream(name, "claude", true, true);
     const summary = (report: StreamReport) => ({
       follow: report.follow,
+      frames: { count: report.frames.count, over16_7ms: report.frames.over16_7ms, over33ms: report.frames.over33ms, intervalMs: report.frames.intervalMs },
       settle: { moves: report.settle.moves, snaps: report.settle.snaps, reversals: report.settle.reversals },
       runway: {
         min: report.runway.min,
