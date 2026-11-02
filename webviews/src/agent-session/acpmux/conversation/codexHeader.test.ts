@@ -11,9 +11,9 @@ const t = ((key: string, values?: Record<string, unknown>) =>
   key === "turn.previous.one"
     ? "1 previous message"
     : key === "turn.previous.other"
-      ? `${values!.n} previous messages`
+      ? `${String(values!.n)} previous messages`
       : key === "turn.worked"
-        ? `Worked for ${values!.time}`
+        ? `Worked for ${String(values!.time)}`
         : key) as Parameters<typeof workedLabel>[0];
 
 const call = (id: string) => ({
