@@ -6,6 +6,8 @@ import CoreFoundation
 /// Session selection and transcript I/O belong to the caller; this value only
 /// interprets captured arguments and individual transcript records.
 public struct CodexResumePermissionPolicy: Sendable {
+    private let timestampFormat = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+
     /// Creates the permission recovery policy.
     public init() {}
 
@@ -91,9 +93,7 @@ public struct CodexResumePermissionPolicy: Sendable {
               let payload = object["payload"] as? [String: Any] else {
             return nil
         }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = formatter.date(from: timestamp), date.timeIntervalSince1970 < capturedAt else {
+        guard let date = try? timestampFormat.parse(timestamp), date.timeIntervalSince1970 < capturedAt else {
             return nil
         }
         let approvalPolicy = normalizedValue(payload["approval_policy"] as? String)
