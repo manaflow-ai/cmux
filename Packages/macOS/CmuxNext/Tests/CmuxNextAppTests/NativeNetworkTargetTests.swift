@@ -66,7 +66,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let (scope, world, identity) = try await fixture(root: root)
         await world.refuseTarget(503)
-        await #expect(throws: NativeDeviceEnrollmentError.refused(503)) { try await identity.nativeNetworkTarget(team: scope.team) }
+        await #expect(throws: NativeDeviceEnrollmentError.refused(503, step: "host.network.target")) { try await identity.nativeNetworkTarget(team: scope.team) }
         #expect(await world.enrollments == 0)
         #expect(await world.auth.requestedTeams == [scope.team])
     }

@@ -41,7 +41,7 @@ extension MacInstallIdentity {
         let context = try await nativeContext(team: team)
         let body = try JSONEncoder().encode(NativeNetworkTargetCall(params: .init(mesh: mesh)))
         let reply = try await nativeOwnerRead(body, context: context)
-        guard reply.status == 200, reply.body.count <= 1_048_576 else { throw NativeDeviceEnrollmentError.refused(reply.status) }
+        guard reply.status == 200, reply.body.count <= 1_048_576 else { throw NativeDeviceEnrollmentError.refused(reply.status, step: "host.network.target") }
         let decoded = try JSONDecoder().decode(NativeNetworkTargetEnvelope.self, from: reply.body)
         guard decoded.op == "host.network.target" else { throw NativeDeviceEnrollmentError.invalidIdentity }
         let target = try NativeNetworkTarget(decoded.value, team: team, mesh: mesh, context: context)

@@ -108,6 +108,7 @@
         "Read whether the OptChat Chief was rebuilt": {"plumbing": true, "note": "reads the build script's reused/built result so only a rebuilt Chief entry is saved; scripts/cmux-next/tests/optchat-chief-input-cache.test.sh checks the result"},
         "Save the OptChat Chief cache": {"plumbing": true, "note": "publishes a rebuilt Chief artifact as a new generation of the exact source and environment key"},
         "Stop the helper builds still running": {"plumbing": true},
+        "Offer fleet Linux to the primary preparation": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"},
         "Bundle the cmux-tui client": {"pr": "ci-guards.yml:workflow-guard-tests:Validate cmux-tui client installation"}},
       "build-nightly-remote-daemon": {
         "Keep the resumed daemon assets": {"plumbing": true},

@@ -138,6 +138,22 @@ def ps_table():
     return rows
 
 
+# This fuzz SIGKILLs the app on purpose, so Chromium's code-sign clone cleanup (which runs after a normal quit)
+# never runs, and each launch left its ~1 GB clone in $TMPDIR/../X/<bundle id>.code_sign_clone until reboot
+# (cmux18-21, 2026-11-02). The fuzz's own relaunches turn the clone off; DEBUG builds (the only ones it runs,
+# check_target) read CMUX_NEXT_CEF_EXTRA_SWITCHES. The slot's first launch is not the fuzz's and keeps it.
+NO_CODE_SIGN_CLONE = "disable-features=MacAppCodeSignClone"
+
+
+def without_code_sign_clone(env):
+    """`env` with NO_CODE_SIGN_CLONE added to its CMUX_NEXT_CEF_EXTRA_SWITCHES (colon-separated), once."""
+    switches = [s for s in env.get("CMUX_NEXT_CEF_EXTRA_SWITCHES", "").split(":") if s]
+    if NO_CODE_SIGN_CLONE not in switches:
+        switches.append(NO_CODE_SIGN_CLONE)
+    env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = ":".join(switches)
+    return env
+
+
 class App:
     """The slot's app: identity from its socket, its daemon and acpmux by its bundle path."""
 
@@ -194,11 +210,17 @@ class App:
 
     def exec_env(self):
         """The environment of an exec relaunch: this process's, then the app's whole launch environment, then its
-        CMUX_/HOME/TMPDIR values (the same keys win; dict merges, never keyword arguments, so a key may repeat)."""
+        CMUX_/HOME/TMPDIR values (the same keys win; dict merges, never keyword arguments, so a key may repeat),
+        without Chromium's code-sign clone (without_code_sign_clone)."""
         env = dict(os.environ)
         env.update(self.full_env)
         env.update(self.env)
-        return env
+        return without_code_sign_clone(env)
+
+    def open_env(self):
+        """The `open --env` variables of a relaunch: the app's CMUX_/HOME/TMPDIR values, without Chromium's
+        code-sign clone (without_code_sign_clone)."""
+        return without_code_sign_clone(dict(self.env))
 
     def state_outside_slot(self):
         """A daemon of this build whose state dir (CMUX_TUI_STATE_DIR) or chief home is not under the slot's HOME, or
@@ -276,7 +298,7 @@ class App:
                              stderr=subprocess.STDOUT)
         else:
             args = ["/usr/bin/open", "-g", "-n", "-a", self.bundle]
-            for key, value in self.env.items():
+            for key, value in self.open_env().items():
                 args += ["--env", f"{key}={value}"]
             subprocess.run(args, check=True)
         up = wait(lambda: os.path.exists(opts.socket) and isinstance(rpc("system.identify", timeout=3), dict)

@@ -97,15 +97,13 @@ extension AgentTabStore {
 
     /// The key-hold token of the new workspace holding tab `key` (kept until its create returns).
     func firstPageToken(of key: String, in store: DaemonStore) -> String? {
-        guard !firstPageTokens.isEmpty, let tab = store.tab(id: key), let pane = store.pane(containing: tab.surface),
-              let workspace = store.workspace(containing: pane.handle) else { return nil }
+        guard !firstPageTokens.isEmpty, let workspace = store.workspace(holdingTab: key) else { return nil }
         return firstPageTokens[workspace.handle]
     }
 
     /// The held seed of the new workspace holding tab `key`, taken once.
     func firstChatSeed(of key: String, in store: DaemonStore) -> AgentPaneSeedSource? {
-        guard !firstChats.isEmpty, let tab = store.tab(id: key), let pane = store.pane(containing: tab.surface),
-              let workspace = store.workspace(containing: pane.handle) else { return nil }
+        guard !firstChats.isEmpty, let workspace = store.workspace(holdingTab: key) else { return nil }
         return firstChats.removeValue(forKey: workspace.handle)
     }
 
@@ -154,11 +152,8 @@ extension AgentTabStore {
         }
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state, files: services.agentPaneStateFiles)
-        // A new chat's leftover goes to its tab's window (cmux#32276): the window's next New Tab page takes it.
         tabs.unsentDrafts.windowOfTab = { [weak services, weak tabs] key in
-            guard let services, let tabs, let store = tabs.lookup(tabs.resolve(key))?.store,
-                  let tab = store.tab(id: tabs.resolve(key)), let pane = store.pane(containing: tab.surface),
-                  let workspace = store.workspace(containing: pane.handle) else { return nil }
+            guard let services, let tabs, let workspace = tabs.lookup(tabs.resolve(key))?.store.workspace(holdingTab: tabs.resolve(key)) else { return nil }
             return services.windows.windowID(ofWorkspace: workspace.id)
         }
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }

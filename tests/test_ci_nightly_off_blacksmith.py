@@ -38,7 +38,7 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
 # A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, or a picker's or
 # placement's owned output (pick-nightly-build-runner, pick-nightly-sign-runner, build-nightly-app's light placement).
 FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_ONLY_RUNNER|vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE_RUNNER|vars\.CI_LIGHT_LANE_RUNNER"
-                         r"|needs\.[\w-]+\.outputs\.(?:owned|owned_pool|sign_owned|sign_owned_pool|early_[a-z_]+_runner|light_mini_runner|mini_runner|runs_on|helper|dedicated)\b"
+                         r"|needs\.[\w-]+\.outputs\.(?:owned|owned_pool|sign_owned|sign_owned_pool|early_[a-z_]+_runner|light_mini_runner|light_linux_runner|mini_runner|runs_on|helper|dedicated)\b"
                          r"|matrix\.")
 # nightly.yml jobs whose only route is still Blacksmith Linux, as of 2026-10-31. Debt to move onto the fleet (portable
 # placement, #29130/#29436), never to grow: a new nightly job on Blacksmith Linux alone fails, and an entry that has
@@ -229,8 +229,12 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         linux = ("vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && "
                  "fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}")
         for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
-            expected = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-                        + light.replace("{job}", name))
+            expected = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+            if name == "prepare-nightly-variant-primary":
+                # Fleet Linux first, only when build-nightly-app's place-fleet saw an idle runner.
+                expected += ("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && "
+                             "needs.build-nightly-app.outputs.light_linux_runner || ")
+            expected += light.replace("{job}", name)
             if name == "prepare-nightly-variant":
                 expected += ("needs.prepare-nightly-variant-primary.result == 'success' && "
                              "(vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && "

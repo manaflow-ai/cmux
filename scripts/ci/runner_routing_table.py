@@ -31,7 +31,8 @@ ask whether the job needed macOS. This module asks.
 * a job of an `any` class does not take portable placement's fleet Linux
   output, then its mini output, then a Blacksmith label, in that order
   (portable_order()); nightly.yml's light jobs read build-nightly-app's
-  light-job placement (its mini output, then a Blacksmith label) instead.
+  light-job placement (its fleet Linux output where it has one, then its mini
+  output, then a Blacksmith label) instead.
 
 `linux_followup`, `placement_followup` and `picker_followup` exist only so the
 table can describe today's tree: an existing job that should move but has not yet. A new
@@ -83,13 +84,14 @@ PORTABLE_LINUX = re.compile(r"needs\.portable-placement\.outputs\.linux_runner$"
 PORTABLE_MINI = re.compile(r"needs\.portable-placement\.outputs\.mini_runner$")
 # nightly.yml's light jobs: build-nightly-app's last step places them (NIGHTLY=1) on a free mini, else
 # Blacksmith; build-nightly-remote-daemon, which builds beside the app, takes the Ghostty helper's owned
-# Mac pick (pick-nightly-build-runner's helper) instead. They have no fleet Linux step: a nightly job
-# never takes vars.LINUX_RUNNER as it is.
+# Mac pick (pick-nightly-build-runner's helper) instead. A nightly job never takes vars.LINUX_RUNNER as it is;
+# fleet Linux comes only from a placement output that saw an idle runner (NIGHTLY_LINUX), before the mini.
 NIGHTLY_MINI = re.compile(r"needs\.(?:build-nightly-app\.outputs\.light_mini_runner|decide\.outputs\.early_mini_runner"
                           r"|pick-nightly-build-runner\.outputs\.helper)$")
 # nightly.yml's first job (decide) has no job before it to place it: attempt 1 of a nightly-next push asks for
 # glaeda's nightly slot, which only nightly jobs take, and the owned-pool rescue moves it to Blacksmith when no
 # slot takes it (its picker_followup says so).
+NIGHTLY_LINUX = ("needs.build-nightly-app.outputs.light_linux_runner", "needs.decide.outputs.early_linux_runner")
 NIGHTLY_SLOT = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER$")
 BLACKSMITH_LINUX = re.compile(r"^'blacksmith-\d+vcpu-ubuntu-2404'$")
 POOL_REFERENCE = re.compile(r"^fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)$")
@@ -182,9 +184,8 @@ def portable_order(runs_on: str, nightly: bool = False, pools: dict[str, list[st
         if mini is None:
             return "it does not read needs.build-nightly-app.outputs.light_mini_runner (or the nightly slot)"
         linux = -1
-        if "needs.decide.outputs.early_mini_runner" in runs_on:
-            linux = next((i for i, term in enumerate(terms)
-                          if term.endswith("needs.decide.outputs.early_linux_runner")), None)
+        if "needs.decide.outputs.early_mini_runner" in runs_on or NIGHTLY_LINUX[0] in runs_on:
+            linux = next((i for i, term in enumerate(terms) if term.endswith(NIGHTLY_LINUX)), None)
     else:
         linux = next((i for i, term in enumerate(terms) if PORTABLE_LINUX.search(term)), None)
         mini = next((i for i, term in enumerate(terms) if PORTABLE_MINI.search(term)), None)
