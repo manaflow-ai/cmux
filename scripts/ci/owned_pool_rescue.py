@@ -562,6 +562,10 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/main-compile-probe.yml":
         "one optional compile data point for main's compile attribution; its dispatcher already sends a probe "
         "that has not started to Blacksmith, and nothing waits on it",
+    ".github/workflows/backend.yml":
+        "feat-cmux-next only for this read; migrations-push-guard reads vars.RUNNER_POOLS.linux, which runner_pools.py "
+        "keeps on a live Linux member, and it holds no secret; the next backend push supersedes a stuck run, and its "
+        "deploy jobs take bounded Blacksmith Linux routes the rescue does not act on",
     ".github/workflows/seed-derived-data.yml":
         "a cache seed on the trusted pool that nothing waits on; the next main push seeds again from the newest "
         "earlier seed",
