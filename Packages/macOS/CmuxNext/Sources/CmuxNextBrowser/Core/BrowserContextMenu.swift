@@ -126,6 +126,12 @@ public nonisolated struct BrowserContextMenuTarget: Hashable, Sendable {
         self.isEditable = isEditable
     }
 
+    /// The selection on one line, at most `limit` characters (Chrome's menu rows quote it the same way).
+    public func selectionSnippet(limit: Int = 50) -> String {
+        let line = selection.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return line.count > limit ? String(line.prefix(limit - 1)) + "…" : line
+    }
+
     /// Chromium's context menu params (`CMUX_SHIM_CONTEXT_MENU`). Chromium
     /// does not report the link's text (`CEFTab.linkText(for:)` reads it).
     public static func chromium(_ json: String) -> BrowserContextMenuTarget {
