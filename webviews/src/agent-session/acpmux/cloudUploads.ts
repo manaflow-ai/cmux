@@ -105,7 +105,9 @@ function uploadError(error: unknown, paths?: string[]): UploadResult {
   const failure = REFUSED.has((error as { code?: string } | null)?.code ?? "")
     ? { error: text, final: true }
     : { error: text };
-  return paths?.some(Boolean) ? { paths: paths.map((path) => path ?? ""), ...failure } : failure;
+  return paths?.some(Boolean)
+    ? { paths: Array.from({ length: paths.length + 1 }, (_, index) => paths[index] ?? ""), ...failure }
+    : failure;
 }
 
 function object(value: unknown): Record<string, unknown> {
