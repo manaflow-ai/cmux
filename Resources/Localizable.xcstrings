@@ -673030,7 +673030,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "គ្មានទែមីណាល់សម្រាប់ប្ដូរទេ៖ សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់ cmux ឬបញ្ជូន --surface។"
+            "value": "គ្មានទែមីណាល់សម្រាប់ប្ដូរទេ៖ សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់ cmux ឬបញ្ជាក់ --surface។"
           }
         },
         "nb": {
@@ -673125,7 +673125,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: mostra gli account Claude Code registrati (agents.claudeAccounts in cmux.json, più l'account predefinito ~/.claude). Funziona anche se cmux non è in esecuzione.\n\nswitch <name>: sposta un terminale Claude su quell'account e vi prosegue la stessa conversazione. Il terminale si riavvia con quell'account e cmux digita il comando di ripresa. Cambia il terminale da cui viene eseguito il comando, a meno che --surface non ne indichi un altro. Con --force il cambio avviene anche mentre Claude sta rispondendo, e la risposta viene interrotta.\n\n<surface> è un UUID, un riferimento come surface:3 o un indice insieme a --workspace. --workspace serve solo a delimitare --surface e non può essere usato da solo."
+            "value": "list: mostra gli account Claude Code registrati (agents.claudeAccounts in cmux.json, più l'account predefinito ~/.claude). Funziona anche se cmux non è in esecuzione.\n\nswitch <name>: sposta un terminale Claude su quell'account e vi prosegue la stessa conversazione. Il terminale si riavvia con quell'account e cmux digita il comando di ripresa. Cambia l'account del terminale da cui viene eseguito il comando, a meno che --surface non ne indichi un altro. Con --force il cambio avviene anche mentre Claude sta rispondendo, e la risposta viene interrotta.\n\n<surface> è un UUID, un riferimento come surface:3 o un indice insieme a --workspace. --workspace serve solo a delimitare --surface e non può essere usato da solo."
           }
         },
         "ja": {
@@ -673161,7 +673161,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "list: mostra as contas do Claude Code registradas (agents.claudeAccounts no cmux.json, além da conta padrão ~/.claude). Funciona sem o cmux em execução.\n\nswitch <name>: move um terminal do Claude para essa conta e continua a mesma conversa nela. O terminal reinicia com essa conta e o cmux digita o comando de retomada. Troca o terminal que executou o comando, a menos que --surface indique outro. Com --force, a troca acontece também enquanto o Claude está respondendo, o que interrompe a resposta.\n\n<surface> é um UUID, uma referência como surface:3 ou um índice com --workspace. --workspace apenas delimita --surface e não pode ser usado sozinho."
+            "value": "list: mostra as contas do Claude Code registradas (agents.claudeAccounts no cmux.json, além da conta padrão ~/.claude). Funciona sem o cmux em execução.\n\nswitch <name>: move um terminal do Claude para essa conta e continua a mesma conversa nela. O terminal reinicia com essa conta e o cmux digita o comando de retomada. Troca a conta do terminal que executou o comando, a menos que --surface indique outro. Com --force, a troca acontece também enquanto o Claude está respondendo, o que interrompe a resposta.\n\n<surface> é um UUID, uma referência como surface:3 ou um índice com --workspace. --workspace apenas delimita --surface e não pode ser usado sozinho."
           }
         },
         "ru": {
@@ -673917,13 +673917,13 @@
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude odpowiada w tym terminalu. Spróbuj ponownie z force, aby zatrzymać odpowiedź i przełączyć."
+            "value": "Claude odpowiada w tym terminalu. Spróbuj ponownie z force, aby zatrzymać odpowiedź i przełączyć konto."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O Claude está respondendo neste terminal. Tente novamente com force para interromper a resposta e trocar."
+            "value": "O Claude está respondendo neste terminal. Tente novamente com force para interromper a resposta e trocar de conta."
           }
         },
         "ru": {
