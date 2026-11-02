@@ -20,9 +20,19 @@ def main():
     ap.add_argument("--keys", required=True)
     ap.add_argument("--judge")
     a = ap.parse_args()
-    reveals = json.load(open(a.reveals))
-    if isinstance(reveals, dict):
-        raise SystemExit(f"no reveal rows: {reveals}")
+    allrows = json.load(open(a.reveals))
+    if isinstance(allrows, dict):
+        raise SystemExit(f"no reveal rows: {allrows}")
+    # v2 rows carry kind: 0 reveal, 1 hide, 2 a reader found the hidden frame purged. v1 rows are reveals.
+    reveals = [r for r in allrows if int(r.get("kind", 0)) == 0]
+    others = [r for r in allrows if int(r.get("kind", 0)) != 0]
+
+    def before(r):
+        """The same surface's last hide and any purge between it and this reveal."""
+        mine = [o for o in others if o.get("surface") == r.get("surface") and o["t"] <= r["t"]]
+        hide = max((o for o in mine if int(o["kind"]) == 1), key=lambda o: o["t"], default=None)
+        purged = [o for o in mine if int(o["kind"]) == 2 and (hide is None or o["t"] >= hide["t"])]
+        return hide, purged
     keys = [e for e in json.load(open(a.keys))["events"] if "t" in e]
     judge = {round(e["t"], 4): e for e in json.load(open(a.judge))["events"]} if a.judge else {}
     total = {"reveals": 0, "contents_nil": 0, "had_volatile": 0, "low_ink_at_reveal": 0, "low_ink_first_frame": 0,
@@ -49,7 +59,14 @@ def main():
                 total["no_new_frame"] += 1
             elif 0 <= frames[0][1] < LOW_INK:
                 total["low_ink_first_frame"] += 1
-            print(f"    surface {int(r.get('surface', 0)) % 100000:5d} reveal +{(r['t'] - t0) * 1000:6.1f}ms "
+            hide, purged = before(r)
+            if hide is not None:
+                total["hide_empty"] = total.get("hide_empty", 0) + int(hide.get("contents_nil", 0))
+                total["hide_seen"] = total.get("hide_seen", 0) + 1
+            total["purged_on_read"] = total.get("purged_on_read", 0) + int(bool(purged))
+            hide_txt = ("hide: none" if hide is None else
+                        f"hide {(hide['t'] - t0) * 1000:+.0f}ms empty_layer={int(hide.get('contents_nil', 0))} ink={int(hide.get('ink', -1))}")
+            print(f"    surface {int(r.get('surface', 0)) % 100000:5d} [{hide_txt}{' PURGED-ON-READ' if purged else ''}] reveal +{(r['t'] - t0) * 1000:6.1f}ms "
                   f"volatile={int(r.get('had_volatile', 0))} empty_layer={int(r.get('contents_nil', 0))} "
                   f"ink={int(r.get('ink', -1))} frames(ms,ink,nil)={frames}")
     print(json.dumps(total))
