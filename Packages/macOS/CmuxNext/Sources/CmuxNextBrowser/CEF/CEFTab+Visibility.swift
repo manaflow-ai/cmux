@@ -30,7 +30,7 @@ extension CEFTab: BrowserContentVisibilityReporting {
     }
 
     /// Chromium's page window over this tab's content view (``isPageWindow(_:)``), if it shows one.
-    public var pageWindow: NSWindow? { container.window?.childWindows?.first(where: isPageWindow) }
+    var pageWindow: NSWindow? { container.window?.childWindows?.first(where: isPageWindow) }
 
     /// A page window sits at the host view's screen rect to within 2 points.
     nonisolated static func frame(_ frame: CGRect, isPlacedAt rect: CGRect) -> Bool {

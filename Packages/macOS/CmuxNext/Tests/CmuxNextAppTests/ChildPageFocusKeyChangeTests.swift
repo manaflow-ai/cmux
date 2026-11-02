@@ -40,8 +40,6 @@ struct ChildPageFocusKeyChangeTests {
         var focus: ChildPageFocus!
         /// Runs inside a grant, after its page window took the keys (AppKit's didBecomeKey).
         var duringGrant: (() -> Void)?
-        /// CEF's SetFocus(true) makes the page window key (false: a grant that moves no key, as seen in a fresh launch).
-        var grantMovesKeys = true
         private(set) var focusCalls: [(String, Bool)] = []
 
         init() {
@@ -49,16 +47,13 @@ struct ChildPageFocusKeyChangeTests {
             let engine = MockBrowserEngine(kind: .cef)
             a = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://a.example")))
             b = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://b.example")))
-            focus = ChildPageFocus(keys: keys, pageWindow: { [weak self] page in
-                guard let self else { return nil }
-                return page === self.a ? self.pageA : self.pageB
-            }) { [weak self] page, focused in
+            focus = ChildPageFocus(keys: keys) { [weak self] page, focused in
                 guard let self else { return }
                 let isA = page === self.a
                 self.focusCalls.append((isA ? "a" : "b", focused))
                 (page as? MockBrowserTab)?.setFocused(focused)
                 // CEF's SetFocus(true) makes the page's child window key.
-                guard focused, self.grantMovesKeys else { return }
+                guard focused else { return }
                 self.keys.makeKey(isA ? self.pageA : self.pageB)
                 self.duringGrant?()
             }
@@ -84,46 +79,6 @@ struct ChildPageFocusKeyChangeTests {
         #expect(world.keys.changes == ["pageA", "pageB"], "page A to page B made \(world.keys.changes.dropFirst()), not one change to page B")
         #expect(world.focusCalls.map { "\($0.0)\($0.1)" } == ["atrue", "afalse", "btrue"])
         #expect(world.focus.page === world.b)
-    }
-
-    /// browser-click-then-type (STATUS 7374): in a fresh launch, a page loaded from the address bar is granted focus
-    /// (CEF SetFocus) but its page window never becomes key; the cmux window keeps the keys, its first responder is the
-    /// window itself, and every plain key typed for the page reaches no view. The page window takes the keys from the
-    /// cmux window that shows it: still one key change.
-    @Test func aGrantThatMovesNoKeyHandsTheKeysFromTheCmuxWindowToThePageWindow() {
-        let world = World()
-        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
-        world.cmux.addChildWindow(world.pageA, ordered: .above)
-        world.keys.makeKey(world.cmux)
-        world.grantMovesKeys = false
-        world.focus.focus(world.a)
-        #expect(world.keys.keyWindow === world.pageA, "the page has focus but the cmux window kept the keys: \(world.keys.changes)")
-        #expect(world.keys.changes == ["cmux", "pageA"], "one focus request made \(world.keys.changes.dropFirst())")
-    }
-
-    /// A grant that moves the keys itself (CEF made the page window key) gets no second key change.
-    @Test func aGrantThatMovesTheKeysMakesNoSecondKeyChange() {
-        let world = World()
-        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
-        world.cmux.addChildWindow(world.pageA, ordered: .above)
-        world.keys.makeKey(world.cmux)
-        world.focus.focus(world.a)
-        #expect(world.keys.changes == ["cmux", "pageA"])
-    }
-
-    /// The page window takes the keys only from the cmux window that shows it: an inactive app (no key window) or
-    /// another window with the keys (a panel, another cmux window) keeps them.
-    @Test func aGrantThatMovesNoKeyTakesNoKeysFromAnotherWindowOrAnInactiveApp() {
-        let world = World()
-        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
-        world.cmux.addChildWindow(world.pageA, ordered: .above)
-        world.grantMovesKeys = false
-        world.focus.focus(world.a)
-        #expect(world.keys.changes.isEmpty, "an inactive app's page window took the keys: \(world.keys.changes)")
-        world.focus.blurPage()
-        world.keys.makeKey(world.pageB) // another window that is not the page's cmux window
-        world.focus.focus(world.a)
-        #expect(world.keys.changes == ["pageB"], "the page took the keys from another window: \(world.keys.changes)")
     }
 
     @Test func focusingThePageThatHasFocusMakesNoKeyChange() {

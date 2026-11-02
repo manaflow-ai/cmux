@@ -30,19 +30,14 @@ public final class ChildPageFocus {
     private let keys: any KeyWindowSwitching
     /// Gives (true) or takes (false) a page's focus; giving a Chromium page focus makes its window key.
     private let setFocus: (AnyObject, Bool) -> Void
-    /// A page's own window (Chromium's page window), if it shows one.
-    private let pageWindow: (AnyObject) -> NSWindow?
 
     /// A tracker with no focused page.
     ///
     /// - Parameters:
     ///   - keys: The key window: ``AppKitKeyWindows`` in the app, a recorder in tests.
-    ///   - pageWindow: A page's own window (Chromium's page window), nil when it shows none.
     ///   - setFocus: Gives (`true`) or takes (`false`) a page's focus.
-    public init(keys: any KeyWindowSwitching, pageWindow: @escaping (AnyObject) -> NSWindow? = { _ in nil },
-                setFocus: @escaping (AnyObject, Bool) -> Void) {
+    public init(keys: any KeyWindowSwitching, setFocus: @escaping (AnyObject, Bool) -> Void) {
         self.keys = keys
-        self.pageWindow = pageWindow
         self.setFocus = setFocus
     }
 
@@ -60,11 +55,6 @@ public final class ChildPageFocus {
         granting = true
         defer { granting = false }
         setFocus(next, true)
-        // The grant gave the page focus but moved no key (seen in a fresh launch after an address-bar load): the cmux
-        // window that shows the page still has the keys, its responder is the window, and a typed key reaches no view.
-        // The page window takes them: still the request's one key change.
-        guard page === next, let window = pageWindow(next), let key = keys.keyWindow, key !== window, window.parent === key else { return }
-        keys.makeKey(window)
     }
 
     /// `window` (the cmux window) took the keys back while a page has focus, and no click put them
