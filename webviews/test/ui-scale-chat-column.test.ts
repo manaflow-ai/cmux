@@ -10,7 +10,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 type Box = { left: number; width: number };
 
 await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
-  const PANE = 843;
+  const PANE = 943;
   const CASES = [
     { interfaceScale: 1, chatZoom: 1 },
     { interfaceScale: 1.25, chatZoom: 1 },
@@ -90,13 +90,13 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
       const chatBox = await measure(chat, ".acpmux-row", effectiveScale);
       await chat.close();
       expect(chatBox.width, `chat width at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(800, -0.5);
-      expect(chatBox.left, `chat inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(21.5, -0.5);
+      expect(chatBox.left, `chat inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(71.5, -0.5);
 
       const newTab = await open("agent-pane.new-tab", "chats-unavailable", interfaceScale, chatZoom);
       const newTabBox = await measure(newTab, ".nt-box", effectiveScale);
       await newTab.close();
       expect(newTabBox.width, `New Tab width at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(800, -0.5);
-      expect(newTabBox.left, `New Tab inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(21.5, -0.5);
+      expect(newTabBox.left, `New Tab inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(71.5, -0.5);
     }
   });
 
@@ -110,6 +110,6 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
     await page.close();
     expect(before.width).toBeCloseTo(800, -0.5);
     expect(after.width).toBeCloseTo(800, -0.5);
-    expect(after.left).toBeCloseTo(21.5, -0.5);
+    expect(after.left).toBeCloseTo(71.5, -0.5);
   });
 });
