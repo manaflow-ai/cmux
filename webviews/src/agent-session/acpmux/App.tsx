@@ -2849,17 +2849,18 @@ export function VirtualTranscript({
       });
       scrollRef.current = { top, delta: top - scrollRef.current.top || scrollRef.current.delta };
       // Route recovery through the authoritative setter so the parent callback and intent ref
-      // agree; a stale queued `atLatest` must not retake a parked reader. This callback already
-      // runs from the display-frame pacer. Keeping the state update interruptible avoids making
-      // input wait for a synchronous React commit when the renderer is CPU-bound.
-      followRef.current(atLatest);
-      setScroll(scrollRef.current);
+      // agree; a stale queued `atLatest` must not retake a parked reader. The scroll state must
+      // commit before this display frame so virtualization cannot paint the old mounted range.
+      flushSync(() => {
+        followRef.current(atLatest);
+        setScroll(scrollRef.current);
+      });
       return;
     }
     acpmuxPerf.timed("flush.scroll", () => {
-      // The pacer is already aligned to a display frame. A normal update preserves that cadence
-      // while allowing keydown, wheel and menu work to run ahead of a long transcript commit.
-      setScroll(scrollRef.current);
+      // The pacer is already aligned to a display frame. Keep the transcript range in sync with
+      // the native scroller before paint; follow-state bookkeeping can remain interruptible.
+      flushSync(() => setScroll(scrollRef.current));
       // Upward intent can arrive before the browser's default moves the offset. Even at the
       // queued frame's exact position, its old follow state must not replace that live intent.
       setFollowing(followingRef.current);
