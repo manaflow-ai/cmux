@@ -163,6 +163,7 @@ final class ScreenContentView: NSView {
     /// springs may resume when the workspace shows (Lucas 2026-10-19).
     func settleMotion() {
         defer { if resizeGesture == .landing { finishResizeGesture() } }
+        defer { context.releaseRetired(of: screenID) }
         guard hasMotion else { return }
         reconcileAndScroll()
     }
@@ -303,8 +304,11 @@ final class ScreenContentView: NSView {
                 zoomMotion.leave(pane)
                 continue
             }
-            // A pane that moved to another screen belongs to that screen now.
-            if !context.livePanes.contains(pane) { context.release(pane) }
+            // A pane that moved to another screen belongs to that screen now. A close that springs hides the closed
+            // pane now and tears it down when the motion lands (`LayoutViewContext.retire`): its neighbours' first
+            // frames carry no teardown.
+            guard !context.livePanes.contains(pane) else { continue }
+            if departing, animateFrames { context.retire(pane, from: screenID) } else { context.release(pane) }
         }
 
         // Dividers and column edges.
@@ -398,6 +402,8 @@ final class ScreenContentView: NSView {
         if presents { applyPresentation() }
         let moving = animate && hasMotion
         if !(moving && holdsGrids) { holdsGrids = false }
+        // Nothing moves: no frame will land the motion, so what it retired goes now.
+        if !moving { context.releaseRetired(of: screenID) }
         return moving
     }
 
@@ -447,5 +453,6 @@ final class ScreenContentView: NSView {
         }
         paneFrames.removeAll()
         releaseCovered(all: true)
+        context.releaseRetired(of: screenID)
     }
 }

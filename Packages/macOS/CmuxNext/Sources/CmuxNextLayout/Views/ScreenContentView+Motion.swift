@@ -58,6 +58,8 @@ extension ScreenContentView {
         }
         if !moving { scrollRidesFrames = false }
         applyPresentation()
+        // The motion landed: the hosts a close retired are torn down in this frame, not in its first.
+        if !moving { context.releaseRetired(of: screenID) }
         return moving
     }
     /// A close's first frame of the pane, divider and (riding them) camera springs, the strip's and

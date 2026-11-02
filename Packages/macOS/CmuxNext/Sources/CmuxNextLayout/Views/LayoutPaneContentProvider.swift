@@ -122,6 +122,15 @@ final class LayoutViewContext {
 
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }
+        // A close that springs is taken back before it landed (a refused close, a reopen): the same host shows again.
+        if let entry = retired.removeValue(forKey: pane) {
+            entry.host.isHidden = false
+            entry.host.chrome.isHidden = false
+            // Its ring is placed again by the next overlay sync, whatever it last showed.
+            entry.host.overlaySyncKey = nil
+            hosts[pane] = entry.host
+            return entry.host
+        }
         let content = provider?.makeContentView(for: pane) ?? NSView()
         let host = PaneHostView(pane: pane, content: content) { [weak self] in
             self?.provider?.holdsContentInMotion(for: pane) ?? false
@@ -132,8 +141,40 @@ final class LayoutViewContext {
 
     func release(_ pane: PaneID) {
         guard let host = hosts.removeValue(forKey: pane) else { return }
+        tearDown(host)
+    }
+
+    private func tearDown(_ host: PaneHostView) {
         host.removeFromSuperview()
         host.chrome.removeFromSuperview()
-        provider?.releaseContentView(host.content, for: pane)
+        provider?.releaseContentView(host.content, for: host.pane)
     }
+
+    /// Hosts of panes a springing close took out of the layout (`ScreenContentView.reconcile`), by the screen that
+    /// showed them: hidden in the close's own turn, torn down when that screen's motion lands (`releaseRetired`).
+    /// The teardown (the host's layers leaving the tree, a terminal's surface going, a page window ordered out) is
+    /// work no frame shows; done in the close's first frame it made that frame's main turn and Core Animation commit
+    /// miss refreshes (RESIZE VIDEOS F1).
+    private(set) var retired: [PaneID: (host: PaneHostView, screen: ScreenID)] = [:]
+
+    /// Takes `pane`'s host out of the layout without tearing it down: hidden now (no hit, no focus, no AX, its ring
+    /// with it), released when `screen`'s motion lands. A pane with no host does nothing.
+    func retire(_ pane: PaneID, from screen: ScreenID) {
+        guard let host = hosts.removeValue(forKey: pane) else { return }
+        host.isHidden = true
+        host.chrome.isHidden = true
+        retired[pane] = (host, screen)
+    }
+
+    /// Tears down the hosts `screen` retired (its motion landed, it went away or it settles at once).
+    func releaseRetired(of screen: ScreenID) {
+        guard retired.values.contains(where: { $0.screen == screen }) else { return }
+        for (pane, entry) in retired where entry.screen == screen {
+            retired[pane] = nil
+            tearDown(entry.host)
+        }
+    }
+
+    /// Whether `chrome` is the ring of a retired host: the overlay sync leaves it for the teardown.
+    func isRetiredChrome(_ chrome: NSView) -> Bool { retired.values.contains { $0.host.chrome === chrome } }
 }
