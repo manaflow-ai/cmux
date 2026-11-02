@@ -13,6 +13,7 @@ import type { Subagent } from "./subagentFold";
 import { agentTone, AgentTonesContext } from "./agentTones";
 import { AgentIdentity, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "./AgentIdentity";
 import { subagentProgress } from "./subagentProgress";
+import { subagentDisplayName } from "./subsessions";
 import { waveProps } from "../../../ui/wave";
 
 /// The chat's harness (claude, codex, ...): its subagents run on it, so their avatars carry its mark.
@@ -169,7 +170,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
     <>
       <Avatar agent={agent} />
       <span className="cv-subagent__text">
-        <span className="cv-subagent__name">{agent.name}</span>
+        <span className="cv-subagent__name">{subagentDisplayName(t, agent)}</span>
         <span className="cv-subagent__state">{state}</span>
       </span>
       <span className="cv-subagent__time">{formatDuration(elapsed(agent, now))}</span>
@@ -194,7 +195,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       className="cv-subagent"
       data-edge={row.status}
       data-agent-tone={tones?.get(agent.id)}
-      aria-label={t("subagents.open", { name: agent.name })}
+      aria-label={t("subagents.open", { name: subagentDisplayName(t, agent) })}
       // tooltip-allow: its kind, which the line no longer shows
       title={kind}
       onClick={() => open(agent.id)}
@@ -219,7 +220,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
 export function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string) => Promise<unknown> }) {
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
-  const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name: agent.name });
+  const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name: subagentDisplayName(t, agent) });
   return (
     <button
       type="button"
