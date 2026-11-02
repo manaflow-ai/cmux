@@ -130,7 +130,8 @@
         "120",
         "--devtools",
         "--workers",
-        "32"
+        "32",
+        "--daemon-stats"
       ]
     },
     {

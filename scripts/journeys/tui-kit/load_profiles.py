@@ -56,6 +56,7 @@ import json
 import os
 import random
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -951,10 +952,40 @@ def l6_exit(codes):
     return 1 if any(code != 0 for code in codes.values()) else 0
 
 
+
+def daemon_stats(app, path):
+    """Records one `server-stats` reply of the app's daemon (locks, write path, resource projection) to PATH, as
+    JSON: read only, no focus effect (CLI-1, STATUS 6237: which lock sites the storm holds under the real load).
+    Never raises; an error is recorded in the file."""
+    out = {"t_mono": time.monotonic(), "t_wall": time.time(), "socket": getattr(app, "daemon_sock", None)}
+    try:
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(10)
+        try:
+            conn.connect(app.daemon_sock)
+            conn.sendall((json.dumps({"id": 1, "cmd": "server-stats",
+                                      "include": ["locks", "write_path", "resource_projection"]}) + "\n").encode())
+            buf = b""
+            while not buf.endswith(b"\n"):
+                chunk = conn.recv(1 << 22)
+                if not chunk:
+                    break
+                buf += chunk
+        finally:
+            conn.close()
+        out["reply"] = json.loads(buf)
+    except (OSError, ValueError, TypeError) as error:
+        out["error"] = str(error)[:300]
+    try:
+        with open(path, "w") as f:
+            json.dump(out, f)
+    except OSError:
+        pass
+
 def passthrough(a):
     out = ["--app-socket", a.app_socket, "--seed", str(a.seed), "--duration", str(a.duration), "--rate", str(a.rate),
            "--agent-cps", str(a.agent_cps), "--agents-where", a.agents_where, "--heavy-shape", a.heavy_shape,
-           "--engine", a.engine, "--workers", str(a.workers)]
+           "--engine", a.engine, "--workers", str(a.workers)] + (["--daemon-stats"] if a.daemon_stats else [])
     for flag, value in (("--home", a.home), ("--keep", a.keep), ("--socket", a.socket), ("--cli", a.cli),
                         ("--app", a.app)):
         if value:
@@ -1015,6 +1046,8 @@ def cmd_run(a):
         ready = (time.monotonic(), time.time())
         profile.manifest["ready"] = {"t_mono": ready[0], "t_wall": ready[1]}
         profile.save()
+        if getattr(a, "daemon_stats", False) and profile.name == "L1":
+            daemon_stats(app, os.path.join(profile.dir, "daemon-stats-start.json"))
         profile.calls.loading = True
         print("LOAD-READY %s t_mono=%.6f t_wall=%.6f" % (profile.name, ready[0], ready[1]), flush=True)
         timer = threading.Timer(a.duration, profile.stop.set) if a.duration else None
@@ -1031,6 +1064,8 @@ def cmd_run(a):
         profile.stop.set()
         if profile.calls.loading:
             profile.calls.window = (profile.manifest["ready"]["t_mono"], time.monotonic())
+            if getattr(a, "daemon_stats", False) and profile.name == "L1":
+                daemon_stats(app, os.path.join(profile.dir, "daemon-stats-end.json"))
         profile.calls.loading = False
         if profile.guard:
             profile.guard.join(5)
@@ -1090,6 +1125,8 @@ def main(argv=None):
     p.add_argument("--out", help="folder (default $TMPDIR/tk-load-SEED)")
     p.add_argument("--rate", type=int, default=100, help="L1: CLI and socket calls a second in total")
     p.add_argument("--workers", type=int, default=L1.WORKERS, help="L1: storm workers (each waits for its call)")
+    p.add_argument("--daemon-stats", action="store_true",
+                   help="L1: record the daemon's server-stats (locks) at LOAD-READY and at the stop (records only)")
     p.add_argument("--agent-cps", type=int, default=400, help="L4: characters a second each agent streams")
     p.add_argument("--agents-where", choices=("hidden", "beside"), default="hidden")
     p.add_argument("--devtools", action="store_true",

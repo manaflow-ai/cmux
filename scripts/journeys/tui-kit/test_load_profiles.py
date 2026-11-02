@@ -604,10 +604,45 @@ class WorkersOption(unittest.TestCase):
         import load_profiles
         a = argparse.Namespace(app_socket="/s", seed=7, duration=5.0, rate=120, agent_cps=400, agents_where="hidden",
                                heavy_shape="40,200,12", engine="auto", workers=32, home=None, keep=None, socket=None,
-                               cli=None, app=None, devtools=False, acp=False)
+                               cli=None, app=None, devtools=False, acp=False, daemon_stats=True)
         out = load_profiles.passthrough(a)
         self.assertEqual(out[out.index("--workers") + 1], "32")
         self.assertEqual(load_profiles.L1.WORKERS, 8)
+        self.assertIn("--daemon-stats", out)
+
+    def test_daemon_stats_records_reply_and_errors(self):
+        import load_profiles, socket as sk, tempfile, threading
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "s.sock")
+            srv = sk.socket(sk.AF_UNIX, sk.SOCK_STREAM); srv.bind(path); srv.listen(1)
+            seen = {}
+
+            def serve():
+                srv.settimeout(5)
+                c, _ = srv.accept()
+                c.settimeout(5)
+                buf = b""
+                while not buf.endswith(b"\n"):
+                    chunk = c.recv(4096)
+                    if not chunk:
+                        break
+                    buf += chunk
+                seen["req"] = json.loads(buf.decode())
+                c.sendall(b'{"ok":true,"locks":{}}\n')
+                c.close()
+            th = threading.Thread(target=serve); th.start()
+
+            class App:
+                daemon_sock = path
+            out = os.path.join(d, "stats.json")
+            load_profiles.daemon_stats(App(), out)
+            th.join(5); srv.close()
+            rec = json.load(open(out))
+            self.assertEqual(seen["req"]["cmd"], "server-stats")
+            self.assertEqual(rec["reply"], {"ok": True, "locks": {}})
+            App.daemon_sock = os.path.join(d, "missing.sock")
+            load_profiles.daemon_stats(App(), out)
+            self.assertIn("error", json.load(open(out)))
 
 
 if __name__ == "__main__":
