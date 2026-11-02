@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4142181714801",
+  "notes": "notes/4142181714801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32049,
+      "title": "cmux NEXT spaces: Move Group to Space moves the workspaces before the document write",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31865,
+      "title": "fix(app): a script's new terminal never takes a typing person's window; keys for a person's new terminal over Home wait for it (dogfood port)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30961,
+      "title": "perf(chat-open): a chat's new workspace shows in the open's turn, not after the daemon's creates",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30829,
+      "title": "ci: revalidate cloud watcher before every cancellation send",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32068,
+      "title": "ci(cef shim): run test-shim-devtools-ready-cpp.sh in the shim C++ workflow",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32023,
+      "title": "ci: fail a stalled hosted light job over to its re-run route after 3 minutes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32033,
+      "title": "base red: prompt rail tests (thread-scroll-map-rail, thread-minimap-stream)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31840,
+      "title": "cmux NEXT: Artifacts page — tree, preview and history, on by default (re-lands #29974)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32050,
+      "title": "ci: cloud capture provision can grant the pro plan to an existing capture account only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31984,
+      "title": "pin-cmux-tui tests: no background git maintenance in the scratch repos (Script tests exit 128)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31694,
+      "title": "fix(acpmux): recover login in the selected chat account",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31931,
+      "title": "fix(cmux-tui): a host reconnect ends the output store's tail, so a kill right after it restores the gap's output",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
