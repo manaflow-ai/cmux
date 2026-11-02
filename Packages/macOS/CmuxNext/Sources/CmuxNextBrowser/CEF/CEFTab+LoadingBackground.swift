@@ -55,7 +55,7 @@ extension CEFTab {
         let document = pageBackdropDocument
         guard pageBackdropReading != document else {
             // Load end or stop during the in-flight read: the page may have set its background since that read left,
-            // so one more read follows the answer (one read in flight at a time).
+            // so one more read follows its answer (DevTools answers reads in order).
             pageBackdropReReadOwed = true
             return
         }

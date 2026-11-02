@@ -87,8 +87,16 @@ import Testing
         try await rig.clock.waitForSleeper()
         #expect(!tab.documentSettled, "the read is given its limit")
         rig.clock.advance(by: CEFTab.settleReadLimit)
-        for _ in 0..<200 where !tab.documentSettled { await Task.yield() }
-        #expect(tab.documentSettled, "settled by the limit's timer, while the read is still pending (no 5 s timeout)")
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))  // well under the 5 s evaluate timeout
+        while !tab.documentSettled, clock.now < deadline { await Task.yield() }
+        #expect(tab.documentSettled, "settled by the limit's timer")
+        #expect(ShimLog.backgrounds.last == Self.white, "settled as before (no color yet)")
+        // The read is still pending (a timed-out read's answer would be dropped): its late answer applies to the
+        // already-settled document, never left white for the document's life.
+        rig.answerEvaluate(#"{"result":{"type":"object","value":[11,42,74]}}"#)
+        await rig.until { ShimLog.backgrounds.last == Self.navy }
+        #expect(ShimLog.backgrounds.last == Self.navy, "the late answer applies after the timer settled")
     }
 
     /// Load end on a settled document reads its background again (a page that turns dark after its first paint).
