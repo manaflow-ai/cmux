@@ -118,9 +118,27 @@ impl Hub {
         // A scheduled provider retry must not survive an explicit daemon shutdown: settle it
         // before teardown so restart restoration cannot replay it. A turn this shutdown cuts
         // is still the next daemon's to continue (`restart_resume.rs`).
+        // Each stop reads the chat's log back to its last turn boundary, synchronously: one
+        // pass over every chat of a large store took minutes, and since nothing yielded, the
+        // daemon's own shutdown deadline could not end it (a NIGHTLY daemon sat with its lock
+        // held and its socket already removed, 2026-11-02). So chats with a retry mark go
+        // first, each stop yields, and the pass ends at its own budget, which each scan also
+        // checks line by line; a chat left over, or whose scan was cut short, keeps only a
+        // retry its journal held that the startup had not restored yet.
         if !preserve_auto_resume {
-            for s in &sessions {
-                self.stop_retry_at_shutdown(s);
+            let budget = tokio::time::Instant::now() + RETRY_STOP_BUDGET;
+            let (marked, unmarked): (Vec<_>, Vec<_>) =
+                sessions.iter().partition(|s| self.has_auto_resume_mark(s));
+            let total = marked.len() + unmarked.len();
+            for (done, s) in marked.into_iter().chain(unmarked).enumerate() {
+                if tokio::time::Instant::now() >= budget {
+                    tracing::warn!(
+                        "shutdown stopped the retries of {done} of {total} chats within {RETRY_STOP_BUDGET:?}; leaving the rest"
+                    );
+                    break;
+                }
+                self.stop_retry_at_shutdown(s, budget.into_std());
+                tokio::task::yield_now().await;
             }
         }
         // Startup may have been cancelled before adoption reached these hosts. Keep their
@@ -294,6 +312,10 @@ pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
 pub(crate) fn shutting_down_error() -> RpcError {
     RpcError::internal(SHUTTING_DOWN)
 }
+
+/// How long an explicit shutdown spends stopping provider retries before it ends agents
+/// (`shutdown_sessions`): a part of the daemon's own shutdown budget.
+const RETRY_STOP_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// How long agents get between SIGTERM and SIGKILL when the daemon stops.
 pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);

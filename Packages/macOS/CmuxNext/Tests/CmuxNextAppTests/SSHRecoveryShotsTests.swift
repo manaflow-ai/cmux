@@ -13,7 +13,12 @@ import Testing
     @Test func recoveryVariantsRenderInLightAndDark() throws {
         _ = NSApplication.shared
         let detail = "Could not resolve hostname nohost.invalid: nodename nor servname provided, or not known"
+        // The theme's ink follows the app's look, not only the view's: on a Mac whose system look is the other one,
+        // the primary-ink title and buttons drew in the wrong appearance's text color on the card and OCR lost them.
+        let appLook = NSApp.appearance
+        defer { NSApp.appearance = appLook }
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            NSApp.appearance = NSAppearance(named: appearance)
             var shots: [(String, NSImage)] = []
             for variant in ["compact", "balanced", "details"] {
                 var spec = SSHConnectRecovery.spec(title: "Cannot Connect to nohost.invalid", detail: detail, cancel: "Cancel", copy: "Copy Error", check: "Check Machine", retry: "Retry")

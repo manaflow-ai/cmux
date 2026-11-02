@@ -124,12 +124,7 @@ import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
-import {
-  SLASH_MAX_VIEWPORT_PX,
-  slashActiveAfterScroll,
-  slashScrollForActive,
-  slashViewport,
-} from "./slashViewport";
+import { SLASH_MAX_VIEWPORT_PX, slashActiveAfterScroll, slashScrollForActive, slashViewport } from "./slashViewport";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -1188,12 +1183,13 @@ export function Composer({
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   const slashNames = useSlashNames(commands);
 
-  // The row the arrows chose: Return picks it whatever was typed (returnPicks).
+  // The row the arrows chose: Return picks it whatever was typed (returnPicks). A new word, a cleared
+  // draft or the list closing forgets it, so the same word typed again picks only by its spelling.
   const [arrowed, setArrowed] = useState(false);
   useLayoutEffect(() => {
     setActive(0);
     setArrowed(false);
-  }, [query]);
+  }, [query, open]);
   // Typing @ at a word start lists other chats, then the chat's folders and files that match what
   // follows (cx-ncc.68, mentionItems.ts).
   const chatId = snapshot.summary?.sessionId;
