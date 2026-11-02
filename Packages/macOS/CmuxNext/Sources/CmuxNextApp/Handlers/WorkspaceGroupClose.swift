@@ -58,10 +58,11 @@ enum WorkspaceGroupClose {
             guard let services else { return }
             // task-owner: one undo, bounded by `arrivalLimit`
             Task { @MainActor in
-                // A deleted group's record goes first: its restore regroups the closed workspaces' kept rows, which the reopens keep.
+                // A deleted group's record is restored (awaited) first: it regroups the closed workspaces' kept rows,
+                // which their reopens keep; restored after them it would find their rows under new keys.
                 for cleanup in cleanups {
                     if let record = await cleanup.undo(limit: arrivalLimit), let entry = DaemonClosedHistory.entry(record, in: services) {
-                        DaemonClosedHistory.reopen(entry, services: services)
+                        _ = try? await entry.daemon.connection?.state.reopenClosed(record)
                     }
                 }
                 for (group, names) in groups { await reopen(group: group, names: names, after: seen, services) }
