@@ -17,9 +17,10 @@
 .acpmux-header-tools .acpmux-header-tool:disabled{color:var(--agent-soft)}
 .acpmux-header-tools .acpmux-header-tool:not(:disabled):hover,.acpmux-header-tools .acpmux-header-tool[data-popup-open]{color:var(--agent-text)}
 /* Hover: the pill under the pointer only. On (a toggle whose panel is open) or holding its open menu: the filled
-   rounded square, hovered or not, with the lit ink while on (PaneToolbarView: Palette.litGlyph). */
+   rounded square, hovered or not (as specific as the hover rule and after it, so the pointer never swaps it for the
+   pill), with the lit ink while on (PaneToolbarView: Palette.litGlyph). */
 .acpmux-header-tools .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-header .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool:not(:disabled):hover{background:var(--acpmux-header-tool-hover,color-mix(in srgb,var(--agent-text) 8%,transparent))}
-.acpmux-header-tools .acpmux-header-tool:is([aria-pressed=true],[data-popup-open]),.acpmux-floating-header .acpmux-header-tool:is([aria-pressed=true],[data-popup-open]),.acpmux-floating-bar .acpmux-header-tool:is([aria-pressed=true],[data-popup-open]){background:var(--acpmux-header-tool-on,color-mix(in srgb,var(--agent-text) 12%,transparent))}
+.acpmux-header-tools .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]),.acpmux-floating-header .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]),.acpmux-floating-bar .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]){background:var(--acpmux-header-tool-on,color-mix(in srgb,var(--agent-text) 12%,transparent))}
 .acpmux-header-tools .acpmux-header-tool[aria-pressed=true],.acpmux-header-tools .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
 .acpmux-floating-header .acpmux-header-tool,.acpmux-floating-bar .acpmux-header-tool{color:var(--agent-muted)}
 .acpmux-floating-header .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-header .acpmux-header-tool[data-popup-open],.acpmux-floating-bar .acpmux-header-tool[data-popup-open]{color:var(--agent-text)}
