@@ -484,7 +484,6 @@ fn a_resize_storm_writes_one_snapshot_after_the_size_settles() {
 /// tail (a restore rebuilds snapshot plus tail per terminal). Prints
 /// `kill-all-restore-time: {...}` (ms per terminal, sorted).
 #[test]
-#[ignore = "measurement: run it with --ignored"]
 fn kill_all_restore_time_of_12_terminals() {
     const TERMINALS: usize = 12;
     let _exclusive = exclusive_process_test();
@@ -506,6 +505,27 @@ fn kill_all_restore_time_of_12_terminals() {
         wait_for_screen(&harness.socket, *surface, &format!("t{index}-90000\n"));
     }
     std::thread::sleep(Duration::from_secs(1));
+    let visible_surface = terminals[6].2;
+    let placed = request(&harness.socket, serde_json::json!({"cmd":"list-workspaces"}));
+    let visible_index = placed["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|w| {
+            w["screens"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|s| s["panes"].as_array().into_iter().flatten())
+                .flat_map(|p| p["tabs"].as_array().into_iter().flatten())
+                .any(|t| t["surface"].as_u64() == Some(visible_surface))
+        })
+        .unwrap();
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 900, "cmd": "select-workspace", "index": visible_index}),
+    );
+    std::thread::sleep(Duration::from_millis(500));
     let records = wait_for_host_records(&harness.host_root(), TERMINALS);
     harness.signal_daemon(libc::SIGSTOP);
     for (record_path, record) in &records {
@@ -515,16 +535,22 @@ fn kill_all_restore_time_of_12_terminals() {
     let spawned = Instant::now();
     harness.restart();
     let mut restored_ms = Vec::new();
-    for (index, (terminal_id, incarnation, _)) in terminals.iter().enumerate() {
+    let mut visible_ms = 0;
+    let order = std::iter::once(6).chain((0..TERMINALS).filter(|i| *i != 6)).collect::<Vec<_>>();
+    for index in order {
+        let (terminal_id, incarnation, _) = &terminals[index];
         let surface = respawned_surface(&harness, terminal_id, incarnation);
         let screen = wait_for_screen(&harness.socket, surface, RESPAWN_MARKER);
         assert!(screen.contains(&format!("t{index}-90000")), "terminal {index} lost its text");
         restored_ms.push(spawned.elapsed().as_millis());
+        if index == 6 {
+            visible_ms = spawned.elapsed().as_millis();
+        }
     }
     restored_ms.sort_unstable();
-    eprintln!(
+    panic!(
         "kill-all-restore-time: {}",
-        serde_json::json!({"terminals": TERMINALS, "restored_ms": restored_ms})
+        serde_json::json!({"terminals": TERMINALS, "visible_ms": visible_ms, "restored_ms": restored_ms})
     );
 }
 
