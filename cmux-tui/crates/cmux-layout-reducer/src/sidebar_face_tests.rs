@@ -571,3 +571,15 @@ fn trim_slash_and_whitespace_follow_swift() {
     assert_eq!(trim_whitespace("\u{3000} a\u{A0}\t"), "a");
     assert_eq!(trim_whitespace("\na\n"), "\na\n", "`.whitespaces` keeps newlines");
 }
+
+/// The public model never panics: pane tab counts that miss the tabs give
+/// no tab, not an index out of bounds.
+#[test]
+fn pane_counts_past_the_tabs_give_no_tab() {
+    let mut workspace = workspace(vec![(tab(TabKind::Browser, "PR"), 1)], true);
+    workspace.panes = vec![Pane { focused_at: 2, tabs: 3, default_tab: 2, selected: None }];
+    let row = face(&workspace, &context());
+    assert_eq!(row.front, Some(2));
+    assert_eq!((row.label, row.face, row.work, row.process), (Some(2), Some(2), None, None));
+    assert_eq!(row.kind, Kind::Terminal);
+}

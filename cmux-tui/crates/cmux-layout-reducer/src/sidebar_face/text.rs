@@ -61,7 +61,7 @@ pub fn abbreviate_remote(path: &str) -> Cow<'_, str> {
         return Cow::Borrowed(path);
     }
     // What follows `/<root>/<user>`: nothing, or `/` and the rest.
-    let rest = &path[1 + root.len() + 1 + user.len()..];
+    let rest = path.get(1 + root.len() + 1 + user.len()..).unwrap_or_default();
     Cow::Owned(format!("~{rest}"))
 }
 
@@ -73,7 +73,7 @@ pub fn shorten<'a>(path: &'a str, local: bool, home: &str) -> Cow<'a, str> {
 
 /// `path` without one trailing `/`, unless it is `/` itself.
 pub fn trim_slash(path: &str) -> &str {
-    if path.len() > 1 && path.ends_with('/') { &path[..path.len() - 1] } else { path }
+    path.strip_suffix('/').filter(|_| path.len() > 1).unwrap_or(path)
 }
 
 /// The status line: every entry's text but the ones other elements show

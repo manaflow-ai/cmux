@@ -36,7 +36,7 @@ fn tab(strings: &mut Strings, kind: u8, title: &str, cwd: Option<&str>, flags: u
         agent: 0,
         progress_state: 0,
         reserved: 0,
-        progress_value: -1,
+        progress_value: NO_VALUE,
         reserved2: 0,
         notification: 0,
         attention_at_ms: 0,

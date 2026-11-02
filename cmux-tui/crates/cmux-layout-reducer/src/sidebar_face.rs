@@ -296,7 +296,7 @@ impl Workspace<'_> {
                 continue;
             }
             let index = Self::selected(first, pane);
-            let tab = &self.tabs[index];
+            let Some(tab) = self.tabs.get(index) else { continue };
             let named =
                 tab.chat || (tab.kind != TabKind::Conversation && !tab.page && !tab.app_tab);
             if tab.kind != TabKind::Browser && named {
@@ -311,7 +311,7 @@ impl Workspace<'_> {
     /// an agent chat; then that chat (a working or waiting one first).
     pub fn label_tab(&self, front: Option<usize>, home: &str) -> Option<usize> {
         let front = front?;
-        if !is_idle(&self.tabs[front], home, true) {
+        if !self.tabs.get(front).is_some_and(|tab| is_idle(tab, home, true)) {
             return Some(front);
         }
         let mut chats =
@@ -325,7 +325,9 @@ impl Workspace<'_> {
     /// from: the label tab, or for a browser one the work it yields to.
     pub fn face_tab(&self, home: &str) -> Option<usize> {
         let label = self.label_tab(self.front_tab(), home);
-        if label.is_none_or(|index| self.tabs[index].kind != TabKind::Browser) {
+        if label
+            .is_none_or(|index| self.tabs.get(index).is_none_or(|tab| tab.kind != TabKind::Browser))
+        {
             return label;
         }
         self.work_tab().or(label)
@@ -333,7 +335,8 @@ impl Workspace<'_> {
 
     /// The row's agent chat: `label`'s when it is one, else the first chat.
     pub fn chat_tab(&self, label: Option<usize>) -> Option<usize> {
-        if let Some(label) = label.filter(|index| self.tabs[*index].chat) {
+        if let Some(label) = label.filter(|index| self.tabs.get(*index).is_some_and(|tab| tab.chat))
+        {
             return Some(label);
         }
         self.tabs.iter().position(|tab| tab.chat)
@@ -342,10 +345,10 @@ impl Workspace<'_> {
     /// The first tab that reports a folder. While `label` is a chat, an idle
     /// shell at home gives none: its "~" never names the row.
     pub fn folder_tab(&self, label: Option<usize>, home: &str) -> Option<usize> {
-        let chat = label.is_some_and(|index| self.tabs[index].chat);
+        let chat = label.is_some_and(|index| self.tabs.get(index).is_some_and(|tab| tab.chat));
         self.tabs.iter().position(|tab| {
             let Some(cwd) = tab.cwd else { return false };
-            !chat || !(is_idle(tab, home, false) && abbreviate(cwd, home) == "~")
+            !(chat && is_idle(tab, home, false) && abbreviate(cwd, home) == "~")
         })
     }
 
@@ -535,11 +538,12 @@ pub fn face<'a>(workspace: &Workspace<'a>, context: &Context<'_>) -> Face<'a> {
     let folder_tab = workspace.folder_tab(label, home);
     // Group by Folder's bucket: the front tab's folder, else any tab's.
     let bucket_tab = front
-        .filter(|index| workspace.tabs[*index].cwd.is_some())
+        .filter(|index| workspace.tabs.get(*index).is_some_and(|tab| tab.cwd.is_some()))
         .or_else(|| workspace.tabs.iter().position(|tab| tab.cwd.is_some()));
     let folder_of = |index: Option<usize>| {
         index
-            .and_then(|index| workspace.tabs[index].cwd)
+            .and_then(|index| workspace.tabs.get(index))
+            .and_then(|tab| tab.cwd)
             .map(|cwd| shorten(cwd, workspace.local, home))
     };
     let tabs = workspace
@@ -572,11 +576,13 @@ pub fn face<'a>(workspace: &Workspace<'a>, context: &Context<'_>) -> Face<'a> {
         bucket_tab,
         agent: workspace.agent_tab(),
         notice: if context.shows_unread { workspace.notice() } else { None },
-        kind: kind(face.map(|index| &workspace.tabs[index])),
+        kind: kind(face.and_then(|index| workspace.tabs.get(index))),
         row_kind: workspace.row_kind(),
         directory: folder_of(folder_tab),
         bucket: folder_of(bucket_tab),
-        process: label.and_then(|index| process(&workspace.tabs[index], home)),
+        process: label
+            .and_then(|index| workspace.tabs.get(index))
+            .and_then(|tab| process(tab, home)),
         status_line: status_line(workspace.status, &workspace.entries),
         ports: entry(PORTS_KEY, &workspace.entries),
         pull_request: entry(PULL_REQUEST_KEY, &workspace.entries),
