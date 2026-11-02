@@ -8945,7 +8945,9 @@ function AcpmuxPane() {
       !!snapshot.unavailable,
       snapshot.sessionId,
       snapshot.rows.length,
-      connected,
+      // An open that failed on a socket still open (direct.ts emits "failed") read no chat: its
+      // machine may be paused, so recovery reads it as it does a lost link.
+      connected && snapshot.connection !== "failed",
       freshView,
     ),
     recheck: recheckCloudChat,
