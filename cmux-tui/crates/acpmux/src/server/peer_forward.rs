@@ -188,20 +188,27 @@ pub(super) async fn await_upload_link(
     peer: &crate::peer::Peer,
     within: std::time::Duration,
 ) -> bool {
+    let mut stopped = peer.stopped();
+    if *stopped.borrow() {
+        return false;
+    }
     if peer.ready() {
         return true;
     }
     let mut settled = peer.settled();
     peer.want();
     let deadline = tokio::time::Instant::now() + within;
-    while !peer.ready() {
-        match tokio::time::timeout_at(deadline, settled.changed()).await {
-            Ok(Ok(())) => {}
-            // The deadline passed, or the peer went (its sender dropped).
-            _ => break,
+    while !peer.ready() && !*stopped.borrow() {
+        tokio::select! {
+            // A settled connect attempt may restore the link or produce an error.
+            changed = settled.changed() => if changed.is_err() { break },
+            // An explicit remove/replacement can have no connect attempt in flight.
+            // Every upload waiter hears this broadcast instead of sitting for 30 s.
+            changed = stopped.changed() => if changed.is_err() { break },
+            () = tokio::time::sleep_until(deadline) => break,
         }
     }
-    peer.ready()
+    peer.ready() && !*stopped.borrow()
 }
 
 pub(super) async fn forward(
@@ -276,9 +283,14 @@ async fn forward_inner(
         }
         // An upload waits for a link that is reconnecting; the client that leaves stops the wait.
         if waits_for_link(m) && !peer.ready() {
-            tokio::select! {
-                _ = await_upload_link(&peer, UPLOAD_LINK_WAIT) => {}
+            let ready = tokio::select! {
+                ready = await_upload_link(&peer, UPLOAD_LINK_WAIT) => ready,
                 () = conn.closed() => return Err(RpcError::internal("the client closed the connection")),
+            };
+            // The old peer instance may have been removed or replaced while
+            // waiting. Refuse on that instance; the caller can resolve again.
+            if !ready {
+                return Err(peer.unreachable_error());
             }
         }
         // A dropped file crosses the link as one frame: checked here, and only to a peer that
@@ -825,6 +837,33 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An explicit peer removal must release *every* upload waiting for the
+    /// reconnect. The old waiter listened only to completed connection attempts,
+    /// so an idle/stopped peer kept these calls for 30 seconds.
+    #[tokio::test]
+    async fn removed_peer_wakes_all_waiting_uploads_without_a_connect_attempt() {
+        let (notices, _receiver) = tokio::sync::mpsc::channel(1);
+        let peer = crate::peer::Peer::new("gone", "ws://127.0.0.1:9", None, None, notices);
+        let mut pending = Vec::new();
+        for _ in 0..2 {
+            let peer = peer.clone();
+            pending.push(tokio::spawn(async move {
+                await_upload_link(&peer, std::time::Duration::from_secs(30)).await
+            }));
+        }
+        // Peer::run is deliberately absent: removal itself, not a later
+        // connection outcome, must wake each waiter.
+        tokio::task::yield_now().await;
+        peer.stop();
+        for task in pending {
+            let result = tokio::time::timeout(std::time::Duration::from_secs(1), task)
+                .await
+                .expect("a stopped peer left its upload waiting for the 30 s timeout")
+                .unwrap();
+            assert!(!result, "stopped peer was reported ready");
+        }
+    }
 
     /// A refused answer for a peer's prompt names that peer, so the app can say where to
     /// enroll this Mac; a peer the answer named itself is replaced by this daemon's name.

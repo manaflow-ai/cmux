@@ -28,6 +28,8 @@ final class BrowserProfileService {
     @ObservationIgnored var homeRecordsObservation: Task<Void, Never>?
     @ObservationIgnored var recordProfileObservation: Task<Void, Never>?
     @ObservationIgnored var migratingRecords = false
+    /// Deleted stores currently being removed; prevent duplicate workers on one id.
+    @ObservationIgnored var cleanupInFlight: Set<String> = []
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-profiles")
 
     init(services: AppServices) {
