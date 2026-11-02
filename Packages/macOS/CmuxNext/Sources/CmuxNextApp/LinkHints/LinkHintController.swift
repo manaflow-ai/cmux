@@ -20,6 +20,7 @@ final class LinkHintController {
         let isFocused: () -> Bool
         let openInSplit: (URL) -> Void
         let notice: (String) -> Void
+        var held = LinkHintHeldKeys<NSEvent>() // taken before the page answered: a text field's when one has the keyboard
     }
 
     private var session: Session? { didSet { noteActive() } }
@@ -86,8 +87,6 @@ final class LinkHintController {
             cancel()
             return true
         }
-        // Until the labels show, a key is the page's as typed (a text field may have the keyboard, #32573): none is held.
-        guard current.keys.takesKeys || !flags.isEmpty else { return false }
         let outcome: LinkHintSession.Outcome
         if flags.isEmpty, event.keyCode == 51 {
             outcome = current.keys.type(nil)
@@ -98,6 +97,7 @@ final class LinkHintController {
             cancel()
             return false
         }
+        if current.keys.hints == nil { current.held.hold(event) }
         session = current
         apply(outcome, on: tab)
         return true
@@ -117,7 +117,7 @@ final class LinkHintController {
         guard var current = session, current.tab === tab else { return }
         let outcome = current.keys.show(targets, editing: editing)
         session = current
-        if outcome == .passThrough { return session = nil } // a text field has the keyboard: its letters went to it as typed
+        if outcome == .passThrough { session = nil; return current.held.release(after: outcome).forEach { NSApp.sendEvent($0) } }
         if outcome == .cancel {
             current.notice(LinkHintStrings.noLinks)
             session = nil
