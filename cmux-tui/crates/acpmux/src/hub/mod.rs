@@ -45,6 +45,8 @@ mod fork;
 #[cfg(test)]
 mod host_notice_tests;
 #[cfg(test)]
+mod peer_notice_cost_tests;
+#[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
 mod shutdown_scan_tests;

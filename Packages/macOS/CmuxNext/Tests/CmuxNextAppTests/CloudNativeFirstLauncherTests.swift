@@ -20,10 +20,10 @@ private final class FakeLauncher: CloudLinkLaunching {
 
 @MainActor
 struct CloudNativeFirstLauncherTests {
-    @Test func nativeIsOptInAndCmuxLinkIsTheDefault() {
-        #expect(CloudNativeFirstLauncher.choice(setting: nil) == .link)
-        #expect(CloudNativeFirstLauncher.choice(setting: "0") == .link)
+    @Test func nativeIsTheDefaultAndZeroTurnsItOff() {
+        #expect(CloudNativeFirstLauncher.choice(setting: nil) == .native)
         #expect(CloudNativeFirstLauncher.choice(setting: "1") == .native)
+        #expect(CloudNativeFirstLauncher.choice(setting: "0") == .link)
     }
 
     @Test func aWorkingNativeRouteIsUsed() async throws {
@@ -34,7 +34,7 @@ struct CloudNativeFirstLauncherTests {
     }
 
     @Test func aFailedNativeRouteFallsBackToCmuxLinkUntilSignOut() async throws {
-        let native = FakeLauncher(status: "native", failure: NativeDeviceEnrollmentError.refused(400))
+        let native = FakeLauncher(status: "native", failure: NativeDeviceEnrollmentError.refused(400, step: "host.network.target"))
         let link = FakeLauncher(status: "link")
         var reasons: [String] = []
         let launcher = CloudNativeFirstLauncher(native: native, link: link) { reasons.append(String(describing: $0)) }
@@ -63,13 +63,13 @@ struct CloudNativeFirstLauncherTests {
         #expect(asked == 1 && noHolder.launcher as? FakeLauncher === link)
         #expect(noHolder.route() == "link (native asked; no Native route holder for this app)")
 
-        let native = FakeLauncher(status: "native", failure: NativeDeviceEnrollmentError.refused(400))
+        let native = FakeLauncher(status: "native", failure: NativeDeviceEnrollmentError.refused(400, step: "host.network.target"))
         var reasons = 0
         let first = CloudAppServerLink(appServer: true, link: link, choice: .native, native: { native }) { _ in reasons += 1 }
         #expect(first.launcher is CloudNativeFirstLauncher && first.route() == "native")
         #expect(try await first.launcher?.ensure(install: "i").status == "link")
         #expect(reasons == 1)
-        #expect(first.route() == "link (native failed: \(NativeDeviceEnrollmentError.refused(400)))")
+        #expect(first.route() == "link (native failed: refused(400) at host.network.target)")
     }
 
     @Test func signedOutIsNotARouteFailure() async {

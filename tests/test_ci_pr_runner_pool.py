@@ -4406,7 +4406,8 @@ class SharedRunnerStateTests(unittest.TestCase):
                         self.assertEqual(step.get("env", {}).get("CI_RUNNER_STATE"),
                                          "${{ vars.CI_RUNNER_STATE }}", (name, hits))
                         seen.update(hits)
-                    elif "CI_RUNNER_STATE" in step.get("env", {}):
+                    elif "CI_RUNNER_STATE" in step.get("env", {}) and not any(
+                            f"scripts/ci/{script}" in with_moved_step_scripts(run) for script in scripts):
                         self.fail(f"runner state leaked to non-picker step in {name}: {run[:80]}")
                 self.assertEqual(seen, set(scripts))
 
@@ -4425,9 +4426,22 @@ class SharedRunnerStateTests(unittest.TestCase):
             for step in mappings(doc):
                 if "CI_RUNNER_STATE" not in (step.get("env") or {}):
                     continue
-                run = step.get("run") or ""
+                run = with_moved_step_scripts(step.get("run") or "")
                 self.assertTrue(any(f"scripts/ci/{script}" in run for script in picker_scripts),
                                 f"runner state leaked to non-picker step in {workflow.name}: {run[:100]}")
+
+def with_moved_step_scripts(run: str) -> str:
+    """A step's run text with the scripts/ci/nightly-steps/ scripts it calls appended.
+
+    nightly.yml moves long run blocks into those scripts to stay under its size cap
+    (tests/test_workflow_file_size.py); a step that runs the picker through one still
+    counts as a picker step, and one whose script runs no picker still fails."""
+    for path in re.findall(r"scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh", run):
+        script = ROOT / path
+        if script.is_file():
+            run += "\n" + script.read_text()
+    return run
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
