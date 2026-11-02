@@ -36,13 +36,14 @@ import Testing
     }
 
     /// The live gate follows the policy: Reduce Motion (the override) turns the zoom off, and back on.
-    @Test func theLiveGateFollowsReduceMotion() {
+    @Test func theLiveGateFollowsReduceMotion() throws {
         let previous = Motion.reduceMotionOverride
         defer { Motion.reduceMotionOverride = previous }
         Motion.reduceMotionOverride = true
         #expect(Motion.panes.windowOpenBehavior(restoring: false) == .none)
         Motion.reduceMotionOverride = false
-        #expect(Motion.panes.windowOpenBehavior(restoring: false) == (Motion.panes.animatesMovement ? .documentWindow : .none))
+        try #require(Motion.panes.animatesMovement, "motion is off on this host for another reason")
+        #expect(Motion.panes.windowOpenBehavior(restoring: false) == .documentWindow)
         #expect(Motion.panes.windowOpenBehavior(restoring: true) == .none)
     }
 }
