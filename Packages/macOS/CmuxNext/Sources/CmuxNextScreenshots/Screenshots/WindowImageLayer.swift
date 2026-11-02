@@ -1,8 +1,7 @@
 package import AppKit
 
 /// A page window's clip shape in window coordinates (``WindowImageLayer/page(_:_:holes:clip:)``).
-/// A `CGPath` is immutable, so it crosses to the off-main redraw as it is.
-package nonisolated struct WindowImageClip: @unchecked Sendable {
+package nonisolated struct WindowImageClip: Sendable {
     package let path: CGPath
 
     /// Nil for no clip (the page shows as a plain rectangle).
