@@ -38,6 +38,12 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func setModel(_ modelId: String) async throws -> Data
     func setMode(_ modeId: String) async throws -> Data
     func setConfig(id configId: String, value: String) async throws -> Data
+    /// Whether that machine's daemon relays a Cloud chat's own sign-in (`agent-session-login-v1`).
+    func servesLogin() async -> Bool
+    /// One step of the chat's agent's own sign-in on that machine (`agent-session-login-v1`):
+    /// acpmux's `_acpmux/agent_login/<op>` answer, or `{refused: {reason}}`. `fields` are the
+    /// daemon's (`agent`, `login_id`, `code`, `key`); the code and key are never logged.
+    func login(_ op: String, _ fields: [String: String]) async throws -> Data
 }
 
 extension AgentSessionRemoteClient {
@@ -53,6 +59,11 @@ extension AgentSessionRemoteClient {
     nonisolated static var settingsUnsupported: AgentSessionRemoteError {
         AgentSessionRemoteError(code: "agent_session.settings_unsupported",
                                 message: "update cmux on that machine to change this chat's model, mode or options from here")
+    }
+    /// A daemon without `agent-session-login-v1` offers no sign-in.
+    public func servesLogin() async -> Bool { false }
+    public func login(_ op: String, _ fields: [String: String]) async throws -> Data {
+        Data(#"{"refused":{"reason":"unsupported"}}"#.utf8)
     }
     /// Older daemons have no host media command; callers turn this into a refused image.
     public func media(path: String) async throws -> Data {

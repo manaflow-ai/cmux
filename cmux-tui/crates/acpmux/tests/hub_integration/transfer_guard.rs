@@ -433,6 +433,20 @@ async fn a_guarded_chat_takes_its_family_from_here_and_a_web_one_must_ask() {
     let rid = receive(&mut dst, guard("web", &[root.path()]), &m, &[]).await.unwrap();
     let s = finish(&mut dst, &rid, json!({})).await.unwrap();
     assert_eq!(s["family"], "fake", "{s}");
+    // A Claude chat's speed and effort options never decide what runs without asking: a chat
+    // in an asking mode that has them comes back (Bring Back Local refused every Claude chat
+    // as `transfer.mode` for its Ultracode and Fast mode options).
+    let options = json!([
+        {"id": "model", "currentValue": "default"},
+        {"id": "mode", "currentValue": "normal"},
+        {"id": "effort", "currentValue": "high"},
+        {"id": "ultracode", "currentValue": "on"},
+        {"id": "fast-mode", "currentValue": "on"},
+    ]);
+    let m = meta(root.path(), json!({"modes": modes("normal"), "configOptions": options}));
+    let rid = receive(&mut dst, guard("web", &[root.path()]), &m, &[]).await.unwrap();
+    let s = finish(&mut dst, &rid, json!({})).await;
+    assert!(s.is_ok(), "a chat's speed and effort options were refused: {s:?}");
 
     // Under the Web a chat with no recorded mode is refused when its family has asking modes
     // (dispatch would let it through on its policy alone), and taken when its family has none.

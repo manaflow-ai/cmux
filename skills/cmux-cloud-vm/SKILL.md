@@ -35,7 +35,7 @@ and listing actions their facts. They need the app, sign-in and its private tunn
 
 ```sh
 cmux cloud list-machines --json                           # machines (machine_id, target, status, owner)
-cmux cloud new-machine                                    # answers machine_id (or pending)
+cmux machine new                                          # prints its target and next steps (--json: machine_id, or pending)
 cmux cloud new-workspace                                  # a new cloud workspace
 cmux cloud new-terminal-on-machine --target machine:vm-…  # a new workspace with a terminal there
 cmux cloud ssh --target machine:vm-…                      # a terminal tab in its first workspace
@@ -75,8 +75,9 @@ cmux terminal term_… screen read
 cmux notify --title "Tests done" --body "see the tests tab"
 ```
 
-Read [guest operations](references/guest.md) for guest auth, CodeRouter, layouts and
-browser authentication. The machine's `cmux --help` is authoritative.
+Read [guest operations](references/guest.md) for guest auth, CodeRouter, layouts,
+computer use on the machine's desktop (`agent-desktop`, baked into every desktop
+image) and browser authentication. The machine's `cmux --help` is authoritative.
 
 ## Constraints that apply throughout
 
@@ -109,6 +110,6 @@ maps every old verb.
 - [Without the app](references/headless.md): `cmux machine` with an API key, from provision to delete.
 - [Workflow recipes](references/agent-workflows.md): the supported paths for common tasks.
 - [Command reference](references/commands.md): every cloud action and its arguments.
-- [Guest operations](references/guest.md): inside-machine grammar, CodeRouter, notifications.
+- [Guest operations](references/guest.md): inside-machine grammar, CodeRouter, desktop computer use (`agent-desktop`), notifications.
 - [Sidebar parity](references/sidebar-parity.md): sidebar items and their actions.
 - [Local workspace rules](../cmux-workspace/SKILL.md): presenting work without disrupting the caller.

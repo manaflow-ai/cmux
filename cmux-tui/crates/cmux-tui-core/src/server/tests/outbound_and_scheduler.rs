@@ -305,6 +305,38 @@ fn terminal_connections_leave_slots_for_the_app() {
     assert_eq!(connections.active(), 0);
 }
 
+/// One terminal opening connections in a loop (an agent's hooks, a script
+/// running `cmux` in a pane) cannot take the terminal lane from the others: a
+/// terminal's first connection gets in whenever the lane has room, a further
+/// one only while that terminal then holds no more than the lane has left free.
+#[test]
+fn one_terminal_cannot_take_the_terminal_lane_from_the_others() {
+    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let first: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
+        .map_while(|_| claim_terminal_connection_from(&connections, 101))
+        .collect();
+    assert!(
+        first.len() < MAX_TERMINAL_CONNECTIONS / 2 + 1,
+        "terminal 101 took {} of the {MAX_TERMINAL_CONNECTIONS} terminal connections",
+        first.len()
+    );
+    let second = claim_terminal_connection_from(&connections, 102)
+        .expect("another terminal's first connection finds room");
+    let third =
+        claim_terminal_connection_from(&connections, 103).expect("and so does a third terminal's");
+    assert!(
+        claim_connection(&connections).is_some(),
+        "the app's slots are untouched by the terminal lane"
+    );
+    let taken = first.len();
+    drop((first, second, third));
+    assert_eq!(connections.active(), 0);
+    let again: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
+        .map_while(|_| claim_terminal_connection_from(&connections, 101))
+        .collect();
+    assert_eq!(again.len(), taken, "a terminal's released connections count no more against it");
+}
+
 /// #27669: connection threads parked on the registry lock outlived their CLI
 /// clients and held every slot, so the app's reconnects were refused
 /// `server.busy`. A client that hung up gives its slot to the next one; a live
@@ -358,15 +390,15 @@ fn hung_up_terminal_clients_give_back_their_terminal_slots() {
         .map(|_| {
             let (daemon_side, client) = UnixStream::pair().unwrap();
             clients.push(client);
-            claim_watched_terminal_connection(&connections, &daemon_side)
+            claim_watched_terminal_connection(&connections, &daemon_side, None)
                 .expect("terminal slot below its share")
         })
         .collect();
     let (live_daemon_side, _live_client) = UnixStream::pair().unwrap();
-    assert!(claim_watched_terminal_connection(&connections, &live_daemon_side).is_none());
+    assert!(claim_watched_terminal_connection(&connections, &live_daemon_side, None).is_none());
 
     clients.pop();
-    let next = claim_watched_terminal_connection(&connections, &live_daemon_side)
+    let next = claim_watched_terminal_connection(&connections, &live_daemon_side, None)
         .expect("the terminal slot of a client that hung up serves the next one");
     let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
     assert_eq!(snapshot.hung_up, 1);
@@ -688,7 +720,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
         (2, Command::WaitFor { surface: 2, pattern: "never".to_string(), timeout_ms: 60_000 }),
     ] {
         state.requests.push_back(PendingSurfaceRequest {
-            request: Request { id: Some(json!(id)), cmd },
+            request: Request { id: Some(json!(id)), cmd, remote_line: None },
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
         });
@@ -726,7 +758,7 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
         let mut state = ConnectionSurfaceState::default();
         state.active_clear_surfaces.insert(1);
         state.requests.push_back(PendingSurfaceRequest {
-            request: Request { id: Some(json!(1)), cmd },
+            request: Request { id: Some(json!(1)), cmd, remote_line: None },
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
         });
@@ -754,6 +786,7 @@ fn queued_same_surface_clears_do_not_reserve_worker_permits() {
         let mut clear = Some(Request {
             id: Some(json!(id)),
             cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+            remote_line: None,
         });
         assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
     }
@@ -782,6 +815,7 @@ fn queued_wait_releases_clear_worker_permit_after_clear_settles() {
     let mut clear = Some(Request {
         id: Some(json!(1)),
         cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+        remote_line: None,
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
     let mut wait = Some(Request {
@@ -791,6 +825,7 @@ fn queued_wait_releases_clear_worker_permit_after_clear_settles() {
             pattern: "never-matches".to_string(),
             timeout_ms: 500,
         },
+        remote_line: None,
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut wait, 0, writer), Some(true));
 
@@ -835,6 +870,7 @@ fn connection_close_cancels_a_wait_queued_after_clear_history() {
     let mut clear = Some(Request {
         id: Some(json!(1)),
         cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+        remote_line: None,
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
     let mut wait = Some(Request {
@@ -844,6 +880,7 @@ fn connection_close_cancels_a_wait_queued_after_clear_history() {
             pattern: "release-wait".to_string(),
             timeout_ms: 1_000,
         },
+        remote_line: None,
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut wait, 0, writer), Some(true));
 

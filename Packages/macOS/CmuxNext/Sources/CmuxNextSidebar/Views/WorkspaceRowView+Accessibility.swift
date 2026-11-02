@@ -108,6 +108,9 @@ extension WorkspaceRowView {
     static func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, tabCount count: Int?,
                                   presence: [SidebarPresence], title: String? = nil) -> String {
         var parts = [title ?? ws.title]
+        if ws.chiefAvatar != nil {
+            parts.append(String(localized: "sidebar.chiefOperated", defaultValue: "Operated by Chief", bundle: .module))
+        }
         let detail = content.now.map(Strings.rowNow) ?? content.detail
         if let detail { parts.append(detail) }
         // The chip's word (never drawn: no status words on a row), else the one-line status the row draws.

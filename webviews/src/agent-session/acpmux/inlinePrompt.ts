@@ -12,6 +12,7 @@ import {
 import { translate } from "./i18n";
 import type { AcpmuxRow, PromptContentPart } from "./model";
 import { parseVideoInfo } from "./composer/videoAttachments";
+import { frameTextOf, isFramesNote, isVideoFrameName, rowImageNames, videoFromFrames } from "./composer/videoPrompt";
 /// `placed`: the composer put the prompt's attachments in its text (`inlinePrompt`), so this part
 /// sits in the composer's order; acpmux keeps it (hub/prompt_images.rs) and the sent bubble draws
 /// only such a prompt in its recorded order (conversation/UserBubble.tsx). A prompt sent in the
@@ -227,7 +228,49 @@ export async function restoreInline(
 ) {
   const attachments: ComposerAttachment[] = [];
   let input = "";
+  const isFrame = frameTextOf(rowImageNames(row));
+  // A video's frames, note and labels go back on its chip, not in the draft (composer/videoPrompt.ts):
+  // each video's note and its frames as read back, on the chip they follow (the nearest one before
+  // them of that video's name: two videos of one name keep their own).
+  const saved = new Map<
+    ComposerAttachment,
+    { note?: string; frames: { name: string; data: string; scene: boolean }[] }
+  >();
+  const of = (video: string) => {
+    let chip: ComposerAttachment | undefined;
+    for (let at = attachments.length - 1; at >= 0 && !chip; at--)
+      if (attachments[at]!.kind === "link" && attachments[at]!.name === video) chip = attachments[at];
+    if (!chip) return undefined;
+    return saved.get(chip) ?? saved.set(chip, { frames: [] }).get(chip)!;
+  };
+  let scene = false;
   for (const [index, part] of (row.inlineParts ?? []).entries()) {
+    // Only a note, label or frame that follows its video's chip is the chip's; one with no such chip
+    // (a frame restored before as an image of its own) stays what it was.
+    const owner =
+      part.kind === "text" && isFrame(part.text)
+        ? of(
+            isFramesNote(part.text)
+              ? (part.text.match(/^Frames from the video (.+) \(\d[\d:]*, \d+×\d+\)/)?.[1] ?? "")
+              : part.text.replace(/ \(new scene\)$/, "").replace(/ frame at [\d:.]+$/, ""),
+          )
+        : part.kind === "image" && isVideoFrameName(part.name)
+          ? of(part.name!.replace(/ frame at [\d:.]+$/, ""))
+          : undefined;
+    if (owner && part.kind === "text") {
+      if (isFramesNote(part.text)) owner.note = part.text;
+      scene = part.text.endsWith(" (new scene)");
+      continue;
+    }
+    if (owner && part.kind === "image") {
+      // A frame that cannot be read back fails the restore, as any other image does: a resend never
+      // goes without it.
+      const data = await read(part.id);
+      if (!data) throw new Error(translate("attachment.unavailable", { name: part.name ?? part.id }));
+      owner.frames.push({ name: part.name!, data: data.data, scene });
+      scene = false;
+      continue;
+    }
     if (part.kind === "text") {
       input += part.text;
       continue;
@@ -286,6 +329,11 @@ export async function restoreInline(
     else throw new Error(translate("attachment.unavailable", { name: part.name }));
     attachments.push(attachment);
     input += inlineToken(id);
+  }
+  for (const [index, chip] of attachments.entries()) {
+    const frames = chip.kind === "link" && !chip.video ? saved.get(chip) : undefined;
+    const video = frames && videoFromFrames(frames.note, frames.frames);
+    if (video) attachments[index] = { ...chip, video };
   }
   if (text === (row.resend ?? row.text)) return { input, attachments };
   return { input: carryInline(input, text, attachments), attachments: attachments.filter((a) => a.kind !== "pasted") };

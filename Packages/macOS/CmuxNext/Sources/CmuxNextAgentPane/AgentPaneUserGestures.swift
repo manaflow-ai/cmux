@@ -122,6 +122,9 @@ import CmuxNextCompat
     nonisolated static let promptTicketsKept = 8
     /// Bound tickets even when a page reserves and never sends them.
     nonisolated static let promptTicketsMax = 64
+    /// The most permission answer tickets one connection keeps (one per ask,
+    /// ``AgentPaneGestureIntent/slot``): a newer answer drops the oldest beyond this.
+    nonisolated static let permissionTicketsKept = 8
 
     /// How long an upload that holds a send ticket may go without progress
     /// (``uploadProgressed(_:)``) before its hold ends and the ticket with it.
@@ -192,6 +195,11 @@ import CmuxNextCompat
             for old in left.sorted(by: { $0.value.order < $1.value.order }).dropLast(Self.promptTicketsMax - 1) {
                 dropTickets { key, _ in key == old.key }
             }
+        } else if intent.method == "_acpmux/permission_respond" {
+            let answers = tickets.filter { $0.value.connection == connection && $0.value.intent.method == intent.method }
+            for old in answers.sorted(by: { $0.value.order < $1.value.order }).dropLast(Self.permissionTicketsKept - 1) {
+                dropTickets { key, _ in key == old.key }
+            }
         }
         let ticket = UUID().uuidString
         issued += 1
@@ -244,7 +252,7 @@ import CmuxNextCompat
         dropTickets { !$1.isFresh(at) }
         guard var held = tickets[ticket], held.connection == connection, held.intent.method == "session/prompt",
               held.intent.sessionId == sessionId,
-              held.intent.params == ["promptId": .string(AgentPaneHandoffPrompt.ownID(promptId))],
+              held.intent.params == ["promptId": .string(AgentPaneHandoffPrompt(id: promptId).ownID)],
               !holdsTicket(upload: upload) else { return false }
         if held.uploads.isEmpty { held.stoppedAt = at }
         held.uploads[upload] = at

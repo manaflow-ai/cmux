@@ -73,6 +73,13 @@ pub struct LsArgs {
     /// prompt); the daemon reads each chat's usage first.
     #[arg(long, short)]
     wide: bool,
+    /// Only the leaders: each live session other live sessions report to (their tag
+    /// `lane.reportsTo`), once, with `reports` (those sessions' names), most reports first
+    /// (`ls_leads.rs`). The coordinator, its deputies and the area owners each are one.
+    #[arg(long, conflicts_with_all = [
+        "patterns", "name_patterns", "status", "pending", "tag", "limit", "cursor", "since", "host", "all",
+    ])]
+    leads: bool,
 }
 
 pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
@@ -91,7 +98,10 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         host,
         all,
         wide,
+        leads,
     } = args;
+    // The leaders need every live row: the sessions that report are read with them.
+    let live = live || leads;
     patterns.extend(name_patterns);
     let named = !patterns.is_empty();
     let since_ms = since.as_deref().map(parse_duration_ms).transpose()?;
@@ -125,9 +135,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     // Only a listing that shows usage has the daemon read it first (`hub/usage_view.rs`); the
     // compact one shows the rows as they are. Every page asks; the daemon reads at most once
     // in 5 s, so the pages after the first take the rows that read left.
-    let usage = wide
-        || json_out
-        || fields.as_ref().is_some_and(|f| f.iter().any(|f| f.starts_with("usageStats")));
+    let usage = shows_usage(wide, json_out, fields.as_deref());
     if usage {
         params.set("usage", json!(true));
     }
@@ -207,7 +215,10 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
             );
         }
     }
-    if selected {
+    if leads {
+        sessions = super::ls_leads::leaders(&sessions);
+    }
+    if selected && !leads {
         sessions.sort_by(|a, b| {
             b.get("updatedAt")
                 .and_then(Value::as_u64)
@@ -250,6 +261,10 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
                     .join("\t")
             );
         }
+        return Ok(());
+    }
+    if leads {
+        print!("{}", super::ls_leads::render(&sessions));
         return Ok(());
     }
     let peers = match peers {
@@ -315,6 +330,14 @@ pub(super) fn parse_duration_ms(text: &str) -> Result<u64> {
     Ok(total)
 }
 
+/// A projected listing reads usage only if that projection includes it.
+fn shows_usage(wide: bool, json_out: bool, fields: Option<&[String]>) -> bool {
+    match fields {
+        Some(fields) => fields.iter().any(|f| f == "usageStats" || f.starts_with("usageStats.")),
+        None => wide || json_out,
+    }
+}
+
 /// The rows `--live` and `--host` keep.
 pub(super) struct RowFilter {
     live: bool,
@@ -377,6 +400,17 @@ mod tests {
             .filter(|r| filter.keeps(r))
             .map(|r| r["name"].as_str().unwrap().into())
             .collect()
+    }
+
+    #[test]
+    fn projected_listings_only_refresh_usage_when_they_show_it() {
+        let plain = vec!["sessionId".to_owned(), "name".to_owned(), "status".to_owned()];
+        assert!(!shows_usage(false, true, Some(&plain)));
+        assert!(!shows_usage(true, false, Some(&plain)));
+        assert!(shows_usage(false, false, Some(&["usageStats.cost".to_owned()])));
+        assert!(shows_usage(false, true, None));
+        assert!(shows_usage(true, false, None));
+        assert!(!shows_usage(false, false, None));
     }
 
     #[test]

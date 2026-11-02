@@ -89,6 +89,8 @@ extension SettingsController {
         let managed = file.managedGuard.managedKeys
         for descriptor in SettingsSchema.all where managed[descriptor.id] == nil && !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
             try await removePruning(descriptor.path)
+            // A renamed row's old key would apply again behind the reset (``RenamedSettingKeys``).
+            if let legacy = RenamedSettingKeys.legacyPath(for: descriptor.path) { try await removePruning(legacy) }
         }
         for key in SettingsSchema.retiredKeys.keys.sorted() where managed[key] == nil {
             try await removePruning(CmuxConfigFile.keyPath(from: key))

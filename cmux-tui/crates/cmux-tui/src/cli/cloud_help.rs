@@ -5,6 +5,11 @@
 //! here or one here is no longer offered. Each verb's full argument list is
 //! the app's `cmux action describe cloud <verb>`.
 
+/// Verbs the app still answers that `cmux cloud --help` no longer lists: the
+/// old spelling of a `cmux machine` verb (cmuxterm-hq docs/naming.md).
+/// `cmux cloud <verb> --help` still describes each and names the new one.
+const HIDDEN: &[(&str, &str)] = &[("new-machine", "cmux machine new")];
+
 /// A machine action's target flag.
 const TARGET: &str = "--target machine:MACHINE_ID";
 
@@ -96,6 +101,12 @@ const GROUPS: &[Group] = &[
                 "{target}",
                 "Text that hands the machine to someone else",
                 "マシンを他の人に引き継ぐためのテキスト",
+            ),
+            verb(
+                "share-machine",
+                "{target} [--teammate USER_ID] [--revoke]",
+                "Share a team machine's chats with a teammate (no --teammate lists them)",
+                "チームのマシンのチャットをチームメイトと共有（--teammate なしで一覧表示）",
             ),
         ],
     },
@@ -393,7 +404,7 @@ directly.
 
 QUICK START
   cmux cloud list-machines --json
-  cmux cloud new-machine --size small --json
+  cmux machine new --size small --json
   cmux cloud exec --target machine:MACHINE_ID --command 'uname -a' --json
   cmux cloud pause-machine --target machine:MACHINE_ID
   cmux cloud resume-machine --target machine:MACHINE_ID
@@ -412,7 +423,7 @@ const INTRO_JA: &str = "\
 
 クイックスタート
   cmux cloud list-machines --json
-  cmux cloud new-machine --size small --json
+  cmux machine new --size small --json
   cmux cloud exec --target machine:MACHINE_ID --command 'uname -a' --json
   cmux cloud pause-machine --target machine:MACHINE_ID
   cmux cloud resume-machine --target machine:MACHINE_ID
@@ -451,6 +462,11 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 `cmux action describe cloud <アクション> --json` で確認できます。
 ";
 
+/// The new spelling of a hidden old verb.
+pub(super) fn renamed(name: &str) -> Option<&'static str> {
+    HIDDEN.iter().find(|(old, _)| *old == name).map(|(_, new)| *new)
+}
+
 fn find(name: &str) -> Option<&'static Verb> {
     GROUPS.iter().flat_map(|group| group.verbs).find(|verb| verb.name == name)
 }
@@ -474,12 +490,17 @@ pub(super) fn overview(japanese: bool) -> String {
         text.push('\n');
         text.push_str(if japanese { group.ja } else { group.en });
         text.push('\n');
-        for verb in group.verbs {
+        for verb in group.verbs.iter().filter(|verb| renamed(verb.name).is_none()) {
             let marker = if verb.usage.contains("--confirm") { " (--confirm)" } else { "" };
             let description = if japanese { verb.ja } else { verb.en };
             text.push_str(&format!("  {:width$}  {description}{marker}\n", verb.name));
         }
     }
+    text.push_str(if japanese {
+        "\nチャットのリポジトリ\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
+    } else {
+        "\nCHAT REPOSITORIES (use --socket for the Cloud machine)\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
+    });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });
     text
@@ -491,17 +512,26 @@ pub(super) fn overview(japanese: bool) -> String {
 pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
     let verb = find(name)?;
     let usage = usage_line(verb);
-    Some(if japanese {
-        format!(
-            "使い方: {usage}\n\n{}。\n\n全引数: `cmux action describe cloud {} --json`（アプリ起動中）\n",
-            verb.ja, verb.name
-        )
-    } else {
-        format!(
-            "usage: {usage}\n\n{}.\n\nEvery argument: `cmux action describe cloud {} --json` (with the app running)\n",
-            verb.en, verb.name
-        )
-    })
+    let note = renamed(name).map_or_else(String::new, |new| {
+        if japanese {
+            format!("`cmux cloud {name}` は `{new}` の旧名です（`{new} --help`）。\n\n")
+        } else {
+            format!("`cmux cloud {name}` is the old name of `{new}` (`{new} --help`).\n\n")
+        }
+    });
+    Some(
+        note + &if japanese {
+            format!(
+                "使い方: {usage}\n\n{}。\n\n全引数: `cmux action describe cloud {} --json`（アプリ起動中）\n",
+                verb.ja, verb.name
+            )
+        } else {
+            format!(
+                "usage: {usage}\n\n{}.\n\nEvery argument: `cmux action describe cloud {} --json` (with the app running)\n",
+                verb.en, verb.name
+            )
+        },
+    )
 }
 
 /// The usage line alone, for a parse error that names the verb.

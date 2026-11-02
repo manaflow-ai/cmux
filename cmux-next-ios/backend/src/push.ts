@@ -25,9 +25,98 @@ export const apnsTopics = (env: Env): ReadonlySet<string> =>
       .filter(Boolean)
   )
 
+export interface CloudAttentionPush {
+  readonly recipient: string
+  readonly kind: "question" | "permission" | "done"
+  readonly event_id: string
+  readonly team_id: string
+  readonly machine_id: string
+  readonly session_id: string
+  readonly deep_link: string
+}
+
+export interface CloudAttentionSendResult {
+  readonly token: string
+  readonly outcome: ApnsOutcome | "retry_later"
+  readonly status: number
+  readonly reason?: string
+  /** APNs' opaque receipt id; safe to return to the caller, unlike the device token. */
+  readonly apns_id?: string
+}
+
+const CLOUD_ATTENTION_KINDS = ["question", "permission", "done"] as const
+
+/** A stable, full-width APNs collapse id; truncating event ids could merge unrelated events. */
+export const cloudAttentionCollapseId = async (event: CloudAttentionPush): Promise<string> => {
+  const input = JSON.stringify({ event_id: event.event_id, team_id: event.team_id, machine_id: event.machine_id, session_id: event.session_id, kind: event.kind })
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input))
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
+}
+
+/** Sends a Cloud attention banner to the owner's registered phones. Text stays out of APNs. */
+export const sendCloudAttention = async (
+  config: ApnsConfig,
+  targets: ReadonlyArray<PushRegistration>,
+  event: CloudAttentionPush,
+  now: number,
+  fetcher: typeof fetch = fetch,
+): Promise<ReadonlyArray<CloudAttentionSendResult>> => {
+  if (!CLOUD_ATTENTION_KINDS.includes(event.kind)) throw new Error("invalid Cloud attention kind")
+  const token = await providerToken(config, now)
+  const collapseId = await cloudAttentionCollapseId(event)
+  const title = event.kind === "question" ? "Cloud chat has a question" : event.kind === "permission" ? "Cloud chat needs permission" : "Cloud chat finished"
+  const body = JSON.stringify({
+    aps: { alert: { title }, sound: "default", category: `CLOUD_${event.kind.toUpperCase()}` },
+    cmux: {
+      cloud: {
+        kind: event.kind,
+        event_id: event.event_id,
+        team_id: event.team_id,
+        machine_id: event.machine_id,
+        session_id: event.session_id,
+        deep_link: event.deep_link,
+      },
+    },
+  })
+  return Promise.all(targets.map(async (target) => {
+    const host = target.environment === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com"
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10_000)
+      const request = new Request(`https://${host}/3/device/${target.token}`, {
+        method: "POST",
+        headers: {
+          authorization: `bearer ${token}`,
+          "apns-topic": target.topic,
+          "apns-push-type": "alert",
+          "apns-priority": "10",
+          "apns-expiration": String(Math.floor((now + 24 * 3600_000) / 1000)),
+          "apns-collapse-id": collapseId,
+          "content-type": "application/json",
+        },
+        body,
+      })
+      try {
+        const response = await fetcher(request, { signal: controller.signal })
+        const reason = response.status === 200 ? undefined : ((await response.json().catch(() => ({}))) as { reason?: string }).reason
+        if (response.status === 403 && (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken")) forgetProviderToken()
+        const apnsId = response.headers.get("apns-id") ?? undefined
+        return { token: target.token, outcome: classifyApns(response.status, reason), status: response.status, ...(reason ? { reason } : {}), ...(apnsId ? { apns_id: apnsId } : {}) }
+      } finally {
+        clearTimeout(timeout)
+      }
+    } catch (error) {
+      return { token: target.token, outcome: "retry_later" as const, status: 0, reason: error instanceof DOMException && error.name === "AbortError" ? "timeout" : "network" }
+    }
+  }))
+}
+
 /** Apple wants one provider token reused for 20 to 60 minutes: one per isolate, renewed after 50 or when refused. */
 let cached: { id: string; token: string; at: number } | undefined
 const configId = (c: ApnsConfig) => `${c.teamId}:${c.keyId}:${c.keyP8.length}:${c.keyP8.slice(-16)}`
+export const forgetProviderToken = () => {
+  cached = undefined
+}
 
 export const providerToken = async (config: ApnsConfig, now: number): Promise<string> => {
   if (cached && cached.id === configId(config) && now - cached.at < 50 * 60_000) return cached.token

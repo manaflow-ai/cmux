@@ -125,7 +125,7 @@ public actor CloudMachineLink {
     /// never saved: the link's acpmux peer bridge leases the machine at the VM boundary only for
     /// this link (cmux-tui `remote_cli/acpmux_peer.rs`).
     public static func vmKindArguments(_ endpoint: CloudAttachEndpoint) -> [String] {
-        endpoint.callerOwnsVM ? ["--vm-kind", "owner"] : []
+        CloudStartCore().vmKind(endpoint.vmKind).linkArguments
     }
 
     /// Whether the running link's attach answer said the signed-in caller owns the machine

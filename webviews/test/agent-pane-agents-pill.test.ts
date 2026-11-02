@@ -10,6 +10,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { openRunningTray } from "./support/openRunningTray";
 
 await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -232,6 +233,8 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
   test("by default the running agents sit in the tray above the composer, not in the transcript", async () => {
     const page = await open(BUSY, "Read app.ts", true);
     await tray(page).waitFor({ timeout: 5_000 });
+    // It starts folded to its header (cmux#28875); the person opens it.
+    await openRunningTray(page);
     // Reviewer and Tester run; the Linter ended and stays as a finished card under them
     // (49acdd1d589d keeps finished cards mounted in the tray).
     const running = tray(page).locator("li:not([data-finished])");
@@ -264,6 +267,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     // An agent spawned by another sits right under it in the tray.
     const nested = await open(NESTED, "Read app.ts", true);
     await tray(nested).waitFor({ timeout: 5_000 });
+    await openRunningTray(nested);
     expect(await tray(nested).locator(".acpmux-summary-agent__name").allTextContents()).toEqual([
       "Reviewer",
       "Scout",

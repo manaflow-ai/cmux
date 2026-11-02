@@ -298,7 +298,7 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
   test("Session Info's Subagents and Background tasks are offered while they have rows, and open there", async () => {
     const page = await busy.open({ width: 1200, height: 760 }, record);
     try {
-      // Without Session Info (Debug Settings `agent.inspector` off) there is no section to show.
+      // Without Session Info (Debug Settings `agent.sessionInfo` off) there is no section to show.
       await offers(page, "toggleFiles,toggleQueueing,toggleSideTabs");
       await page.evaluate(() =>
         (

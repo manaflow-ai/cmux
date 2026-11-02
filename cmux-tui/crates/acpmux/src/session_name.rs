@@ -25,6 +25,13 @@ pub fn ends_with_segments(name: &str, key: &str) -> bool {
         && name.strip_suffix(key).is_some_and(|head| head.ends_with('/'))
 }
 
+/// Whether `name` contains `lower` (already lowercase ASCII) in any ASCII case, as
+/// `name.to_ascii_lowercase().contains(lower)` answers, without a copy of `name`.
+pub fn contains_ignore_case(name: &str, lower: &str) -> bool {
+    lower.is_empty()
+        || name.as_bytes().windows(lower.len()).any(|w| w.eq_ignore_ascii_case(lower.as_bytes()))
+}
+
 /// How many candidates a refusal lists before it says how many more there were.
 pub const CANDIDATES_SHOWN: usize = 8;
 

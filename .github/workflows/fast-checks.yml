@@ -343,13 +343,42 @@ jobs:
           rm -rf -- "$FAST_CHECKS_OUT"
           mkdir -p -- "$FAST_CHECKS_OUT"
           python3 - <<'PY'
-          import json, os, pathlib, signal, subprocess, time
+          import json, os, pathlib, shlex, signal, subprocess, time
           root = pathlib.Path.cwd().resolve()
           directory = (root / os.environ['FAST_CHECKS_DIRECTORY']).resolve()
           directory.relative_to(root)
+          command_text = os.environ['FAST_CHECKS_COMMAND']
+          try:
+              command_words = shlex.split(command_text)
+          except ValueError:
+              # It is still a valid shell command when the unmatched quote is
+              # inside a comment; leave it on the normal execution path.
+              command_words = []
           actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           assert actual == os.environ['FAST_CHECKS_SOURCE'], (actual, os.environ['FAST_CHECKS_SOURCE'])
           tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          display_command = (
+              command_words[:2] == ['cmux-ci', 'run']
+              and '--display' in command_words
+              and not any(operator in command_text for operator in ('&&', '||', ';', '|', '&', '\n'))
+          )
+          if display_command:
+              result = dict(
+                  source_sha=actual,
+                  source_tree=tree,
+                  head_after=actual,
+                  command_started_at=time.time(),
+                  command_seconds=0,
+                  skipped_display=True,
+                  command=os.environ['FAST_CHECKS_COMMAND'],
+                  run_id=os.environ['GITHUB_RUN_ID'],
+                  cpu_count=os.cpu_count(),
+                  exit_code=0,
+              )
+              print('::notice::display checks are advisory and skipped on the fast-checks gating path', flush=True)
+              print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
+              pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+              raise SystemExit(0)
           started_at = time.time()
           start = time.monotonic()
           command = subprocess.Popen(

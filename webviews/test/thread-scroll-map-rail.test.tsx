@@ -125,6 +125,8 @@ async function mount(prompts: number) {
   return { root, scroller, scrolled, unmount: () => act(async () => root.unmount()) };
 }
 
+/// One display frame, and what it commits.
+const frame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
 const ticks = () => [...document.querySelectorAll<HTMLElement>('.acpmux-scrollmap__mark[data-kind="user"]')];
 const tick = (index: number) => ticks()[index]!;
 const card = () => document.querySelector<HTMLElement>(".acpmux-minimap__card");
@@ -175,6 +177,8 @@ test("focus opens the card at once; the arrows walk the prompts; Escape closes; 
     // Return on a button is its click: the transcript lands on the prompt.
     await act(async () => tick(7).click());
     await view.scrolled();
+    // The scroll's rows commit on the next display frame (scrollPacer.ts): read the landing after it.
+    await frame();
     expect(view.scroller.scrollTop).toBe(landing(7));
   } finally {
     await view.unmount();

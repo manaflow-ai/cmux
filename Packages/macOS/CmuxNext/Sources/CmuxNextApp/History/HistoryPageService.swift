@@ -4,6 +4,7 @@ import CmuxNextAgentActivity
 import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextBrowserAutomation
 import CmuxNextDaemon
 import CmuxNextHistory
@@ -144,6 +145,19 @@ extension TabContentCache {
             showAppPage(url, in: tab)
             return true
         }
+    }
+
+    /// A person's own Open Desktop made the remote view tab `key` for `url`: that tab, and only
+    /// that one, is theirs (#29208). A page already made for it (asking for Connect) is made
+    /// again, connected; one the tab left for another address is not touched.
+    func personOpenedRemoteView(_ key: String, url: URL, scope: ActionRunScope?) {
+        guard let services = pageRequests.services else { return }
+        let tab = tabModel(key)
+        // A tab that already left the record keeps no approval it could use if the record came back.
+        if let tab, tab.url != url.absoluteString { return }
+        services.remoteViewPages.confirm(key, url: url, scope: scope)
+        guard RemoteViewPageService.isPersonInput(scope), browsers[key] != nil, let tab else { return }
+        showAppPage(url, in: tab)
     }
 
     /// Replaces a page with the history page.

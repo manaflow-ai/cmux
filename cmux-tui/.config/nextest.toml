@@ -115,3 +115,19 @@ slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
 [[profile.ci.overrides]]
 filter = 'test(=lifecycle_latency_creates_and_closes_in_a_populated_session)'
 success-output = "final"
+
+# Fuzz catalog row h (cmux-remote tests/netdrop_fuzz_e2e.rs) and its red tests print their
+# NETDROP lines on stdout; a fleet step shows them only when a passing test's
+# output is kept.
+[[profile.ci.overrides]]
+filter = 'test(/^netdrop_/)'
+success-output = "final"
+
+# Fuzz row g (the acpmux crash fuzz, tests/fuzz_crash_durable.rs) prints its FUZZ-G lines on
+# stdout; a fleet step shows them only when a passing test's output is kept. One test fuzzes
+# three seeds for up to 70 s each and shrinks a failure for up to 90 s more. It does nothing
+# outside a fleet step keyed fuzz-g.
+[[profile.ci.overrides]]
+filter = 'binary_id(acpmux::fuzz_crash_durable)'
+success-output = "final"
+slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }

@@ -81,7 +81,7 @@ pub(super) struct Command {
 
 /// A failed verb: a stable code and a message that holds no secret.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Failure {
+pub(crate) struct Failure {
     pub code: &'static str,
     pub message: String,
     pub exit: i32,
@@ -290,7 +290,7 @@ pub(super) fn read_credential(
 }
 
 /// `--platform`, else `CMUX_PLATFORM_URL`, else the development platform; https only.
-pub(super) fn platform_origin(
+pub(crate) fn platform_origin(
     flag: Option<&str>,
     env: &dyn Fn(&str) -> Option<String>,
 ) -> Result<String, String> {
@@ -304,7 +304,7 @@ pub(super) fn platform_origin(
 }
 
 /// The cmux platform, as one signed-in caller.
-pub(super) struct Platform {
+pub(crate) struct Platform {
     origin: String,
     credential: String,
     client: reqwest::Client,
@@ -315,7 +315,7 @@ pub(super) struct Platform {
 /// Why a platform call failed. Nothing the server answered is kept but its
 /// status and a code this file knows.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum CallError {
+pub(crate) enum CallError {
     Status { status: u16, code: &'static str },
     Unreachable(String),
     Unreadable(u16),
@@ -360,7 +360,7 @@ impl CallError {
 }
 
 impl Platform {
-    pub(super) fn new(
+    pub(crate) fn new(
         origin: String,
         credential: String,
         timeout: Duration,
@@ -385,12 +385,22 @@ impl Platform {
         path: &str,
         body: Option<Value>,
     ) -> Result<Value, CallError> {
+        self.call_with_timeout(method, path, body, self.timeout).await
+    }
+
+    async fn call_with_timeout(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<Value>,
+        timeout: Duration,
+    ) -> Result<Value, CallError> {
         let mut request = self
             .client
             .request(method, format!("{}{path}", self.origin))
             .bearer_auth(&self.credential)
             .header(reqwest::header::ACCEPT, "application/json")
-            .timeout(self.timeout);
+            .timeout(timeout);
         if let Some(body) = body {
             request = request.json(&body);
         }
@@ -433,6 +443,20 @@ impl Platform {
             .filter_map(|d| d.get("daemonId").and_then(Value::as_str))
             .map(str::to_owned)
             .collect())
+    }
+
+    /// `POST path` with a JSON body: the answer, or why it failed (`link start-chat ensure`).
+    pub(crate) fn post(&self, path: &str, body: Value) -> Result<Value, CallError> {
+        self.runtime.block_on(self.call(reqwest::Method::POST, path, Some(body)))
+    }
+
+    /// A short telemetry read must not extend the workspace machine admission timeout.
+    pub(crate) fn get_with_timeout(
+        &self,
+        path: &str,
+        timeout: Duration,
+    ) -> Result<Value, CallError> {
+        self.runtime.block_on(self.call_with_timeout(reqwest::Method::GET, path, None, timeout))
     }
 
     /// Every joined machine's entry, as the platform lists them.
@@ -521,7 +545,7 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 }
 
 /// The platform's machine-join refusal codes. Errors print only these, from this table.
-const KNOWN_CODES: [&str; 24] = [
+const KNOWN_CODES: [&str; 33] = [
     "auth.unauthenticated",
     "auth.forbidden",
     "auth.sso_required",
@@ -539,6 +563,16 @@ const KNOWN_CODES: [&str; 24] = [
     "rate_limited",
     "machine.join.unavailable",
     "machine.join.not_found",
+    // A workspace's machine (`POST /v1/workspaces/{w}/machine`, `link start-chat ensure`).
+    "cloud_environment.not_found",
+    "machine.conflict",
+    "machine.unavailable",
+    "machine.placement_unavailable",
+    "machine.provider_unavailable",
+    "workspace_machine.unconfigured",
+    "workspace_machine.not_admitted",
+    "workspace_machine.machine_taken",
+    "workspace_machine.machine_gone",
     "bad_request",
     "unauthorized",
     "not_found",

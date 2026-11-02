@@ -6,13 +6,14 @@
 // each, with their live state, an unread dot, how many messages wait for them and what a working
 // one does now; a click opens its chat beside this one (`onOpenSession`). After them, the other
 // chats the agent started (`sessions`, session-info/ChildSessionRows.tsx), each opening its chat.
+import { useContext } from "react";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { formatDuration } from "../conversation/turns";
 import { AgentLine } from "../subagents/AgentLine";
 import { useT, type StringKey, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { elapsed, running, STATE_LABEL, useNow } from "../subagents/SubagentGroup";
+import { elapsed, running, STATE_LABEL, SubagentHarnessContext, useNow } from "../subagents/SubagentGroup";
 import type { Subagent } from "../subagents/subagentFold";
 import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
 import { Spinner } from "../conversation/icons";
@@ -27,8 +28,9 @@ import type { StartedSession } from "../started/startedSessions";
 import { ChildSessionRows, sessionStatus } from "../session-info/ChildSessionRows";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
-import { AgentIdentity, isRepeatedAgentKind } from "../subagents/AgentIdentity";
+import { AgentIdentity, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
 import { agentTone } from "../subagents/agentTones";
+import { orderedSubagents } from "./subagentOrder";
 
 const ROW_ICON = rowIconSize(12);
 const NO_SESSIONS: readonly StartedSession[] = [];
@@ -110,23 +112,12 @@ export function waitingSubagents(
   return waiting;
 }
 
-/// Depth-first from the chat's own subagents; on each level the ones waiting on the user first, then
-/// the running ones, then the ended ones, each newest first.
+/// Depth-first, attention first; the indexed walk also keeps malformed orphan/cycle records visible.
 function ordered(agents: readonly Subagent[], waiting: ReadonlySet<string>): { agent: Subagent; depth: number }[] {
-  const rank = (agent: Subagent) =>
-    ({ waiting: 0, running: 1, done: 2, failed: 2, stopped: 2 })[subagentStatus(agent, waiting)];
-  const known = new Set(agents.map((agent) => agent.id));
-  const out: { agent: Subagent; depth: number }[] = [];
-  const visit = (parent: string | null, depth: number) => {
-    for (const agent of agents
-      .filter((agent) => (agent.parent !== null && known.has(agent.parent) ? agent.parent : null) === parent)
-      .sort((a, b) => rank(a) - rank(b) || b.startedAt - a.startedAt)) {
-      out.push({ agent, depth });
-      visit(agent.id, depth + 1);
-    }
-  };
-  visit(null, 0);
-  return out;
+  return orderedSubagents(
+    agents,
+    (agent) => ({ waiting: 0, running: 1, done: 2, failed: 2, stopped: 2 })[subagentStatus(agent, waiting)],
+  );
 }
 
 /// A sub-session's state as a subagent row's status, for the row's dot and the card's counts.
@@ -175,6 +166,7 @@ export function SubagentStatusList({
   stack?: readonly SummarySubagent[];
 }) {
   const t = useT();
+  const chatHarness = useContext(SubagentHarnessContext);
   const now = useNow(agents.some(running));
   const title = t("summary.subagents");
   const live =
@@ -192,7 +184,7 @@ export function SubagentStatusList({
         {onShowAll ? (
           <button type="button" className="acpmux-summary-title__button" onClick={onShowAll}>
             <span className="acpmux-summary-title__text">{heading}</span>
-            <Icon name="disclosure.collapsed" size={10} />
+            <Icon name="disclosure.collapsed" size={12} />
           </button>
         ) : (
           heading
@@ -207,7 +199,8 @@ export function SubagentStatusList({
               {/* The tray's own line (subagents/AgentLine.tsx): a subagent reads the same here and above the composer. */}
               <AgentLine
                 name={agent.name}
-                mark={agent.harness}
+                icon={SUBAGENT_FALLBACK}
+                mark={agent.harness ?? chatHarness}
                 status={status}
                 state={subagentStateText(t, agent, waiting)}
                 working={Boolean(retrying(agent))}

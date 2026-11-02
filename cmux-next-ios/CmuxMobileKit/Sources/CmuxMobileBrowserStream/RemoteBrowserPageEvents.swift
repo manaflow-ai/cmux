@@ -3,8 +3,8 @@ import Foundation
 
 /// What the page asks the viewer for, as the host's `rb.*` messages carry it
 /// (plans/cmux-next/remote-tab-protocol.md section 4; cmux-remote-browser `proto.rs`):
-/// a context menu or `<select>` (`rb.menu.show`), a JavaScript dialog (`rb.dialog.show`)
-/// and a new tab or window (`rb.open_tab`). The Mac's viewer reads the same messages
+/// a context menu or `<select>` (`rb.menu.show`), a JavaScript dialog (`rb.dialog.show`),
+/// a new tab or window (`rb.open_tab`), and find in page results (`rb.find.result`). The Mac's viewer reads the same messages
 /// (CmuxNextRemoteBrowser `RbMenu`, `RbDialog`, `RbClientEffect.openTab`).
 
 /// One menu entry (`MenuItem`).
@@ -111,10 +111,13 @@ public struct RemoteBrowserMenu: Sendable, Equatable {
 
     /// The rows the phone shows of a page's context menu. Chromium runs each command on
     /// the Mac, so a row whose work lands on the Mac's own pasteboard, disk, printer, voice or
-    /// developer tools (Copy Link Address, Save Image As…, Copy, Paste, Print…, Speech, Inspect),
-    /// or in a tab the host does not hand to viewers (Open Link in New Tab), would do nothing
-    /// the person sees on the iPhone: those rows are left out (never a control that does
-    /// nothing). Separators are kept only between rows.
+    /// developer tools (Copy Link Address, Save Image As…, Copy, Paste, Print…, Speech, Inspect)
+    /// would do nothing the person sees on the iPhone: those rows are left out (never a control
+    /// that does nothing). Rows that open a web page in a tab (Open Link in New Tab or Window,
+    /// Search for) stay: the browser host hands each new tab to the viewer (`rb.open_tab`), and
+    /// it opens beside the page. View Page Source is left out: its tab is `view-source:`, which
+    /// the Mac's mobile policy does not open from a phone (`new-browser-tab` takes http and https
+    /// only). Separators are kept only between rows.
     public var phoneItems: [RemoteBrowserMenuItem] {
         Self.phoneRows(items)
     }
@@ -127,7 +130,7 @@ public struct RemoteBrowserMenu: Sendable, Equatable {
                 rows.append(item)
                 continue
             }
-            if macOnlyCommands.contains(item.id) || opensTabCommands.contains(item.id) { continue }
+            if macOnlyCommands.contains(item.id) { continue }
             if item.type == "submenu" {
                 // A Mac submenu CEF renumbers (Speech arrives as 100 with 101 and 102): its
                 // rows act on the Mac, not on the page.
@@ -158,6 +161,8 @@ public struct RemoteBrowserMenu: Sendable, Equatable {
         50151, // IDC_CONTENT_CONTEXT_CUT
         50152, // IDC_CONTENT_CONTEXT_PASTE
         50153, // IDC_CONTENT_CONTEXT_PASTE_AND_MATCH_STYLE
+        35002, // IDC_VIEW_SOURCE (a view-source: tab, which a phone may not open; see phoneItems)
+        50161, // IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE (Chromium's own view-source tab, in the Mac's hidden window)
         50162, // IDC_CONTENT_CONTEXT_INSPECTELEMENT
         50165, // IDC_CONTENT_CONTEXT_LOOK_UP
         50180, 50181, 50182, // the Speech submenu: Start and Stop Speaking speak on the Mac
@@ -167,19 +172,6 @@ public struct RemoteBrowserMenu: Sendable, Equatable {
         51034, // Create QR Code for this Page (a bubble on the Mac)
         112, 113, 114, // MENU_ID_CUT, MENU_ID_COPY, MENU_ID_PASTE
         131, // MENU_ID_PRINT
-    ]
-
-    /// Commands Chromium runs as a new tab through `OpenURLFromTab`. The browser host forwards
-    /// only the page's own popups (`OnBeforePopup`, `rb.open_tab`), so on a streamed page these
-    /// open nothing a viewer sees; they stay off the phone's menu until the host forwards them.
-    static let opensTabCommands: Set<Int64> = [
-        50100, // IDC_CONTENT_CONTEXT_OPENLINKNEWTAB
-        50101, // IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW
-        50123, // IDC_CONTENT_CONTEXT_OPENIMAGENEWTAB
-        50125, // IDC_CONTENT_CONTEXT_OPEN_ORIGINAL_IMAGE_NEW_TAB
-        50191, // IDC_CONTENT_CONTEXT_SEARCHWEBFOR
-        50192, // IDC_CONTENT_CONTEXT_SEARCHWEBFORNEWTAB
-        35002, // IDC_VIEW_SOURCE (a view-source: tab)
     ]
 
     /// Whether `choice` is one this menu offered (the viewer's own check of
@@ -299,6 +291,18 @@ extension RemoteBrowserWire {
                     "tab": tab.map { $0 as Any } ?? NSNull(), "refused": refused.map { $0 as Any } ?? NSNull()])
     }
 
+    /// Find in page (`rb.find`): a new search for `query` (`next` false), or the next or
+    /// previous match of the running one. Matching ignores case, as Safari's and the Mac's
+    /// find bars do.
+    public func find(_ query: String, forward: Bool, next: Bool) -> Data {
+        encodeJSON(["t": "rb.find", "query": query, "forward": forward, "match_case": false, "next": next])
+    }
+
+    /// Ends the search and its highlights (`rb.find.stop`), keeping the active match selected.
+    public func findStop() -> Data {
+        encodeJSON(["t": "rb.find.stop", "keep_selection": true])
+    }
+
     /// A secondary-button click at CSS pixels (the long press that asks for the page's menu).
     public func secondaryClick(x: Double, y: Double, down: Bool) -> Data {
         encodeJSON(["e": "pointer", "surface": 0, "kind": down ? "down" : "up", "x": x, "y": y, "button": 2,
@@ -308,4 +312,27 @@ extension RemoteBrowserWire {
     func encodeJSON(_ object: [String: Any]) -> Data {
         (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
     }
+}
+
+/// Find in page results (`rb.find.result`): how many matches the page has for the running
+/// search and which one is active (1-based; 0 while none is).
+public struct RemoteBrowserFindResult: Sendable, Equatable {
+    public var matches: Int
+    public var active: Int
+
+    public init(matches: Int, active: Int) {
+        self.matches = matches
+        self.active = active
+    }
+
+    init?(json: [String: Any]) {
+        guard let matches = (json["matches"] as? NSNumber)?.intValue,
+              let active = (json["active"] as? NSNumber)?.intValue else { return nil }
+        self.matches = max(0, matches)
+        self.active = min(max(0, active), self.matches)
+    }
+
+    /// The active match's index for the find bar (`UIFindSession.highlightedResultIndex`),
+    /// nil while none is active.
+    public var activeIndex: Int? { active > 0 ? active - 1 : nil }
 }

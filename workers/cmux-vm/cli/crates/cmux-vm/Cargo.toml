@@ -30,6 +30,8 @@ tokio.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework.workspace = true
+# The user's home from the user database, for the token store lock (token.rs).
+nix = { workspace = true, features = ["user"] }
 
 [dev-dependencies]
 wiremock.workspace = true

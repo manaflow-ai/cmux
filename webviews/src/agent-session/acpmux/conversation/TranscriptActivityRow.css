@@ -7,10 +7,10 @@
   cursor: default;
   user-select: none;
 }
-.cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within) > .cv-agent-activity__control {
+.cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) > .cv-agent-activity__control {
   color: var(--cv-text);
 }
-.cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within) .cv-agent-activity__chevron {
+.cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) .cv-agent-activity__chevron {
   color: var(--cv-text);
 }
 .cv-agent-activity__control {
@@ -50,9 +50,9 @@
   flex: none;
 }
 
-.cv-agent-activity-row.cv-disclosure__line:is(:hover, :active, :focus-within) {
+.cv-agent-activity-row.cv-disclosure__line:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) {
   color: var(--cv-text);
 }
-.cv-agent-activity-row.cv-disclosure__line:is(:hover, :active, :focus-within) .cv-received__preview {
+.cv-agent-activity-row.cv-disclosure__line:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) .cv-received__preview {
   color: var(--cv-text);
 }
