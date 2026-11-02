@@ -95,9 +95,9 @@ final class ClaudeAccountAutoSwitchCoordinator {
         handledEventIds[panelId] = request.eventId
     }
 
-    /// The pane closed for good. A switch still deciding about it stops there; one already
-    /// restarting it ends its waits at once, which the switch treats as a timeout: it types
-    /// nothing and reports the resume command.
+    /// The pane closed for good. A switch still deciding about it stops there. One already under
+    /// way runs on with its waits cut short and types nothing; its follow-up then treats the pane
+    /// as closed (see ``ClaudeAccountAutoSwitchFollowUp/init(result:sendContinue:paneClosed:)``).
     func paneClosed(panelId: UUID) {
         runs.cancel(panelId: panelId)
     }
@@ -201,7 +201,12 @@ final class ClaudeAccountAutoSwitchCoordinator {
                 return self.paneInUse(request, workspace: workspace) == nil
             }
         )
-        let followUp = ClaudeAccountAutoSwitchFollowUp(result: result, sendContinue: sendContinue)
+        // Only the pane's close cancels this run (see paneClosed(panelId:)).
+        let followUp = ClaudeAccountAutoSwitchFollowUp(
+            result: result,
+            sendContinue: sendContinue,
+            paneClosed: Task.isCancelled
+        )
         log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) followUp=\(followUp.logName)")
         switch followUp {
         case .announce(let from, let to, let sessionId, let typeContinue):
@@ -231,11 +236,11 @@ final class ClaudeAccountAutoSwitchCoordinator {
                     switchStartedAt: switchStartedAt
                 )
             }
-        case .announceWithoutResume(let from, let to):
+        case .announceWithoutResume(let from, let to, let notification):
             ledger.noteAutomaticSwitch(panelId: panelId, atMs: Self.nowMs())
             announce(
                 ClaudeAccountAutoSwitchAnnouncement(from: from, to: to, reset: exhaustion.quotedReset, continues: false),
-                notification: ClaudeAccountSwitchSocketOutcome.finished(result).resumeNotification,
+                notification: notification,
                 workspace: workspace,
                 panelId: panelId
             )
