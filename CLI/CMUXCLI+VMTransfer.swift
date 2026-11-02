@@ -1826,10 +1826,11 @@ extension CMUXCLI {
           --wait           Block until the agent's process exits and pass its exit
                            code through (`exited code=<n>`; 1 for a signal). Ctrl-C
                            stops waiting only — the agent keeps running detached.
-          --output         With --wait: print the agent's whole terminal output on
-                           stdout when it ends (the launch lines move to stderr).
-          --timeout <s>    With --wait: give up waiting after this many seconds
-                           (exit 1, the agent is not stopped). Default: no limit.
+          --output         Wait for the agent to exit and print its whole terminal
+                           output on stdout (the launch lines move to stderr).
+          --timeout <s>    Requires --wait or --output. Give up waiting after this
+                           many seconds (exit 1; the agent is not stopped).
+                           Default: no limit.
           --new            Force a fresh pool machine.
           --size <4g|8g|16g|24g|32g|64g|MB>
                            Memory preset for a machine this call creates
