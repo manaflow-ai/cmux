@@ -70,7 +70,7 @@ parser.add_argument("--shortcuts", default=",".join(SHORTCUTS))
 parser.add_argument("--no-profile", action="store_true")
 parser.add_argument("--session", choices=["light", "stress"], default="light")
 parser.add_argument("--settle", type=float, default=0.6, help="seconds after each press before its undo")
-parser.add_argument("--first-sample-wait", type=float, default=1.0)
+parser.add_argument("--first-sample-wait", type=float, default=2.0)  # cmux22: 1.0 s gave a lead of 1 ms
 opts, _unknown = parser.parse_known_args()  # split-spring.sh passes options this script does not read
 OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
@@ -192,7 +192,9 @@ def after(action, state):
             rpc("action.run", {"action": "closeWorkspace", "wait": True})
             wait(lambda: workspace_count() <= state["workspaces"], 10)
     elif action == "commandPalette":
-        rpc("debug.key", {"key": "escape", "modifiers": [], "window": state["window"]})
+        # To the key window (the palette's panel), not the main window: with "window" the Escape went to the main
+        # window, the palette stayed open, and the next press closed it (hide() in the profile, cmux22 04:1xZ).
+        rpc("debug.key", {"key": "escape", "modifiers": []})
     time.sleep(0.3)  # test harness: the undo's frames settle before the next press
 
 
