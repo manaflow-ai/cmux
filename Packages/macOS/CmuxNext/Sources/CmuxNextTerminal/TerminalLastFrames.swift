@@ -48,9 +48,14 @@ public struct TerminalLastFrames {
 
     public mutating func note(_ outcome: String) { outcomes[outcome, default: 0] += 1 }
 
-    /// How many evicted terminals keep a last frame: the warm set's hidden terminal capacity.
+    /// How many evicted terminals keep a last frame: the warm set's hidden terminals plus the frames 1/32 of
+    /// physical memory holds at ``frameCostBytes`` each (16 GB: 21, 64 GB: 85; at most 128). The frames are volatile
+    /// (``TerminalFramePurgeability``), so memory pressure takes their pages with no policy of ours. SWITCH FRAMES
+    /// SF-2: bounded by the warm set alone (8 on a 16 GB Mac), a terminal's frame was dropped 4 switches after its
+    /// eviction in a 9-workspace, 18-terminal session, and every switch back showed an empty pane.
     public static func capacity(warm: Int, physicalBytes: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Int {
-        warm
+        guard warm > 0 else { return 0 }
+        return warm + min(128, Int((physicalBytes / 32) / frameCostBytes))
     }
 
     /// One frame of a large pane on a 2x display (about 1800 x 1100 points, BGRA): 24 MB.
