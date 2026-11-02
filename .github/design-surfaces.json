@@ -69,7 +69,9 @@
     "session-rail": {
       "spec": "leo-workspace design/session-rail.md",
       "aliases": ["session rail", "prompt rail", "thread minimap", "rail ticks"],
-      "paths": ["webviews/src/agent-session/acpmux/threadMinimap/"]
+      "paths": [
+        "webviews/src/agent-session/acpmux/threadMinimap/"
+      ]
     },
     "feature-tips": {
       "spec": "leo-workspace design/feature-tips.md",
@@ -110,7 +112,7 @@
         "webviews/src/agent-session/acpmux/conversation/valueTree.ts",
         "webviews/src/agent-session/acpmux/conversation/ToolRow.tsx",
         "webviews/src/agent-session/acpmux/conversation/ToolVerb.tsx",
-        "webviews/src/agent-session/acpmux/conversation/MessageGroupRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/TurnRows.tsx",
         "webviews/src/agent-session/acpmux/conversation/AgentTag.tsx",
         "webviews/src/agent-session/acpmux/conversation/AgentTag.css",
         "webviews/src/agent-session/acpmux/conversation/IncomingMessageCard.tsx",
@@ -132,6 +134,20 @@
         "webviews/src/pages/settings/refined.css",
         "webviews/src/pages/settings/styles.css",
         "webviews/src/ui/Select.tsx"
+      ]
+    },
+    "menus": {
+      "spec": "leo-workspace design/menus.md",
+      "aliases": ["menu", "menus", "context menu", "right-click menu", "dropdown", "checkmark", "menu glass"],
+      "paths": [
+        "webviews/src/ui/Menu.tsx",
+        "webviews/src/ui/ContextMenu.tsx",
+        "webviews/src/ui/popupSurface.css",
+        "webviews/src/ui/ui.css",
+        "webviews/src/pages/shared/PageMenu.tsx",
+        "webviews/src/pages/shared/pageBase.css",
+        "webviews/scripts/check-menu-gutters.ts",
+        "schemas/menu-metrics/menu-metrics.json"
       ]
     },
     "chat-header": {

@@ -146,6 +146,17 @@
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--agent-text) 45%, transparent);
 }
+/* A `/name` that names a command (composer/slashTokens.ts), at the prompt's start or after a space:
+   the link blue, so the person sees the agent will read it as a command. Only its colour changes. */
+.acpmux-md .acpmux-slash-token {
+  color: var(--agent-link, var(--agent-accent));
+}
+/* A skill's word with a description (its tooltip): a dotted underline on hover, as in a sent prompt. */
+.acpmux-md .acpmux-slash-token[data-tooltip]:hover {
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
 .acpmux-md code {
   padding: 1px 4px;
   border-radius: 4px;

@@ -5,7 +5,12 @@
 // the person's click. These tests drive the card and its wire with a mocked client.
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { cloudAgentLogin, loginFailure, signInURL } from "../src/agent-session/acpmux/cloudAgentLogin";
+import {
+  cloudAgentLogin,
+  localApiKeyLogin,
+  loginFailure,
+  signInURL,
+} from "../src/agent-session/acpmux/cloudAgentLogin";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -115,13 +120,19 @@ function mockClient(replies: Partial<Record<string, (...args: unknown[]) => unkn
 
 function signInFor(
   client: ReturnType<typeof mockClient>["client"],
-  options: { harness?: string; tickets?: (string | undefined)[]; opened?: string[]; supported?: boolean } = {},
+  options: {
+    harness?: string;
+    tickets?: (string | undefined)[];
+    opened?: string[];
+    supported?: boolean;
+    local?: boolean;
+  } = {},
 ) {
   const tickets = options.tickets ?? ["ticket-1", "ticket-2"];
   const intents: unknown[] = [];
-  const signIn = cloudAgentLogin({
+  const signIn = (options.local ? localApiKeyLogin : cloudAgentLogin)({
     connected: true,
-    machineID: "provider-vm-1",
+    machineID: options.local ? undefined : "provider-vm-1",
     sessionId: "chat-1",
     harness: options.harness ?? "claude",
     supported: options.supported ?? true,
@@ -311,6 +322,39 @@ test("Codex: the device code shows with Copy; after approval Send again takes it
   expect(sent[0]![4]).toBe("ticket-1");
 });
 
+// A team Cloud machine takes no personal login (the start skipped it: `guest-not-owner`, guest `team`):
+// the card says so, Switch model leads, Use an API key stays, and neither Sign in to Claude nor a
+// login transfer (which ends in "Personal credentials can only be transferred to a Cloud machine you
+// own") is offered, by hand or automatically.
+test("a team Cloud machine's sign-in failure names it and offers Switch model and Use an API key", async () => {
+  const { client } = mockClient();
+  const { signIn } = signInFor(client);
+  const transfers: unknown[][] = [];
+  const team = { ...cloudRoute, teamMachine: true };
+  const rejected = "The provider rejected Claude Code's credentials on this Cloud machine (HTTP 401).";
+  await render(
+    {
+      route: team,
+      cloudSignIn: signIn,
+      switchModel: () => undefined,
+      transferCloudCredentials: async (...args: unknown[]) => void transfers.push(args),
+    },
+    rejected,
+  );
+  await flush();
+  expect(host.querySelector(".cv-turn-error__cause")!.textContent).toContain(
+    "Claude Code on this team Cloud machine has no sign-in it can use. cmux doesn’t pass personal logins to shared team machines.",
+  );
+  expect(labels().slice(0, 2)).toEqual(["Switch model", "Use an API key"]);
+  expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Sign in to Claude")).toBeUndefined();
+  expect(button("Set up Claude Code credentials")).toBeUndefined();
+  expect(transfers).toEqual([]);
+  // An owner machine's card is as it was.
+  await render({ route: cloudRoute, cloudSignIn: signIn, switchModel: () => undefined }, rejected);
+  expect(labels().slice(0, 3)).toEqual(["Sign in to Claude", "Use an API key", "Switch model"]);
+});
+
 test("API key: a password field, saved on the machine, then Send again", async () => {
   const { client, calls, sent } = mockClient({ apiKey: () => ({ saved: true, restarted: true }) });
   const { signIn, intents } = signInFor(client);
@@ -488,4 +532,68 @@ test("a card that goes away cancels its login and sends nothing after", async ()
   await act(async () => finish({ signedIn: true }));
   await flush();
   expect(sent).toEqual([]);
+});
+
+// Leo 2026-10-26: "if user picks a model they don't have api key, we offer them to add credits or add
+// their own api key". A chat on this Mac whose built-in Claude Code or Codex is not signed in offers
+// Use an API key beside Sign in again; acpmux saves it where the agent's own CLI reads it.
+const localRoute = { name: "Claude Code", harness: "claude" };
+
+test("Use an API key is offered only for a connected built-in Claude or Codex chat on this Mac", () => {
+  const { client } = mockClient();
+  const base = {
+    connected: true,
+    machineID: undefined,
+    sessionId: "chat-1",
+    harness: "claude",
+    supported: true,
+    gesture: async () => undefined,
+    openURL: () => undefined,
+    isCurrent: () => true,
+    currentClient: () => client as never,
+  };
+  expect(localApiKeyLogin(base)?.agent).toBe("claude");
+  expect(localApiKeyLogin({ ...base, harness: "codex" })?.agent).toBe("codex");
+  // A route sets its own key and endpoint: a saved key would never reach it.
+  expect(localApiKeyLogin({ ...base, harness: "claude-cr" })).toBeUndefined();
+  expect(localApiKeyLogin({ ...base, harness: "opencode" })).toBeUndefined();
+  // A Cloud chat's card is cloudAgentLogin's.
+  expect(localApiKeyLogin({ ...base, machineID: "vm" })).toBeUndefined();
+  expect(localApiKeyLogin({ ...base, connected: false })).toBeUndefined();
+  expect(localApiKeyLogin({ ...base, supported: false })).toBeUndefined();
+});
+
+test("a signed-out chat here offers Sign in again, then Use an API key, which saves and sends again", async () => {
+  const { client, calls, sent } = mockClient({ apiKey: () => ({ saved: true, restarted: true }) });
+  const { signIn, intents } = signInFor(client, { local: true });
+  await render({
+    route: localRoute,
+    apiKeySignIn: signIn,
+    reauthenticate: () => undefined,
+    switchModel: () => undefined,
+  });
+  expect(labels().slice(0, 2)).toEqual(["Sign in again", "Use an API key"]);
+  expect(button("Sign in again")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Use an API key")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  expect(button("Sign in to Claude")).toBeUndefined();
+  await act(async () => button("Use an API key")!.click());
+  const input = host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!;
+  expect(input.type).toBe("password");
+  await typeInto(input, "sk-ant-local-key");
+  await act(async () => button("Save")!.click());
+  await flush();
+  expect(calls).toContainEqual(["apiKey", "claude", "chat-1", "sk-ant-local-key"]);
+  expect(host.innerHTML).not.toContain("sk-ant-local-key");
+  await act(async () => button("Send again")!.click());
+  await flush();
+  await flush();
+  expect(intents).toHaveLength(1);
+  expect(sent).toHaveLength(1);
+});
+
+test("no Use an API key here on a failure that is not a sign-in", async () => {
+  const { client } = mockClient();
+  const { signIn } = signInFor(client, { local: true });
+  await render({ route: localRoute, apiKeySignIn: signIn, retry: () => undefined }, "API Error: 529 overloaded_error");
+  expect(button("Use an API key")).toBeUndefined();
 });

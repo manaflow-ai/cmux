@@ -155,22 +155,44 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         set { (webView as? PageWKWebView)?.fileDrop = newValue }
     }
     /// Called with their file URLs when files are dropped on the page itself (not a ``fileDrop`` the
-    /// host opens): a real gesture page script can't make.
+    /// host opens): a real gesture page script can't make. In WebKit, with the drop's event in
+    /// dispatch; in Chromium, from the page's drop message, and only right after a native drop of
+    /// a drag the host saw enter (``PageChromiumEvent/filesDragged(_:)`` then
+    /// ``PageChromiumEvent/dragEnded(dropped:)``, within ``chromiumDropConfirmation``), its files
+    /// once, with that drop's event in ``droppedEvent``.
     public var onFilesDropped: (@MainActor ([URL]) -> Void)? {
-        get { (webView as? PageWKWebView)?.onFilesDropped }
-        set { (webView as? PageWKWebView)?.onFilesDropped = newValue }
+        didSet { (webView as? PageWKWebView)?.onFilesDropped = onFilesDropped }
     }
     /// Called with their file URLs when the person picks files in the page's file input
-    /// (``PageOpenPanel``), before the page gets them: a pick page script can't make.
+    /// (``PageOpenPanel``, or the app's panel for a Chromium page), before the page gets them: a
+    /// pick page script can't make. A Chromium page answers its choosers itself only while it is set.
     public var onFilesChosen: (@MainActor ([URL]) -> Void)? {
-        get { fileChooser?.onChosen }
-        set { fileChooser?.onChosen = newValue }
+        didSet {
+            fileChooser?.onChosen = onFilesChosen
+            chromiumSession?.page.setAnswersFileChooser(onFilesChosen != nil)
+        }
     }
-    /// Called when a paste (Cmd-V, Edit > Paste) is about to reach the page, before WebKit pastes.
+    /// Called when a paste (Cmd-V, Edit > Paste) is about to reach the page, before it pastes: in
+    /// WebKit from the view; in Chromium from its Cmd-V and our own menu's Paste
+    /// (``chromiumPasted()``), each with the person's event in dispatch.
     public var onPaste: (@MainActor () -> Void)? {
-        get { (webView as? PageWKWebView)?.onPaste }
-        set { (webView as? PageWKWebView)?.onPaste = newValue }
+        didSet { (webView as? PageWKWebView)?.onPaste = onPaste }
     }
+    /// The files of the last drag from outside that entered the Chromium page, with when it
+    /// entered; the page's drop reports them once (``onFilesDropped``).
+    var chromiumDragged: (urls: [URL], at: Date)?
+    /// While ``onFilesDropped`` runs for a Chromium page: when the drop's drag entered the page.
+    /// The page took the drop before the host hears of it, so a record of it is dated by the drag's
+    /// entry, before the page's gesture. Nil in WebKit, where the drop's event is in dispatch.
+    public internal(set) var droppedEnteredAt: Date?
+    /// The native drop of the Chromium page's current drag (``PageChromiumEvent/dragEnded(dropped:)``):
+    /// when it happened and the AppKit event in dispatch then. One use: the page's drop message
+    /// takes it. Page script cannot make one.
+    var chromiumDropConfirmed: (at: Date, event: NSEvent?)?
+    /// While ``onFilesDropped`` runs for a Chromium page: the AppKit event that was in dispatch at
+    /// the native drop (WebKit's drop has it in dispatch, as `NSApp.currentEvent`). A host checks
+    /// that it is the person's before it treats the drop as their gesture. Nil in WebKit.
+    public internal(set) var droppedEvent: NSEvent?
     /// When a real key or mouse event last reached the page (`systemUptime`; page script cannot set
     /// it), the event behind `PageCallContext.userGesture`. A host that grants one action per
     /// gesture (a file page's "Open <path>?" sheet) records the value it used.
@@ -413,11 +435,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
     }
 
-    /// The theme carries the static status look (`data-status-indicators`, cx-sya4n): a change of
-    /// the setting or of Reduce Motion pushes the theme again.
+    /// The theme carries the static status look (`data-status-indicators`, cx-sya4n) and the sidebar
+    /// cards' sizes (`--cmux-sidebar-card-*`): a change of the setting, of Reduce Motion or of the
+    /// sidebar's density or text size pushes the theme again.
     private func observeStatusLook() {
         statusLookObservation = Task { [weak self] in
-            for await _ in ObservationStream({ DesignSettings.shared.statusIndicator.animation }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.statusIndicator.animation, SidebarRowTokens.current.card) }) {
                 guard let self else { return }
                 self.applyTheme()
             }

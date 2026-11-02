@@ -1,3 +1,15 @@
+import {
+  footerAfter,
+  gridLength,
+  MARK_STEP,
+  rowMark,
+  gridScale,
+  restBand,
+  tailGap,
+  TRANSCRIPT_BLOCK_GAP,
+  TRANSCRIPT_INNER_GAP,
+  transcriptGap,
+} from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
 import type { VideoInfo } from "./composer/videoAttachments";
 import type { AttachmentSource } from "./attachments";
@@ -393,6 +405,9 @@ export type AcpmuxRow = {
   /// conversation/toolRunSummary.ts).
   /// False keeps a run waiting for edit permission in tool rows without collapsing it.
   foldRun?: boolean;
+  /// A run of one-line rows carrying messages between agents, folded under one line
+  /// (conversation/messageRuns.ts): what its line counts and the rows it folds.
+  messageRun?: AcpmuxMessageRun;
   /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
   live?: boolean;
   /// A running turn's status line: the title of the call in flight, which it names (WorkingFor.tsx).
@@ -922,6 +937,9 @@ export type AcpmuxSnapshot = {
   /// The rows of the steers the agent has not read yet (direct.ts `waitingSteers`), oldest first, only
   /// while two or more wait: the transcript draws other sessions' among them as one card.
   waitingSteers?: readonly string[];
+  /// While two or more steers wait: the row of the person's newest one, the only one that offers
+  /// Send now (direct.ts `newestOwnSteer`, conversation/PendingSteer.tsx).
+  newestOwnSteer?: string;
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
@@ -1030,6 +1048,18 @@ export type ConversationLayout = {
   tops: Float64Array;
   heights: Float64Array;
   totalHeight: number;
+  /// Container-owned space before each content row; hover-only footers own no space.
+  gaps?: Float64Array;
+  /// Each row's kind for the gap rules (transcriptGrid.ts rowMark): prompts, messages and the live
+  /// line, so placement after DOM-empty rows are skipped picks the same gaps.
+  marks?: Uint8Array;
+  /// The composer gap under the last drawn row (transcriptGrid.ts tailGap).
+  tailGap?: number;
+  /// The interface scale the gaps were placed at (transcriptGrid.ts gridScale).
+  scale?: number;
+  /// Over a floating stack, the band under the last drawn row before the rest gap: a trailing turn
+  /// footer's action row lies there (transcriptGrid.ts restBand).
+  restBand?: number;
 };
 
 /// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`): the
@@ -1037,15 +1067,21 @@ export type ConversationLayout = {
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
 const metrics = () => currentChatMetrics();
 /// Vertical padding of a user bubble (`.cv-user__bubble`).
-const USER_BUBBLE_PADDING = 16;
+/// The bubble's vertical padding (`.cv-user__bubble`: `--grid-gap` above and below), scaled per pass.
+const userBubblePadding = () => 2 * gridLength("gap") * chromeScale;
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
 const USER_STATUS_HEIGHT = 20;
 /// The transcript's rhythm (`--cv-meta-gap`, `--cv-meta-row`, `--cv-message-gap` and `--cv-turn-gap`
 /// in conversation/conversation.css): a meta row 4px under its message on a 24px line, 8px between
 /// messages, 16px between turns (the paragraph gap plus a small separator).
-const META_GAP = 4;
-const META_ROW = 24;
-const MESSAGE_GAP = 8;
+const META_GAP = 0;
+/// Grid lengths scale with the Interface Size as their CSS tokens do (desktop.css `calc(Npx *
+/// var(--cmux-interface-scale, 1))`). layoutConversation sets the factor once per pass, so the row
+/// estimates match the drawn rows at any size.
+let chromeScale = 1;
+const META_ROW_PT = gridLength("transcript-action-control");
+const metaRow = () => META_ROW_PT * chromeScale;
+const MESSAGE_GAP = 0;
 /// A collapsed sub-session disclosure (subagents/AgentCard.css): one 26px line plus its transcript
 /// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
 const cardHeight = (_state: string) => 32;
@@ -1058,16 +1094,22 @@ function replyHeight(reply: string): number {
 }
 
 /// The compact tool run rhythm (`conversation.css --cv-tool-row-height` and its run bottom gap).
-const TOOL_RUN_TOP = 2;
-const TOOL_ROW_HEIGHT = 22;
-const TOOL_RUN_BOTTOM = 4;
-/// A one-line row that is not a tool run (`isLineRow`) draws on the same line in the same frame as a
-/// one-call run: 2px over its 22px line, 4px under it (`.acpmux-row--line` in conversation.css), and
-/// none of either beside another step row, so every one-line row sits one line from the next (Leo,
-/// 2026-11-01: "doesn't make sense for these to be spaced differently"). Inside a group, a member is
-/// its line alone.
+const TOOL_RUN_TOP = 0;
+/// The running turn's live run line (conversation/turns.ts ACTIVITY_LINE), by value: turns.ts imports
+/// this module.
+const ACTIVITY_LINE_KIND = "activityLine";
+/// A step row: a tool run, the live run line, or a one-line row (transcriptGrid.ts MARK_STEP).
+const isStepRow = (row: AcpmuxRow) => row.kind === "activity" || row.kind === ACTIVITY_LINE_KIND || isLineRow(row);
+/// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
+/// #29965), `--cv-tool-row-height`.
+const TOOL_ROW_PT = 22;
+const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
+const TOOL_RUN_BOTTOM = 0;
+/// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run
+/// does (#29965; Leo, 2026-11-01: "doesn't make sense for these to be spaced differently"). On the
+/// grid the run adds no frame of its own (the stack's gap is the spacing), so the frame is 0.
 const LINE_FRAME = TOOL_RUN_TOP + TOOL_RUN_BOTTOM;
-const LINE_ROW = LINE_FRAME + TOOL_ROW_HEIGHT;
+const lineRow = () => LINE_FRAME + toolRowHeight();
 
 /// Ordinary tool rows use the compact rhythm. Notes and specialized MCP cards keep a conservative
 /// estimate until their renderer reports its measured height (a wait can contain several three-line replies).
@@ -1075,7 +1117,9 @@ const LINE_ROW = LINE_FRAME + TOOL_ROW_HEIGHT;
 /// lines at the column's width, with the plain status gap above and below it. A note that wraps
 /// draws a line per wrap, so it is estimated from its text as a reply is (cmux#31148).
 const NOTE_LINE = 20;
-const NOTE_GAP = 12;
+/// The room above and below a note (#30400's --cv-note-gap): the block gap, since a run's lines are
+/// otherwise flush (conversation.css `.cv-tool-note`).
+const noteGap = () => TRANSCRIPT_BLOCK_GAP * chromeScale;
 /// The prepared texts of those notes, for their estimates; cleared past 256, as a row's are.
 const notePrepared = new Map<string, PreparedText | null>();
 function noteHeight(text: string | undefined, width: number): number {
@@ -1084,14 +1128,14 @@ function noteHeight(text: string | undefined, width: number): number {
   // the note draws as one space: measure the text that way, not as the replies' pre-wrap.
   const flat = text?.replace(/\s+/g, " ").trim();
   const lines = flat ? textHeight(flat, width, notePrepared, undefined, NOTE_LINE) : NOTE_LINE;
-  return Math.max(NOTE_LINE, lines) + 2 * NOTE_GAP;
+  return Math.max(NOTE_LINE, lines) + 2 * noteGap();
 }
 function activityStepHeight(item: AcpmuxActivity, width: number): number {
   const tool = item.tool;
   if (!tool) return item.kind === "note" ? noteHeight(item.text, width) : 26;
   // A message to another agent (SendMessage, `acpmux send`, a sub-session's `send_message`) is one
   // line on the tool rows' line (AgentMessageRow.tsx), as every one-line row is.
-  if (agentMessage(tool)) return TOOL_ROW_HEIGHT;
+  if (agentMessage(tool)) return toolRowHeight();
   const mcp = mcpCall(tool);
   if (mcp) {
     const subsession = subsessionCall(tool, mcp);
@@ -1106,14 +1150,14 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
             cardHeight(session.state) +
             (session.reply && session.state !== "working" ? replyHeight(session.reply) : 0),
           0,
-        ) + TOOL_ROW_HEIGHT,
+        ) + toolRowHeight(),
       );
     // A start's card, its doing line while it starts, and its prompt (cut like a reply).
     if (subsession.tool === "start" && subsession.prompt)
-      return cardHeight("working") + replyHeight(subsession.prompt) + TOOL_ROW_HEIGHT;
+      return cardHeight("working") + replyHeight(subsession.prompt) + toolRowHeight();
     // A message sent to a sub-session is the sent-message row a shell `acpmux send` draws
     // (SubsessionCallCard.tsx SentLine, SentMessageLine.tsx): one tool row.
-    if (subsession.tool === "send") return TOOL_ROW_HEIGHT;
+    if (subsession.tool === "send") return toolRowHeight();
     return 40;
   }
   switch (tool.kind) {
@@ -1125,7 +1169,7 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
     case "fileChange":
     case "search":
     case "fetch":
-      return TOOL_ROW_HEIGHT;
+      return toolRowHeight();
     default:
       return 26;
   }
@@ -1138,11 +1182,13 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
 /// "when I'm seeing all of these agent messages back and forth, that's when it sort of, like, gets
 /// confused").
 function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: number): number {
-  return runStretches(row, groups).reduce(
+  // `.cv-tools` and `.cv-tool-run` stack their lines flush (conversation.css), 22 apart.
+  const stretches = runStretches(row, groups);
+  return stretches.reduce(
     (height, stretch) =>
       height +
       (stretch.fold
-        ? TOOL_ROW_HEIGHT
+        ? toolRowHeight()
         : stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group, width), 0)),
     0,
   );
@@ -1151,22 +1197,23 @@ function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: num
 /// An entry a folded run keeps on its own line: a group starts closed there (ToolGroupRow.tsx
 /// `folded`), one line, as a sent message's row is (SentMessageLine.tsx); anything else is its calls.
 function foldedGroupHeight(group: ToolGroup, width: number): number {
-  if (group.type === "group" || group.type === "send") return TOOL_ROW_HEIGHT;
-  return ("items" in group ? group.items : [group.item]).reduce(
-    (sum, item) => sum + activityStepHeight(item, width),
-    0,
-  );
+  if (group.type === "group" || group.type === "send") return toolRowHeight();
+  // `.cv-tool-group` lists its calls flush too.
+  const items = "items" in group ? group.items : [group.item];
+  return items.reduce((sum, item) => sum + activityStepHeight(item, width), 0);
 }
 
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
 const receivedPrepared = new Map<string, PreparedText | null>();
-const TURN_GAP = 16;
+/// A row keeps no gap of its own on the grid (grid.md 5.5): the stack gives it.
+const TURN_GAP = 0;
 /// The rest gap (Leo 2026-11-01: "more space between composer and latest messages ... tho maybe not
-/// as much as claude code"): from the newest row's line (a turn footer's 24px action row, or the
-/// running turn's live line) to the top of the floating bottom stack (the running tray, else the
-/// composer card). About two and a half body lines, as Codex leaves under its action row; Claude Code
+/// as much as claude code"): from the newest row's line (a turn footer's action row, laid in the band
+/// under its reply (transcriptGrid.ts `restBand`), or the running turn's live line) to the top of the
+/// floating bottom stack (the running tray, else the composer card). About two and a half body lines, as Codex leaves under its action row; Claude Code
 /// leaves about four and a half. The last row's own turn gap is part of it, and the room under the
 /// last row adds the rest (`restRoom`). leo-workspace design/chat-transcript.md.
+/// settled-spacing: rest-gap (schemas/layout-grid/settled-spacing.json)
 export const REST_GAP = 56;
 /// What the room under the last row adds over a floating stack to the last row's turn gap. The
 /// gallery compares other values through `<html data-rest-gap>` (composerRestGap.gallery.ts).
@@ -1181,27 +1228,24 @@ export function restRoom(): number {
 const userMetaHeight = (row: AcpmuxRow) => {
   const chief = row.from === "chief" || chiefEnvelope(row.text) !== undefined;
   return (
-    (row.text && !row.failed && !chief ? META_GAP + META_ROW : 0) +
-    (row.steer === "waiting" && !row.text?.trim() ? META_GAP + META_ROW : 0)
+    (row.text && row.steer === "waiting" && !row.failed && !row.queued && !chief ? metaRow() : 0) +
+    (row.steer === "waiting" && !row.text?.trim() ? META_GAP + metaRow() : 0)
   );
 };
 /// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`).
 const AUTHOR_HEIGHT = 22;
-const chromeHeight = (row: AcpmuxRow, actions: boolean) =>
+const chromeHeight = (row: AcpmuxRow, _actions: boolean) =>
   row.kind === "user"
-    ? USER_BUBBLE_PADDING +
+    ? userBubblePadding() +
       userMetaHeight(row) +
       (row.status ? USER_STATUS_HEIGHT : 0) +
       (row.author ? AUTHOR_HEIGHT : 0)
-    : // The room a reply keeps under its text (`keepsReplyRoom`): the meta gap, then a meta row's line.
-      actions
-      ? META_GAP + META_ROW
-      : 0;
+    : 0; // Reply controls overlay the container gap.
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;
-const USER_BUBBLE_SIDES = 24;
+const userBubbleSides = () => 2 * gridLength("cards-padding") * chromeScale;
 /// Space between a row's markdown blocks, the list indent and the quote's bar and padding.
-const BLOCK_GAP = 14;
+const blockGap = () => TRANSCRIPT_INNER_GAP * chromeScale;
 const LIST_INDENT = 28;
 const QUOTE_INDENT = 21;
 /// Code cards: a 45.5px header over 12px monospace on 20px lines that never wraps, 13px inset. An
@@ -1228,10 +1272,10 @@ const FALLBACK_CHAR_WIDTH = 8;
 /// centered, at least the page edge from each side. `endReserve` is room a card keeps at the
 /// column's right (the computer use live preview, `--cv-inset-end`): the column's end moves in to
 /// leave it, its start stays.
-const PAGE_EDGE = 18;
+const PAGE_EDGE = gridLength("icon-box");
 export function transcriptColumn(paneWidth: number, { min, max, share }: ChatColumn = chatColumn(), endReserve = 0) {
   const column = Math.min(max, Math.max(min, paneWidth * share));
-  const inset = Math.max(PAGE_EDGE, (paneWidth - column) / 2);
+  const inset = Math.max(PAGE_EDGE * gridScale(), Math.round((paneWidth - column) / 2));
   const insetEnd = Math.max(inset, endReserve);
   return { inset, insetEnd, width: paneWidth - inset - insetEnd };
 }
@@ -1353,6 +1397,7 @@ export const isStatusRow = (row: AcpmuxRow | undefined) =>
     row.kind === "policyUnenforced" ||
     row.kind === "agentPair" ||
     row.kind === "sessionStart" ||
+    row.kind === MESSAGE_RUN ||
     (row.kind === "user" && (row.incoming?.kind === "message" || row.incoming?.kind === "notice")) ||
     (row.kind === "activity" && isToolRun(row)));
 /// A tool run with at least one call, not an edited-files card (turnChanges/sessionRows.ts
@@ -1401,8 +1446,10 @@ export const statusEdge = (
 /// The room above and below a status row between two replies, line box to text box
 /// (conversation.css `--cv-status-gap`): a reply's action row (its meta gap and line) and the step's
 /// 2px top margin; between the copies inside an opened fold, the plain gap.
-const STATUS_GAP = META_GAP + META_ROW + TOOL_RUN_TOP;
-const STATUS_GAP_PLAIN = 12;
+/// On the grid (grid.md 5.5) the block gap above and below a status row already centres it, so these
+/// add nothing (conversation.css `--cv-status-gap`, `--cv-status-gap-plain`: 0).
+const STATUS_GAP = 0;
+const STATUS_GAP_PLAIN = 0;
 /// How much a row's estimate changes at a status edge, against the bottom it has elsewhere.
 function statusDelta(row: AcpmuxRow, edge: StatusEdge | undefined): number {
   if (edge === "before-status") return -MESSAGE_GAP;
@@ -1419,12 +1466,27 @@ export const QUEUED_MESSAGE = "queuedMessage";
 /// The row kind of the one group of messages that wait for the agent (conversation/pendingMessages.ts).
 export const PENDING_MESSAGES = "pendingMessages";
 export const LANE_NOTICE_BATCH = "laneNoticeBatch";
+/// The row kind of a run of one-line rows that carries messages between agents, folded under one
+/// line (conversation/messageRuns.ts, MessageRunLine.tsx).
+export const MESSAGE_RUN = "messageRun";
+/// What a message run's line says (conversation/messageRuns.ts): the messages sent and received, the
+/// other calls (counted as a tool run counts them), failures, whether one still runs, and the ids of
+/// the rows it folds (Find and links open it for one).
+export type AcpmuxMessageRun = {
+  sent: number;
+  received: number;
+  work: AcpmuxActivity[];
+  failed: number;
+  running: boolean;
+  rows: string[];
+};
 /// A one-line activity row drawn on the tool rows' line: another agent's message, a task's notice and
 /// an inbox notice (each a user row, IncomingMessageCard.tsx and InboxNoticeCard.tsx), a report
 /// batch's head (LaneNoticeBatch.tsx) and the waiting messages' head (PendingMessagesCard.tsx).
 /// App.tsx marks it `acpmux-row--line` and joins it to the step rows beside it.
 export const isLineRow = (row: AcpmuxRow) =>
   row.kind === LANE_NOTICE_BATCH ||
+  row.kind === MESSAGE_RUN ||
   row.kind === PENDING_MESSAGES ||
   (row.kind === "user" &&
     !row.received &&
@@ -1519,12 +1581,12 @@ function fallbackRowHeight(
     if (row.foldRun && row.items?.length) {
       const groups = toolGroups(row.items);
       if (groups.some(staysInSight)) return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width));
-      if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + TOOL_ROW_HEIGHT + TOOL_RUN_BOTTOM);
+      if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
     }
     const items = row.items ?? [];
     const steps = items.length
       ? items.reduce((height, item) => height + activityStepHeight(item, width), 0)
-      : TOOL_ROW_HEIGHT;
+      : toolRowHeight();
     return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
@@ -1534,7 +1596,7 @@ function fallbackRowHeight(
   if (isRunGroup(row)) {
     const agent = row.subagents![0]!;
     const reply = agent.result && agent.state !== "running" ? replyHeight(agent.result) : 0;
-    return finish(cardHeight("working") + reply + TOOL_ROW_HEIGHT);
+    return finish(cardHeight("working") + reply + toolRowHeight());
   }
   if (row.kind === SUBAGENTS) return finish(56);
   // A workflow's card (summary/WorkflowCard.css): three fixed lines in a hairline box.
@@ -1546,15 +1608,15 @@ function fallbackRowHeight(
   // Empty child copy is measured on mount; start with two body lines.
   if (row.kind === SUBAGENT_EMPTY) return finish(2 * metrics().lineHeight);
   // The 27px disclosure line, and the live status lines in its place.
-  // The running turn's line as its last row is the footer's height (META_ROW, conversation.css
+  // The running turn's line as its last row is the footer's height (metaRow(), conversation.css
   // `.cv-worked.is-below`) and the normal turn gap, so the end-of-turn swap keeps its place.
-  if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(META_ROW + TURN_GAP);
-  if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return finish(35);
+  if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(metaRow() + TURN_GAP);
+  if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
   // The activity line under a plan is the live footer. It reserves the finished footer's 24px
   // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.
-  if (row.kind === ACTIVITY_LINE) return row.below ? finish(META_ROW + TURN_GAP) : finish(36);
+  if (row.kind === ACTIVITY_LINE) return finish(metaRow());
   // The 20px date line with 8px above it.
-  if (row.kind === DATE) return finish(36);
+  if (row.kind === DATE) return finish(20);
   // The preview card mounts unloaded: one compact row, and 6px below (PreviewCard.tsx). Once the
   // reader clicks Load preview, the transcript's ResizeObserver measures the head over its frame.
   if (row.kind === PREVIEW) return finish(previewCardHeight(row.text, false));
@@ -1579,13 +1641,13 @@ function fallbackRowHeight(
   if (row.kind === "agentPair") return finish(row.agentPair?.resumed ? 37 : 37 + 24);
   // A session start: its facts line (conversation/SessionStartNote.tsx); the full facts open
   // below when asked.
-  if (row.kind === "sessionStart") return finish(37);
+  if (row.kind === "sessionStart") return finish(toolRowHeight());
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return finish(40 + row.plan.length * 24);
   // A turn's footer: its meta line, then the normal turn gap. An empty footer (only hover controls,
   // conversation/turns.ts isEmptyFooter) takes no extra line; its gap still fits the hover controls.
   if (row.kind === "turnSummary")
-    return finish(isEmptyFooter(row) ? Math.max(META_ROW, TURN_GAP) : META_ROW + TURN_GAP);
+    return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : metaRow() + TURN_GAP);
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
@@ -1597,8 +1659,9 @@ function fallbackRowHeight(
     row.kind === "typing" ||
     row.kind === BACKGROUND_TURN
   )
-    return finish(37);
-  return finish(8 + messageBelow(beforeFooter) + chromeHeight(row, actions) + textLines * metrics().lineHeight);
+    // A standalone note is one `.cv-tools` line: a grid row (conversation.css), no frame of its own.
+    return finish(toolRowHeight());
+  return finish(messageBelow(beforeFooter) + chromeHeight(row, actions) + textLines * metrics().lineHeight);
 }
 
 /// A link target the page opens: absolute http and https only (replyHref.ts).
@@ -1677,22 +1740,27 @@ function listHeight(
   used?: Set<string>,
 ): number {
   const inner = width - LIST_INDENT;
-  return list.items.reduce((sum, item) => {
-    const nested = item.tokens.filter((token): token is Tokens.List => token.type === "list");
-    const text = measuredText(
-      item.tokens.filter((token) => token.type !== "list"),
-      nested.length ? "" : item.text,
-    );
-    // An empty item (or one still streaming in) still draws its bullet's line.
-    const own = text ? textHeight(text, inner, prepared, used) : 0;
-    return (
-      sum +
-      Math.max(
-        metrics().lineHeight,
-        own + nested.reduce((total, child) => total + listHeight(child, inner, prepared, used), 0),
-      )
-    );
-  }, 0);
+  // `.cv-list` stacks its items with the inner gap (conversation.css), scaled per pass.
+  const itemGaps = Math.max(0, list.items.length - 1) * blockGap();
+  return (
+    itemGaps +
+    list.items.reduce((sum, item) => {
+      const nested = item.tokens.filter((token): token is Tokens.List => token.type === "list");
+      const text = measuredText(
+        item.tokens.filter((token) => token.type !== "list"),
+        nested.length ? "" : item.text,
+      );
+      // An empty item (or one still streaming in) still draws its bullet's line.
+      const own = text ? textHeight(text, inner, prepared, used) : 0;
+      return (
+        sum +
+        Math.max(
+          metrics().lineHeight,
+          own + nested.reduce((total, child) => total + listHeight(child, inner, prepared, used), 0),
+        )
+      );
+    }, 0)
+  );
 }
 
 /** A fenced code card's estimated height in a column `width` wide, without its outer margin. */
@@ -1815,21 +1883,25 @@ function measuredRowHeight(
       ? height
       : height + TURN_GAP - (row.kind === "activity" || isLineRow(row) ? TOOL_RUN_BOTTOM : MESSAGE_GAP);
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
-  if (row.received) return finish(26 + MESSAGE_GAP);
+  if (row.received) return finish(metaRow());
   // A turn's footer carries its answer's text for Copy (conversation/turns.ts); it draws one line.
   if (row.kind === "turnSummary") {
+    if (isOverlayFooter(row)) return 0;
     const gap = continuation ? MESSAGE_GAP : TURN_GAP;
-    return isEmptyFooter(row) ? Math.max(META_ROW, gap) : META_ROW + gap;
+    return isEmptyFooter(row) ? Math.max(metaRow(), gap) : metaRow() + gap;
   }
   // The live activity line under a plan has a label, but its row still reserves the footer slot.
-  if (row.kind === ACTIVITY_LINE && row.below) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+  // On the grid every activity line is the footer slot's one line, live or not (fallbackRowHeight).
+  if (row.kind === ACTIVITY_LINE) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+  // A message run's line (conversation/messageRuns.ts): its rows, when open, are rows of their own.
+  if (row.kind === MESSAGE_RUN) return finish(lineRow());
   // A task notification from another agent is a tool row's line (conversation/IncomingMessageCard.tsx)
-  // in the one-line rows' frame (LINE_ROW).
+  // in the one-line rows' frame (lineRow).
   // The messages that wait, as one group (conversation/PendingMessagesCard.tsx): its head is a
   // one-line row; opened, each sender's 22px head, then each of its messages as its own row draws
   // it, 24px in, less the frame the row gives a row, which the group has once.
   if (row.kind === LANE_NOTICE_BATCH && row.laneNoticeBatch) {
-    const head = finish(LINE_ROW);
+    const head = finish(lineRow());
     if (!messageOpened(sessionId, row.id)) return head;
     return (
       head +
@@ -1841,7 +1913,7 @@ function measuredRowHeight(
     );
   }
   if (row.kind === PENDING_MESSAGES && row.pendingMessages) {
-    const head = finish(LINE_ROW);
+    const head = finish(lineRow());
     if (!messageOpened(sessionId, row.id)) return head;
     const senders = new Set<string>();
     let height = head;
@@ -1863,11 +1935,11 @@ function measuredRowHeight(
     return height;
   }
   if (row.incoming?.kind === "message") {
-    // One line in the one-line rows' frame (LINE_ROW); one the person opened
+    // One line in the one-line rows' frame (lineRow()); one the person opened
     // (incomingOpened.ts) adds its panel (2px above, 4px below, 8px padding each side, 24px in
     // from the icon column and 10px padding across): the whole text
     // (conversation/IncomingMessageCard.tsx), its images' 128px, and Details' 24px line.
-    const line = LINE_ROW;
+    const line = lineRow();
     if (!messageOpened(sessionId, row.id)) return finish(line);
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
@@ -1876,15 +1948,15 @@ function measuredRowHeight(
     const details = row.incoming.message.raw.trim() === text ? 0 : 24;
     return finish(line + 2 + 4 + 16 + lines + (row.images?.length ? 128 : 0) + details);
   }
-  if (row.incoming?.kind === "notice") return finish(LINE_ROW);
+  if (row.incoming?.kind === "notice") return finish(lineRow());
   if (row.incoming?.kind === "inbox") {
     // acpmux's inbox notice (conversation/InboxNoticeCard.tsx): a received line per thread, under
     // the group's line when the group look holds two or more; an opened thread adds its panel as
     // an opened message does, its text read from the notice (else its preview).
     const { threads } = row.incoming.notice;
-    const line = TOOL_ROW_HEIGHT;
+    const line = toolRowHeight();
     // The group's head is a tool row (MessageGroupHead.tsx) on the one-line rows' line.
-    const head = TOOL_ROW_HEIGHT;
+    const head = toolRowHeight();
     const grouped = threads.length > 1 && foldsThreads(inboxNoticeLook());
     if (grouped && !messageOpened(sessionId, row.id)) return finish(head + LINE_FRAME);
     const { lineHeight } = metrics();
@@ -1939,7 +2011,7 @@ function measuredRowHeight(
     !row.from &&
     !chiefEnvelope(row.text) &&
     isPlainUserPrompt(row.text);
-  const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
+  const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - userBubbleSides() : width);
   const usedPrepared = new Set<string>();
   let contentHeight: number;
   if (plainUser) {
@@ -1978,7 +2050,7 @@ function measuredRowHeight(
               );
     } else {
       if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
-      contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
+      contentHeight = (entry.blocks.length - 1) * blockGap();
       for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared, usedPrepared);
     }
   }
@@ -1991,7 +2063,7 @@ function measuredRowHeight(
   if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text))
     contentHeight = collapsedPromptHeight(contentHeight, metrics().lineHeight);
   const height = messageBelow(beforeFooter) + chromeHeight(row, actions) + contentHeight;
-  return finish(beforeFooter ? height : Math.max(34, height));
+  return finish(height);
 }
 
 /// A row's estimated height at a width, kept by the row object: rows are immutable (a change is a
@@ -1999,6 +2071,9 @@ function measuredRowHeight(
 /// The row's edge is kept too: a reply's height changes when its turn's footer arrives after it, and
 /// a footer's when a prompt follows it.
 export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edge?: string }>;
+
+export const isOverlayFooter = (row: AcpmuxRow) =>
+  row.kind === "turnSummary" && row.status !== "failed" && row.status !== "error" && !row.resumable;
 
 /** DOM-free row geometry. Only visible rows need their React elements painted. */
 export function layoutConversation(
@@ -2013,11 +2088,16 @@ export function layoutConversation(
   /// The chat the rows are from, which keys the messages the person opened (incomingOpened.ts).
   sessionId?: string,
 ): ConversationLayout {
+  const gaps = new Float64Array(rows.length);
+  const marks = new Uint8Array(rows.length);
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
   const messages = new MessagePlacement(rows, previous?.layout);
+  const scale = gridScale();
+  chromeScale = scale;
   let start = 0;
-  if (previous) {
+  // Kept rows keep their gaps only at the scale they were placed at.
+  if (previous && (previous.layout.scale ?? 1) === scale) {
     const limit = Math.min(rows.length, previous.rows.length);
     while (start < limit && rows[start] === previous.rows[start]) start += 1;
     // A row after the kept ones can change the height of the last kept row that draws (a footer
@@ -2030,18 +2110,25 @@ export function layoutConversation(
         rowEdge(rows[drawn]!, nextDrawnRow(previous.rows, drawn), prevDrawnRow(previous.rows, drawn))
     )
       start = drawn;
+    if (previous.layout.gaps) gaps.set(previous.layout.gaps.subarray(0, start));
+    if (previous.layout.marks) marks.set(previous.layout.marks.subarray(0, start));
     tops.set(previous.layout.tops.subarray(0, start));
     heights.set(previous.layout.heights.subarray(0, start));
   }
   let top = start > 0 ? tops[start - 1]! + heights[start - 1]! : 0;
+  let previousContent = start - 1;
+  while (previousContent >= 0 && heights[previousContent] === 0) previousContent -= 1;
+  let beforeContent = previousContent - 1;
+  while (beforeContent >= 0 && heights[beforeContent] === 0) beforeContent -= 1;
   // Hidden bookkeeping can span many rows. Keep the next drawn row for the whole
   // pass: searching anew for every hidden row makes one run quadratic.
   let nextDrawn = start;
   // The drawn row above the current one, carried along the pass for the same reason.
   let prevDrawn = prevDrawnRow(rows, start);
   for (let index = start; index < rows.length; index += 1) {
-    tops[index] = top;
     const row = rows[index]!;
+    // A step row (a tool run or a one-line row) joins the step row before it flush (transcriptGap).
+    marks[index] = isStepRow(row) ? MARK_STEP : rowMark(row);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
@@ -2055,7 +2142,7 @@ export function layoutConversation(
     if (kept && kept.width === width && kept.edge === edge) height = kept.height;
     else {
       const customHeight = measureOverride?.(row, width);
-      const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0;
+      const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight >= 0;
       height = custom
         ? customHeight
         : measuredRowHeight(
@@ -2072,10 +2159,26 @@ export function layoutConversation(
       if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
       known?.set(row, { width, height, edge });
     }
+    if (height > 0) {
+      if (previousContent >= 0) gaps[index] = transcriptGap(marks[previousContent]!, marks[index]!) * scale;
+      top += gaps[index]!;
+      beforeContent = previousContent;
+      previousContent = index;
+    }
+    tops[index] = top;
     heights[index] = height;
     top += height;
   }
-  const layout = { tops, heights, totalHeight: top };
+  const layout = {
+    tops,
+    heights,
+    gaps,
+    marks,
+    tailGap: tailGap(marks[previousContent] ?? 0, marks[beforeContent] ?? 0, footerAfter(marks, heights)) * scale,
+    restBand: restBand(footerAfter(marks, heights)) * scale,
+    scale,
+    totalHeight: top,
+  };
   messages.finish(rows, layout);
   return layout;
 }
@@ -2091,21 +2194,49 @@ export function placeRows(
 ): ConversationLayout {
   const tops = new Float64Array(estimate.heights.length);
   const heights = new Float64Array(estimate.heights.length);
-  const kept = previous ? Math.min(previous.kept, previous.layout.heights.length, heights.length) : 0;
+  // The gaps take the Interface Size now, not the estimate's (it may predate a change), and the kept
+  // rows keep their places only at the scale they were placed at.
+  const scale = gridScale();
+  const kept =
+    previous && (previous.layout.scale ?? 1) === scale
+      ? Math.min(previous.kept, previous.layout.heights.length, heights.length)
+      : 0;
   if (kept > 0) {
     tops.set(previous!.layout.tops.subarray(0, kept));
     heights.set(previous!.layout.heights.subarray(0, kept));
   }
   let top = kept > 0 ? tops[kept - 1]! + heights[kept - 1]! : 0;
+  let previousContent = kept - 1;
+  while (previousContent >= 0 && heights[previousContent] === 0) previousContent -= 1;
+  let beforeContent = previousContent - 1;
+  while (beforeContent >= 0 && heights[beforeContent] === 0) beforeContent -= 1;
+  const marks = estimate.marks;
   for (let index = kept; index < heights.length; index += 1) {
-    tops[index] = top;
     // A drawn 0 is a row that draws nothing (App.tsx drawnHeightOf): it takes no room.
     const known = heightAt(index);
     const height = known !== undefined && known >= 0 ? known : estimate.heights[index];
+    if (height > 0) {
+      if (previousContent >= 0)
+        top += marks ? transcriptGap(marks[previousContent]!, marks[index]!) * scale : (estimate.gaps?.[index] ?? 0);
+      beforeContent = previousContent;
+      previousContent = index;
+    }
+    tops[index] = top;
     heights[index] = height;
     top += height;
   }
-  return { tops, heights, totalHeight: top };
+  return {
+    tops,
+    heights,
+    gaps: estimate.gaps,
+    marks,
+    tailGap: marks
+      ? tailGap(marks[previousContent] ?? 0, marks[beforeContent] ?? 0, footerAfter(marks, heights)) * scale
+      : estimate.tailGap,
+    restBand: marks ? restBand(footerAfter(marks, heights)) * scale : estimate.restBand,
+    scale,
+    totalHeight: top,
+  };
 }
 
 function upperBound(values: Float64Array, target: number): number {

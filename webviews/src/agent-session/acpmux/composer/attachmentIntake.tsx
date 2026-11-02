@@ -24,7 +24,7 @@ import {
 } from "../attachments";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
-import { Close, FileDoc, ImageIcon, Retry, Spinner } from "../conversation/icons";
+import { Close, FileDoc, ImageIcon, PlayTriangle, Retry, Spinner } from "../conversation/icons";
 import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
@@ -33,12 +33,13 @@ import { useStripReorder } from "./stripReorder";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
 import { pastesPlaced } from "./composerCopy";
 import { attachSources } from "./attachmentSources";
+import { SourceBadge, useSourceLabel, withSourceLabel } from "./SourceBadge";
 import { retryUploadLater, UPLOAD_AUTO_RETRIES } from "./uploadRetry";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
 import { useScrollEdges } from "../summary/scrollEdges";
 import { callChipHost } from "../chips/host";
-import { isVideoAttachment, useVideoInfo, useVideoReading } from "./videoAttachments";
+import { isVideoAttachment, isVideoName, useVideoInfo, useVideoReading } from "./videoAttachments";
 import { VideoAttachmentTile } from "./VideoAttachmentTile";
 import { FileAttachment } from "../FileAttachment";
 import { TextAttachmentCard } from "./TextAttachmentCard";
@@ -145,6 +146,9 @@ export type PendingAttachment = {
   id: string;
   name: string;
   image: boolean;
+  /// A movie (videoAttachments.ts isVideoName): its tile is the square the video's poster will
+  /// fill, loading or failed, never a long strip with its name.
+  video?: boolean;
   scope?: string;
   failed?: string;
   /// Streaming to the session's machine (a file of any size). A send waits for it, as for every
@@ -214,6 +218,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const t = useT();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [pending, setPending] = useState<PendingAttachment[]>([]);
+  const pendingRef = useRef<PendingAttachment[]>([]);
+  pendingRef.current = pending;
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
   /// The drop overlay's state (composer/DropOverlay.tsx). Kept in a ref too: a refused drag's
@@ -316,6 +322,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       id: again ?? crypto.randomUUID(),
       name: file.name,
       image: isImageFile(file),
+      ...(isVideoName(file.name) ? { video: true } : {}),
       scope: batch.scope,
     }));
     // This read's own source for each chip: a chip cancelled and brought back (undo, `revive`) or
@@ -450,7 +457,20 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         const stop = retryUploadLater(
           tries,
           () => {
-            if (still()) retryRef.current(id);
+            if (!still()) return;
+            // A delayed retry must use the chat that owns these bytes. The user may have
+            // switched chats since this failure (including via the key/click that queued
+            // this callback). Retrying through live.options would upload this old File to
+            // the *new* chat's machine. Keep the old scoped chip with a manual Retry.
+            // `batch` is removed when its first intake settles, but a carried chip can still
+            // change scope afterward. Read the chip's current scope so an intentional carry
+            // retries through its destination chat while a plain switch still fails closed.
+            const chip = pendingRef.current.find((candidate) => candidate.id === id);
+            if (!chip || chip.scope !== live.current.options.scope) {
+              giveUp();
+              return;
+            }
+            retryRef.current(id);
           },
           giveUp,
         );
@@ -1022,7 +1042,11 @@ function PendingChip({
       </svg>
     </button>
   );
-  const kind = chip.image ? "acpmux-attachment-image" : "acpmux-attachment-file";
+  // A video (a screen recording) is the square its poster will fill, like an image's tile; only
+  // another file shows its name (Leo, 2026-10-26: "not for screen recordings. ... We know it's a
+  // video. ... Just do the square.").
+  const square = chip.image || chip.video;
+  const kind = square ? "acpmux-attachment-image" : "acpmux-attachment-file";
   // One that could not be attached keeps its shape: what it is (its kind's glyph, a file's name),
   // one small retry button, and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments
   // (big attachments?) still sucks", over a strip of empty tiles with only an underlined Retry).
@@ -1035,6 +1059,8 @@ function PendingChip({
       >
         {chip.image ? (
           <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
+        ) : chip.video ? (
+          <PlayTriangle size={16} className="acpmux-attachment-failed-icon" />
         ) : (
           <>
             <FileDoc size={14} className="acpmux-attachment-failed-icon" />
@@ -1052,7 +1078,7 @@ function PendingChip({
       ) : (
         <UploadProgress value={chip.progress} name={name} />
       )}
-      {!chip.image && <span>{chip.name}</span>}
+      {!square && <span>{chip.name}</span>}
       {remove}
     </div>
   );
@@ -1166,7 +1192,10 @@ export function AttachmentChip({
       live = false;
     };
   }, [attachment.data, attachment.id, attachment.mimeType, image]);
-  const remove = (
+  // The app it came from, at the tile's top-right corner (composer/SourceBadge.tsx); the × takes
+  // that corner while the pointer is on the tile, and the tooltip names the source.
+  const from = useSourceLabel(attachment.source);
+  const removeButton = (
     <button
       type="button"
       className="acpmux-attachment-remove"
@@ -1177,6 +1206,12 @@ export function AttachmentChip({
         <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       </svg>
     </button>
+  );
+  const remove = (
+    <>
+      <SourceBadge source={attachment.source} />
+      {removeButton}
+    </>
   );
   // Its right-click menu: Open (or what a click does) where a click opens it, and Remove (cx-2lm4).
   const menu = (open: (() => void) | undefined, chip: React.ReactNode, openLabel = t("image.open")) => (
@@ -1215,7 +1250,7 @@ export function AttachmentChip({
       openImage ? () => openImage(source, name) : undefined,
       <div
         className="acpmux-attachment acpmux-attachment-image"
-        /* tooltip-allow: an image thumbnail shows no name */ title={name}
+        /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(name, from)}
       >
         {openImage ? (
           <button
@@ -1306,11 +1341,20 @@ export function AttachmentChip({
     );
   }
   // A video goes as its path too, with its poster and length once the host read them; a click plays it.
-  if (isVideoAttachment(attachment) && (attachment.video || videoReading)) {
+  // One the host could not read (or never asked: a chat on another machine) keeps the square with
+  // its play glyph and no poster; Quick Look still plays it from its path.
+  if (isVideoAttachment(attachment)) {
     const play = () => void callChipHost("video.quickLook", { src: attachment.path });
     return menu(
-      attachment.video ? play : undefined,
-      <VideoAttachmentTile name={attachment.name} video={attachment.video} remove={remove} onPlay={play} />,
+      videoReading ? undefined : play,
+      <VideoAttachmentTile
+        name={attachment.name}
+        title={withSourceLabel(attachment.name, from)}
+        video={attachment.video}
+        reading={!attachment.video && videoReading}
+        remove={remove}
+        onPlay={play}
+      />,
       t("media.play"),
     );
   }
@@ -1320,7 +1364,7 @@ export function AttachmentChip({
       className="acpmux-attachment acpmux-attachment-file acpmux-attachment-link"
       data-saved={attachment.saved || undefined}
       /* tooltip-allow: the full path is secondary detail for the file chip */
-      title={attachment.path}
+      title={withSourceLabel(attachment.path, from)}
     >
       <FileAttachment
         file={{
@@ -1328,7 +1372,7 @@ export function AttachmentChip({
           // Native path-only choices have no byte count; do not invent a zero-byte file.
           size: attachment.mimeType || attachment.size > 0 ? attachment.size : undefined,
         }}
-        remove={remove}
+        remove={removeButton}
       />
     </div>,
   );

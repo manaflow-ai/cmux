@@ -68,10 +68,11 @@ extension CloudStartChat {
 
     /// The machine for the send `start`, connected, and the plan's keys. Only a machine of the list
     /// the server answered for `account`, the account the send began in. A new one is named and sized
-    /// for the chat (`pick`) and pinned to the send before anything runs there.
-    func machine(for start: AgentPaneCloudStart, account: [String?], cli: CloudMoveCLI, invocation: ActionInvocation,
+    /// for the chat (`pick`) and pinned to the send before anything runs there. `workspace`: the Mac
+    /// workspace the send began in.
+    func machine(for start: AgentPaneCloudStart, account: [String?], workspace: String?, cli: CloudMoveCLI, invocation: ActionInvocation,
                  pick: () async -> CloudWorkPick?) async throws -> (CloudMachineSession, CloudMoveCLI.StartChatPlan) {
-        let machines = services.machines, cloud = services.cloud, workspace = invocation.target.flatMap { services.workspaceID(ofTab: $0.id) }
+        let machines = services.machines, cloud = services.cloud
         if !cloud.hasLoadedCurrentMachines { await cloud.refresh() }
         try await importKeptSends(cli)
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)

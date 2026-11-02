@@ -96,7 +96,7 @@ extension ScreenContentView {
 
     /// Displayed frame of `pane` in local coordinates: its host's frame (on the pixel grid, `applyPresentation`).
     func displayedFrame(of pane: PaneID) -> CGRect? {
-        paneFrames[pane].map { displayedRect($0.rect.pixelEdges(scale), pane: pane) }
+        paneFrames[pane].map { displayedRect($0.rect, pane: pane).pixelEdges(scale) }
     }
 
     // MARK: Motion trace

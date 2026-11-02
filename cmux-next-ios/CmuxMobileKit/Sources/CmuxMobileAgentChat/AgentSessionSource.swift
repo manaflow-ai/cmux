@@ -17,13 +17,17 @@ public struct AgentSessionSummary: Hashable, Sendable, Identifiable {
     public var status: Status
     /// The tab's Mac (tab ids repeat across Macs); empty when not known.
     public var macID: String
+    /// The signed-in account that owns the Mac's artifact read. Empty for an
+    /// unbound/standalone source, which then disables shared thumbnail caching.
+    public var accountID: String
 
     public init(
         id: String, name: String, harness: String, agentName: String, cwd: String, workspaceTitle: String,
-        macName: String, branch: String? = nil, status: Status = .idle, macID: String = ""
+        macName: String, branch: String? = nil, status: Status = .idle, macID: String = "", accountID: String = ""
     ) {
         self.id = id
         self.macID = macID
+        self.accountID = accountID
         self.name = name
         self.harness = harness
         self.agentName = agentName
