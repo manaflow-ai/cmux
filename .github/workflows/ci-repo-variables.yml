@@ -53,6 +53,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Two commits so a push's github.event.before is in the clone (the pool declaration check below).
+          fetch-depth: 2
           persist-credentials: false
 
       # Signing jobs on feat-cmux-next read runner variables too (scripts/ci/signing_runner_variables.py).
@@ -116,7 +118,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet "${{ github.event.before }}" "${{ github.sha }}" -- .github/runners.json; then
+          before='${{ github.event.before }}'
+          git cat-file -e "$before^{commit}" 2>/dev/null || git fetch --quiet --depth=1 origin "$before" 2>/dev/null || true
+          if git cat-file -e "$before^{commit}" 2>/dev/null &&
+            git diff --quiet "$before" "${{ github.sha }}" -- .github/runners.json; then
             echo 'pending=false' >> "$GITHUB_OUTPUT"
           else
             echo 'pending=true' >> "$GITHUB_OUTPUT"

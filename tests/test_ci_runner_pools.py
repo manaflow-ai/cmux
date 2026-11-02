@@ -452,6 +452,10 @@ class Main(unittest.TestCase):
         self.assertIn("github.event_name == 'push'", declaration["if"])
         self.assertIn("steps.declaration.outputs.pending != 'true'", check["if"])
         self.assertIn(".github/runners.json", declaration["run"])
+        # Review of #30627: a depth-1 clone lacks event.before, so the diff must have it or call it pending.
+        checkout = next(step for step in steps if step.get("name") == "Checkout")
+        self.assertEqual(checkout["with"].get("fetch-depth"), 2)
+        self.assertIn('git cat-file -e "$before^{commit}"', declaration["run"])
 
     def test_no_switch_token_and_a_correct_linux_runner_is_not_a_failure(self) -> None:
         # Review of #28864: with no token and the variables not handed in, the mirror is unknown, not unset.
