@@ -1146,6 +1146,14 @@ impl StartCopy {
             let (folder, chat) = self.remote(root, &place);
             match push(&self.socket, Path::new(&self.local), &folder) {
                 Ok(fields) => {
+                    // The local origin can change while a large seed/copy is running.
+                    // Never record success for a checkout prepared under a different source.
+                    if self.copy_source() != source {
+                        return refused(
+                            "checkout.source_changed",
+                            "The project's GitHub origin changed while it was copying; start a new chat for the changed project.",
+                        );
+                    }
                     let recorded = Ledger::update(ledger, |pins| {
                         pins.record_copy(&chat, &send, &self.machine, &place);
                     });
