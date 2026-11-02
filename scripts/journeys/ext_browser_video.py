@@ -177,6 +177,18 @@ def step_bv_action(j, step):
         answer = ext_realkey.press(j, fallback["key"], fallback.get("modifiers", []))
         reply = {"refused": str(error)[:300], "fallback_key": fallback, "answer": answer}
     value = {"t_sent": sent, "t_returned": D.now(), "action": step["action"], "reply": reply}
+    # The app's own start of that action run (debug.action_budget, host uptime ns) is the time the judge uses (never a
+    # Python clock, cmux-ad 03:40Z). Read after the action, so it costs the recorded frames nothing.
+    sequence = reply.get("sequence") if isinstance(reply, dict) else None
+    try:
+        recent = (j.app.rpc("debug.action_budget", {"limit": 64}) or {}).get("recent") or []
+    except Exception:  # noqa: BLE001  no budget report: the judge then has no app start time for the round
+        recent = []
+    run = next((r for r in recent if sequence is not None and r.get("sequence") == sequence), None) \
+        or next((r for r in reversed(recent) if r.get("id") == step["action"]), None)
+    if run:
+        value["app_start_uptime_ns"] = run.get("start_uptime_ns")
+        value["app_run"] = run
     if step.get("note"):
         _note(j, step["note"], value)
     return value
