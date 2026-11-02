@@ -315,7 +315,10 @@ pub(super) fn plan_with(
             let mut credential = String::new();
             let _ = stdin.read_line(&mut credential);
             if credential.trim().is_empty() {
-                return refused("not_signed_in", "the platform credential is missing for this workspace");
+                return refused(
+                    "not_signed_in",
+                    "the platform credential is missing for this workspace",
+                );
             }
             let ask = Ensure {
                 workspace: workspace.unwrap_or_default().to_string(),
@@ -328,9 +331,14 @@ pub(super) fn plan_with(
             // This uses the first creation key: if the server lost its binding, the same request reaches its
             // original VM. A changed repo or setup is refused by the platform's durable bootstrap check.
             let checked = ensure_answer(ensure(&ask, credential.trim()));
-            let Some(returned) = checked.get("machine").and_then(Value::as_str) else { return checked };
+            let Some(returned) = checked.get("machine").and_then(Value::as_str) else {
+                return checked;
+            };
             if returned != id {
-                return refused("workspace_machine.changed", "the platform returned a different workspace machine");
+                return refused(
+                    "workspace_machine.changed",
+                    "the platform returned a different workspace machine",
+                );
             }
             let pinned = Ledger::update(ledger, |pins| {
                 if let Some(workspace) = workspace
@@ -347,7 +355,12 @@ pub(super) fn plan_with(
                     "environment": checked.get("environment"),
                     "environment_id": checked.get("environment_id"), "setup": checked.get("setup"),
                 }}),
-                Ok(false) => return refused("workspace_machine.changed", "this workspace chose another machine"),
+                Ok(false) => {
+                    return refused(
+                        "workspace_machine.changed",
+                        "this workspace chose another machine",
+                    );
+                }
                 Err(error) => return refused("ledger_failed", format!("{error:#}")),
             }
         }
