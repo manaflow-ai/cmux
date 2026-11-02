@@ -95,13 +95,3 @@ public nonisolated struct InputInvariants: Sendable {
         return checks
     }
 }
-
-extension FocusEvent.Responder {
-    /// The pane a pane-scoped responder is in.
-    public var pane: String? {
-        switch self {
-        case .content(let pane), .addressBar(let pane), .findBar(let pane), .devTools(let pane): pane
-        default: nil
-        }
-    }
-}
