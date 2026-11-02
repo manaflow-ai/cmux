@@ -5,14 +5,18 @@ import MessagesLabSidebar
 /// transcript's header (Messages' toolbar row). Only the search field's width changes with the
 /// list's width. Compose is never in the list: as in Messages it sits at the chat's top-left
 /// (`HomeChatColumnView`) at every width (the user, 2026-10-21). The avatar-only list (below
-/// `CmuxSidebarView.compactBelow`) shows no row, and an open search (⌘F, type-to-search) takes the
-/// band until it closes. Frames are in the header's flipped coordinates (y down).
+/// `CmuxSidebarView.compactBelow`) keeps the Unread toggle and shows search as a glass circle beside
+/// it, centred over the avatars; a list too narrow for both keeps the toggle alone (Leo 2026-10-19:
+/// "the search completley disappeared when you coulve probably still fit it... and/or just turned it
+/// to an icon. the filter button also just disappeared"). An open search (the circle, ⌘F,
+/// type-to-search) takes the band until it closes. Frames are in the header's flipped coordinates
+/// (y down).
 ///
 /// Under the window's traffic lights (the window's sidebar closed, the list at the window's left
 /// edge) the header is Messages' (the user, 2026-10-28, "we should just match"): the lights have
 /// the top row to themselves with the Unread toggle at its right end on their line, and the
-/// search field spans the list on the row under them. The avatar-only list keeps its band; an open
-/// search there sits under the lights too.
+/// search field spans the list on the row under them. In the avatar-only list the circles, and an
+/// open search, sit under the lights too.
 public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     /// The band the row sits in; the list starts under it.
     static let band: CGFloat = 52
@@ -26,12 +30,17 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     static let gap: CGFloat = 6
     /// The narrowest search field: its glass and "Search" still show.
     static let minimumField: CGFloat = 72
+    /// The avatar-only list's least margin beside its two circles.
+    static let edge: CGFloat = 4
 
-    /// The avatar-only list: no search field, Unread toggle or compose in the band.
+    /// The avatar-only list: the search circle and the Unread toggle, no search field or compose.
     public private(set) var compact: Bool
     /// The search capsule; zero-sized in the avatar-only list while the search is closed.
     public private(set) var search: CGRect
-    /// The Unread toggle; zero-sized in the avatar-only list.
+    /// The avatar-only list's search circle while the search is closed (it opens the search);
+    /// zero-sized otherwise, and in a list too narrow for it beside the toggle.
+    public private(set) var searchIcon: CGRect = .zero
+    /// The Unread toggle; zero-sized only while an open search covers the avatar-only list's band.
     public private(set) var filter: CGRect
     /// The list's compose button: always zero-sized (compose is the chat's, `HomeChatColumnView`).
     public private(set) var compose: CGRect = .zero
@@ -44,7 +53,7 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     /// and the list's under the search field.
     static let rowGap: CGFloat = 10
 
-    /// The list at `width` shows avatars only, and so no header row.
+    /// The list at `width` shows avatars only, and so circles for its header row.
     public static func isCompact(width: CGFloat) -> Bool { width < CmuxSidebarView.compactBelow }
 
     /// - Parameters:
@@ -59,12 +68,24 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
         // Messages' header under the lights: the search field on its own row below them.
         let underLights = windowControls.map { ($0.maxY + Self.rowGap).rounded(.up) }
         if compact {
-            filter = .zero
             buttonsCovered = searchOpen
-            let searchY = underLights ?? y
-            search = searchOpen ? CGRect(x: Self.inset, y: searchY, width: max(0, width - 2 * Self.inset), height: Self.side)
-                : CGRect(x: Self.inset, y: y, width: 0, height: 0)
-            if searchOpen, underLights != nil { listTop = max(Self.band, search.maxY + Self.rowGap) }
+            let rowY = underLights ?? y
+            if searchOpen {
+                filter = .zero
+                search = CGRect(x: Self.inset, y: rowY, width: max(0, width - 2 * Self.inset), height: Self.side)
+                if underLights != nil { listTop = max(Self.band, search.maxY + Self.rowGap) }
+                return
+            }
+            search = CGRect(x: Self.inset, y: y, width: 0, height: 0)
+            let pair = 2 * Self.side + Self.gap
+            if width >= pair + 2 * Self.edge {
+                let x = ((width - pair) / 2).rounded()
+                searchIcon = CGRect(x: x, y: rowY, width: Self.side, height: Self.side)
+                filter = CGRect(x: searchIcon.maxX + Self.gap, y: rowY, width: Self.side, height: Self.side)
+            } else {
+                filter = CGRect(x: ((width - Self.side) / 2).rounded(), y: rowY, width: Self.side, height: Self.side)
+            }
+            if underLights != nil { listTop = max(Self.band, filter.maxY + Self.rowGap) }
             return
         }
         buttonsCovered = false

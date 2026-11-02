@@ -386,6 +386,19 @@ struct SidebarRowsMoveOnRenderServerTests {
         #expect(Self.sizeSprings(view) <= sizing, "the settled row opened its slot again")
     }
 
+    /// The `.move` spring at the tunable's longest response (2 s, about 4 s to settle at normal speed), for a test
+    /// that checks a move still runs a turn later or that a scroll comes inside its open. At the shipped 0.15 s it
+    /// settles in about 0.3 s at normal speed, and a loaded runner spent longer than that between the reload and the
+    /// check (run 41372093339: the reorder and the lone line had ended, three tries of the open came late).
+    /// Returns the restore.
+    private static func slowMoves() -> () -> Void {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(MotionTunables.all)
+        let key = "motion.spring.move"
+        TunableStore.shared.set(key, .spring(SpringParameters(response: 2, dampingFraction: 1)))
+        return { _ = TunableStore.shared.set(key, nil) }
+    }
+
     /// Sets the new row motion and its nudge for one test (`SidebarInsertMotion`); the returned closure resets both.
     private static func insertMotion(_ motion: SidebarInsertMotion, nudge: CGFloat? = nil) -> () -> Void {
         TunableStore.shared.activate(file: nil)
@@ -568,6 +581,8 @@ struct SidebarRowsMoveOnRenderServerTests {
         let reset = Self.insertMotion(.spring)
         defer { reset() }
         DesignSettings.shared.animationSpeed = .normal
+        let slow = Self.slowMoves()
+        defer { slow() }
         let key = SidebarRowKey.workspace(try #require(Self.sections([0]).first?.workspaces.first?.id))
         let opensUntil = CACurrentMediaTime() + Motion.sidebar.spring(.move).settlingTime()
 
@@ -738,6 +753,8 @@ struct SidebarRowsMoveOnRenderServerTests {
         defer { restore() }
         // The slower pace keeps the move running past the turns AppKit takes to end its empty group.
         DesignSettings.shared.animationSpeed = .normal
+        let slow = Self.slowMoves()
+        defer { slow() }
         model.sections = Self.sections([5, 1, 2, 3, 4] + Array(6...12))
         list.reload(animated: true)
         #expect(list.rowViews.values.allSatisfy { $0.alphaValue == 1 }, "a row fades: the reorder is not the case under test")
@@ -788,6 +805,8 @@ struct SidebarRowsMoveOnRenderServerTests {
         let reset = Self.insertMotion(.spring)
         defer { reset() }
         DesignSettings.shared.animationSpeed = .normal
+        let slow = Self.slowMoves()
+        defer { slow() }
         model.sections = Self.grouped(["w1"], members: members + ["m61"])
         list.reload(animated: true)
         #expect(list.rowViews.values.allSatisfy { Self.positionSprings($0) + Self.sizeSprings($0) == 0 },

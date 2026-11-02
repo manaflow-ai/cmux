@@ -202,6 +202,15 @@ class Gradient(unittest.TestCase):
         with self.assertRaises(ValueError):
             tuikit.Pacer(120, "nap")
 
+    def test_pace_defaults(self):
+        """gradient spins by default (a sleeping 120 fps loop woke in bursts on a fleet mini, job
+        0a364ec0ef40: interval p95 47 ms); top sleeps; the heavy profile's hidden gradients sleep."""
+        parser = tuikit.build_parser()
+        self.assertEqual(parser.parse_args(["gradient"]).pace, "spin")
+        self.assertEqual(parser.parse_args(["top"]).pace, "sleep")
+        hidden = [extra for program, extra in heavy_profile.HIDDEN_PROGRAMS if program == "gradient"]
+        self.assertTrue(hidden and all(extra[extra.index("--pace") + 1] == "sleep" for extra in hidden))
+
     def test_pacer_modes_on_a_fake_clock(self):
         """A sleep that wakes 1 ms late: sleep mode starts the frame 1 ms late; hybrid sleeps to 2 ms
         before the due time and polls the rest; spin never sleeps. The clock moves 0.1 ms a read."""

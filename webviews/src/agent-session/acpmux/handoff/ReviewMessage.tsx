@@ -91,6 +91,7 @@ export function HandoffReviewMessage({
             aria-label={s.context}
             value={capsule}
             rows={10}
+            required
             disabled={!editable}
             onChange={(e) => {
               changed();
@@ -105,6 +106,7 @@ export function HandoffReviewMessage({
             aria-label={s.checkpoint}
             value={checkpoint}
             placeholder={s.checkpointPlaceholder}
+            required
             disabled={!editable}
             onChange={(e) => {
               changed();
@@ -118,6 +120,7 @@ export function HandoffReviewMessage({
           <input
             aria-label={s.checkpointConfirm}
             type="checkbox"
+            required
             checked={confirmed}
             disabled={!editable}
             onChange={(e) => {
@@ -173,10 +176,7 @@ export function HandoffReviewMessage({
         {(validationError || state.error) && <p role="alert">{validationError || state.error}</p>}
         {state.busy === "saving" && <output>{s.saving}</output>}
         <div className="acpmux-handoff-buttons">
-          <button
-            type="submit"
-            disabled={busy || !!state.conflict || !capsule.trim() || !checkpoint.trim() || !confirmed}
-          >
+          <button type="submit" disabled={busy || !!state.conflict}>
             {state.busy === "starting" || record.state === "starting"
               ? s.starting
               : formatHandoff(s.continueTarget, agentDisplayName(record.target.harness))}
