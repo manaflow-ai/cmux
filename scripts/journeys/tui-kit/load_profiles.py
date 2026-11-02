@@ -38,7 +38,10 @@ Rules. Every profile follows them, and the tests check them:
     closed or split away.
   - The focus guard reads snapshot.get topology.focus and debug.focus (the key window and each window's
     first responder) when the load is ready, then every 0.5 s. It writes every change to focus.jsonl. The
-    manifest says focus_changed true or false.
+    manifest says focus_changed true or false. Any change counts, the key window too: a driver or person
+    that switches to another app or deactivates cmux during the run also gives focus_changed true (read
+    focus.jsonl for what changed).
+  - --devtools stays opt-in: if the app does open DevTools, it focuses that pane when a window shows it.
   - At the end (duration, SIGTERM or SIGINT), the profile closes what it made, stops what it started and
     writes the manifest.
 
@@ -803,8 +806,13 @@ class L5(Profile):
             proc = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT)
             while proc.poll() is None:
                 if self.stop.wait(0.2):
-                    proc.terminate()  # a SIGTERM during set-up: heavy build stops; its manifest has what it made
-                    proc.wait(60)
+                    # a SIGTERM during set-up: heavy build stops between steps (it records each id first)
+                    proc.terminate()
+                    try:
+                        proc.wait(120)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
                     raise Stop()
         with open(os.path.join(self.dir, "heavy-build.out")) as log:
             out = log.read()
