@@ -14,6 +14,11 @@ use serde_json::{Map, Value, json};
 use super::agent_session_attach::agent_session_link::{AcpmuxLink, Inbound, LinkError};
 use super::*;
 
+/// `identify` advertises it: this daemon serves `mobile-chat-sessions`,
+/// `mobile-chat-history` and `mobile-chat-send`, which the Mac's mobile host
+/// offers a phone as `cloud_chat_relay.v1`.
+pub const CLOUD_CHAT_RELAY_CAPABILITY: &str = "cloud_chat_relay.v1";
+
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_LIMIT: u64 = 200;
 const DEFAULT_HISTORY_LIMIT: u64 = 50;
