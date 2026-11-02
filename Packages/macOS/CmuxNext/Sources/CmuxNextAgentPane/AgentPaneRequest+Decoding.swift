@@ -445,6 +445,9 @@ extension AgentPaneRequest {
             if info == nil || info is NSNull { self = .sessionInfo(nil) }
             else if let model = AgentPaneSessionInfoModel.decode(info) { self = .sessionInfo(model) }
             else { self = .unsupported(method) }
+        case "pane.sessionInfo.overlays":
+            if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]) { self = .sessionInfoOverlays(rects) }
+            else { self = .unsupported(method) }
         case "pane.copyText":
             if let text = params?["text"] as? String { self = .copyText(text) }
             else { self = .unsupported(method) }
