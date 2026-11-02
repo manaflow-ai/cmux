@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 548,
+  "count": 552,
   "sections": [
     {
       "id": "general",
@@ -154,6 +154,40 @@
             "min": 0.5,
             "max": 2,
             "unit": "fraction"
+          }
+        },
+        {
+          "key": "agents.autoRetry.attempts",
+          "title": "Retries per Error",
+          "help": "How many times the chat tries again before it stops and waits for you.",
+          "kind": "number",
+          "default": 4,
+          "group": "Retry After Errors",
+          "range": {
+            "min": 1,
+            "max": 12,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "agents.autoRetry.enabled",
+          "title": "Retry Automatically",
+          "help": "When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Retry After Errors"
+        },
+        {
+          "key": "agents.autoRetry.intervalSeconds",
+          "title": "Seconds Between Retries",
+          "help": "How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes.",
+          "kind": "number",
+          "default": 0,
+          "group": "Retry After Errors",
+          "range": {
+            "min": 0,
+            "max": 3600,
+            "unit": "seconds"
           }
         },
         {
@@ -5885,6 +5919,14 @@
           "key": "phone.allowConnections",
           "title": "Let Your Phone Use This Mac",
           "help": "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Phone Access"
+        },
+        {
+          "key": "phone.cloudDesktop",
+          "title": "Show Your Cloud Machine's Screen on Your Phone",
+          "help": "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open.",
           "kind": "toggle",
           "default": false,
           "group": "Phone Access"
