@@ -122,11 +122,11 @@ jobs:
       contents: read
     name: Sweep wasted macOS demand
     if: ${{ !(github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') }}
-    # The Linux pool's live member first (runner_pools.py moves it off a size that starts nothing),
-    # then LINUX_RUNNER, both only among the Blacksmith sizes named here (it mints App keys). On
+    # RUNNER_POOLS.linux is mirrored from the live ephemeral member by runner_pools.py; prefer it
+    # over a stale LINUX_RUNNER value, and keep both sources within the Blacksmith sizes below. On
     # 2026-11-01 LINUX_RUNNER stayed on blacksmith-32vcpu-ubuntu-2404 while that size stalled, so
     # no sweep ran from 05:43Z to past 06:30Z and a lost job (124762739841) waited 50 minutes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A sweep that lists the whole queue took up to 13 minutes on 2026-10-30; a timed-out
     # job skips the upload below, so this leaves room for the longest one seen.
     timeout-minutes: 15
