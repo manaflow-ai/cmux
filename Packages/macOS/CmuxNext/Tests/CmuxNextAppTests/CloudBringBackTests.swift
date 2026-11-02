@@ -13,7 +13,7 @@ import Testing
 /// Bring Back Local (cmuxterm-hq#1874 slice 4) at the app boundary: a chat moved to a Cloud machine
 /// with `cmux cloud move` comes back with `cmux cloud bring-back`, both sent as the CLI sends them
 /// to the app's real action registry. This Mac and the machine are two real cmux-tui daemons, as
-/// in ``CloudMoveTests``; `cmux link sync push|pull` and `cmux link agent move` are a stand-in
+/// in ``CloudMoveTests``; `cmux link seed push, link seed pull` and `cmux link agent move` are a stand-in
 /// `cmux` that records its arguments and answers as the case asks. The Rust suites cover those
 /// CLIs against daemons (link_sync.rs, bring_back_journey.rs).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
@@ -27,7 +27,7 @@ struct CloudBringBackTests {
             try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
             let calls = trip.calls()
             #expect(calls.count == 4, "\(calls)")
-            #expect(calls.dropFirst(2).first == ["link", "sync", "pull", "--socket", trip.vmSocket, trip.project.path, trip.synced])
+            #expect(calls.dropFirst(2).first == ["link", "seed", "pull", "--socket", trip.vmSocket, trip.project.path, trip.synced, "--or-copy"])
             // A running turn moves too, with what it wrote on the machine since the pull.
             #expect(calls.dropFirst(3).first == ["link", "agent", "move", "--from-socket", trip.vmSocket, "--surface", String(trip.machineSurface),
                                                  "--to-socket", trip.macSocket, "--cwd", trip.project.path, "--interrupt",
@@ -48,15 +48,18 @@ struct CloudBringBackTests {
     /// A revoke that fails after a bring back (the machine didn't answer) never fails the bring back
     /// and is tried again, until it answers ok.
     @Test func aRevokeThatFailsIsTriedAgainUntilItIsDone() async throws {
-        try await Self.withRoundTrip("revokeOnce") { trip in
+        // A short poll: the retry comes a poll after the failure, and many polls pass before the polling stops.
+        try await Self.withRoundTrip("revokeOnce", accessPoll: .milliseconds(100)) { trip in
             if let error = await trip.bringBack() { Issue.record("cmux cloud bring-back: \(error.code) \(error.message)") }
             try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
             let revoke = ["link", "access", "revoke", "--machine", "vm-move", "--session", "chat-on-vm", "--socket", trip.vmSocket, "--all"]
             @MainActor func revokes() -> Int { trip.accessCalls().filter { $0 == revoke }.count }
             try await trip.waitUntil { revokes() >= 2 }
             #expect(revokes() == 2, "the failed revoke was not tried again once, or not stopped after it was done: \(trip.accessCalls())")
-            // Done: no more tries.
-            try? await Task.sleep(for: .seconds(8))
+            // Done: nothing is left to revoke (a revoke done is never queued again), so no later poll tries again.
+            let revokesLeft = trip.services.cloud.accessAsks.revokes
+            try await trip.waitUntil { revokesLeft.isEmpty }
+            #expect(revokesLeft.isEmpty, "the revoke is still queued after it was done")
             #expect(revokes() == 2, "\(trip.accessCalls())")
         }
     }
@@ -206,7 +209,7 @@ struct CloudBringBackTests {
             try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
             let calls = Array(trip.calls().dropFirst(before))
             #expect(calls.first == ["link", "machine", "update", "--socket", trip.vmSocket], "\(calls)")
-            #expect(calls.dropFirst().map { Array($0.prefix(3)) } == [["link", "sync", "pull"], ["link", "agent", "move"]], "\(calls)")
+            #expect(calls.dropFirst().map { Array($0.prefix(3)) } == [["link", "seed", "pull"], ["link", "agent", "move"]], "\(calls)")
             #expect(trip.localChat()?.agentSession?.session == "chat-live")
         }
     }
@@ -282,6 +285,8 @@ struct CloudBringBackTests {
     /// retryable on the same machine (cx-rppd.8).
     @Test func aSyncPullThatThrowsKeepsTheBringBackRetryable() async throws {
         try await Self.withRoundTrip("pullTimeout") { trip in
+            // The pull is the bring back's first CLI run and never answers: a short deadline ends it sooner.
+            trip.services.cloud.move.timeout = .seconds(1)
             #expect(await trip.bringBack() != nil, "the bring back did not report that it stopped")
             #expect(trip.calls().count == 3, "\(trip.calls())")
             #expect(trip.machineChat() != nil)
@@ -300,7 +305,7 @@ struct CloudBringBackTests {
         let log: URL
         let vmSocket: String
         var macSocket = ""
-        /// The synced folder on the machine (`cmux link sync push`'s target).
+        /// The synced folder on the machine (`cmux link seed push`'s target).
         var synced = ""
         /// The moved chat's tab on the machine, as the app keys it, and its surface there.
         var machineKey = ""
@@ -402,7 +407,7 @@ struct CloudBringBackTests {
     /// Runs `body` once a live chat of this Mac moved to a connected Cloud machine; the stand-in CLI
     /// answers the bring back as `mode` says (`back`, `conflict`, `policy`, `pullTimeout`; `access` also
     /// has the chat ask for a file, `secret` for a secret; `revokeOnce` fails the first `link access revoke`).
-    private static func withRoundTrip(_ mode: String, _ body: (Trip) async throws -> Void) async throws {
+    private static func withRoundTrip(_ mode: String, accessPoll: Duration = .seconds(3), _ body: (Trip) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = URL(fileURLWithPath: "/private/tmp/cn-back-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -424,7 +429,7 @@ struct CloudBringBackTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
-        services.cloud.move = CloudMoveSetup(cli: cli, workRoots: [workRoot.path], timeout: .seconds(5))
+        services.cloud.move = CloudMoveSetup(cli: cli, workRoots: [workRoot.path], timeout: .seconds(5), accessPoll: accessPoll)
         services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-back-test")
         services.daemon.start {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: mac.endpointProvider)
@@ -481,7 +486,7 @@ struct CloudBringBackTests {
         trip.synced = try #require(trip.calls().first?.last)
     }
 
-    /// A stand-in `cmux` (calls recorded unit-separated): `link sync push` makes the synced folder
+    /// A stand-in `cmux` (calls recorded unit-separated): `link seed push` makes the synced folder
     /// and `link agent move` moves the chat to the machine, leaving the landed chat's record as the
     /// machine daemon's `agent-transfer-finish` would (see ``CloudMoveTests``); then `link sync
     /// pull` and the move back answer as `mode` says. `link access triage` lists one file ask of the
@@ -502,11 +507,11 @@ struct CloudBringBackTests {
             for arg in "$@"; do line="$line$(printf '\\037')$arg"; done
             printf '%s\\n' "${line#?}" >> '\(log.path)'
             case "$1 $2 $3" in
-            "link sync push")
+            "link seed push")
                 for target in "$@"; do :; done
                 mkdir -p "$target"
                 echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4}' ;;
-            "link sync pull")
+            "link seed pull")
                 case '\(mode)' in
                 conflict) echo '{"ok":false,"error":"notes.txt changed both here and on the machine","error_code":"sync_conflict","conflicts":["notes.txt"]}'; exit 1 ;;
                 outdated) echo '{"ok":false,"error":"the machine runs an older cmux-tui (0000old) without fs-v1; update the machine","error_code":"machine_outdated","missing":["fs-v1"],"machine_build":"0000old"}'; exit 1 ;;
@@ -529,7 +534,7 @@ struct CloudBringBackTests {
                     [ -n "$registry" ] || exit 70
                     printf '[{"session":"chat-on-vm","landed_at_ms":%s000}]' "$(date +%s)" > "$(dirname "$registry")/agent-transfer-landed.json"
                     echo '{"ok":true,"session_id":"chat-on-vm","transfer_id":"tr-1","bytes":42,"resolved":false}'
-                elif [ '\(mode)' = policy ] && [ "${12}" != --ask-first ]; then
+                elif [ '\(mode)' = policy ] && case " $* " in *" --ask-first "*) false ;; *) true ;; esac; then
                     echo '{"ok":false,"error":"the machine did not take the chat: acpmux refused the request: transfer.policy: approve-all","error_code":"agent_transfer.refused"}'
                     exit 1
                 else

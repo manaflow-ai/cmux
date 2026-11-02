@@ -133,6 +133,7 @@ export default agentPaneEntry({
   height: 640,
   covers: [
     "agent-session/acpmux/conversation/ArtifactPanel.tsx",
+    "agent-session/acpmux/conversation/artifactPin.ts",
     "agent-session/acpmux/conversation/OpenPreview.tsx",
     "agent-session/acpmux/conversation/writtenArtifacts.tsx",
   ],
@@ -214,6 +215,22 @@ export default agentPaneEntry({
       note: "An HTML page: in the bundled pane it draws in the render frame; the gallery renders the same offline document.",
       snapshot: reply("Mock the Pro plan card", `A first pass:\n\n${fence("html", page)}`),
       play: open,
+    },
+    pinned: {
+      note: "A person pins the preview and sees its owning conversation next to the document, with an explicit Unpin control.",
+      snapshot: chat(
+        [
+          user("Write the retry review", 6),
+          assistant(`The review is here:\n\n${fence("markdown", notes)}`, 5),
+          summary(5, { status: "completed", durationMs: 21_000 }),
+        ],
+        { title: "Retry review" },
+      ),
+      play: async (ctx: PlayContext) => {
+        await open(ctx);
+        await ctx.click({ selector: '.acpmux-artifact-actions button[aria-label="Pin"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-artifact-source"));
+      },
     },
     versions: {
       note: "The chat rewrote the notes: the panel opens on the first and steps to the rewrite with < 1/2 >.",

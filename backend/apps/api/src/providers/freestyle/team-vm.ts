@@ -4,10 +4,11 @@ import type { TeamVmDriver } from "../../team-vm-driver.ts"
 import { DriverError } from "../contract.ts"
 import type { TeamVmProviderWiring } from "../index.ts"
 import { freestyleCustomer } from "./customer.ts"
+import { freestyleIdleSeconds } from "../../auto-pause.ts"
 import { FreestyleFiles } from "./team-vm-files.ts"
 
 /** The team VM provider on Freestyle (plans/cmux-next/team-vm-plan.md S2): REST v5 with the team VM lane's key. */
-/** Idle pause: the provider pauses the VM after this long without activity (spec: about 10 minutes). */
+/** Idle pause: the provider pauses the VM after this long without activity (spec: about 10 minutes), only with CLOUD_IDLE_PAUSE on (auto-pause.ts). */
 const IDLE_TIMEOUT_SECONDS = 600
 /** One provider request; a wake is normally well under a second, the first one after a long pause a few seconds. */
 const REQUEST_TIMEOUT_MS = 20_000
@@ -24,7 +25,9 @@ export class FreestyleDriver implements TeamVmDriver {
   constructor(
     private readonly apiKey: string,
     private readonly baseUrl: string,
-    private readonly snapshot: string
+    private readonly snapshot: string,
+    /** Freestyle's idleTimeoutSeconds for a create: -1 (never) unless CLOUD_IDLE_PAUSE is on (make, below). */
+    private readonly idleTimeoutSeconds: number = -1
   ) {
     this.files = new FreestyleFiles(apiKey, baseUrl)
   }
@@ -66,7 +69,7 @@ export class FreestyleDriver implements TeamVmDriver {
       {
         slug,
         snapshotId: this.snapshot,
-        idleTimeoutSeconds: IDLE_TIMEOUT_SECONDS,
+        idleTimeoutSeconds: this.idleTimeoutSeconds,
         metadata: { cmux_team: team, cmux_epoch: String(epoch) },
         ...freestyleCustomer(team),
         firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
@@ -162,5 +165,5 @@ export class FreestyleDriver implements TeamVmDriver {
 export const freestyleTeamVm: TeamVmProviderWiring = {
   id: "freestyle",
   keySet: (env: Env) => Boolean(env.FREESTYLE_API_KEY),
-  make: (env: Env, snapshot: string) => new FreestyleDriver(env.FREESTYLE_API_KEY!, env.FREESTYLE_API_URL || "https://api.freestyle.sh", snapshot)
+  make: (env: Env, snapshot: string) => new FreestyleDriver(env.FREESTYLE_API_KEY!, env.FREESTYLE_API_URL || "https://api.freestyle.sh", snapshot, freestyleIdleSeconds(env, IDLE_TIMEOUT_SECONDS))
 }

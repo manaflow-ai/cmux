@@ -83,6 +83,8 @@ enum AgentPaneHandshakeReply {
                 (model.handedWake, model.pendingWake) = (model.pendingWake, nil)
             }
             model.hasHandshake = true
+            // A handshake starts a connection: the page says when its client is ready (`pane.clientReady`).
+            model.clientReady = false
             model.acpmuxRestartOffered = nil
             // A filled-in folder stays the workspace's, no root of its own (cx-9aps).
             if let cwd = handshake.cwd, !filled { model.handshakeCwd = cwd }

@@ -17,6 +17,8 @@ dependencies = [
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-git",
+ "cmux-host",
+ "cmux-host-budget",
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
@@ -1214,7 +1216,10 @@ dependencies = [
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "cmux-cloud-wire",
  "cmux-json",
+ "cmux-link",
  "cmux-server",
  "cmux-server-core",
  "flate2",
@@ -1227,6 +1232,21 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+ "url",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
+name = "cmux-host-budget"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -1260,11 +1280,14 @@ name = "cmux-link"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-process",
  "cmux-unix-socket",
  "libc",
+ "ring",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "zeroize",
 ]
 
 [[package]]
@@ -1509,7 +1532,9 @@ name = "cmux-server"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-wire",
  "cmux-json",
+ "cmux-link",
  "cmux-server-core",
  "flate2",
  "futures-util",
@@ -1679,6 +1704,7 @@ dependencies = [
  "crossbeam-channel",
  "crossterm",
  "flate2",
+ "fs4",
  "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",

@@ -171,3 +171,52 @@ export const journalNotes: ReleaseNotes[] = [
     items: [{ title: "cmux NEXT: a restored terminal pane comes back without a key press", pr: 23145 }],
   },
 ];
+
+/** One day of nightlies as published on 2026-11-01: each build's digest is made from its summary
+    lines, so every build names its entries summary-0, summary-1, … (Leo 2026-11-01 saw rows twice
+    on What's New: the page keyed its rows by those ids). One title was cut inside its parentheses
+    by an older pipeline. Newest first. */
+const digestBuild = (build: string, lines: [WhatsNewEntry["category"], string, string][]): ReleaseNotes => ({
+  build,
+  shortVersion: `1.0.0-nightly.${build}`,
+  date: "2026-11-01",
+  highlights: [],
+  changes: [],
+  whatsNew: {
+    version: `1.0.0-nightly.${build}`,
+    channel: "nightly",
+    date: "2026-11-01",
+    headline: { en: lines[0]![1] },
+    entries: lines.map(([category, title, summary], index) => entry(`summary-${index}`, category, title, summary)),
+  },
+});
+
+export const dayOfNightlies: ReleaseNotes[] = [
+  digestBuild("4134492295001", [
+    ["new", "Show the Feed in Chief draws in Settings > Chief > Look", ""],
+    ["improved", "Ultracode and Fast mode do not block Bring Back Local", ""],
+    ["improved", "Drop saved incognito task ids whose tasks ended", "While the app was stopped."],
+    ["improved", "Routing follow-ups (trim recovered route", "Prepared presets only, cap before split)."],
+    ["fixed", "A title or preview cut with an ellipsis never ends inside an emoji", ""],
+  ]),
+  digestBuild("4134335440201", [
+    ["improved", "Cloud start replaces rejected Claude logins", "Cloud start replaces rejected Claude logins."],
+    ["improved", "A message's More menu opens upward when it does not fit below", ""],
+  ]),
+  digestBuild("4133822529301", [
+    ["improved", "Replace a Claude login the provider rejects", ""],
+    ["improved", "A pinned harness still takes a model", "A queued subagent keeps its model after a restart."],
+  ]),
+  digestBuild("4132569907101", [
+    ["improved", "Each machine's projects carry its own colored computer", "Not one globe."],
+    ["improved", "An attached video's speech goes to the agent", "Transcribed on this Mac."],
+  ]),
+  digestBuild("4132418488301", [
+    ["improved", "Copy again on the machine's new link after updating it", ""],
+    ["fixed", "A key right after an arrow key sees the caret the arrow moved", ""],
+  ]),
+  digestBuild("4131908227901", [
+    ["improved", "A look at a video's frames draws as a filmstrip card", ""],
+    ["improved", "Inbox rows share the tool rows' icon column", "A sender's mark is its real harness."],
+  ]),
+];

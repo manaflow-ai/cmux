@@ -4,6 +4,7 @@
 // paragraph, heading, list item, table cell, code block), so a match may span bold, links and code
 // colors inside it; matches are painted with CSS custom highlights, never by rewriting the editor's
 // DOM. Source: the text area's lines; the active match is its selection.
+import { foldFind } from "../../find/fold";
 import type { FindRange, FindTarget } from "../editor/editorFind";
 
 /** The highlight names styles.css paints. */
@@ -76,8 +77,8 @@ function rangeOf(run: Run, match: FindRange): Range {
 }
 
 function occurrences(text: string, query: string, matchCase: boolean, line: number, into: FindRange[]) {
-  const hay = matchCase ? text : text.toLocaleLowerCase();
-  const needle = matchCase ? query : query.toLocaleLowerCase();
+  const hay = matchCase ? text : foldFind(text);
+  const needle = matchCase ? query : foldFind(query);
   if (!needle) return;
   for (let at = hay.indexOf(needle); at >= 0; at = hay.indexOf(needle, at + needle.length)) {
     into.push({ startLineNumber: line, startColumn: at + 1, endLineNumber: line, endColumn: at + 1 + needle.length });

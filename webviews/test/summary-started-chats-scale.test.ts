@@ -15,10 +15,10 @@ test("the started-chat list excludes sub-sessions once without reordering the re
   const first = chat("a");
   const second = chat("b");
   const third = chat("c");
-  const result = startedChatsOutsideSubsessions(
-    [first, second, third, second],
-    [{ sessionId: "b" }, { sessionId: "not-a-started-chat" }] satisfies Pick<SubsessionRow, "sessionId">[],
-  );
+  const result = startedChatsOutsideSubsessions([first, second, third, second], [
+    { sessionId: "b" },
+    { sessionId: "not-a-started-chat" },
+  ] satisfies Pick<SubsessionRow, "sessionId">[]);
   expect(result).toEqual([first, third]);
   expect(result[0]).toBe(first);
   expect(result[1]).toBe(third);

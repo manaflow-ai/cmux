@@ -385,12 +385,22 @@ impl Platform {
         path: &str,
         body: Option<Value>,
     ) -> Result<Value, CallError> {
+        self.call_with_timeout(method, path, body, self.timeout).await
+    }
+
+    async fn call_with_timeout(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<Value>,
+        timeout: Duration,
+    ) -> Result<Value, CallError> {
         let mut request = self
             .client
             .request(method, format!("{}{path}", self.origin))
             .bearer_auth(&self.credential)
             .header(reqwest::header::ACCEPT, "application/json")
-            .timeout(self.timeout);
+            .timeout(timeout);
         if let Some(body) = body {
             request = request.json(&body);
         }
@@ -438,6 +448,15 @@ impl Platform {
     /// `POST path` with a JSON body: the answer, or why it failed (`link start-chat ensure`).
     pub(crate) fn post(&self, path: &str, body: Value) -> Result<Value, CallError> {
         self.runtime.block_on(self.call(reqwest::Method::POST, path, Some(body)))
+    }
+
+    /// A short telemetry read must not extend the workspace machine admission timeout.
+    pub(crate) fn get_with_timeout(
+        &self,
+        path: &str,
+        timeout: Duration,
+    ) -> Result<Value, CallError> {
+        self.runtime.block_on(self.call_with_timeout(reqwest::Method::GET, path, None, timeout))
     }
 
     /// Every joined machine's entry, as the platform lists them.

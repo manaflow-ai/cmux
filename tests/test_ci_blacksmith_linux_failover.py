@@ -10,7 +10,7 @@ A runs-on that names a Blacksmith Linux label literally and reads neither
 variable never sees that, so its job queued with zero capacity for the whole
 outage (2026-10-27). Each such label must sit behind
 `vars.CI_CLOUD_OVERFLOW_SAVED && '<FAILOVER_SIZE[label]>' ||` (another
-Blacksmith Linux size: 2 goes to 4, 4 and 8 swap, 16 goes to 8, and the older
+Blacksmith Linux size: 2 goes to 4 or 8, 4 and 8 swap, 16 goes to 8, and the older
 pairing of 4 and 8 to 16 and 16 and 32 swapping still counts), or the expression
 must read one of the switched variables first. Blacksmith's concurrency is a cap
 on vCPUs, so a failover to a smaller size is the one likelier to start
@@ -43,7 +43,7 @@ EXCLUDED_FILES = {
 # x64 Blacksmith Linux labels; -arm labels are a different pool.
 LABEL = re.compile(r"blacksmith-\d+vcpu-ubuntu-2404(?![-\w])")
 # Each x64 Blacksmith Linux size and the sizes it may fail over to, the first preferred.
-FAILOVER_SIZES = {2: (4,), 4: (8, 16), 8: (4, 16), 16: (8, 32), 32: (16,)}
+FAILOVER_SIZES = {2: (4, 8), 4: (8, 16), 8: (4, 16), 16: (8, 32), 32: (16,)}
 FAILOVER_PREFIX = "vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-"
 
 

@@ -1,4 +1,5 @@
 import type { CloudStartAnswer } from "./cloudRun";
+import { sliceWhole } from "../../ui/wholeChars";
 
 /// A chat starting in Cloud, as the chat shows it (CloudStartView; cloud work mode, leo-workspace
 /// design/cloud-work-mode.md): while the host's `cloud.startChat` runs (a new machine boots in
@@ -63,10 +64,19 @@ export type CloudStartupOperation = {
   finishedAt?: number;
   error?: string;
   phase?: string;
+  /// A seed that copied the folder instead: the reason's code (`not_git`, `seed.needs_github`, ...).
+  fallback?: string;
+  /// The cmux GitHub App's install page, when the machine could not read a private repository.
+  installUrl?: string;
   progress?: {
     receivedBytes?: number;
     objects?: number;
     totalObjects?: number;
+    /// The upload's or the copy's whole size, beside `receivedBytes` done.
+    bytesTotal?: number;
+    /// The copy's files done and in all.
+    filesDone?: number;
+    filesTotal?: number;
   };
 };
 
@@ -104,13 +114,13 @@ export function cloudStartBegun(
 function line(value: unknown, max: number): string | undefined {
   if (typeof value !== "string") return undefined;
   const text = value.replace(/\s+/g, " ").trim();
-  return text ? (text.length > max ? `${text.slice(0, max - 1)}…` : text) : undefined;
+  return text ? (text.length > max ? `${sliceWhole(text, max - 1)}…` : text) : undefined;
 }
 
 function logLine(value: unknown, max: number): string | undefined {
   if (typeof value !== "string") return undefined;
   const text = value.trim();
-  return text ? (text.length > max ? `${text.slice(0, max - 1)}…` : text) : undefined;
+  return text ? (text.length > max ? `${sliceWhole(text, max - 1)}…` : text) : undefined;
 }
 
 /// `current` with the host's push `push` taken in: only for the same start while it runs, field by
@@ -164,14 +174,18 @@ export function cloudStartPushed(
     if (harnessTiming) Object.assign(next, prefixedTiming("harness", harnessTiming));
   }
   const clone = operation(fields.clone ?? fields.gitSeed ?? fields.seed ?? fields["git.seed"]);
-  if (clone) next.clone = clone;
+  // The copy's final answer does not repeat why a seed copied: its live lines said so, and it stays.
+  const ended = clone?.state === "done" || clone?.state === "failed";
+  if (clone) next.clone = ended ? { ...pick(next.clone, ["fallback", "installUrl"]), ...clone } : clone;
   const setup = setupStatus(fields.setup ?? fields.environment);
   if (setup) next.setup = setup;
   return next;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 function number(value: unknown): number | undefined {
@@ -183,21 +197,52 @@ function timing(value: unknown): { startedAt?: number; finishedAt?: number } | u
   if (!record) return undefined;
   const startedAt = number(record.startedAt ?? record.started_at);
   const finishedAt = number(record.finishedAt ?? record.finished_at);
-  return startedAt === undefined && finishedAt === undefined ? undefined : { ...(startedAt !== undefined && { startedAt }), ...(finishedAt !== undefined && { finishedAt }) };
+  return startedAt === undefined && finishedAt === undefined
+    ? undefined
+    : { ...(startedAt !== undefined && { startedAt }), ...(finishedAt !== undefined && { finishedAt }) };
 }
 
-function prefixedTiming(prefix: "machine" | "harness", value: { startedAt?: number; finishedAt?: number }): Record<string, number> {
+function prefixedTiming(
+  prefix: "machine" | "harness",
+  value: { startedAt?: number; finishedAt?: number },
+): Record<string, number> {
   return {
     ...(value.startedAt !== undefined && { [`${prefix}StartedAt`]: value.startedAt }),
     ...(value.finishedAt !== undefined && { [`${prefix}FinishedAt`]: value.finishedAt }),
   } as Record<string, number>;
 }
 
+/** An `https:` address, else undefined; the card links to it. */
+function httpsUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length > 2048) return undefined;
+  try {
+    return new URL(value).protocol === "https:" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The named fields of `value` that are set. */
+function pick<T extends object, K extends keyof T>(value: T | undefined, keys: readonly K[]): Partial<Pick<T, K>> {
+  const picked: Partial<Pick<T, K>> = {};
+  for (const key of keys) if (value?.[key] !== undefined) picked[key] = value[key];
+  return picked;
+}
+
 function operation(value: unknown): CloudStartupOperation | undefined {
   const record = asRecord(value);
   if (!record) return undefined;
   const raw = record.state ?? record.status;
-  const state = raw === "done" || raw === "complete" ? "done" : raw === "failed" || raw === "error" ? "failed" : raw === "running" ? "running" : raw === "pending" ? "pending" : undefined;
+  const state =
+    raw === "done" || raw === "complete"
+      ? "done"
+      : raw === "failed" || raw === "error"
+        ? "failed"
+        : raw === "running"
+          ? "running"
+          : raw === "pending"
+            ? "pending"
+            : undefined;
   if (!state) return undefined;
   const startedAt = number(record.startedAt ?? record.started_at);
   const finishedAt = number(record.finishedAt ?? record.finished_at);
@@ -207,14 +252,31 @@ function operation(value: unknown): CloudStartupOperation | undefined {
   const receivedBytes = number(progressRecord?.receivedBytes ?? progressRecord?.received_bytes);
   const objects = number(progressRecord?.objects);
   const totalObjects = number(progressRecord?.totalObjects ?? progressRecord?.total_objects);
+  const bytesTotal = number(progressRecord?.bytesTotal ?? progressRecord?.bytes_total);
+  const filesDone = number(progressRecord?.filesDone ?? progressRecord?.files_done);
+  const filesTotal = number(progressRecord?.filesTotal ?? progressRecord?.files_total);
   const progress = progressRecord
     ? {
         ...(receivedBytes !== undefined && { receivedBytes }),
         ...(objects !== undefined && { objects }),
         ...(totalObjects !== undefined && { totalObjects }),
+        ...(bytesTotal !== undefined && { bytesTotal }),
+        ...(filesDone !== undefined && { filesDone }),
+        ...(filesTotal !== undefined && { filesTotal }),
       }
     : undefined;
-  return { state, ...(startedAt !== undefined && { startedAt }), ...(finishedAt !== undefined && { finishedAt }), ...(error && { error }), ...(phase && { phase }), ...(progress && Object.keys(progress).length > 0 && { progress }) };
+  const fallback = line(record.fallback, 80);
+  const installUrl = httpsUrl(record.installUrl ?? record.install_url);
+  return {
+    state,
+    ...(startedAt !== undefined && { startedAt }),
+    ...(finishedAt !== undefined && { finishedAt }),
+    ...(error && { error }),
+    ...(phase && { phase }),
+    ...(fallback && { fallback }),
+    ...(installUrl && { installUrl }),
+    ...(progress && Object.keys(progress).length > 0 && { progress }),
+  };
 }
 
 function setupStatus(value: unknown): CloudStartupSetup | undefined {
@@ -233,11 +295,20 @@ function setupStatus(value: unknown): CloudStartupSetup | undefined {
   }
   const raw = record.status ?? record.state;
   const status = raw === "ready" || raw === "building" || raw === "failed" ? raw : undefined;
-  const base = operation({ ...record, state: status === "ready" ? "done" : status === "building" ? "running" : status === "failed" ? "failed" : record.state });
+  const base = operation({
+    ...record,
+    state:
+      status === "ready" ? "done" : status === "building" ? "running" : status === "failed" ? "failed" : record.state,
+  });
   if (!base && raw !== "skipped") return undefined;
   const startedAt = number(record.startedAt ?? record.started_at);
   const finishedAt = number(record.finishedAt ?? record.finished_at);
-  const hasScript = typeof record.hasScript === "boolean" ? record.hasScript : typeof record.has_script === "boolean" ? record.has_script : undefined;
+  const hasScript =
+    typeof record.hasScript === "boolean"
+      ? record.hasScript
+      : typeof record.has_script === "boolean"
+        ? record.has_script
+        : undefined;
   const logTail = logLine(record.logTail ?? record.log_tail, 1200);
   return {
     ...(base ?? { state: "skipped" as const }),

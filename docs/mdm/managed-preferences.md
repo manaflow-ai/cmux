@@ -79,6 +79,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `phone.startSessions` | boolean | `true` |  | Let Your Phone Start New Workspaces. Off, your phone can still follow, type into and answer what's already running. |
 | `phone.keepAwake` | string | `"pluggedIn"` | `off`, `pluggedIn`, `always` | Keep Mac Awake for Your Phone. A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep. |
 | `phone.cloudReplica` | boolean | `false` |  | Show This Mac's Workspaces on Your Phone While It's Off. cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy. |
+| `phone.cloudDesktop` | boolean | `false` |  | Show Your Cloud Machine's Screen on Your Phone. Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open. |
 | `appearance.machineColors` | dictionary | `{}` |  | Machine Color. The color of each machine's sidebar rows and tab badges, by machine name: "#RRGGBB", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name. |
 | `ssh.linkAllowedHosts` | array | `[]` |  | Always Allowed SSH Link Hosts. An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask. |
 | `cloud.newWorkspacesInCloud` | boolean | `false` |  | Run New Workspaces in Cloud. Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine. |
@@ -88,6 +89,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.subsessions.maxChildren` | real | `1000` | 1 to 1000 | Open Sub-sessions per Session. The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot. |
 | `agents.subsessions.maxRunning` | real | `1000` | 1 to 1000 | Running Sub-sessions per Session. The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it. |
 | `agents.subsessions.maxDepth` | real | `10` | 1 to 100 | Deepest Nesting. How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own. |
+| `agents.autoRetry.enabled` | boolean | `true` |  | Retry Automatically. When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works. |
+| `agents.autoRetry.intervalSeconds` | real | `0` | 0 to 3600 | Seconds Between Retries. How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes. |
+| `agents.autoRetry.attempts` | real | `4` | 1 to 12 | Retries per Error. How many times the chat tries again before it stops and waits for you. |
 | `agents.trust.autoTrust` | boolean | `false` |  | Trust My Own Folders Without Asking. Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first. |
 | `agents.trust.projectRoots` | array | `[]` |  | Trusted Project Roots. Everything inside these folders is trusted. Use full paths or ~/ paths. |
 | `agents.trust.ownOrgs` | array | `[]` |  | Trusted GitHub Owners. A repository is trusted when all of its GitHub remotes belong to these users or organizations. |
@@ -267,6 +271,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.environment.placement` | string | `"left"` | `left`, `right`, `off` | Session Info Chip. Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it. |
 | `agentPane.display.minimap` | string | `"compact"` | `compact`, `full`, `off` | Chat Minimap. What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing. |
 | `agentPane.display.transcriptView` | string | `"normal"` | `normal`, `thinking`, `verbose` | Transcript View. How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view. |
+| `agentPane.display.presentation` | string | `"transcript"` | `transcript`, `messages` | Chat Presentation |
 | `agentPane.display.rail.side` | string | `"left"` | `left`, `right` | Prompt Rail Side. The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
@@ -332,6 +337,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.showProfileControl` | boolean | `true` |  | Show Profile Button |
 | `sidebar.showSearchButton` | boolean | `true` |  | Show Search Button. A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette. |
 | `sidebar.showNewWorkspaceChooser` | boolean | `false` |  | Show New Workspace Menu Button. A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu. |
+| `sidebar.workspacesAsTabs` | boolean | `false` |  | Workspaces as Tabs. Each workspace is one line, like Claude's sidebar, and Command-Shift-[ and ] go to the previous or next workspace instead of the previous or next tab. |
+| `sidebar.chromeGroups` | boolean | `false` |  | Chrome-Style Groups. A group's colored name chip joins a thicker rail with a clipped corner, and the rail ends in a rounded cap, like Chrome's tab groups. |
+| `sidebar.sideBySide` | boolean | `false` |  | Workspaces Side by Side. A press on a workspace row switches only when you release it, so you can hold and drag the row onto a pane's edge to show that workspace beside the current one. Workspaces on screen are highlighted. |
 | `sidebar.noFade` | boolean | `false` |  | Show Whole Sidebar Without Fade. The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows. |
 | `sidebar.controlsOnHover` | boolean | `false` |  | Show Sidebar Controls Only on Hover. The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show. |
 | `sidebar.minimal` | boolean | `false` |  | Minimal Mode. Workspace rows show only their icon, name and unread mark, and section titles become thin lines. |
@@ -525,6 +533,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.verificationAutofill.enabled` | boolean | `false` |  | Fill Codes from Verification Emails. When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored. |
 | `home.server` | string | `"hosted"` | `hosted` | Server. Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login. Also accepts a dictionary {"selfHosted": "http(s)://host[:port]"} in a raw profile. |
 | `home.chiefBubbleStyle` | string | `"imessage"` | `imessage`, `theme` | Bubble Style. iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors. |
+| `home.feedInChief` | boolean | `true` |  | Show the Feed in Chief. Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them. |
 | `home.bubbleColors.sent` | string |  |  | My Bubble Color. Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable. |
 | `home.bubbleColors.sentText` | string |  |  | My Text Color. Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable. |
 | `home.bubbleColors.received` | string |  |  | Their Bubble Color. Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable. |
@@ -532,12 +541,13 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `home.attachments.keepLocation` | boolean | `false` |  | Keep Location in Photos and Videos. When off, location data is removed from photos and videos before they are attached. |
 | `home.channelsEnabled` | boolean | `false` |  | Channels. Show Channels below Home in the sidebar. You can also turn it on or off from the command palette. |
 | `home.chiefPetEnabled` | boolean | `false` |  | Show Chief Pet. A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app. |
-| `home.chiefPetMascot` | string | `"orb"` | `fox`, `machine`, `machine-cyan`, `machine-blue`, `moon`, `moon-blue`, `mochi`, `fox-arctic`, `machine-violet`, `machine-gold`, `moon-rose`, `orb`, `orb-spark`, `orb-hood` | Character |
+| `home.chiefPetMascot` | string | `"orb"` | `fox`, `machine`, `machine-cyan`, `machine-blue`, `moon`, `moon-blue`, `mochi`, `captain`, `sprout`, `bolt`, `fox-arctic`, `machine-violet`, `machine-gold`, `moon-rose`, `orb`, `orb-spark`, `orb-hood` | Character |
 | `home.chiefEngine` | string | `"auto"` | `auto`, `local`, `hosted` | Engine. Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud. |
 | `chief.reactionsCanWake` | boolean | `true` |  | Reactions Can Wake the Chief. A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted. |
 | `chief.reactionClassifier.harness` | string | `""` |  | Reaction Classifier Harness. The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route. |
 | `chief.reactionClassifier.model` | string | `"claude-haiku-5-5"` |  | Reaction Classifier Model. The model that decides whether a reaction starts a turn. Claude Haiku by default: it is fast and cheap. |
 | `chief.reactionClassifier.prompt` | string | `""` |  | Reaction Classifier Instructions. What the classifier is told when it decides. Empty uses the built-in instructions. |
+| `chief.autoRouteSubagents` | boolean | `false` |  | Route Subagents to the Best Agent. The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent. |
 | `notifications.dismissal` | string | `"focus"` | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Clear Notification When |
 | `notifications.timeoutSeconds` | real | `30` | 1 to 86400 | Timeout. Used when a source clears after a timeout. |
 | `notifications.sources.agent.dismissal` | string |  | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Agents |
@@ -569,6 +579,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.attention.showOnTab` | boolean | `true` |  | Mark the Tab |
 | `notifications.attention.showOnSidebar` | boolean | `true` |  | Mark the Sidebar Row |
 | `notifications.attention.moveToTop` | boolean | `false` |  | Move the Workspace to the Top. A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane. |
+| `notifications.attention.moveToTopOnAgentFinish` | boolean | `false` |  | Move the Workspace to the Top When Its Agent Finishes. An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane. |
 | `notifications.mutedWorkspaces` | array | `[]` |  | Muted Workspaces. Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu. |
 | `notifications.sounds.events.finished` | string |  |  | Agent Finished |
 | `notifications.sounds.events.needsInput` | string |  |  | Agent Needs Input |

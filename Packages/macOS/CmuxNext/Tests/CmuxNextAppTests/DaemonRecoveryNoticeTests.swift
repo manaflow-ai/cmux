@@ -4,6 +4,7 @@ import CmuxNextDaemon
 @testable import CmuxNextDaemonRecovery
 @testable import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -14,7 +15,7 @@ import Testing
 /// The app's real service runs on a stand-in daemon behind a bridge (never a real daemon, never a
 /// signal): it connects, then exits on `test-die` (the app reads EOF). Its restart runs a stand-in
 /// `cmux-tui` whose `server ensure` fails as a start on a full disk fails.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2)))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .closesItsWindows)
 struct DaemonRecoveryNoticeTests {
     @MainActor private final class RecordingHost: CmuxToastHosting {
         func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {}

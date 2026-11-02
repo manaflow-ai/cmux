@@ -26,9 +26,9 @@ import Observation
 /// Launch Claude/Codex Teams run `AgentTeamsLaunch`. Computer Use
 /// focus/stop are typed-unavailable.
 enum AgentHandlers {
-    /// Inspect Element (#24707) is a Debug/Labs surface: every right-click menu that places it
-    /// (the tab bar's + among them) leaves it out until Debug Settings' UI pointer inspector
-    /// (`AgentPaneTunables.pointerInspector`, off by default) is on.
+    /// Inspect Element (#24707): every right-click menu that places it (the tab bar's + among
+    /// them) leaves it out while Debug Settings' UI pointer inspector
+    /// (`AgentPaneTunables.pointerInspector`, on by default) is turned off.
     static func gatePointerInspectorMenuRows(in registry: ActionRegistry) {
         ActionTargetVisibility.hide("agentPane.togglePointerInspector", in: registry) { _ in
             !AgentPaneTunables.pointerInspector.value
@@ -36,6 +36,7 @@ enum AgentHandlers {
     }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let terminalDictation = TerminalDictation()
         registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomReset", run: { invocation in try resetAgentPaneZoom(context, invocation: invocation) })
@@ -170,6 +171,13 @@ enum AgentHandlers {
         // is push-to-talk. Outside an agent chat it stops a session still
         // running in one.
         registry.bind("palette.toggleDictation", invoke: { invocation in
+            if let (pane, content) = context.visibleContent(invocation), case .terminal(let entry) = content {
+                guard let tabID = pane.stripModel.selectedID?.rawValue,
+                      let tab = pane.pane.tabs.first(where: { $0.id == tabID }) else { return }
+                terminalDictation.toggle(entry: entry, surface: tab.surface, daemon: context.services.daemon(for: pane.pane))
+                return
+            }
+            if terminalDictation.stopIfActive() { return }
             guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
                   let view = context.services.agentTabs.existingView(key) else {
                 if AgentPaneView.stopDictation() { return }

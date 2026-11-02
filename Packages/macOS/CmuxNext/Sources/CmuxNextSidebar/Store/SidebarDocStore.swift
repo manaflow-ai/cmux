@@ -67,7 +67,7 @@ public final class SidebarDocStore {
     /// The change sent for `origin` gave no undoable inverse (refused, or a no-op): its step stays empty.
     @ObservationIgnored public var onUndoRefused: @MainActor (AnyObject) -> Void = { _ in }
     /// Set by the App around running an undo step's inverse; each change sent meanwhile carries it to `onUndoable`.
-    @MainActor public static var undoOrigin: AnyObject?
+    @ObservationIgnored public var undoOrigin: AnyObject?
     @ObservationIgnored private(set) var loading = false
     /// Changes and adopts sent and not answered yet, and who waits for none (``settled()``).
     @ObservationIgnored var inFlight = 0
@@ -113,11 +113,8 @@ public final class SidebarDocStore {
     /// the change, though the mirror may replay it without dropping it (an undo's put over the same record).
     @ObservationIgnored var answeredChief: [String: UInt64] = [:]
 
-    /// The app's one document store (one home session per app); the
-    /// App's composition root sets it.
-    public static var current: SidebarDocStore?
-    /// The records of the current document while the sidebar draws it; nil on the older path.
-    public static var activeRecords: SidebarDocRecords? { current.flatMap { $0.isActive && $0.shown != nil ? $0.records : nil } }
+    /// The records of the document while the sidebar draws it; nil on the older path.
+    public var activeRecords: SidebarDocRecords? { isActive && shown != nil ? records : nil }
 
     public init(remote: (any SidebarDocRemote)?, mirror: SidebarMirror? = SidebarMirror.make()) {
         self.remote = remote
@@ -388,7 +385,7 @@ public final class SidebarDocStore {
         do {
             try submit(intent, title: title, undoable: undoable, body)
         } catch {
-            if let origin = Self.undoOrigin { onUndoRefused(origin) }
+            if let origin = undoOrigin { onUndoRefused(origin) }
             onRefused(error.message)
         }
     }
@@ -417,7 +414,7 @@ public final class SidebarDocStore {
         pendingRecords.add(key: key, ops: stamped ?? intent.ops, records: shownRecords)
         if redraws { bump() }
         // An undo's or redo's inverse fills the step the undo put; a user's change puts its own step now (cx-kpicb).
-        let origin = Self.undoOrigin ?? (undoable ? onUndoPending(title) : nil)
+        let origin = undoOrigin ?? (undoable ? onUndoPending(title) : nil)
         inFlight += 1
         // task-owner: one sidebar mutation; settles its pending intent
         Task { [weak self] in

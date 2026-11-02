@@ -1,7 +1,8 @@
 //! Seed jobs: `git.seed.start` answers at once and the seed runs on a thread
 //! of its own; `git.seed.status` reads it. A start with the same folder,
 //! bundle and WORK commit as a running or finished job returns that job, so a
-//! client that lost the answer retries safely.
+//! client that lost the answer retries safely. `git.seed.export` runs as a
+//! job the same way ([`super::export`]); one folder has one running job.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -10,6 +11,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::export::{Export, ExportParams};
 use super::git::{Credential, Git, Progress};
 use super::params::StartParams;
 use super::{SeedRefusal, place, run};
@@ -33,6 +35,7 @@ pub enum Phase {
     Checkout,
     Submodules,
     Lfs,
+    Export,
 }
 
 impl Phase {
@@ -44,6 +47,7 @@ impl Phase {
             Self::Checkout => "checkout",
             Self::Submodules => "submodules",
             Self::Lfs => "lfs",
+            Self::Export => "export",
         }
     }
 }
@@ -65,6 +69,8 @@ struct Status {
     notes: Vec<&'static str>,
     /// When done: what the folder has checked out.
     head: Option<(String, Option<String>)>,
+    /// When an export is done: its answer's fields.
+    exported: Option<serde_json::Map<String, Value>>,
 }
 
 /// One seed.
@@ -77,6 +83,10 @@ pub struct Job {
 }
 
 impl Job {
+    pub(super) fn id(&self) -> &str {
+        &self.id
+    }
+
     fn status(&self) -> Status {
         self.status.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
@@ -96,6 +106,11 @@ impl Job {
     /// The checked-out commit and branch ref (`refs/heads/...`) when done.
     pub(super) fn checked_out(&self, head: String, head_ref: Option<String>) {
         self.update(|status| status.head = Some((head, head_ref)));
+    }
+
+    /// An export's result, added to the status answer once done.
+    pub(super) fn exported(&self, fields: serde_json::Map<String, Value>) {
+        self.update(|status| status.exported = Some(fields));
     }
 
     pub(super) fn note(&self, note: &'static str) {
@@ -135,6 +150,11 @@ impl Job {
         {
             object.insert("head".into(), head.into());
             object.insert("head_ref".into(), head_ref.map_or(Value::Null, Value::from));
+        }
+        if let (State::Done, Some(fields), Some(object)) =
+            (status.state, status.exported, answer.as_object_mut())
+        {
+            object.extend(fields);
         }
         if let (Some(failed), Some(object)) = (status.failed, answer.as_object_mut()) {
             object.insert("error_code".into(), failed.code.into());
@@ -208,6 +228,7 @@ impl GitSeedService {
     pub fn call(&self, cmd: &str, params: &Value) -> Result<Value, SeedRefusal> {
         match cmd {
             "git.seed.start" => self.start(params),
+            "git.seed.export" => self.export(params),
             "git.seed.status" => {
                 let params: StatusParams =
                     serde_json::from_value(params.clone()).map_err(|error| {
@@ -233,16 +254,8 @@ impl GitSeedService {
         let params = StartParams::parse(params)?;
         let folder = place::folder(&self.roots, &params.folder)?;
         let mut jobs = self.jobs();
-        let same_folder: Vec<Arc<Job>> =
-            jobs.by_id.values().filter(|job| job.folder == folder).cloned().collect();
-        for job in &same_folder {
-            let state = job.status().state;
-            if job.key == params.retry_key() && state != State::Failed {
-                return Ok(json!({ "job": job.id }));
-            }
-            if state == State::Running {
-                return Err(SeedRefusal::bad_request("another seed is running in this folder"));
-            }
+        if let Some(id) = same_job(&jobs, &folder, &params.retry_key())? {
+            return Ok(json!({ "job": id }));
         }
         let mut others = jobs.by_id.values().map(|job| job.folder.as_path());
         place::not_nested(&self.roots, &folder, &mut others)?;
@@ -255,14 +268,7 @@ impl GitSeedService {
             id,
             folder: folder.clone(),
             key: params.retry_key(),
-            status: Mutex::new(Status {
-                state: State::Running,
-                phase: Phase::Clone,
-                progress: Progress::default(),
-                failed: None,
-                notes: Vec::new(),
-                head: None,
-            }),
+            status: Mutex::new(Status::running(Phase::Clone)),
         });
         let credentials =
             self.config.credentials.clone().unwrap_or_else(super::git::machine_credentials);
@@ -285,6 +291,81 @@ impl GitSeedService {
         prune(&mut jobs);
         Ok(json!({ "job": job.id }))
     }
+}
+
+impl GitSeedService {
+    /// `git.seed.export`: the folder must be a clone already (a seed's), and
+    /// the bundle goes outside it under the roots.
+    fn export(&self, params: &Value) -> Result<Value, SeedRefusal> {
+        let params = ExportParams::parse(params)?;
+        let folder = place::folder(&self.roots, &params.folder)?;
+        if !std::fs::symlink_metadata(folder.join(".git")).is_ok_and(|meta| meta.is_dir()) {
+            return Err(SeedRefusal {
+                code: "seed.since_mismatch",
+                message: "the folder is not a seed of a repository".into(),
+            });
+        }
+        let mut jobs = self.jobs();
+        // A retry whose answer was lost is the same job, even once its bundle
+        // is written.
+        if let Some(id) = same_job(&jobs, &folder, &params.retry_key())? {
+            return Ok(json!({ "job": id }));
+        }
+        place::output(&self.roots, &params.bundle, &folder)?;
+        let id = new_id();
+        let job = Arc::new(Job {
+            id,
+            folder: folder.clone(),
+            key: params.retry_key(),
+            status: Mutex::new(Status::running(Phase::Export)),
+        });
+        let export =
+            Export::new(job.clone(), params, folder, self.roots.clone(), self.config.git.clone());
+        let worker = job.clone();
+        std::thread::Builder::new()
+            .name("cmux-git-seed-export".into())
+            .spawn(move || worker.finish(export.run()))
+            .map_err(|error| {
+                SeedRefusal::bad_request(format!("cannot start the export: {error}"))
+            })?;
+        jobs.order.push_back(job.id.clone());
+        jobs.by_id.insert(job.id.clone(), job.clone());
+        prune(&mut jobs);
+        Ok(json!({ "job": job.id }))
+    }
+}
+
+impl Status {
+    fn running(phase: Phase) -> Self {
+        Self {
+            state: State::Running,
+            phase,
+            progress: Progress::default(),
+            failed: None,
+            notes: Vec::new(),
+            head: None,
+            exported: None,
+        }
+    }
+}
+
+/// The job a retry of `key` in `folder` is (running or done); a refusal
+/// while another job runs in the folder.
+fn same_job(
+    jobs: &Jobs,
+    folder: &std::path::Path,
+    key: &str,
+) -> Result<Option<String>, SeedRefusal> {
+    for job in jobs.by_id.values().filter(|job| job.folder == folder) {
+        let state = job.status().state;
+        if job.key == key && state != State::Failed {
+            return Ok(Some(job.id.clone()));
+        }
+        if state == State::Running {
+            return Err(SeedRefusal::bad_request("another seed is running in this folder"));
+        }
+    }
+    Ok(None)
 }
 
 /// Drops the oldest finished jobs past [`KEPT_FINISHED`].

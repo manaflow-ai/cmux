@@ -78,12 +78,19 @@ struct SidebarStraySwitchTests {
         }
 
         /// Shows `notice` (nil for none) and lets the card's entrance or exit run out, bounded.
-        func show(_ notice: SidebarNoticeCard?) {
+        ///
+        /// With `exits` false a card that leaves goes in one frame (``SidebarCardPresence/hidesNextAtOnce``): the
+        /// exit's end is a Core Animation completion, which a test host that renders no frames (the Swift suite's
+        /// CI Mac) never runs, so the card stayed mid-exit for the whole bounded wait (runs 41282022128 to
+        /// 41303556638). These cases are about what draws once the card has gone, not about the fade.
+        func show(_ notice: SidebarNoticeCard?, exits: Bool = false) async throws {
+            if notice == nil, !exits { card.presence.hidesNextAtOnce = true }
             model.noticeCard = notice
             settle()
-            let deadline = Date().addingTimeInterval(3)
-            while card.isLeaving, Date() < deadline {
-                RunLoop.main.run(until: Date().addingTimeInterval(0.02)) // test-only: lets the exit's Core Animation completion run
+            let deadline = ContinuousClock.now + .seconds(3)
+            while card.isLeaving, ContinuousClock.now < deadline {
+                // Yield the main actor so AppKit can commit the exit and deliver its completion.
+                try await Task.sleep(for: .milliseconds(20))
                 settle()
             }
             settle()
@@ -136,51 +143,52 @@ struct SidebarStraySwitchTests {
 
     /// The Tidy Up card showed with its Always switch, then left (answered, Not Now or the settings change): no switch
     /// stays behind.
-    @Test func aSwitchCardThatLeavesLeavesNoSwitch() throws {
+    @Test func aSwitchCardThatLeavesLeavesNoSwitch() async throws {
         let h = Harness()
         defer { h.close() }
-        h.show(Self.tidyUp)
+        try await h.show(Self.tidyUp)
         try #require(h.cardShows, "the Tidy Up card does not show")
-        h.show(nil)
+        try await h.show(nil)
         #expect(!h.cardShows, "the card still shows with no notice")
         #expect(h.strays().isEmpty, "a switch draws with no card: \(h.strays())")
     }
 
     /// The person flipped Always (Lawrence's stray switch is on): the card answers and leaves; no switch stays behind.
-    @Test func flippingAlwaysThenTheCardLeavingLeavesNoSwitch() throws {
+    @Test func flippingAlwaysThenTheCardLeavingLeavesNoSwitch() async throws {
         let h = Harness()
         defer { h.close() }
         h.model.onIntent = { [weak model = h.model] intent in
             if case .noticeAction(_, "always") = intent { model?.noticeCard = nil }
         }
-        h.show(Self.tidyUp)
+        try await h.show(Self.tidyUp)
         try #require(h.cardShows, "the Tidy Up card does not show")
+        h.card.presence.hidesNextAtOnce = true // the answer's exit ends in one frame (see `Harness.show`)
         try #require(h.card.actionSwitch).flip()
-        h.show(h.model.noticeCard)
+        try await h.show(h.model.noticeCard)
         #expect(h.model.noticeCard == nil, "Always did not answer the card")
         #expect(h.strays().isEmpty, "a switch draws after Always: \(h.strays())")
     }
 
     /// The switch card gave the slot to a notice without a switch: that card shows no switch.
-    @Test func aSwitchCardFollowedByOneWithoutASwitchShowsNone() throws {
+    @Test func aSwitchCardFollowedByOneWithoutASwitchShowsNone() async throws {
         let h = Harness()
         defer { h.close() }
-        h.show(Self.tidyUp)
-        h.show(nil)
-        h.show(Self.tip)
+        try await h.show(Self.tidyUp)
+        try await h.show(nil)
+        try await h.show(Self.tip)
         try #require(h.cardShows, "the tip card does not show")
         #expect(h.drawnSwitches.isEmpty, "the tip card draws a switch: \(h.drawnSwitches.map(\.rect))")
         #expect(h.strays().isEmpty, "a switch draws outside the tip card: \(h.strays())")
-        h.show(nil)
+        try await h.show(nil)
         #expect(h.strays().isEmpty, "a switch draws after the tip left: \(h.strays())")
     }
 
     /// A notice with a switch replaced in place by one without.
-    @Test func aSwitchCardReplacedInPlaceShowsNoSwitch() throws {
+    @Test func aSwitchCardReplacedInPlaceShowsNoSwitch() async throws {
         let h = Harness()
         defer { h.close() }
-        h.show(Self.tidyUp)
-        h.show(Self.tip)
+        try await h.show(Self.tidyUp)
+        try await h.show(Self.tip)
         #expect(h.drawnSwitches.isEmpty, "the tip card draws the Tidy Up card's switch: \(h.drawnSwitches.map(\.rect))")
     }
 
@@ -193,7 +201,7 @@ struct SidebarStraySwitchTests {
 
     /// The Tidy Up card arrives while the sidebar has no size yet (a window being restored), then the window takes
     /// its size and the card leaves.
-    @Test func aSwitchCardBeforeTheFirstLayoutLeavesNoSwitch() throws {
+    @Test func aSwitchCardBeforeTheFirstLayoutLeavesNoSwitch() async throws {
         let h = Harness(notice: Self.tidyUp)
         defer { h.close() }
         h.sidebar.frame.size = .zero
@@ -201,15 +209,15 @@ struct SidebarStraySwitchTests {
         #expect(h.strays().isEmpty, "a switch draws on a sidebar with no size: \(h.strays())")
         h.sidebar.frame.size = NSSize(width: 260, height: 560)
         h.settle()
-        h.show(nil)
+        try await h.show(nil)
         #expect(h.strays().isEmpty, "a switch draws after the card left: \(h.strays())")
     }
 
     /// The sidebar narrows to nothing (closing) while the Tidy Up card shows: the switch never draws outside the card.
-    @Test func aClosingSidebarDrawsNoSwitchOutsideTheCard() throws {
+    @Test func aClosingSidebarDrawsNoSwitchOutsideTheCard() async throws {
         let h = Harness()
         defer { h.close() }
-        h.show(Self.tidyUp)
+        try await h.show(Self.tidyUp)
         for width: CGFloat in [120, 40, 20, 0, 260] {
             h.sidebar.frame.size.width = width
             h.settle()
@@ -220,10 +228,10 @@ struct SidebarStraySwitchTests {
     /// Lawrence's shot: the sidebar laid out small (a window coming up) placed the Tidy Up card at its top left, a
     /// sliver of a card; the card then left while the window took its size, keeping that place for its exit. Every
     /// other part of a sliver card draws nothing, so its switch must not draw either, at rest or mid-exit.
-    @Test func aSliverCardAtTheTopLeftDrawsNoSwitch() throws {
+    @Test func aSliverCardAtTheTopLeftDrawsNoSwitch() async throws {
         let h = Harness(width: 40, height: 120)
         defer { h.close() }
-        h.show(Self.tidyUp)
+        try await h.show(Self.tidyUp)
         #expect(h.outsideCard().isEmpty, "a sliver card draws its switch outside itself: \(h.outsideCard())")
         h.model.noticeCard = nil
         h.sidebar.renderNow()
@@ -232,18 +240,25 @@ struct SidebarStraySwitchTests {
         h.sidebar.needsLayout = true
         h.sidebar.layoutSubtreeIfNeeded()
         #expect(h.outsideCard().isEmpty, "mid-exit, a switch draws outside the card: \(h.outsideCard())")
-        h.show(nil)
+        try await h.show(nil)
         #expect(h.strays().isEmpty, "a switch draws after the card left: \(h.strays())")
     }
 
     /// A card that leaves in a window that is not on screen goes all the same: it never stays, frozen mid-exit, to
     /// show when the window comes up.
-    @Test func aCardThatLeavesOffScreenGoes() throws {
+    @Test func aCardThatLeavesOffScreenGoes() async throws {
         let h = Harness()
         defer { h.close() }
-        h.show(Self.tidyUp)
+        try await h.show(Self.tidyUp)
+        // WindowServer's occlusion report for the shown window, which marks it as having been on screen (a window
+        // never on screen is not judged out of sight). It comes on a later run loop turn, or on a test host that
+        // renders nothing never; this stands in for it, so the exit below relies on the window being out of sight,
+        // not on Core Animation finishing a fade in a window nobody sees.
+        _ = Motion.canAnimate(in: h.card) // starts the app's one occlusion observer (idempotent)
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: h.window) // global-notice-allow: the app's one occlusion observer (FrameScheduler.watchSight) listens on .default and takes no center
+        try await Task.sleep(for: .milliseconds(10)) // yields the main actor so the report is delivered on the main queue
         h.window.orderOut(nil)
-        h.show(nil)
+        try await h.show(nil, exits: true)
         #expect(!h.card.isLeaving && h.card.isHidden, "the card is still leaving off screen (hidden \(h.card.isHidden))")
         h.window.orderFrontRegardless()
         h.settle()
@@ -251,10 +266,10 @@ struct SidebarStraySwitchTests {
     }
 
     /// The card that shows the switch puts it on its button row: right of Archive, centred on its line, inside the card.
-    @Test func aShownSwitchSitsOnTheCardsButtonRow() throws {
+    @Test func aShownSwitchSitsOnTheCardsButtonRow() async throws {
         let h = Harness()
         defer { h.close() }
-        h.show(Self.tidyUp)
+        try await h.show(Self.tidyUp)
         try #require(h.cardShows, "the Tidy Up card does not show")
         let toggle = try #require(h.card.actionSwitch)
         let button = try #require(h.card.actionButtons.first)

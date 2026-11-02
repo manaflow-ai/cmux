@@ -10,10 +10,65 @@ public struct CloudChatMachine: Decodable, Hashable, Identifiable, Sendable {
     public let machineID: String
     public let teamID: String
     public let name: String
+    /// The machine's Cloud status (`running`, `paused`, ...); nil from a Mac that does not say.
+    public let status: String?
+    /// The machine has run at least once (false from a Mac that does not say).
+    public let ran: Bool
+    /// A Cloud chat can open now: the Mac holds the machine's live link. An asleep machine is
+    /// listed only for the Chief's Computer card. An older Mac lists only linked machines: true.
+    public let linked: Bool
     public var id: String { teamID + "\u{1}" + machineID }
 
     enum CodingKeys: String, CodingKey {
-        case machineID = "machine_id", teamID = "team_id", name
+        case machineID = "machine_id", teamID = "team_id", name, status, ran, linked
+    }
+
+    public init(machineID: String, teamID: String, name: String, status: String? = nil, ran: Bool = false,
+                linked: Bool = true) {
+        self.machineID = machineID
+        self.teamID = teamID
+        self.name = name
+        self.status = status
+        self.ran = ran
+        self.linked = linked
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        machineID = try container.decode(String.self, forKey: .machineID)
+        teamID = try container.decode(String.self, forKey: .teamID)
+        name = try container.decode(String.self, forKey: .name)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        ran = try container.decodeIfPresent(Bool.self, forKey: .ran) ?? false
+        linked = try container.decodeIfPresent(Bool.self, forKey: .linked) ?? true
+    }
+}
+
+/// The paired Mac's `cloud-directory` reply: whether the account pays for
+/// cmux Cloud, whether the Mac shows its Cloud machine's screen on phones
+/// (`desktops`, the Mac's `phone.cloudDesktop`), and its machines. An older
+/// Mac's reply has neither field: false.
+public struct CloudDirectory: Decodable, Hashable, Sendable {
+    public let paid: Bool
+    public let desktops: Bool
+    public let machines: [CloudChatMachine]
+
+    /// The machines a Cloud chat can open on now; an asleep one is the Computer card's only.
+    public var chatMachines: [CloudChatMachine] { machines.filter(\.linked) }
+
+    enum CodingKeys: String, CodingKey { case paid, desktops, machines }
+
+    public init(paid: Bool, desktops: Bool = false, machines: [CloudChatMachine]) {
+        self.paid = paid
+        self.desktops = desktops
+        self.machines = machines
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        paid = try container.decodeIfPresent(Bool.self, forKey: .paid) ?? false
+        desktops = try container.decodeIfPresent(Bool.self, forKey: .desktops) ?? false
+        machines = try container.decode([CloudChatMachine].self, forKey: .machines)
     }
 }
 
@@ -123,12 +178,18 @@ extension LiveCoordinator {
         return (session, link)
     }
 
+    /// The machines a Cloud chat can open on now (asleep ones are the Computer card's only).
     public func cloudMachines(on macID: String) async throws -> [CloudChatMachine] {
+        try await cloudDirectory(on: macID).chatMachines
+    }
+
+    /// The paired Mac's whole Cloud directory: its machines and whether Cloud is paid.
+    public func cloudDirectory(on macID: String) async throws -> CloudDirectory {
         let (session, link) = try await cloudLink(on: macID)
         let channel = try await link.openChannel(service: "cloud-directory", args: [:])
-        let machines: [CloudChatMachine]
+        let directory: CloudDirectory
         do {
-            machines = try await CloudChatDirectory.read(channel)
+            directory = try await CloudChatDirectory.readDirectory(channel)
         } catch {
             await channel.close(code: "eof", reason: "directory ended")
             throw error
@@ -137,7 +198,7 @@ extension LiveCoordinator {
         guard !stopped, sessions[macID] === session, session.currentLink === link else {
             throw LinkError(code: "offline", message: "Connection changed. Try again.")
         }
-        return machines
+        return directory
     }
 
     public func cloudChats(on macID: String, machine: CloudChatMachine) async throws -> CloudChatRelay {
@@ -149,10 +210,57 @@ extension LiveCoordinator {
     }
 }
 
+
+/** The Mac is part of a Cloud chat route: session IDs can repeat across Macs. */
+public struct CloudChatLocation: Hashable, Identifiable, Sendable {
+    public let macID: String
+    public let machine: CloudChatMachine
+    public var id: String { macID + "\u{1}" + machine.id }
+
+    public init(macID: String, machine: CloudChatMachine) {
+        self.macID = macID
+        self.machine = machine
+    }
+}
+
+/// A Cloud attention names a (team, machine), never a Mac. Consult freshly
+/// authenticated paired-Mac directories; a failed lookup grants no access.
+/// Work is bounded to four concurrent reads (the phone's live link budget).
+public enum CloudChatAttentionResolver {
+    public static func find(
+        macIDs: [String], attention: CloudChatAttention,
+        directory: @escaping @Sendable (String) async throws -> [CloudChatMachine]
+    ) async -> CloudChatLocation? {
+        let ids = Array(Set(macIDs)).sorted()
+        return await withTaskGroup(of: CloudChatLocation?.self) { group in
+            var next = 0
+            func addNext() {
+                guard next < ids.count else { return }
+                let macID = ids[next]
+                next += 1
+                group.addTask {
+                    guard !Task.isCancelled, let listed = try? await directory(macID) else { return nil }
+                    return CloudChatDirectory.scopedMachines(listed, attention: attention)
+                        .first.map { CloudChatLocation(macID: macID, machine: $0) }
+                }
+            }
+            for _ in 0..<min(ids.count, 4) { addNext() }
+            while let match = await group.next() {
+                guard !Task.isCancelled else { group.cancelAll(); return nil }
+                if let match {
+                    group.cancelAll()
+                    return match
+                }
+                addNext()
+            }
+            return nil
+        }
+    }
+}
+
 /// A directory is a single JSON document followed by EOF. The deadline closes
 /// its channel so a disappeared Mac cannot leave a refresh suspended forever.
 public enum CloudChatDirectory {
-    struct Reply: Decodable { let machines: [CloudChatMachine] }
 
     /// Narrows a push to the fresh, authenticated Cloud directory. Cloud's
     /// `team_id` is intentionally matched only with another Cloud directory
@@ -166,8 +274,12 @@ public enum CloudChatDirectory {
     }
 
     static func read(_ channel: any LinkChannel) async throws -> [CloudChatMachine] {
+        try await readDirectory(channel).chatMachines
+    }
+
+    static func readDirectory(_ channel: any LinkChannel) async throws -> CloudDirectory {
         try await withTaskCancellationHandler {
-            try await withThrowingTaskGroup(of: [CloudChatMachine].self) { group in
+            try await withThrowingTaskGroup(of: CloudDirectory.self) { group in
                 group.addTask {
                     var bytes = Data()
                     while let chunk = try await channel.receive() {
@@ -177,7 +289,7 @@ public enum CloudChatDirectory {
                         }
                     }
                     if let error = channel.closedBy, error.code != "eof" { throw error }
-                    return try JSONDecoder().decode(Reply.self, from: bytes).machines
+                    return try JSONDecoder().decode(CloudDirectory.self, from: bytes)
                 }
                 group.addTask {
                     try await Task.sleep(for: .seconds(20))
@@ -185,7 +297,7 @@ public enum CloudChatDirectory {
                     throw LinkError(code: "timeout", message: "Couldn't load Cloud machines. Try again.")
                 }
                 defer { group.cancelAll() }
-                return try await group.next() ?? []
+                return try await group.next() ?? CloudDirectory(paid: false, machines: [])
             }
         } onCancel: {
             Task { await channel.close(code: "cancelled", reason: "directory cancelled") }

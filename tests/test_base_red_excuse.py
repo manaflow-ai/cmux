@@ -1060,6 +1060,86 @@ class Excusing(unittest.TestCase):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
 
 
+
+class BaseRedWindow(unittest.TestCase):
+    """2026-11-01: the tip Swift suite's red set churns (runs 41282022128, 41298073172, 41303556638), so a failing
+    test is the base's when it failed on any of the newest BASE_WINDOW verdicts, read only while one is missing."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.logs[2] = log(SWIFT, TEST_STEP, OTHER)  # the newest red verdict lacks the head's test
+        self.gh.base_runs = []
+        self.reads = []
+        plain = self.gh.log
+        self.gh.log = lambda repo, job: (self.reads.append(job["id"]), plain(repo, job))[1]
+
+    def base(self, run_id, hour, lines=(OTHER,), conclusion="failure"):
+        self.gh.base_runs.append({"id": run_id, "event": "push", "head_branch": "feat-cmux-next",
+                                  "status": "completed", "conclusion": conclusion, "head_sha": BASE_SHA,
+                                  "created_at": f"2026-11-01T{hour:02d}:00:00Z"})
+        self.gh.jobs[run_id] = dict(failed_job(run_id, run_id, BASE_SHA), conclusion=conclusion)
+        self.gh.logs[run_id] = log(SWIFT, TEST_STEP, *lines)
+
+    def judge(self):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh))
+
+    def test_a_test_red_on_an_older_verdict_only_is_excused_and_named(self):
+        self.base(30, 12)
+        self.base(29, 11, (ISSUE,))
+        text = self.judge()
+        self.assertIn("run 30", text)
+        self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply() (red on run 29)", text)
+        self.assertIn("runs 29", text)
+
+    def test_the_newest_red_verdict_that_covers_every_test_reads_no_older_log(self):
+        self.base(30, 12, (ISSUE,))
+        self.base(29, 11, (ISSUE,))
+        self.judge()
+        self.assertEqual([read for read in self.reads if read != 1], [30])
+
+    def test_a_green_verdict_ends_the_window_and_older_reds_do_not_count(self):
+        # A green base run passed every test, so an older red may predate a fix.
+        self.base(30, 12)
+        self.base(29, 11, conclusion="success")
+        self.base(28, 10, (ISSUE,))
+        with self.assertRaisesRegex(excuse.Refused, "writesTheRequest"):
+            self.judge()
+        self.assertNotIn(28, self.reads)
+        self.assertNotIn(29, self.reads)
+
+    def test_a_test_red_only_outside_the_window_is_the_heads(self):
+        for offset in range(excuse.BASE_WINDOW):
+            self.base(30 - offset, 12 - offset)
+        self.base(30 - excuse.BASE_WINDOW, 12 - excuse.BASE_WINDOW, (ISSUE,))
+        with self.assertRaisesRegex(excuse.Refused, "writesTheRequest"):
+            self.judge()
+        self.assertEqual(len([read for read in self.reads if read != 1]), excuse.BASE_WINDOW)
+
+    def test_a_verdict_older_than_the_window_hours_is_not_read(self):
+        self.base(30, 12)
+        self.gh.base_runs.append({"id": 29, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                                  "conclusion": "failure", "created_at": "2026-10-31T11:00:00Z"})
+        self.gh.jobs[29] = failed_job(29, 29, BASE_SHA)
+        self.gh.logs[29] = log(SWIFT, TEST_STEP, ISSUE)
+        with self.assertRaisesRegex(excuse.Refused, "writesTheRequest"):
+            self.judge()
+        self.assertNotIn(29, self.reads)
+
+    def test_an_older_red_never_stands_over_a_newer_green(self):
+        self.base(30, 12, conclusion="success")
+        self.base(29, 11, (ISSUE,))
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 30"):
+            self.judge()
+
+    def test_a_crash_is_never_excused_by_any_window_run(self):
+        self.base(30, 12)
+        self.base(29, 11, (ISSUE,))
+        self.gh.logs[1] = crashed(SWIFT, 6, "writesTheRequestAfterTheReadyMarkerAndReturnsTheReply", [])
+        self.gh.logs[29] = self.gh.logs[1]
+        with self.assertRaisesRegex(excuse.Refused, "never a base red"):
+            self.judge()
+        self.assertEqual([read for read in self.reads if read != 1], [])
+
 def crashed(job, signal, unfinished, frames, *extra):
     """A swift test log whose test helper died on `signal` with `unfinished` tests in flight."""
     return log(job, TEST_STEP, *extra,
@@ -1742,6 +1822,108 @@ class FixedOnBase(unittest.TestCase):
     def test_a_pytest_id_names_its_file(self):
         self.assertEqual(excuse.guard_test_file("tests/test_x.py::Case::test_y", []), "tests/test_x.py")
         self.assertIsNone(excuse.guard_test_file("web/test_x.py::test_y", []))
+
+
+GUARD_GROUP = excuse.GUARD_GROUP_JOB
+GUARD_STEP = excuse.GUARD_GROUP_STEP
+
+
+def guard_group_log(*lines):
+    """A guard group job's log: run_ci_guards.py's head run, then guards_new_reds.py's verdict."""
+    return log(GUARD_GROUP, GUARD_STEP, "cmux guards: 270 steps passed, 2 failed, 0 skipped (Linux only) in 150.0s",
+               *lines)
+
+
+class GuardGroupGitHub(FakeGitHub):
+    """A pull request's red guard group job (run 10) and the newest feat-cmux-next push run of it (run 20)."""
+
+    def __init__(self, head_lines, base_lines, base_conclusion="success"):
+        super().__init__()
+        self.jobs = {1: failed_job(1, 10, HEAD, name=GUARD_GROUP, step=GUARD_STEP),
+                     2: dict(failed_job(2, 20, BASE_SHA, name=GUARD_GROUP, step=GUARD_STEP),
+                             conclusion=base_conclusion)}
+        if base_conclusion == "success":
+            self.jobs[2]["steps"][-1]["conclusion"] = "success"
+        self.logs = {1: guard_group_log(*head_lines), 2: guard_group_log(*base_lines)}
+        self.base_runs[1]["conclusion"] = base_conclusion
+
+
+class GuardGroupPerStep(unittest.TestCase):
+    """cmux-next-guards.yml's guard group fails only on a step red on the change and not on its base; its red was
+    never excused (not a declared guard job), and the base's own reds in it stayed green on every push (18 steps,
+    until #31366). A pull request's red step is excused only when the newest base run of the job lists it red."""
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_a_step_red_on_the_base_push_judged_at_its_tip_is_excused(self):
+        github = GuardGroupGitHub(
+            ["##[error]Validate fleet rule lints", "guard red step (new): Validate fleet rule lints",
+             "1 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            ["##[error]Validate fleet rule lints", "guard red step (tip): Validate fleet rule lints",
+             "guard red step (tip): Lint every workflow", "2 guard steps red at the tip"],
+            base_conclusion="failure")
+        text = self.judge(github)
+        self.assertIn(f"excused '{GUARD_GROUP}'", text)
+        self.assertIn("run 20", text)
+        self.assertIn("Validate fleet rule lints", text)
+
+    def test_a_step_a_green_base_push_lists_as_red_on_its_base_is_excused(self):
+        # A push judged against the previous tip stays green while a red persists, and lists it as `base`.
+        github = GuardGroupGitHub(
+            ["guard red step (new): Lint every workflow",
+             "1 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            ["guard red step (base): Lint every workflow",
+             "0 guard steps red on this change, 1 red on the base too, 0 flaky on the base, 0 fixed"])
+        self.assertIn(f"excused '{GUARD_GROUP}'", self.judge(github))
+
+    def test_a_new_red_step_is_not_excused(self):
+        github = GuardGroupGitHub(
+            ["guard red step (new): Validate fleet rule lints", "guard red step (new): Validate the PR design spec check",
+             "2 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            ["guard red step (tip): Validate fleet rule lints", "1 guard steps red at the tip"],
+            base_conclusion="failure")
+        with self.assertRaisesRegex(excuse.Refused, "Validate the PR design spec check"):
+            self.judge(github)
+
+    def test_a_step_only_quoted_in_a_failing_steps_output_is_no_base_evidence(self):
+        github = GuardGroupGitHub(
+            ["guard red step (new): Lint every workflow",
+             "1 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            ["0 guard steps red at the tip"], base_conclusion="success")
+        github.logs[2] = log(GUARD_GROUP, GUARD_STEP, "AssertionError: guard red step (tip): Lint every workflow",
+                             "guard red step (tip): Lint every workflow",
+                             "cmux guards: 272 steps passed, 0 failed, 0 skipped (Linux only) in 150.0s",
+                             "0 guard steps red at the tip")
+        with self.assertRaisesRegex(excuse.Refused, "not on feat-cmux-next run 20"):
+            self.judge(github)
+
+    def test_a_base_run_with_no_summary_is_refused(self):
+        github = GuardGroupGitHub(
+            ["guard red step (new): Lint every workflow",
+             "1 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+            ["guard red step (base): Lint every workflow"])
+        with self.assertRaisesRegex(excuse.Refused, "no red steps with a closing summary"):
+            self.judge(github)
+
+    def test_a_base_run_cut_short_before_its_guards_finished_is_refused(self):
+        # Verdict lines quoted by a failing step's output, with no run_ci_guards.py closing line, prove nothing.
+        github = GuardGroupGitHub(
+            ["guard red step (new): Lint every workflow",
+             "1 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"], [])
+        github.logs[2] = log(GUARD_GROUP, GUARD_STEP, "guard red step (base): Lint every workflow",
+                             "0 guard steps red on this change, 1 red on the base too, 0 flaky on the base, 0 fixed")
+        with self.assertRaisesRegex(excuse.Refused, "no red steps with a closing summary"):
+            self.judge(github)
+
+    def test_a_red_outside_the_guard_comparison_is_refused(self):
+        github = GuardGroupGitHub(["guard red step (new): Lint every workflow",
+                                   "1 guard steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"],
+                                  ["guard red step (base): Lint every workflow",
+                                   "0 guard steps red on this change, 1 red on the base too, 0 flaky on the base, 0 fixed"])
+        github.jobs[1]["steps"][1]["conclusion"] = "failure"
+        with self.assertRaisesRegex(excuse.Refused, "not only"):
+            self.judge(github)
 
 
 class Script(unittest.TestCase):

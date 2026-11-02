@@ -438,6 +438,14 @@ pub struct QueuedPromptSummary {
     pub queued_at: u64,
     /// Waits behind a failed turn until the queue is resumed.
     pub held: bool,
+    /// A person's prompt that waits for the chat's owner (`author.approval: "owner"`): the queue
+    /// runs past it until the owner approves it (`_acpmux/queue_approve`, naming `turnId` and `revision`) or
+    /// declines it (`_acpmux/queue_decline`). The owner's pane draws Approve and Decline on it.
+    #[serde(default)]
+    pub awaiting_owner: bool,
+    /// Its version for the owner's approval: 0 when queued, one more at each edit by its author.
+    #[serde(default)]
+    pub revision: u64,
     /// Another agent's message the person's Stop holds (`hub/cancel.rs`): it waits until the
     /// person's next turn completes or the queue is resumed. False otherwise; absent from a peer
     /// on an older acpmux.

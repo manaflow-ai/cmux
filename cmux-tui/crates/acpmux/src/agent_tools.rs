@@ -781,6 +781,9 @@ impl AgentTools {
                         .map(|(k, v)| (k.to_owned(), v)),
                 );
             }
+            if server.name == crate::cloud_repo_mcp::SERVER_NAME {
+                server.env.push(("ACPMUX_SESSION_ID".to_owned(), session_id.to_owned()));
+            }
             server.env.extend(repo_route);
         }
         self

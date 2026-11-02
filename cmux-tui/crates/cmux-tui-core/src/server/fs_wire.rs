@@ -35,7 +35,9 @@ const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 /// The remote gate of the link entry: it admits a frame only when its `cmd`
 /// is one of the seven `fs-v1` ops, the two `git-seed-v1` ops, or a `cloud.repo.*`
 /// op other than `cloud.repo.local` and `cloud.repo.remember`, exactly;
-/// every other frame is denied as before (`remote_denied`, no detail).
+/// every other frame is denied as before (`remote_denied`, no detail),
+/// except the explicit agent carrier admitted separately for authenticated
+/// Native owners.
 /// Whether the op is served is decided after admission: a daemon that is not
 /// a Cloud host answers `fs.unavailable` (`seed.unavailable`).
 pub struct FsGate;
@@ -47,6 +49,10 @@ impl RemoteGate for FsGate {
             || crate::cloud_repos::frame_command(frame).is_some_and(|cmd| {
                 !matches!(cmd.as_str(), "cloud.repo.local" | "cloud.repo.remember")
             })
+    }
+
+    fn admit_native_owner(&self, frame: &str) -> bool {
+        super::native_owner::admits(frame)
     }
 }
 

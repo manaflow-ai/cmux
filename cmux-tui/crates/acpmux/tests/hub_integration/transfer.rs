@@ -193,8 +193,24 @@ async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() 
     let ran = texts(&mut src, &id, "user_message").await;
     assert_eq!(ran.len(), 5, "{ran:?}");
     assert_eq!(ran[..2], ["hi", "until-cancel"], "{ran:?}");
-    assert_moved_continuation(&ran[2]);
+    // The move did not happen: the continuation says the chat stayed, never that it moved, so
+    // the agent does not report its turn finished on a machine it never reached.
+    assert_stayed_continuation(&ran[2]);
     assert_eq!(ran[3..], ["a", "again"], "{ran:?}");
+    // The new words are an edit that keeps the continuation's provenance, as a restart restores.
+    let edits = records(&mut src, &id, "queue_updated").await;
+    assert_eq!(edits.len(), 1, "{edits:?}");
+    assert_eq!(edits[0]["promptId"], "p-turn~resume-1", "{edits:?}");
+    assert_stayed_continuation(edits[0]["text"].as_str().unwrap());
+    assert_eq!(edits[0]["_meta"]["provenance"]["reason"], "moved", "{edits:?}");
+}
+
+/// The continuation of a move that did not happen: it says the chat stayed and quotes the cut
+/// prompt.
+fn assert_stayed_continuation(text: &str) {
+    assert!(text.starts_with("This chat did not move"), "{text}");
+    assert!(!text.contains("moved to another machine"), "{text}");
+    assert!(text.contains("<message>\nuntil-cancel\n</message>"), "{text}");
 }
 
 /// The prompt a move's continuation sends: it says the chat moved and quotes the cut prompt.

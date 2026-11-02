@@ -25283,6 +25283,1971 @@
           }
         }
       }
+    },
+    "updater.installFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Didn't Install"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يُثبَّت التحديث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje nije instalirano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen blev ikke installeret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Update wurde nicht installiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización no se instaló"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour ne s'est pas installée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'aggiornamento non è stato installato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アップデートをインストールできませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការធ្វើបច្ចុប្បន្នភាពមិនបានដំឡើងទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "업데이트가 설치되지 않음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen ble ikke installert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja nie została zainstalowana"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização não foi instalada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление не установилось"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้ติดตั้งอัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme yüklenmedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення не встановилося"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chưa được cài đặt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新未安装"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新未安裝"
+          }
+        }
+      }
+    },
+    "updater.card.tryAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try Again"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حاول مرة أخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokušaj ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøv igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erneut versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reintentar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réessayer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riprova"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再試行"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ព្យាយាមម្ដងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다시 시도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spróbuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tentar novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повторить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tekrar Dene"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спробувати ще раз"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再試一次"
+          }
+        }
+      }
+    },
+    "updater.installFailed.translocated.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux runs from a read-only copy"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل cmux من نسخة للقراءة فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux radi iz kopije samo za čitanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kører fra en skrivebeskyttet kopi"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux läuft aus einer schreibgeschützten Kopie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux se ejecuta desde una copia de solo lectura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux s'exécute depuis une copie en lecture seule"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux è eseguito da una copia di sola lettura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux は読み取り専用のコピーから実行されています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ដំណើរការពីច្បាប់ចម្លងសម្រាប់តែអាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 읽기 전용 사본에서 실행 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kjører fra en skrivebeskyttet kopi"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux działa z kopii tylko do odczytu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux está sendo executado de uma cópia somente leitura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux запущен из копии только для чтения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ทำงานจากสำเนาแบบอ่านอย่างเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux salt okunur bir kopyadan çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux запущено з копії лише для читання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux đang chạy từ bản sao chỉ đọc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 正从只读副本运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 正從唯讀副本執行"
+          }
+        }
+      }
+    },
+    "updater.installFailed.translocated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS runs this cmux from a read-only copy, so the installer couldn't replace it. Move cmux to Applications and open it from there, or download the update manually."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يشغّل macOS نسخة cmux هذه من نسخة للقراءة فقط، لذا لم يتمكن المثبّت من استبدالها. انقل cmux إلى التطبيقات وافتحه من هناك، أو نزّل التحديث يدويًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS pokreće ovaj cmux iz kopije samo za čitanje, pa ga instalater nije mogao zamijeniti. Premjestite cmux u Aplikacije i otvorite ga odatle ili ručno preuzmite ažuriranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS kører denne cmux fra en skrivebeskyttet kopi, så installationsprogrammet kunne ikke erstatte den. Flyt cmux til Programmer, og åbn den derfra, eller hent opdateringen manuelt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS führt dieses cmux aus einer schreibgeschützten Kopie aus, daher konnte das Installationsprogramm es nicht ersetzen. Bewege cmux in den Ordner „Programme“ und öffne es dort, oder lade das Update manuell herunter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS ejecuta este cmux desde una copia de solo lectura, así que el instalador no pudo reemplazarlo. Mueve cmux a Aplicaciones y ábrelo desde ahí, o descarga la actualización manualmente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS exécute ce cmux depuis une copie en lecture seule, l'installateur n'a donc pas pu le remplacer. Déplacez cmux dans Applications et ouvrez-le depuis là, ou téléchargez la mise à jour manuellement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS esegue questo cmux da una copia di sola lettura, quindi il programma di installazione non ha potuto sostituirlo. Sposta cmux in Applicazioni e aprilo da lì, oppure scarica l'aggiornamento manualmente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS はこの cmux を読み取り専用のコピーから実行しているため、インストーラが置き換えられませんでした。cmux をアプリケーションに移動してそこから開くか、アップデートを手動でダウンロードしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS ដំណើរការ cmux នេះពីច្បាប់ចម្លងសម្រាប់តែអាន ដូច្នេះកម្មវិធីដំឡើងមិនអាចជំនួសវាបានទេ។ ផ្លាស់ទី cmux ទៅ Applications ហើយបើកវាពីទីនោះ ឬទាញយកការធ្វើបច្ចុប្បន្នភាពដោយដៃ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS가 이 cmux를 읽기 전용 사본에서 실행하고 있어 설치 프로그램이 교체하지 못했습니다. cmux를 응용 프로그램으로 옮긴 후 그곳에서 열거나, 업데이트를 직접 다운로드하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS kjører denne cmux fra en skrivebeskyttet kopi, så installasjonsprogrammet kunne ikke erstatte den. Flytt cmux til Programmer og åpne den derfra, eller last ned oppdateringen manuelt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS uruchamia tego cmux z kopii tylko do odczytu, więc instalator nie mógł go zastąpić. Przenieś cmux do folderu Aplikacje i otwórz go stamtąd lub pobierz aktualizację ręcznie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O macOS executa este cmux a partir de uma cópia somente leitura, então o instalador não conseguiu substituí-lo. Mova o cmux para Aplicativos e abra-o de lá, ou baixe a atualização manualmente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS запускает этот cmux из копии только для чтения, поэтому установщик не смог его заменить. Переместите cmux в «Программы» и откройте его оттуда или скачайте обновление вручную."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS เรียกใช้ cmux นี้จากสำเนาแบบอ่านอย่างเดียว ตัวติดตั้งจึงแทนที่ไม่ได้ ย้าย cmux ไปที่ Applications แล้วเปิดจากที่นั่น หรือดาวน์โหลดอัปเดตด้วยตนเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS bu cmux'u salt okunur bir kopyadan çalıştırıyor, bu yüzden yükleyici onu değiştiremedi. cmux'u Uygulamalar'a taşıyıp oradan açın veya güncellemeyi elle indirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS запускає цей cmux з копії лише для читання, тому інсталятор не зміг його замінити. Перемістіть cmux у «Програми» й відкрийте його звідти або завантажте оновлення вручну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS chạy cmux này từ một bản sao chỉ đọc nên trình cài đặt không thể thay thế nó. Hãy chuyển cmux vào Applications rồi mở từ đó, hoặc tải bản cập nhật thủ công."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS 正从只读副本运行此 cmux，因此安装器无法替换它。请将 cmux 移到“应用程序”并从那里打开，或手动下载更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS 正從唯讀副本執行此 cmux，因此安裝程式無法取代它。請將 cmux 移到「應用程式」並從那裡開啟，或手動下載更新。"
+          }
+        }
+      }
+    },
+    "updater.installFailed.folder.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux can't replace itself here"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يستطيع cmux استبدال نفسه هنا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux se ovdje ne može zamijeniti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kan ikke erstatte sig selv her"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kann sich hier nicht ersetzen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no puede reemplazarse aquí"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ne peut pas se remplacer ici"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non può sostituirsi qui"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux はこの場所で自身を置き換えられません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនអាចជំនួសខ្លួនឯងនៅទីនេះបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 이 위치에서 자신을 교체할 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kan ikke erstatte seg selv her"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie może się tu zastąpić"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não pode se substituir aqui"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не может заменить себя здесь"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux แทนที่ตัวเองที่นี่ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux burada kendini değiştiremiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не може замінити себе тут"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không thể tự thay thế tại đây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 无法在此处替换自身"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法在此處取代自身"
+          }
+        }
+      }
+    },
+    "updater.installFailed.folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The installer couldn't replace cmux in %@. Move cmux to Applications, or download the update manually."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على المثبّت استبدال cmux في %@. انقل cmux إلى التطبيقات، أو نزّل التحديث يدويًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instalater nije mogao zamijeniti cmux u %@. Premjestite cmux u Aplikacije ili ručno preuzmite ažuriranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installationsprogrammet kunne ikke erstatte cmux i %@. Flyt cmux til Programmer, eller hent opdateringen manuelt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Installationsprogramm konnte cmux in %@ nicht ersetzen. Bewege cmux in den Ordner „Programme“ oder lade das Update manuell herunter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El instalador no pudo reemplazar cmux en %@. Mueve cmux a Aplicaciones o descarga la actualización manualmente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'installateur n'a pas pu remplacer cmux dans %@. Déplacez cmux dans Applications ou téléchargez la mise à jour manuellement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il programma di installazione non ha potuto sostituire cmux in %@. Sposta cmux in Applicazioni oppure scarica l'aggiornamento manualmente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "インストーラは %@ にある cmux を置き換えられませんでした。cmux をアプリケーションに移動するか、アップデートを手動でダウンロードしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដំឡើងមិនអាចជំនួស cmux នៅក្នុង %@ បានទេ។ ផ្លាស់ទី cmux ទៅ Applications ឬទាញយកការធ្វើបច្ចុប្បន្នភាពដោយដៃ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "설치 프로그램이 %@에 있는 cmux를 교체하지 못했습니다. cmux를 응용 프로그램으로 옮기거나 업데이트를 직접 다운로드하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installasjonsprogrammet kunne ikke erstatte cmux i %@. Flytt cmux til Programmer, eller last ned oppdateringen manuelt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instalator nie mógł zastąpić cmux w %@. Przenieś cmux do folderu Aplikacje lub pobierz aktualizację ręcznie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O instalador não conseguiu substituir o cmux em %@. Mova o cmux para Aplicativos ou baixe a atualização manualmente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Установщик не смог заменить cmux в %@. Переместите cmux в «Программы» или скачайте обновление вручную."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวติดตั้งแทนที่ cmux ใน %@ ไม่ได้ ย้าย cmux ไปที่ Applications หรือดาวน์โหลดอัปเดตด้วยตนเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yükleyici %@ içindeki cmux'u değiştiremedi. cmux'u Uygulamalar'a taşıyın veya güncellemeyi elle indirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інсталятор не зміг замінити cmux у %@. Перемістіть cmux у «Програми» або завантажте оновлення вручну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình cài đặt không thể thay thế cmux trong %@. Hãy chuyển cmux vào Applications hoặc tải bản cập nhật thủ công."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "安装器无法替换 %@ 中的 cmux。请将 cmux 移到“应用程序”，或手动下载更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "安裝程式無法取代 %@ 中的 cmux。請將 cmux 移到「應用程式」，或手動下載更新。"
+          }
+        }
+      }
+    },
+    "updater.installFailed.space.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not enough free disk space"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد مساحة كافية على القرص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema dovoljno slobodnog prostora na disku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke nok ledig diskplads"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nicht genug freier Speicherplatz"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay suficiente espacio libre en disco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espace disque insuffisant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spazio su disco insufficiente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ディスクの空き容量が足りません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំហំថាសទំនេរមិនគ្រប់គ្រាន់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "디스크 여유 공간 부족"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke nok ledig diskplass"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Za mało wolnego miejsca na dysku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaço livre em disco insuficiente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Недостаточно свободного места на диске"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ดิสก์ว่างไม่พอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeterli boş disk alanı yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Недостатньо вільного місця на диску"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không đủ dung lượng trống"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "磁盘可用空间不足"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "磁碟可用空間不足"
+          }
+        }
+      }
+    },
+    "updater.installFailed.space": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There wasn't enough free disk space to install the update. Free some space and try again, or download the update manually."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تكن هناك مساحة كافية على القرص لتثبيت التحديث. حرّر بعض المساحة وحاول مرة أخرى، أو نزّل التحديث يدويًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije bilo dovoljno slobodnog prostora na disku za instalaciju ažuriranja. Oslobodite prostor i pokušajte ponovo ili ručno preuzmite ažuriranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der var ikke nok ledig diskplads til at installere opdateringen. Frigør plads, og prøv igen, eller hent opdateringen manuelt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Es war nicht genug freier Speicherplatz für das Update vorhanden. Gib Speicher frei und versuche es erneut, oder lade das Update manuell herunter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No había suficiente espacio libre en disco para instalar la actualización. Libera espacio y vuelve a intentarlo, o descarga la actualización manualmente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il n'y avait pas assez d'espace disque pour installer la mise à jour. Libérez de l'espace et réessayez, ou téléchargez la mise à jour manuellement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lo spazio libero su disco non bastava per installare l'aggiornamento. Libera spazio e riprova, oppure scarica l'aggiornamento manualmente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アップデートをインストールするためのディスクの空き容量が足りませんでした。空き容量を増やして再試行するか、アップデートを手動でダウンロードしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនមានទំហំថាសទំនេរគ្រប់គ្រាន់ដើម្បីដំឡើងការធ្វើបច្ចុប្បន្នភាពទេ។ បង្កើនទំហំទំនេរ ហើយព្យាយាមម្ដងទៀត ឬទាញយកការធ្វើបច្ចុប្បន្នភាពដោយដៃ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "업데이트를 설치할 디스크 여유 공간이 부족했습니다. 공간을 확보한 후 다시 시도하거나 업데이트를 직접 다운로드하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det var ikke nok ledig diskplass til å installere oppdateringen. Frigjør plass og prøv igjen, eller last ned oppdateringen manuelt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brakowało wolnego miejsca na dysku, aby zainstalować aktualizację. Zwolnij miejsce i spróbuj ponownie lub pobierz aktualizację ręcznie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não havia espaço livre em disco suficiente para instalar a atualização. Libere espaço e tente novamente, ou baixe a atualização manualmente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для установки обновления не хватило свободного места на диске. Освободите место и повторите попытку или скачайте обновление вручную."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ดิสก์ว่างไม่พอสำหรับติดตั้งอัปเดต เพิ่มพื้นที่ว่างแล้วลองอีกครั้ง หรือดาวน์โหลดอัปเดตด้วยตนเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncellemeyi yüklemek için yeterli boş disk alanı yoktu. Biraz yer açıp tekrar deneyin veya güncellemeyi elle indirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для встановлення оновлення забракло вільного місця на диску. Звільніть місце й повторіть спробу або завантажте оновлення вручну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không đủ dung lượng trống để cài đặt bản cập nhật. Hãy giải phóng dung lượng rồi thử lại, hoặc tải bản cập nhật thủ công."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "磁盘可用空间不足，无法安装更新。请释放一些空间后重试，或手动下载更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "磁碟可用空間不足，無法安裝更新。請釋放一些空間後再試一次，或手動下載更新。"
+          }
+        }
+      }
+    },
+    "updater.installFailed.unknown.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The installer kept this version"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أبقى المثبّت على هذا الإصدار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instalater je zadržao ovu verziju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installationsprogrammet beholdt denne version"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Installationsprogramm hat diese Version behalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El instalador mantuvo esta versión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'installateur a conservé cette version"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il programma di installazione ha mantenuto questa versione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "インストーラはこのバージョンのままにしました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដំឡើងបានរក្សាកំណែនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "설치 프로그램이 이 버전을 유지함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installasjonsprogrammet beholdt denne versjonen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instalator zachował tę wersję"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O instalador manteve esta versão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Установщик оставил эту версию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวติดตั้งคงเวอร์ชันนี้ไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yükleyici bu sürümü korudu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інсталятор залишив цю версію"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình cài đặt giữ nguyên phiên bản này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "安装器保留了此版本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "安裝程式保留了此版本"
+          }
+        }
+      }
+    },
+    "updater.installFailed.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The installer kept this version of cmux and gave no reason. Try again, or download the update manually."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أبقى المثبّت على هذا الإصدار من cmux دون ذكر السبب. حاول مرة أخرى، أو نزّل التحديث يدويًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instalater je zadržao ovu verziju cmux-a bez navođenja razloga. Pokušajte ponovo ili ručno preuzmite ažuriranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installationsprogrammet beholdt denne version af cmux uden at angive en årsag. Prøv igen, eller hent opdateringen manuelt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Installationsprogramm hat diese cmux-Version ohne Angabe eines Grundes behalten. Versuche es erneut oder lade das Update manuell herunter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El instalador mantuvo esta versión de cmux sin dar ningún motivo. Vuelve a intentarlo o descarga la actualización manualmente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'installateur a conservé cette version de cmux sans donner de raison. Réessayez ou téléchargez la mise à jour manuellement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il programma di installazione ha mantenuto questa versione di cmux senza indicare il motivo. Riprova oppure scarica l'aggiornamento manualmente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "インストーラは理由を示さずにこのバージョンの cmux のままにしました。再試行するか、アップデートを手動でダウンロードしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដំឡើងបានរក្សាកំណែ cmux នេះដោយមិនផ្ដល់មូលហេតុ។ ព្យាយាមម្ដងទៀត ឬទាញយកការធ្វើបច្ចុប្បន្នភាពដោយដៃ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "설치 프로그램이 이유 없이 이 버전의 cmux를 유지했습니다. 다시 시도하거나 업데이트를 직접 다운로드하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installasjonsprogrammet beholdt denne versjonen av cmux uten å oppgi noen grunn. Prøv igjen, eller last ned oppdateringen manuelt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instalator zachował tę wersję cmux bez podania przyczyny. Spróbuj ponownie lub pobierz aktualizację ręcznie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O instalador manteve esta versão do cmux sem informar o motivo. Tente novamente ou baixe a atualização manualmente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Установщик оставил эту версию cmux, не указав причину. Повторите попытку или скачайте обновление вручную."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวติดตั้งคง cmux เวอร์ชันนี้ไว้โดยไม่ระบุเหตุผล ลองอีกครั้ง หรือดาวน์โหลดอัปเดตด้วยตนเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yükleyici cmux'un bu sürümünü bir neden belirtmeden korudu. Tekrar deneyin veya güncellemeyi elle indirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інсталятор залишив цю версію cmux, не вказавши причини. Повторіть спробу або завантажте оновлення вручну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình cài đặt giữ nguyên phiên bản cmux này mà không nêu lý do. Hãy thử lại hoặc tải bản cập nhật thủ công."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "安装器保留了此版本的 cmux，且未给出原因。请重试，或手动下载更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "安裝程式保留了此版本的 cmux，且未提供原因。請再試一次，或手動下載更新。"
+          }
+        }
+      }
+    },
+    "updater.channels.switch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prebaci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wechseln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basculer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切り替え"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전환"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнути"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chuyển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換"
+          }
+        }
+      }
+    },
+    "updater.channels.switchUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build cannot switch builds (it follows no update feed)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لهذا الإصدار التبديل بين الإصدارات (لا يتبع أي موجز تحديثات)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova verzija ne može prebacivati verzije (ne prati nijedan izvor ažuriranja)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette build kan ikke skifte build (det følger intet opdateringsfeed)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Build kann nicht zu anderen Builds wechseln (er folgt keinem Update-Feed)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta compilación no puede cambiar de compilación (no sigue ningún canal de actualizaciones)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce build ne peut pas changer de build (il ne suit aucun flux de mises à jour)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa build non può passare ad altre build (non segue alcun feed di aggiornamenti)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドはビルドを切り替えられません(アップデートフィードに従っていません)。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណែនេះមិនអាចប្ដូរកំណែបានទេ (វាមិនតាមដានប្រភពបច្ចុប្បន្នភាពណាមួយ)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 빌드는 빌드를 전환할 수 없습니다(업데이트 피드를 따르지 않음)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette bygget kan ikke bytte bygg (det følger ingen oppdateringsstrøm)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta kompilacja nie może przełączać kompilacji (nie śledzi żadnego kanału aktualizacji)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta build não pode trocar de build (não segue nenhum feed de atualizações)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта сборка не может переключаться между сборками (она не следует ни одному каналу обновлений)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บิลด์นี้สลับบิลด์ไม่ได้ (ไม่ได้ติดตามฟีดอัปเดตใด)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu derleme başka derlemeye geçemez (hiçbir güncelleme akışını izlemiyor)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця збірка не може перемикатися між збірками (вона не стежить за жодним каналом оновлень)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản dựng này không thể chuyển bản dựng (nó không theo nguồn cập nhật nào)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本无法切换版本(它不跟随任何更新源)。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本無法切換版本(它不跟隨任何更新來源)。"
+          }
+        }
+      }
+    },
+    "updater.channels.switchAlreadyHere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac already runs that build."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل هذا الـ Mac ذلك الإصدار بالفعل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac već koristi tu verziju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac kører allerede det build."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac verwendet diesen Build bereits."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac ya usa esa compilación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac exécute déjà ce build."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac usa già quella build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacはすでにそのビルドを実行しています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះកំពុងដំណើរការកំណែនោះរួចហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 이미 해당 빌드를 실행 중입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac-en kjører allerede det bygget."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac już używa tej kompilacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac já executa essa build."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac уже использует эту сборку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้ใช้บิลด์นั้นอยู่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac zaten o derlemeyi çalıştırıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac уже використовує цю збірку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này đã chạy bản dựng đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 已在运行该版本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 已在執行該版本。"
+          }
+        }
+      }
+    },
+    "updater.channels.switchGone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That build is no longer offered for download."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يعد ذلك الإصدار متاحًا للتنزيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta verzija se više ne nudi za preuzimanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det build tilbydes ikke længere til download."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Build wird nicht mehr zum Download angeboten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa compilación ya no se ofrece para descargar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce build n’est plus proposé au téléchargement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella build non è più disponibile per il download."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのビルドはもうダウンロードできません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណែនោះលែងមានសម្រាប់ទាញយកទៀតហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 빌드는 더 이상 다운로드할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det bygget tilbys ikke lenger for nedlasting."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta kompilacja nie jest już dostępna do pobrania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa build não está mais disponível para download."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта сборка больше недоступна для загрузки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บิลด์นั้นไม่มีให้ดาวน์โหลดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O derleme artık indirilmek üzere sunulmuyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця збірка більше не доступна для завантаження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản dựng đó không còn được cung cấp để tải xuống."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该版本已不再提供下载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該版本已不再提供下載。"
+          }
+        }
+      }
+    },
+    "updater.channels.switchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not switch: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر التبديل: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prebacivanje nije uspjelo: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke skifte: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wechsel nicht möglich: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cambiar: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de basculer : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile passare: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切り替えられませんでした: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចប្ដូរបានទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전환할 수 없음: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke bytte: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się przełączyć: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível trocar: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось переключиться: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับไม่ได้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçilemedi: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося перемкнути: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể chuyển: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法切换:%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法切換:%@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

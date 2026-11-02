@@ -42,6 +42,8 @@ nonisolated enum AgentShareActionCatalog: ActionCatalogGroup {
         ]
         // A CLI or agent run answers with the link or the shares (AgentShareHandlers).
         for index in actions.indices { actions[index].waitsForResult = true }
+        // A run the owner did not start waits for their answer in the app (#30263): the person deadline.
+        actions[0].waitsForPerson = true
         return actions
     }
 

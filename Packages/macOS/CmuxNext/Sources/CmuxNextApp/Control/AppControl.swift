@@ -86,6 +86,8 @@ final class AppControl {
         service.router.register(FeedControl.methods(services: services))
         service.router.register(ServerReachControl.methods(services: services))
         service.router.register(KeybindingControl.methods(services: services))
+        // `video.frames`: a video's numbers and frames for the agent tools `video_info` and `video_frames`.
+        service.router.register(VideoControl().methods())
         // `agent.acpmux`: the acpmux this app's chat tabs use (`cmux agents chat new`, #23026).
         let build = services.environment.build
         service.router.register([.agentAcpmux {
@@ -485,6 +487,11 @@ final class AppControl {
             // The quit sheet (Quit and the local terminals).
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
+            },
+            // A quit as a logout does (REOPEN VIDEO): {reason: "logout"}.
+            .mainActor("debug.app.terminate") { [weak services] call in
+                .value(services.map { $0.quit.origins.debugTerminate(reason: call.params["reason"]?.stringValue) { NSApplication.terminateFromRunLoop() } }
+                    .map { refusal in refusal.map { .object(["error": .string($0)]) } ?? .object(["terminating": .bool(true)]) } ?? .null)
             },
             // The burst bench's record: each press's outcome, refusals, terminal grids, echoes and redraws.
             // `status`: whether the burst is done (its keys posted, no create still asking the daemon, no

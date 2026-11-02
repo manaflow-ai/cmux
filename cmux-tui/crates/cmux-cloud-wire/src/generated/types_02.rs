@@ -4,6 +4,46 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    GroupPlacementKind {
+        Local = "local",
+        Mini = "mini",
+        CloudVm = "cloud_vm",
+    }
+}
+
+pub type GroupWorkspaceId = String;
+
+/// Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: "poster"}.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeAttachmentPoster {
+    pub hash: HomeSha256,
+    pub mime_type: HomeAttachmentPosterMimeType,
+    pub byte_count: i64,
+}
+
+wire_enum! {
+    HomeAttachmentPosterMimeType {
+        ImageJpeg = "image/jpeg",
+        ImageWebp = "image/webp",
+    }
+}
+
+/// Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: "preview"}.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeAttachmentPreview {
+    pub hash: HomeSha256,
+    pub mime_type: HomeAttachmentPreviewMimeType,
+    pub byte_count: i64,
+}
+
+wire_enum! {
+    HomeAttachmentPreviewMimeType {
+        ImageJpeg = "image/jpeg",
+        ImageWebp = "image/webp",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeChief {
     pub id: ChiefId,
@@ -848,56 +888,4 @@ pub struct RunWithBody {
     pub error: Option<RunError>,
     pub outcome: Option<RunWithBodyOutcome>,
     pub body: Body,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunWithBodyTrigger {
-    pub id: Option<TriggerId>,
-    pub r#type: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scheduled_at: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub delivery_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent_run: Option<RunId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub root_run: Option<RunId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub depth: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunWithBodyOutcome {
-    pub goal_met: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
-}
-
-pub type ServerCapability = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkBinding {
-    pub state: LitConfirmed,
-    pub tenant: NativeTenantId,
-    pub mesh: NativeMeshId,
-    pub device: NativeDeviceId,
-    pub confirmed_at: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub install_grant: Option<GrantId>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkProof {
-    #[serde(rename = "signedAt")]
-    pub signed_at: i64,
-    pub nonce: String,
-    pub signature: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerNetworkReservation {
-    pub state: LitReserved,
-    pub tenant: NativeTenantId,
-    pub mesh: NativeMeshId,
-    pub device: NativeDeviceId,
 }

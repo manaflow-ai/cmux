@@ -3,9 +3,20 @@
 
 from __future__ import annotations
 
+import base64
+import contextlib
+import datetime as dt
+import gzip
 import importlib.util
+import http.server
+import io
+import json
+import os
 import pathlib
+import socketserver
 import sys
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -18,7 +29,70 @@ picker = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(picker)
 
 
+class _DripHandler(http.server.BaseHTTPRequestHandler):
+    stop = threading.Event()
+
+    def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
+        if self.path == "/artifact":
+            self.send_response(302)
+            host, port = self.server.server_address
+            self.send_header("Location", f"http://{host}:{port}/blob")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", "100000")
+        self.end_headers()
+        try:
+            self.wfile.write(b"{")
+            self.wfile.flush()
+            # Bounded: a client that ignores its deadline sees the body end early (an
+            # IncompleteRead, not the TimeoutError the tests demand) instead of hanging.
+            for _ in range(300):
+                if self.stop.wait(0.01):
+                    break
+                self.wfile.write(b" ")
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def log_message(self, _format: str, *_args: object) -> None:
+        return
+
+
+class _DripServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = False
+    block_on_close = True
+
+
 class FastChecksRunnerTests(unittest.TestCase):
+    def test_busy_document_is_rechecked_live_after_waiting(self) -> None:
+        idle = dict(id=1, name="synthetic-fast-check", os="Linux", status="online", busy=False,
+                    labels=[{"name": picker.FLEET}])
+        doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
+                   generated_at=dt.datetime.now(dt.timezone.utc).isoformat(), repository_runners=[],
+                   runner_groups={"glaeda-minis": [], "cmux-fleet-linux": [dict(idle, busy=True)]}, scale_sets={})
+        env = dict(ROUTE_TOKEN="synthetic-token", GITHUB_REPOSITORY="manaflow-ai/cmux",
+                   CI_RUNNER_STATE=base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode())
+        paths, clock = [], [0.0]
+
+        def api(path):
+            paths.append(path)
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": "glaeda-minis", "id": 9},
+                                          {"name": "cmux-fleet-linux", "id": 10}]}
+            return {"runners": [idle]} if "/10/runners" in path else {}
+
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(picker.pr_runner_pool.GitHub, "get_api", side_effect=api), \
+             contextlib.redirect_stderr(io.StringIO()):
+            selected = picker.choose(env, sleep=lambda s: clock.__setitem__(0, clock[0] + s), clock=lambda: clock[0])
+        self.assertEqual(selected, picker.FLEET)
+        self.assertEqual(clock[0], picker.POLL_SECONDS)
+        self.assertEqual(len(paths), 4)
+
     def test_live_idle_linux_fleet_runner_is_selected(self) -> None:
         rows = [{"status": "online", "busy": False, "os": "Linux",
                  "labels": [{"name": "cmux-fleet-linux-x64"}]}]
@@ -92,7 +166,7 @@ class FastChecksRunnerTests(unittest.TestCase):
             def __init__(self, token, repo, *, deadline=None):
                 calls.append((token, repo, deadline))
 
-            def runners(self):
+            def runners(self, *, use_state=True):
                 return []
 
             def snapshot(self, *, now):
@@ -128,6 +202,50 @@ class FastChecksRunnerTests(unittest.TestCase):
         with mock.patch.object(picker.pr_runner_pool.time, "monotonic", return_value=10.0):
             with self.assertRaises(TimeoutError):
                 client._timeout(15.0)
+
+    def test_github_deadline_interrupts_a_byte_dripping_response(self) -> None:
+        _DripHandler.stop.clear()
+        server = _DripServer(("127.0.0.1", 0), _DripHandler)
+        thread = threading.Thread(target=server.serve_forever, name="fast-check-drip-server")
+        thread.start()
+        api = picker.pr_runner_pool.API
+        picker.pr_runner_pool.API = f"http://127.0.0.1:{server.server_address[1]}"
+        started = time.monotonic()
+        try:
+            client = picker.pr_runner_pool.GitHub(
+                "route", "manaflow-ai/cmux", deadline=started + 0.08,
+            )
+            with self.assertRaises(TimeoutError):
+                client.get_api("/drip")
+        finally:
+            picker.pr_runner_pool.API = api
+            _DripHandler.stop.set()
+            server.shutdown()
+            server.server_close()
+            thread.join(1.0)
+            self.assertFalse(thread.is_alive())
+
+    def test_github_deadline_interrupts_a_byte_dripping_artifact(self) -> None:
+        _DripHandler.stop.clear()
+        server = _DripServer(("127.0.0.1", 0), _DripHandler)
+        thread = threading.Thread(target=server.serve_forever, name="fast-check-artifact-drip-server")
+        thread.start()
+        api = picker.pr_runner_pool.API
+        picker.pr_runner_pool.API = f"http://127.0.0.1:{server.server_address[1]}"
+        started = time.monotonic()
+        try:
+            client = picker.pr_runner_pool.GitHub(
+                "route", "manaflow-ai/cmux", deadline=started + 0.08,
+            )
+            with self.assertRaises(TimeoutError):
+                client.download({"archive_download_url": f"{picker.pr_runner_pool.API}/artifact"})
+        finally:
+            picker.pr_runner_pool.API = api
+            _DripHandler.stop.set()
+            server.shutdown()
+            server.server_close()
+            thread.join(1.0)
+            self.assertFalse(thread.is_alive())
 
 
 if __name__ == "__main__":

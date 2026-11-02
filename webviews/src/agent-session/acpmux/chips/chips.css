@@ -81,6 +81,17 @@
 .cv-chip__icon--gh {
   vertical-align: -1.5px;
 }
+/* A pull request chip's mark in its state's colour, as the hover card's glyph (linkCard.css):
+   open green, merged purple, closed red; a draft or an unread one keeps the link's. */
+.cv-chip.is-ref[data-pr-state="open"] .cv-chip__icon--gh {
+  color: var(--agent-status-success);
+}
+.cv-chip.is-ref[data-pr-state="merged"] .cv-chip__icon--gh {
+  color: var(--agent-status-merged);
+}
+.cv-chip.is-ref[data-pr-state="closed"] .cv-chip__icon--gh {
+  color: var(--agent-status-failure);
+}
 .cv-chip:focus-visible {
   outline: 1px solid var(--cv-link);
   outline-offset: 1px;

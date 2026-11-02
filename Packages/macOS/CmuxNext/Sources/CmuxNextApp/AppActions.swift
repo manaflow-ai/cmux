@@ -48,7 +48,7 @@ enum AppActions {
         WorkspaceNotesHandlers.bind(into: registry, context: context)
         WorkspaceChecklistHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
-        SidebarActionSet(host: services, autoArchive: services.autoArchive).bind(into: registry)
+        SidebarActionSet(host: services, autoArchive: services.autoArchive, settings: { [weak services] in services?.settings }).bind(into: registry)
         NotificationSoundActions(host: services, gate: services.notifications.soundGate).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)
@@ -179,7 +179,7 @@ enum AppActions {
         registry.bind("newWindow", invoke: { RoomHandlers.newWindow($0, AppActionContext(services: services)) })
         registry.bind("newIncognitoWindow") { services.windows.newIncognitoWindow() }
         registry.bind("closeWindow", isEnabled: { services.windows.active != nil }) {
-            services.windows.active?.window?.performClose(nil)
+            services.windows.active?.window?.closeWithoutButtonFlash()
         }
         registry.bind("toggleFullScreen") { services.windows.active?.window?.toggleFullScreen(nil) }
         registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggle() }

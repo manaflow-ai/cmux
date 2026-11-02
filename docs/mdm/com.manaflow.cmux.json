@@ -90,6 +90,16 @@
       "title" : "Chat Minimap",
       "type" : "string"
     },
+    "agentPane.display.presentation" : {
+      "default" : "transcript",
+      "description" : "agentPane.display.presentation",
+      "enum" : [
+        "transcript",
+        "messages"
+      ],
+      "title" : "Chat Presentation",
+      "type" : "string"
+    },
     "agentPane.display.rail.side" : {
       "default" : "left",
       "description" : "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
@@ -228,6 +238,28 @@
       "maximum" : 2,
       "minimum" : 0.5,
       "title" : "Agent Chat Zoom",
+      "type" : "number"
+    },
+    "agents.autoRetry.attempts" : {
+      "default" : 4,
+      "description" : "How many times the chat tries again before it stops and waits for you.",
+      "maximum" : 12,
+      "minimum" : 1,
+      "title" : "Retries per Error",
+      "type" : "number"
+    },
+    "agents.autoRetry.enabled" : {
+      "default" : true,
+      "description" : "When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works.",
+      "title" : "Retry Automatically",
+      "type" : "boolean"
+    },
+    "agents.autoRetry.intervalSeconds" : {
+      "default" : 0,
+      "description" : "How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes.",
+      "maximum" : 3600,
+      "minimum" : 0,
+      "title" : "Seconds Between Retries",
       "type" : "number"
     },
     "agents.chats.discovery" : {
@@ -1800,6 +1832,12 @@
       "title" : "Fill Codes from Verification Emails",
       "type" : "boolean"
     },
+    "chief.autoRouteSubagents" : {
+      "default" : false,
+      "description" : "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.",
+      "title" : "Route Subagents to the Best Agent",
+      "type" : "boolean"
+    },
     "chief.reactionClassifier.harness" : {
       "default" : "",
       "description" : "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route.",
@@ -2570,6 +2608,9 @@
         "moon",
         "moon-blue",
         "mochi",
+        "captain",
+        "sprout",
+        "bolt",
         "fox-arctic",
         "machine-violet",
         "machine-gold",
@@ -2580,6 +2621,12 @@
       ],
       "title" : "Character",
       "type" : "string"
+    },
+    "home.feedInChief" : {
+      "default" : true,
+      "description" : "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them.",
+      "title" : "Show the Feed in Chief",
+      "type" : "boolean"
     },
     "home.server" : {
       "default" : "hosted",
@@ -3087,6 +3134,12 @@
       "title" : "Move the Workspace to the Top",
       "type" : "boolean"
     },
+    "notifications.attention.moveToTopOnAgentFinish" : {
+      "default" : false,
+      "description" : "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
+      "title" : "Move the Workspace to the Top When Its Agent Finishes",
+      "type" : "boolean"
+    },
     "notifications.attention.persist" : {
       "default" : true,
       "description" : "notifications.attention.persist",
@@ -3525,6 +3578,12 @@
       "title" : "Let Your Phone Use This Mac",
       "type" : "boolean"
     },
+    "phone.cloudDesktop" : {
+      "default" : false,
+      "description" : "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open.",
+      "title" : "Show Your Cloud Machine's Screen on Your Phone",
+      "type" : "boolean"
+    },
     "phone.cloudReplica" : {
       "default" : false,
       "description" : "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy.",
@@ -3641,6 +3700,12 @@
       "default" : true,
       "description" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once.",
       "title" : "Show Tips",
+      "type" : "boolean"
+    },
+    "sidebar.chromeGroups" : {
+      "default" : false,
+      "description" : "A group's colored name chip joins a thicker rail with a clipped corner, and the rail ends in a rounded cap, like Chrome's tab groups.",
+      "title" : "Chrome-Style Groups",
       "type" : "boolean"
     },
     "sidebar.cmd9" : {
@@ -3984,6 +4049,12 @@
       ],
       "title" : "Sidebar Side",
       "type" : "string"
+    },
+    "sidebar.sideBySide" : {
+      "default" : false,
+      "description" : "A press on a workspace row switches only when you release it, so you can hold and drag the row onto a pane's edge to show that workspace beside the current one. Workspaces on screen are highlighted.",
+      "title" : "Workspaces Side by Side",
+      "type" : "boolean"
     },
     "sidebar.spacesPosition" : {
       "default" : "bottom",
@@ -4480,6 +4551,12 @@
       "default" : true,
       "description" : "A mark while an agent works in the workspace.",
       "title" : "Agent Working",
+      "type" : "boolean"
+    },
+    "sidebar.workspacesAsTabs" : {
+      "default" : false,
+      "description" : "Each workspace is one line, like Claude's sidebar, and Command-Shift-[ and ] go to the previous or next workspace instead of the previous or next tab.",
+      "title" : "Workspaces as Tabs",
       "type" : "boolean"
     },
     "ssh.linkAllowedHosts" : {

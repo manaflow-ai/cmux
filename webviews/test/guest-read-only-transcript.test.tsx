@@ -196,7 +196,6 @@ const OWNER_CONTROLS = [
   translate("turn.retry"),
   translate("turn.fork"),
   translate("message.pin"),
-  translate("switch.cancelPrompt"),
   translate("agentPair.resume"),
   translate("shell.openInTerminal"),
   translate("image.load"),

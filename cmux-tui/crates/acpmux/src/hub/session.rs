@@ -63,6 +63,8 @@ pub struct Session {
     /// Held while a child is spawned and initialized, so concurrent
     /// requests for a stopped session start one agent, not several.
     pub(super) spawn_lock: Mutex<()>,
+    /// Serializes close/purge with transfer retirement before an ID can be reused.
+    pub(super) close_lock: Mutex<()>,
     /// Held shared by a request that reaches the harness outside a turn (a start, a mode
     /// change); the idle pass takes it exclusively while it lists and ends the harness.
     pub(super) harness_use: tokio::sync::RwLock<()>,
@@ -310,6 +312,11 @@ pub struct Session {
     /// All pending client prompt ids and a bounded cache of completed outcomes,
     /// newest last: retries wait for the original prompt while it is pending.
     pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,
+    /// The message each recent prompt id's acceptance named (`message_events.rs` `name_message`):
+    /// prompt id, message id, sender session, newest last, at most [`KEPT_MESSAGES`]. A later send
+    /// of the same prompt id is answered as a duplicate, and that answer names the same kept
+    /// message, so every send of one prompt id hears the one acceptance (`turns.rs`).
+    pub(super) kept_messages: StdMutex<std::collections::VecDeque<(String, String, String)>>,
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
     pub(super) append_errors: AtomicU64,
@@ -710,6 +717,9 @@ impl Session {
         self.meta.lock().unwrap().status
     }
 }
+/// How many prompt ids' kept messages a session remembers (`Session::kept_messages`).
+pub(super) const KEPT_MESSAGES: usize = 256;
+
 /// Tags that have not expired, as a flat map.
 pub fn live_tags(m: &SessionMeta) -> Value {
     let now = now_ms();

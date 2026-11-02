@@ -204,6 +204,7 @@ impl Hub {
                     from,
                     trust_gate,
                     reports: super::lane_reports::reports_only(opts.provenance.as_ref()),
+                    trigger: crate::prompt_provenance::is_trigger(opts.provenance.as_ref()),
                 },
             };
             now.sent.insert(prompt_id.clone(), sent);
@@ -251,15 +252,18 @@ impl Hub {
         let family = super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
         // Set when the person's waiting prompt is what held it, so a steer-only one says so.
         let prompt_held = std::sync::atomic::AtomicBool::new(false);
+        let trigger = crate::prompt_provenance::is_trigger(opts.provenance.as_ref());
         let held = || {
-            if inbox_notice {
-                super::inbox::notice_held(session)
-            } else if super::inbox::review_box(session) {
+            if trigger || session.turn().is_some_and(|t| t.trigger) {
                 true
-            } else if !digest && super::inbox::persons_prompt_waits(session) {
+            } else if inbox_notice {
+                super::inbox::notice_held(session)
+            } else if agent_steer && super::inbox::review_box(session) {
+                true
+            } else if agent_steer && !digest && super::inbox::persons_prompt_waits(session) {
                 prompt_held.store(true, std::sync::atomic::Ordering::SeqCst);
                 true
-            } else if !digest && !family && super::inbox::persons_turn(session) {
+            } else if agent_steer && !digest && !family && super::inbox::persons_turn(session) {
                 // The person's own turn (`inbox.rs`): it goes in after it. A sub-session family
                 // message still goes in (`turns.rs`).
                 true
@@ -276,7 +280,7 @@ impl Hub {
             bound || inbox_notice,
             fence.as_ref(),
             inbox_notice,
-            (inbox_notice || agent_steer).then_some(&held as &(dyn Fn() -> bool + Send + Sync)),
+            Some(&held as &(dyn Fn() -> bool + Send + Sync)),
             || {
                 if inbox_notice {
                     self.inbox_prompt_written(session, &prompt_id);

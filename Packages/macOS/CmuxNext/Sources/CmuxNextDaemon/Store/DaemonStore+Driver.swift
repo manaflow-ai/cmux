@@ -129,6 +129,11 @@ final class EventInbox: Sendable {
     /// The event frontier already handed to the store, excluding buffered or pump-delayed events.
     var takenThrough: UInt64 { state.withLock { $0.takenThrough } }
 
+    /// Everything buffered, left in the buffer (``DaemonStore/eventHold``).
+    func peek() -> [DaemonEventEnvelope] {
+        state.withLock { $0.events.compactMap { $0 } }
+    }
+
     /// Takes everything buffered and clears the pending-frame flag.
     func take() -> [DaemonEventEnvelope] {
         state.withLock { state in
@@ -216,6 +221,8 @@ extension DaemonStore {
     /// and a snapshot applies only what differs (DaemonStore+SnapshotDiff.swift).
     func drain() {
         guard let driver, !isResyncing else { return }
+        // Held (a test's late daemon): the frame flag stays set, so no new event asks for a frame until the release.
+        if let eventHold, eventHold(driver.inbox.peek()) { return }
         let batch = driver.inbox.take()
         guard !batch.isEmpty else { return }
         let connected = batch.contains { if case .connected = $0.event { true } else { false } }
@@ -227,6 +234,12 @@ extension DaemonStore {
         } else if followup == .personal {
             refetchPersonal()
         }
+    }
+
+    /// Ends ``eventHold`` and applies what it held, in this turn.
+    public func releaseHeldEvents() {
+        eventHold = nil
+        drain()
     }
 
     /// Fetches `list-personal` alone and applies it (`personal-changed`: a group's fold, a room

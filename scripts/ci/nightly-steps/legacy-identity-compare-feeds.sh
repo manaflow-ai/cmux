@@ -2,6 +2,11 @@
 # nightly.yml legacy-identity-target: "Compare the cmux NEXT feed with the old feed".
 # Moved out of the workflow verbatim to keep nightly.yml under GitHub's
 # workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# Full commit SHAs every copied build must contain (space-separated);
+# unset means no requirement, and then the kill switch
+# NIGHTLY_NEXT_LEGACY_IDENTITY is the only protection.
 set -euo pipefail
 curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o next-all.xml "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}"
 curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o old-all.xml "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"

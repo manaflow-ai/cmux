@@ -399,9 +399,12 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
     var chiefMuxHome: String?
     /// The daemon's `ACPMUX_HOME`; nil from a daemon that does not report it.
     var home: String?
+    /// The daemon's agent launch policy (`agentLaunch`, acpmux `launch_policy.rs`): `deny` when
+    /// its environment turned launches off; nil from a daemon that does not report it.
+    var agentLaunch: String?
 
     init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, capabilities: Set<String> = [], agentHosts: Bool = false, chatsOnDisk: Bool = false,
-         chiefMuxHome: String? = nil, home: String? = nil) {
+         chiefMuxHome: String? = nil, home: String? = nil, agentLaunch: String? = nil) {
         self.capabilities = capabilities
         self.webURL = webURL
         self.build = build
@@ -410,6 +413,7 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
         self.chatsOnDisk = chatsOnDisk
         self.chiefMuxHome = chiefMuxHome
         self.home = home
+        self.agentLaunch = agentLaunch
     }
 
     init(_ result: [String: Any]) {
@@ -421,6 +425,7 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
         chatsOnDisk = ((result["store"] as? [String: Any])?["mode"] as? String) == "local"
         chiefMuxHome = result["chiefMuxHome"] as? String
         home = result["home"] as? String
+        agentLaunch = result["agentLaunch"] as? String
     }
 
     /// Whether the daemon runs from `home`. One of another home on this app's socket (an

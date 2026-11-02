@@ -80,7 +80,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
-use super::agent_session_attach::agent_session_start::vm_word;
+use super::agent_session_attach::agent_session_start::{self, vm_word};
 use super::remote_relay::gate::COMMAND_PARAMS;
 use super::responses::send_response_with_details;
 use super::{MessageWriter, Response, SurfaceId};
@@ -505,9 +505,9 @@ impl Refusal {
 
 /// `agent-session-start`'s machine kind gate, read again at each call, with
 /// the call's own `vm_kind`.
-fn host_gate(mux: &Mux, vm_kind: Option<&str>) -> Result<(), Refusal> {
+fn host_gate(mux: &Mux, client: u64, vm_kind: Option<&str>) -> Result<(), Refusal> {
     use super::agent_session_attach::Refusal as Start;
-    match mux.agent_host_gate(vm_kind) {
+    match mux.agent_host_gate(client, vm_kind) {
         Ok(()) => Ok(()),
         Err(Start::TeamVmBlocked) => Err(Refusal::TeamVmBlocked),
         Err(_) => Err(Refusal::HostUnverified),
@@ -568,7 +568,8 @@ impl From<LinkError> for Failure {
 }
 
 /// Handles an `agent-transfer-*` frame of a local connection; `None` for any
-/// other frame. Remote-relay connections never get here.
+/// other frame. The explicit authenticated Native-owner carrier also reaches
+/// these handlers; other remote-relay connections remain denied.
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
     client: u64,
@@ -592,7 +593,7 @@ pub(super) fn try_handle(
     };
     let id = object.remove("id");
     // Trust first: an untrusted client gets one answer whatever it sent.
-    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+    if !mux.agent_carrier_allowed(client) {
         return Some(reply(writer, id, Err(Refusal::NotTrusted.into())));
     }
     let Some(verb) = Verb::parse(&cmd, object) else {
@@ -609,7 +610,7 @@ pub(super) fn try_handle(
         return Some(reply(writer, id, Err(Refusal::Limit.into())));
     }
     // Checks that need no acpmux answer here, before a worker or a link.
-    let prepared = match prepare(mux, verb) {
+    let prepared = match prepare(mux, client, verb) {
         Ok(prepared) => prepared,
         Err(failure) => {
             transfers.calls.fetch_sub(1, Ordering::AcqRel);
@@ -684,12 +685,12 @@ enum Prepared {
     },
 }
 
-fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
+fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
     let transfers = &mux.agent_transfers;
     Ok(match verb {
         Verb::Receive(ReceiveParams { manifest, cwd, vm_kind }) => {
             let host = transfers.host().ok_or(Refusal::Unavailable)?;
-            host_gate(mux, vm_word(&vm_kind))?;
+            host_gate(mux, client, vm_word(&vm_kind))?;
             let (guard, cwd) = guard_for(&host, &cwd)?;
             // Before acpmux makes a receive, so a refused one leaves nothing
             // there (calls racing past this overshoot by at most MAX_CALLS).
@@ -721,7 +722,7 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
                 return Err(Refusal::BadRequest.into());
             }
             let cwd = transfers.receive_cwd(&receive_id).ok_or(Refusal::UnknownReceive)?;
-            if let Err(refusal) = host_gate(mux, vm_word(&vm_kind)) {
+            if let Err(refusal) = host_gate(mux, client, vm_word(&vm_kind)) {
                 // A team VM stays one: the receive can never finish here.
                 if refusal == Refusal::TeamVmBlocked {
                     transfers.settle(&receive_id);
@@ -849,7 +850,15 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
     if let Prepared::Answer(answer) = prepared {
         return Ok(answer);
     }
-    let link = match AcpmuxLink::connect(socket, |_| {}) {
+    // A receive brings a chat here, so it starts acpmux once when nothing listens, as
+    // `agent-session-start` does: a Cloud machine that has run no chat yet has none up, and the
+    // move would stop there. Every other verb belongs to a move already under way.
+    let opened = if matches!(prepared, Prepared::Receive { .. }) {
+        agent_session_start::connect(mux, socket).map_err(drop)
+    } else {
+        AcpmuxLink::connect(socket, |_| {}).map_err(drop)
+    };
+    let link = match opened {
         Ok(link) => link,
         Err(_) => {
             if let Prepared::Forget { receive_id, live, .. } = prepared {

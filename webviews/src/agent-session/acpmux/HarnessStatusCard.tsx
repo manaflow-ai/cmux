@@ -1,6 +1,7 @@
 import "./harnessStatus.css";
 import { useEffect, useRef, useState } from "react";
 import { copyTextResult } from "./conversation/clipboard";
+import { Icon } from "./icons/Icon";
 import { translate, type Translate, usePaneLanguage, useT } from "./i18n";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { useEscapeToDismiss } from "./paneSurface";
@@ -159,7 +160,7 @@ export function HarnessStatusCard({
           onClick={onDismiss}
           aria-label={t("status.close")}
         >
-          ×
+          <Icon name="action.close" size={12} />
         </button>
       </div>
       <dl className="acpmux-harness-status__grid">

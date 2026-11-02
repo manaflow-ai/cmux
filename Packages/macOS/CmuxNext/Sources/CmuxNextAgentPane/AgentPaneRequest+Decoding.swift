@@ -159,6 +159,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.noticeAction":
+            // A native notice's button (AgentPaneNotice): its id, nothing else.
+            if let id = params?["id"] as? String, Set((params ?? [:]).keys) == ["id"] {
+                self = .paneNoticeAction(id: id)
+            } else {
+                self = .unsupported(method)
+            }
         case "tips.state":
             // `{}` reads the records, `{id, state}` keeps one, `{claim, feature?}` asks to show a tip.
             if let tips = AgentPaneFeatureTipRequest(params) {
@@ -176,6 +183,12 @@ extension AgentPaneRequest {
                 } else {
                     self = .unsupported(method)
                 }
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.clientReady":
+            if let ready = params?["ready"] as? Bool {
+                self = .clientReady(ready)
             } else {
                 self = .unsupported(method)
             }
@@ -206,6 +219,8 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "account.add":
+            self = AgentPaneAddAccount(params: params).map(AgentPaneRequest.addAccount) ?? .unsupported(method)
         case "harness.update":
             // A harness id (profile file name), never a command.
             if let id = params?["id"] as? String, !id.isEmpty, id.utf8.count <= 128,
@@ -308,6 +323,7 @@ extension AgentPaneRequest {
             }
             self = .cloudHandoffTurn(sessionId: session)
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
+        case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
         case "sandbox.run":
             // The task is the person's prompt (never logged); the server checks the agent by name.
             let agent = params?["agent"] as? String

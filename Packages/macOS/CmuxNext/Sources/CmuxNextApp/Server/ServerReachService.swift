@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextHostedChief
 import CmuxNextRemote
 import Foundation
 import Observation

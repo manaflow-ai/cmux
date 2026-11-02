@@ -71,9 +71,11 @@ export function SummaryTasks({
             {(sent || detail) && <span className="acpmux-summary-task__command">{command.command}</span>}
           </span>
           <span className="acpmux-summary-meta">
-            {live && command.startedAt !== undefined
-              ? <RunningElapsed startedAt={command.startedAt} />
-              : t(COMMAND_STATE[command.state])}
+            {live && command.startedAt !== undefined ? (
+              <RunningElapsed startedAt={command.startedAt} />
+            ) : (
+              t(COMMAND_STATE[command.state])
+            )}
           </span>
         </button>
         {live && command.processId && onStop && (

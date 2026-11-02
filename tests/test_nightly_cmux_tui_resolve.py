@@ -14,6 +14,8 @@ also runs) and records the tree and commit it used.
 import subprocess
 import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
 
 import re
 import yaml
@@ -27,7 +29,7 @@ def check(condition: bool, message: str) -> None:
         failures.append(message)
 
 
-text = (ROOT / ".github/workflows/nightly.yml").read_text()
+text = nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text())
 
 
 def expand_step_aliases(source: str) -> str:

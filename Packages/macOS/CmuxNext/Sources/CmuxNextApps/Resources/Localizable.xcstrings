@@ -1,6 +1,792 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "store.feature.workspacesAsTabs.name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مساحات العمل كعلامات تبويب"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Radni prostori kao kartice"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbejdsområder som faner"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbeitsbereiche als Tabs"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspaces as Tabs"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espacios de trabajo como pestañas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espaces de travail en onglets"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Workspace come schede"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "タブとしてのワークスペース"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កន្លែងធ្វើការជាផ្ទាំង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "탭으로 쓰는 워크스페이스"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbeidsområder som faner"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obszary robocze jako karty"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espaços de trabalho como abas"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Рабочие пространства как вкладки"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เวิร์กสเปซเป็นแท็บ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sekme Olarak Çalışma Alanları"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Робочі простори як вкладки"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không gian làm việc dạng thẻ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "工作区作为标签页"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "工作區作為標籤頁"
+          }
+        }
+      }
+    },
+    "store.feature.workspacesAsTabs.summary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "سطر واحد لكل مساحة عمل، مثل الشريط الجانبي في Claude، ويبدّل ⌘⇧[ و ⌘⇧] بين مساحات العمل كما يبدّلان بين علامات التبويب."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jedan red po radnom prostoru, kao Claudeov bočni panel, a ⌘⇧[ i ⌘⇧] mijenjaju radne prostore kao što mijenjaju kartice."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Én linje pr. arbejdsområde, som Claudes sidebjælke, og ⌘⇧[ og ⌘⇧] skifter arbejdsområde, som de skifter fane."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eine Zeile pro Arbeitsbereich, wie die Seitenleiste von Claude, und ⌘⇧[ und ⌘⇧] wechseln Arbeitsbereiche so, wie sie Tabs wechseln."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One line per workspace, like Claude's sidebar, and ⌘⇧[ and ⌘⇧] switch workspaces the way they switch tabs."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una línea por espacio de trabajo, como la barra lateral de Claude, y ⌘⇧[ y ⌘⇧] cambian de espacio de trabajo igual que cambian de pestaña."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une ligne par espace de travail, comme la barre latérale de Claude, et ⌘⇧[ et ⌘⇧] changent d’espace de travail comme ils changent d’onglet."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una riga per workspace, come la barra laterale di Claude, e ⌘⇧[ e ⌘⇧] cambiano workspace come cambiano scheda."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Claudeのサイドバーのようにワークスペースを1行ずつ表示し、⌘⇧[ と ⌘⇧] でタブと同じようにワークスペースを切り替えます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មួយបន្ទាត់ក្នុងមួយកន្លែងធ្វើការ ដូចរបារចំហៀងរបស់ Claude ហើយ ⌘⇧[ និង ⌘⇧] ប្តូរកន្លែងធ្វើការដូចប្តូរផ្ទាំង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Claude의 사이드바처럼 워크스페이스마다 한 줄로 표시하며, ⌘⇧[ 와 ⌘⇧]로 탭처럼 워크스페이스를 전환합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Én linje per arbeidsområde, som sidepanelet i Claude, og ⌘⇧[ og ⌘⇧] bytter arbeidsområde slik de bytter fane."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jeden wiersz na obszar roboczy, jak na pasku bocznym Claude, a ⌘⇧[ i ⌘⇧] przełączają obszary robocze tak, jak karty."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uma linha por espaço de trabalho, como a barra lateral do Claude, e ⌘⇧[ e ⌘⇧] alternam espaços de trabalho como alternam abas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Одна строка на рабочее пространство, как на боковой панели Claude, а ⌘⇧[ и ⌘⇧] переключают рабочие пространства так же, как вкладки."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "หนึ่งบรรทัดต่อเวิร์กสเปซ เหมือนแถบข้างของ Claude และ ⌘⇧[ กับ ⌘⇧] สลับเวิร์กสเปซเหมือนสลับแท็บ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çalışma alanı başına tek satır, Claude’un kenar çubuğundaki gibi; ⌘⇧[ ve ⌘⇧] sekmeler gibi çalışma alanları arasında geçiş yapar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Один рядок на робочий простір, як на бічній панелі Claude, а ⌘⇧[ і ⌘⇧] перемикають робочі простори так само, як вкладки."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Một dòng cho mỗi không gian làm việc, như thanh bên của Claude, và ⌘⇧[ và ⌘⇧] chuyển không gian làm việc giống như chuyển thẻ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每个工作区一行，就像 Claude 的侧边栏；⌘⇧[ 和 ⌘⇧] 切换工作区的方式与切换标签页相同。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每個工作區一行，就像 Claude 的側邊欄；⌘⇧[ 和 ⌘⇧] 切換工作區的方式與切換標籤頁相同。"
+          }
+        }
+      }
+    },
+    "store.feature.chromeGroups.name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مجموعات بنمط Chrome"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grupe u stilu Chromea"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grupper i Chrome-stil"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gruppen im Chrome-Stil"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chrome-Style Groups"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grupos estilo Chrome"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Groupes façon Chrome"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gruppi in stile Chrome"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chrome風グループ"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ក្រុមបែប Chrome"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chrome 스타일 그룹"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grupper i Chrome-stil"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grupy w stylu Chrome"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grupos no estilo Chrome"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Группы в стиле Chrome"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กลุ่มแบบ Chrome"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chrome Tarzı Gruplar"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Групи в стилі Chrome"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhóm kiểu Chrome"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chrome 风格分组"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chrome 風格群組"
+          }
+        }
+      }
+    },
+    "store.feature.chromeGroups.summary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تنضم شارة المجموعة الملونة إلى شريط أسمك بزاوية مقصوصة وطرف مستدير، مثل مجموعات علامات التبويب في Chrome."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obojena oznaka grupe spaja se s debljom šinom s isječenim uglom i zaobljenim krajem, kao grupe kartica u Chromeu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En gruppes farvede mærke går sammen med en tykkere skinne med et afskåret hjørne og en afrundet ende, som Chromes fanegrupper."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Das farbige Schild einer Gruppe geht in eine dickere Leiste mit abgeschnittener Ecke und rundem Ende über, wie bei den Tab-Gruppen in Chrome."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A group's colored chip joins a thicker rail with a clipped corner and a rounded end, like Chrome's tab groups."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La etiqueta de color de un grupo se une a un riel más grueso con una esquina recortada y un extremo redondeado, como los grupos de pestañas de Chrome."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La pastille colorée d’un groupe rejoint un rail plus épais à coin coupé et à bout arrondi, comme les groupes d’onglets de Chrome."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’etichetta colorata di un gruppo si unisce a una barra più spessa con un angolo tagliato e un’estremità arrotondata, come i gruppi di schede di Chrome."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "グループの色付きチップが、角を切り落とした太めのレールにつながり、端が丸くなります。Chromeのタブグループと同じ見た目です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ស្លាកពណ៌របស់ក្រុមភ្ជាប់ទៅផ្លូវក្រាស់ជាងដែលមានជ្រុងកាត់ និងចុងមូល ដូចក្រុមផ្ទាំងរបស់ Chrome។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "그룹의 색상 칩이 모서리가 잘린 더 두꺼운 레일과 이어지고 끝이 둥글게 마무리됩니다. Chrome의 탭 그룹과 같은 모양입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En gruppes fargede brikke går over i en tykkere skinne med et avkuttet hjørne og en avrundet ende, som fanegruppene i Chrome."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kolorowa plakietka grupy łączy się z grubszą szyną ze ściętym rogiem i zaokrąglonym końcem, jak w grupach kart w Chrome."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A etiqueta colorida de um grupo se junta a um trilho mais grosso com um canto cortado e uma ponta arredondada, como os grupos de abas do Chrome."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цветной ярлык группы соединяется с более толстой направляющей со срезанным углом и скруглённым концом, как у групп вкладок в Chrome."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ป้ายสีของกลุ่มเชื่อมกับแถบที่หนากว่าซึ่งมีมุมตัดและปลายมน เหมือนกลุ่มแท็บของ Chrome"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grubun renkli etiketi, köşesi kesik daha kalın bir rayla ve yuvarlak bir uçla birleşir; tıpkı Chrome’un sekme grupları gibi."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Кольоровий ярлик групи з’єднується з товщою напрямною зі зрізаним кутом і заокругленим кінцем, як у групах вкладок Chrome."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhãn màu của nhóm nối với một thanh dày hơn có góc bị cắt và đầu bo tròn, giống nhóm thẻ của Chrome."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "分组的彩色标签与带切角的较粗导轨相连，末端为圆角，就像 Chrome 的标签页分组。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "群組的彩色標籤與帶切角的較粗導軌相連，末端為圓角，就像 Chrome 的標籤頁群組。"
+          }
+        }
+      }
+    },
+    "store.feature.sideBySide.name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مساحات العمل جنبًا إلى جنب"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Radni prostori jedan pored drugog"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbejdsområder side om side"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbeitsbereiche nebeneinander"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspaces Side by Side"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espacios de trabajo en paralelo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espaces de travail côte à côte"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Workspace affiancati"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ワークスペースを並べて表示"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កន្លែងធ្វើការអមគ្នា"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "워크스페이스 나란히 보기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbeidsområder side om side"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obszary robocze obok siebie"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Espaços de trabalho lado a lado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Рабочие пространства рядом"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เวิร์กสเปซเคียงข้างกัน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yan Yana Çalışma Alanları"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Робочі простори поруч"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không gian làm việc cạnh nhau"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "工作区并排显示"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "工作區並排顯示"
+          }
+        }
+      }
+    },
+    "store.feature.sideBySide.summary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اضغط مع الاستمرار على صف مساحة العمل واسحبه إلى حافة جزء لعرضها بجانب الحالية؛ والنقر يبدّل عند التحرير."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Držite red radnog prostora i povucite ga na rub okna da se prikaže pored trenutnog; klik mijenja pri otpuštanju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hold en arbejdsområderække og træk den hen på kanten af et panel for at vise den ved siden af det aktuelle; et klik skifter, når du slipper."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Halte eine Arbeitsbereich-Zeile und ziehe sie an den Rand eines Bereichs, um sie neben dem aktuellen anzuzeigen; ein Klick wechselt beim Loslassen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold a workspace row and drag it onto a pane's edge to show it beside the current one; a click switches on release."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mantén pulsada una fila de espacio de trabajo y arrástrala al borde de un panel para mostrarla junto al actual; un clic cambia al soltar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Maintenez une ligne d’espace de travail et faites-la glisser sur le bord d’un volet pour l’afficher à côté de l’actuel ; un clic change au relâchement."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tieni premuta una riga di workspace e trascinala sul bordo di un riquadro per mostrarla accanto a quello attuale; un clic cambia al rilascio."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ワークスペースの行を押したままペインの端にドラッグすると、現在のものの横に表示します。クリックすると離したときに切り替わります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "សង្កត់ជួរកន្លែងធ្វើការហើយអូសទៅគែមផ្ទាំង ដើម្បីបង្ហាញក្បែរកន្លែងបច្ចុប្បន្ន ការចុចប្តូរពេលលែង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "워크스페이스 행을 누른 채 패널 가장자리로 드래그하면 현재 워크스페이스 옆에 표시합니다. 클릭하면 손을 뗄 때 전환됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hold en arbeidsområderad og dra den til kanten av et panel for å vise den ved siden av det gjeldende; et klikk bytter når du slipper."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przytrzymaj wiersz obszaru roboczego i przeciągnij go na krawędź panelu, aby pokazać go obok bieżącego; kliknięcie przełącza po zwolnieniu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Segure uma linha de espaço de trabalho e arraste até a borda de um painel para mostrá-la ao lado do atual; um clique troca ao soltar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Зажмите строку рабочего пространства и перетащите её к краю панели, чтобы показать рядом с текущим; щелчок переключает при отпускании."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กดแถวเวิร์กสเปซค้างแล้วลากไปที่ขอบบานหน้าต่างเพื่อแสดงข้างเวิร์กสเปซปัจจุบัน การคลิกจะสลับเมื่อปล่อย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir çalışma alanı satırını basılı tutup bir bölmenin kenarına sürükleyin; mevcut olanın yanında görünür. Tıklama bırakınca geçiş yapar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Утримуйте рядок робочого простору й перетягніть його до краю панелі, щоб показати поруч із поточним; клацання перемикає після відпускання."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Giữ một dòng không gian làm việc và kéo đến cạnh của một ngăn để hiện bên cạnh không gian hiện tại; nhấp chuột sẽ chuyển khi nhả."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "按住工作区行并拖到窗格边缘，即可在当前工作区旁边显示；单击则在松开时切换。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "按住工作區列並拖到窗格邊緣，即可在目前工作區旁邊顯示；按一下則在放開時切換。"
+          }
+        }
+      }
+    },
     "store.feature.automationsSidebarItem.name" : {
       "extractionState" : "manual",
       "localizations" : {

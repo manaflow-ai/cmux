@@ -69,6 +69,27 @@ struct CloudCredentialTransferTests {
         #expect(CloudCredentialInstaller.script.contains("'vm-kind'"))
     }
 
+    /// The DEV creator allowance swaps only the guest-kind line: the caller's owner answer, the launchers
+    /// check and the work-user checks stay, and the installer accepts a team guest only when asked.
+    @Test func theCreatorAllowanceAcceptsATeamGuestOnlyWhenAsked() {
+        let plain = CloudCredentialTransfer(provider: .claude, machineID: "vm", teamID: "t", userID: "u", openTerminal: { _ in false })
+        let creator = CloudCredentialTransfer(provider: .claude, machineID: "vm", teamID: "t", userID: "u", allowsCreatorTeamGuest: true,
+                                              openTerminal: { _ in false })
+        #expect(plain.preflight == CloudCredentialInstaller.preflight)
+        #expect(creator.preflight == CloudCredentialInstaller.creatorTeamPreflight)
+        #expect(CloudCredentialInstaller.creatorTeamPreflight.contains("owner|team"))
+        #expect(CloudCredentialInstaller.creatorTeamPreflight.contains("/etc/cmux/agent-auth.sh"))
+        #expect(CloudCredentialInstaller.command(provider: .claude, payloadPath: "/p").contains("'/p' owner <<"))
+        #expect(CloudCredentialInstaller.command(provider: .claude, payloadPath: "/p", creatorTeamGuest: true).contains("'/p' owner,team <<"))
+    }
+
+    /// Without the allowance, a caller-owned machine whose guest is a team one is refused before any login.
+    @Test func ownerAnswerOnATeamGuestStillNeedsTheAllowance() async {
+        let r = Recorder(); r.preflight = 1
+        await #expect(throws: CloudCredentialTransfer.Failure.sharedMachine) { try await r.run() }
+        #expect(r.commands == [CloudCredentialInstaller.preflight] && r.logins == 0)
+    }
+
     @Test func firstTransferStoresThenDeliversAndRepeatReusesScopedCache() async throws {
         let r = Recorder()
         try await r.run(); try await r.run()
@@ -159,6 +180,18 @@ struct CloudCredentialTransferTests {
         #expect(CloudCredentialLogin.name(provider: .claude, teamID: "t", userID: "a") != CloudCredentialLogin.name(provider: .claude, teamID: "t", userID: "b"))
     }
 
+    /// The cached login is read back as `security find-generic-password -w` prints what `cloud secret set`
+    /// stored: the envelope on one line. Anything else is no login (the start asks once), never a hang.
+    @Test func cachedLoginEnvelopeReadsAsSecurityPrintsIt() {
+        let envelope = #"{"created":1767225600,"credential":"\#(Self.token.base64EncodedString())"}"#
+        #expect(CloudCredentialLogin.credential(envelope: Data((envelope + "\n").utf8)) == Self.token)
+        #expect(CloudCredentialLogin.credential(envelope: Data(envelope.utf8)) == Self.token)
+        #expect(CloudCredentialLogin.credential(envelope: Data(#"{"created":0,"credential":"eA=="}"#.utf8)) == nil)
+        #expect(CloudCredentialLogin.credential(envelope: Data("not json\n".utf8)) == nil)
+        #expect(CloudCredentialLogin.service == "cmux-cloud-secret")
+        #expect(CloudCredentialLogin.readTimeout <= .seconds(30))
+    }
+
     @Test(arguments: [CloudCredentialTransfer.Provider.claude, .codex], [false, true])
     func installerAcceptsShippedPlaneButRejectsCustomEndpoints(provider: CloudCredentialTransfer.Provider, custom: Bool) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("transfer-test-\(UUID().uuidString)")
@@ -191,6 +224,18 @@ struct CloudCredentialTransferTests {
             arguments: ["-c", installer()], environment: environment,
             timeout: .seconds(10), clock: ContinuousClock())
         #expect(refused.status != 0)
+        // The DEV creator allowance installs it there (custom endpoints are still refused).
+        let teamHome = directory.appendingPathComponent("team-home")
+        try FileManager.default.createDirectory(at: teamHome, withIntermediateDirectories: true)
+        let creator = CloudCredentialInstaller.command(provider: provider, payloadPath: source.path, creatorTeamGuest: true)
+            .replacingOccurrences(of: "/etc/cmux/agent-auth.sh", with: policy.appendingPathComponent("agent-auth.sh").path)
+            .replacingOccurrences(of: "pathlib.Path('/etc/cmux')", with: "pathlib.Path(\(Self.pythonLiteral(policy.path)))")
+            .replacingOccurrences(of: "pwd.getpwnam('cmux')", with: "pwd.getpwuid(os.geteuid())")
+            .replacingOccurrences(of: "pathlib.Path(user.pw_dir)", with: "pathlib.Path(\(Self.pythonLiteral(teamHome.path)))")
+        let allowed = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", creator], environment: environment, timeout: .seconds(10), clock: ContinuousClock())
+        #expect((allowed.status == 0) == !custom)
+        #expect(FileManager.default.fileExists(atPath: teamHome.appendingPathComponent(".config/cmux/agent-auth/\(provider.rawValue)").path) == !custom)
         #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".config/cmux/agent-auth/\(provider.rawValue)").path))
         try (provider == .claude ? Self.token : Self.codex).write(to: source)
         try Data("owner".utf8).write(to: policy.appendingPathComponent("vm-kind"))
@@ -222,7 +267,9 @@ struct CloudCredentialTransferTests {
         try Data("team".utf8).write(to: policy.appendingPathComponent("vm-kind"))
         let shared = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", resolve],
             environment: environment, timeout: .seconds(10), clock: ContinuousClock())
-        #expect(String(decoding: shared.stdout, as: UTF8.self) == "team shared-machine")
+        // A team guest runs Claude on the creator's transferred login (agent-auth.sh
+        // cmux_agent_creator_login); Codex's stays shared.
+        #expect(String(decoding: shared.stdout, as: UTF8.self) == (provider == .claude ? "own login" : "team shared-machine"))
     }
 
     static func pythonLiteral(_ value: String) -> String { CloudCredentialInstaller.quote(value) }
