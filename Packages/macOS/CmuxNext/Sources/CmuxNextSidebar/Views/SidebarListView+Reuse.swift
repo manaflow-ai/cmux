@@ -9,6 +9,7 @@ extension SidebarListViewComponents {
         let view = rowPool.take(for: key, rebinding: rebinding)
         view.isHidden = false
         wire(view, key: key)
+        scheduleSpareRow() // the next one, once this turn's frame committed
         return view
     }
     /// A row view that leaves the list parks hidden in place: taking it out of the window and adding
