@@ -606,12 +606,7 @@ fn tab_group_color_is_absent_until_explicitly_chosen() {
     let mux = Mux::new_for_test("state-group-no-color", SurfaceOptions::default());
     let tabs = terminal_tabs(&mux, 2);
     let ids = tabs.iter().map(|tab| tab_id(&mux, *tab)).collect::<Vec<_>>();
-    let group = mutate(
-        &mux,
-        "tab_group.create",
-        json!({"tabs": ids}),
-        "no-color-create",
-    );
+    let group = mutate(&mux, "tab_group.create", json!({"tabs": ids}), "no-color-create");
     assert_eq!(group["name"], "");
     assert_eq!(group["color"], "none");
     let group_id = group["id"].as_str().unwrap();
