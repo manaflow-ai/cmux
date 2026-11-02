@@ -1,0 +1,227 @@
+{
+  "version": 1,
+  "build": "4143839654801",
+  "notes": "notes/4143839654801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32198,
+      "title": "fix(groups): draw no color until one is chosen",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31875,
+      "title": "perf(next): Cmd-W on an idle terminal closes in its key's turn (the program is read before the key) (SHORTCUT LATENCY SL-3)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32124,
+      "title": "acpmux tests: every request kind of dispatch_request runs on a 2 MiB tokio worker (follow-up of #32040)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32140,
+      "title": "ci(nightly): sign the cmux NIGHTLY-identity copy with the release signer pool, beside cmux NEXT",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32030,
+      "title": "fix(focus): the reopen key hold also waits for a restored browser tab's page; Cmd-L reaches its address bar (REOPEN-F4 browser case)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32165,
+      "title": "fix(cmux-next): the grey tab-group comment fits in two lines (arch app_lines +1 from #32156)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27583,
+      "title": "fix(sidebar): cancel Priority presses invalidated before dragging",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27815,
+      "title": "feat(acpmux): opt-in memory and artifact sync, with per-tick token refresh (carries #27254)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32176,
+      "title": "agent pane: a subagent named only by its raw id shows as \"Subagent\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32154,
+      "title": "base red: transcript layout reads a row's incoming kind once per check again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32179,
+      "title": "cmux NEXT: the host pressure indicator ships on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32160,
+      "title": "fix(session-info): read summary usage after summary is declared (TS2448)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31894,
+      "title": "fix(next): reuse existing browser tabs in the same pane (#17444)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32169,
+      "title": "cmux-next tests: CloudNetworkAccessTests run the action on the legacy link (base red from #28950)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32171,
+      "title": "cmux-next tests: NativeCloudLinkChildTests skip without the same-tree cmux-tui (base red from #28950)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32173,
+      "title": "cmux NEXT: themed tooltips in native Session Info",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32180,
+      "title": "cloud image smoke: accept a user-local alias of the store's own binary",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32174,
+      "title": "fix(launch): a launch frame's size check uses the terminal's own scroller strip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32175,
+      "title": "test(updater): no live release push in TipUpdateCheckTests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32178,
+      "title": "Session Info: a revealed row's highlight clears on a DemandTimer, not Task.sleep",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32181,
+      "title": "perf-budgets: --load phases, --palette-rounds, --raw; fix the spinners import crash",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32172,
+      "title": "cloud-newlink-e2e: Blacksmith-only runner with an overflow size (base red, fixes #32153)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32028,
+      "title": "agent cursor visibility: Swift calls the Rust rules over the app FFI; the Swift rules are deleted (B9 step B)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32155,
+      "title": "test(agent pane): no #require nested in #require in AgentPaneRelayedAllowTests (base red, #32113)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32128,
+      "title": "base red: cmux-tui panic ratchet and clippy from #28950 and #32065 (checked slices, JsonSet, one CloudAccess)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32075,
+      "title": "fix(next): align agent pane menu rows to shared inset",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32123,
+      "title": "ci(nightly): the legacy-identity feed compare takes the signer route, not a 3-minute fleet wait",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32135,
+      "title": "Agent chat: a \"Sent to\" recipient chip opens the subagent or chat it names",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27650,
+      "title": "Show inline edit placeholders while the diff renderer loads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32158,
+      "title": "cmux NEXT: a scripted file pick records the person's gesture; chat_state reads attachment tiles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32139,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-6051809a81e8 (fixes the FFI pin base red from #31922)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32138,
+      "title": "base red: continuation spacing test reads the run gap for another agent's line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32151,
+      "title": "Running tray: the header's counts change in place, with no fade, in tabular digits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32062,
+      "title": "base red: streaming-text-frames counts a glide's slide per 60 Hz frame, so a starved WebKit frame is not a jump",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32149,
+      "title": "base red (crash safety): NativeDeviceEnrollment binds the name's first character instead of force-unwrapping it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32156,
+      "title": "cmux NEXT: a new tab group nobody coloured is grey, not the next palette colour",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
