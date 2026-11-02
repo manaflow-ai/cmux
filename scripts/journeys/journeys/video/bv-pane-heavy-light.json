@@ -96,6 +96,18 @@
    "seconds": 1.6
   },
   {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the new pane's address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
    "do": "smoke_type",
    "text": "${bv_base}/heavy.html",
    "enter": true,
@@ -224,6 +236,18 @@
    "seconds": 1.6
   },
   {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the new pane's address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
    "do": "smoke_type",
    "text": "${bv_base}/heavy.html",
    "enter": true,
@@ -350,6 +374,18 @@
   {
    "do": "wait",
    "seconds": 1.6
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "the new pane's address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
   },
   {
    "do": "smoke_type",

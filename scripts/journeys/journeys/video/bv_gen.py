@@ -77,6 +77,8 @@ def pane(page, theme, rounds=3, mbps=60):
                   {"do": "video_start", "name": name, "mbps": mbps, "seconds": 30},
                   {"do": "hid_key", "key": "d", "modifiers": ["cmd", "option"], "mark": f"open-{r}", "title": "open a browser pane (Opt-Cmd-D)"},
                   {"do": "wait", "seconds": 1.6},
+                  {"do": "hid_key", "key": "l", "modifiers": ["cmd"], "title": "the new pane's address bar (Cmd-L)"},
+                  {"do": "wait", "seconds": 0.3},
                   {"do": "smoke_type", "text": "${bv_base}/" + page + ".html", "enter": True, "mark": f"navigate-{r}",
                    "title": "navigate: the URL typed in the new pane's address bar by real keys, then Return (no agent "
                             "call touches the page while it records: a first agent call rebuilds a Chromium page)"},
