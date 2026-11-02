@@ -9,7 +9,8 @@ pub struct HostProbe;
 
 impl Probe for HostProbe {
     fn sample(&self) -> Sample {
-        let logical_cpus = std::thread::available_parallelism().map_or(1, |n| n.get() as u32);
+        let logical_cpus = std::thread::available_parallelism()
+            .map_or(1, |n| u32::try_from(n.get()).unwrap_or(u32::MAX));
         platform::sample(logical_cpus)
     }
 }

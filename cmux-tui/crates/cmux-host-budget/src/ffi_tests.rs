@@ -96,5 +96,5 @@ fn given_numbers_and_this_host_are_judged() {
             text
         })
         .unwrap();
-    assert!(crate::json::reading(&local).is_some(), "{local}");
+    assert!(json::reading(&local).is_some(), "{local}");
 }
