@@ -49,8 +49,11 @@ for meta_path in sorted(glob.glob(os.path.join(opts.folder, opts.prefix + "*.met
         opened = act if rnd == 0 and isinstance(act, dict) and "t_sent" in act and not (act.get("reply") or {}).get("fallback_key") else None
         if rnd == 0 and isinstance(act, dict) and (act.get("reply") or {}).get("fallback_key"):
             entry["open_note"] = "the dock action was refused; the real key opened DevTools"
+        # Round 0's dock action: the app's own start of that run (debug.action_budget start_uptime_ns), never a Python
+        # clock; a recording without it has no open time (not judged).
+        app_start = (opened or {}).get("app_start_uptime_ns")
         open_t = fallback_open if fallback_open is not None else (
-            host(opened["t_sent"]) if opened else (keys[0].get("t_host") if keys else None))
+            app_start / 1e9 if opened and app_start else (None if opened else (keys[0].get("t_host") if keys else None)))
         close_t = keys[-1].get("t_host") if keys else None
         entry["key_offsets"] = [round(o, 4) for o in offsets]
         if open_t is None or close_t is None:
