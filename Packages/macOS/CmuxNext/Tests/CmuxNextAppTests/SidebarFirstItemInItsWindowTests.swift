@@ -36,6 +36,8 @@ struct SidebarFirstItemInItsWindowTests {
         /// Cmd-1 as the journey sends it (`debug.key` with `window` B) in an app that is not active: no
         /// window is key before or after the key, and the key has no event origin.
         case debugKeyInactiveApp
+        /// Go to Home (`home.show`) from the palette or the menu, with window B active.
+        case homeShowAction
 
         var testDescription: String { rawValue }
     }
@@ -68,9 +70,16 @@ struct SidebarFirstItemInItsWindowTests {
                                             report: { "windows \(services.windows.controllers.map(\.state.id))" })
             let windowB = try #require(opened())
             let idB = windowB.state.id
-            try await PinnedPageTests.until({ windowB.state.workspaceID != nil }, within: .seconds(30))
+            // New Window's space: the window settles on it once the daemon mirrors the new room and its pin.
+            try await PinnedPageTests.until({
+                windowB.state.workspaceID != nil && (windowB.state.profileID != windowA.state.profileID) == newSpace
+            }, within: .seconds(30), report: {
+                let local = services.machines.local
+                return "window B is on space \(windowB.state.profileID) showing \(windowB.state.workspaceID ?? "nil"), window A on "
+                    + "\(windowA.state.profileID); spaces \(local.store.profileIDs), profiles-v1 \(local.supports(DaemonCapability.profiles.rawValue)), "
+                    + "B lists \(services.windows.registry.members(of: idB))"
+            })
             let roomB = windowB.state.profileID
-            #expect((roomB != windowA.state.profileID) == newSpace, "window B is on space \(roomB), window A on \(windowA.state.profileID)")
             services.keyWindowSource = { [weak windowB] in windowB?.window }
             try await PinnedPageTests.until({ SidebarCmdNumberTwiceTests.topItemsSettled(windowB, services) }, within: .seconds(30), report: {
                 "window B's top items never settled: " + SidebarCmdNumberTwiceTests.report(windowB, services, picked: nil, orderAtPick: nil)
@@ -112,6 +121,10 @@ struct SidebarFirstItemInItsWindowTests {
             case .selectNumberAction:
                 services.keyWindowSource = { [weak windowB] in windowB?.window }
                 #expect(services.registry.perform("selectWorkspaceByNumber", argument: "1"))
+                services.keyWindowSource = { [weak windowA] in windowA?.window }
+            case .homeShowAction:
+                services.keyWindowSource = { [weak windowB] in windowB?.window }
+                #expect(services.registry.perform("home.show", invocation: ActionInvocation(origin: .user)))
                 services.keyWindowSource = { [weak windowA] in windowA?.window }
             case .debugKeyInactiveApp:
                 services.keyWindowSource = { nil }
