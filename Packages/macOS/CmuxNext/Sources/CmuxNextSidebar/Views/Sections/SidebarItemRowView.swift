@@ -62,6 +62,21 @@ class SidebarItemRowView: NSView {
     let pill = CALayer()
     let chip = CALayer()
     let icon = DecorativeImageView() // the row's label names the item
+    /// What ``icon`` shows now: a layout that would make the same glyph keeps the image it has (REOPEN-F7: a new image
+    /// on every pass laid the icon view out and drew it again).
+    private var shownGlyph: ShownGlyph?
+
+    private struct ShownGlyph: Equatable {
+        let key: String
+        /// A text-only item's initial comes from its caption or title (``glyphKey`` leaves them out).
+        let initial: String
+        let side: CGFloat
+        let favicon: CGImage?
+
+        static func == (lhs: ShownGlyph, rhs: ShownGlyph) -> Bool {
+            lhs.key == rhs.key && lhs.initial == rhs.initial && lhs.side == rhs.side && lhs.favicon === rhs.favicon
+        }
+    }
     private let pin = DecorativeImageView() // a pinned row's leading pin; Pinned's header names it
     let title = ChromeLabel(labelWithString: "")
     let badge = UnreadBadgeView()
@@ -286,13 +301,15 @@ class SidebarItemRowView: NSView {
         let glyphSide = isRailButton ? SidebarStyle.railGlyphSize : style == .list ? SidebarStyle.wellGlyphSize : SidebarStyle.kindGlyphSize
         if bare {
             icon.image = nil
+            shownGlyph = nil
             icon.frame = .zero
         } else if style == .icon, !isRailButton, info.favicon == nil, !info.textOnly,
                   let (image, frame) = inkSizedGlyph(centeredIn: b) {
             icon.image = image
+            shownGlyph = nil
             icon.frame = frame
         } else {
-            icon.image = glyphImage(side: glyphSide)
+            showGlyph(side: glyphSide)
             // A bare glyph beside a title (Home, the band's rows) centers its ink on the icon column, as the pin and a
             // workspace row's icon do (Leo 2026-10-28: "the alignment"); a glyph in a well or a tile centers its square.
             icon.frame = style == .builtIn && !isRailButton ? inkCenteredGlyphFrame(side: glyphSide, centeredIn: iconFrame)
@@ -376,7 +393,7 @@ class SidebarItemRowView: NSView {
         chip.frame = wellFrame
         chip.cornerRadius = SidebarStyle.railTileCornerRadius
         CATransaction.commit()
-        icon.image = glyphImage(side: SidebarStyle.railGlyphSize)
+        showGlyph(side: SidebarStyle.railGlyphSize)
         icon.frame = alignedGlyphFrame(side: SidebarStyle.railGlyphSize, centeredIn: wellFrame)
         // The caption takes the tile's full width: a tile is narrow, and the
         // tiles' gap already separates neighboring captions.
@@ -420,6 +437,15 @@ class SidebarItemRowView: NSView {
     var glyphKey: String {
         let iconKey = info.icon == .notification ? "\(info.icon?.rawValue ?? "")#\(NotificationIconLook.tunable.value.rawValue)" : info.icon?.rawValue ?? ""
         return "\(info.emoji ?? "")|\(info.brand.map { "\($0)" } ?? "")|\(iconKey)|\(info.symbol)|\(info.favicon == nil ? "" : info.title)"
+    }
+
+    /// Shows the item's glyph at `side` points, unless ``icon`` shows that glyph already.
+    private func showGlyph(side: CGFloat) {
+        let glyph = ShownGlyph(key: glyphKey, initial: info.textOnly ? info.caption ?? info.title : "", side: side,
+                               favicon: info.favicon?.image)
+        guard glyph != shownGlyph || icon.image == nil else { return }
+        icon.image = glyphImage(side: side)
+        shownGlyph = glyph
     }
 
     /// The item's registry icon at `side` points; without one, its SF Symbol at the matching text size.

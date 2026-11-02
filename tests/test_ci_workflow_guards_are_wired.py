@@ -45,6 +45,9 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # lane = "manual" (no new CI tests, CLAUDE.md). It checks pool reads against .github/runners.json and that
+    # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
+    "tests/test_ci_runner_pools_copy.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows only as data: which files exist and which
     # call a reusable declared workflow, for scripts/ci/hosted_light_rescue.py's scope. Exit: as below.
     "tests/test_ci_hosted_light_rescue.py",
