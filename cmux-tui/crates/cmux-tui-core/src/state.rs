@@ -59,6 +59,8 @@ mod group_delete_tests;
 #[cfg(test)]
 mod group_icon_tests;
 #[cfg(test)]
+mod group_merge_tests;
+#[cfg(test)]
 mod group_pin_tests;
 pub(crate) mod home;
 pub(crate) mod home_store;
