@@ -1606,10 +1606,13 @@ fn check_autostart(path: &std::path::Path) -> Result<()> {
 pub async fn saved_listen_refusal() -> Option<String> {
     let config = crate::config::Config::load().ok()?;
     let w = config.websocket.as_ref()?;
-    crate::server::check_listen_address(&w.listen, w.allow_insecure_network)
+    // The address `run` would listen on: a home other than the shared one never keeps the
+    // fixed port and moves to a free loopback port instead (`first_run_listen`).
+    let listen = first_run_listen(uses_shared_home(), Some(&w.listen));
+    crate::server::check_listen_address(listen, w.allow_insecure_network)
         .await
         .err()
-        .map(|e| format!("{:#}", e.context(format!("refusing websocket.listen {}", w.listen))))
+        .map(|e| format!("{:#}", e.context(format!("refusing websocket.listen {listen}"))))
 }
 
 /// The refusal when this home's daemon serves `other`, not `path`.
