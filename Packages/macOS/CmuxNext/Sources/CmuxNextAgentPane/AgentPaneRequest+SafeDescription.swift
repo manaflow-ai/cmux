@@ -85,6 +85,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .sessionInfo: "sessionInfo"
         case .copyText: "copyText"
         case .tabRowToolsSet: "tabRowToolsSet"
+        case .tabRowToolsOpenMenu: "tabRowToolsOpenMenu"
         case .btwInline: "btwInline"
         case .sideChat: "sideChat"
         case .chatTab: "chatTab"
