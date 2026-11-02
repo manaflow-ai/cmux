@@ -427,7 +427,8 @@ pub(super) fn new_route(
     let flags: Vec<&str> = tail
         .iter()
         .take_while(|word| *word != "--")
-        .filter_map(|word| word.starts_with("--").then(|| word.split('=').next().unwrap_or(word)))
+        .filter(|word| word.starts_with("--"))
+        .map(|word| word.split('=').next().unwrap_or(word))
         .collect();
     if flags
         .iter()
