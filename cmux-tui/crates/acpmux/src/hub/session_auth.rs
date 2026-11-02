@@ -300,10 +300,6 @@ impl Hub {
         let (dir, state) = routes::places(&cfg);
         drop(cfg);
         let bindings = routes::bindings(&state);
-        profile.env = route_account::spawn_env(
-            &meta,
-            with_defaults(&defaults, self.harness_env(&meta).await.1),
-        );
         let route = route_of(&bindings, dir.as_deref(), &meta, family, &profile.env)
             .map_err(|e| RpcError::invalid_params(e.to_string()))?;
         if route.as_ref().is_some_and(|(r, _)| r.file.kind != routes::RouteKind::DirectSubscription)
@@ -314,6 +310,10 @@ impl Hub {
         }
         let picked = route.as_ref().map(|(r, scope)| (r, *scope));
         let home = self.home_of(&meta, family, &defaults, picked).await;
+        profile.env = route_account::spawn_env(
+            &meta,
+            with_defaults(&defaults, self.harness_env(&meta).await.1),
+        );
         if let (Some(var), Some(home)) = (route_account::home_var(family), home) {
             // Pinning the default Claude home would move its .claude.json, so leave it unset.
             profile.env.insert(var.into(), home.display().to_string());
@@ -412,13 +412,14 @@ impl Hub {
                 profile.as_ref().map(|p| p.env.clone()).unwrap_or_default(),
             ),
         };
+        let profile_env = profile.as_ref().map(|p| p.env.clone()).unwrap_or_default();
         // The route and the scope that chose it, as the spawn picks them. A chat whose route
         // is gone is reported on none (its next spawn says so); a target's is an error.
         let route = match (&meta, target) {
             (Some(meta), _) => {
-                route_of(&bindings, dir.as_deref(), meta, &family, &env).ok().flatten()
+                route_of(&bindings, dir.as_deref(), meta, &family, &profile_env).ok().flatten()
             }
-            (None, Some(t)) => target_route(dir.as_deref(), &bindings, t, &family, &env)?,
+            (None, Some(t)) => target_route(dir.as_deref(), &bindings, t, &family, &profile_env)?,
             (None, None) => None,
         };
         let own_login = route
@@ -582,11 +583,16 @@ impl Hub {
             if best.as_ref().is_some_and(|(_, b)| b.at >= turn.at) {
                 continue;
             }
-            let env = route_account::spawn_env(
-                &meta,
-                with_defaults(like.defaults, self.harness_env(&meta).await.1),
-            );
-            let Ok(route) = route_of(like.bindings, dir.as_deref(), &meta, like.family, &env)
+            let profile_env = self
+                .config
+                .read()
+                .await
+                .harnesses
+                .get(&meta.harness)
+                .map(|p| p.env.clone())
+                .unwrap_or_default();
+            let Ok(route) =
+                route_of(like.bindings, dir.as_deref(), &meta, like.family, &profile_env)
             else {
                 continue;
             };

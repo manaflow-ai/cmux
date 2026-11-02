@@ -50,22 +50,14 @@ fn hub(root: &Path) -> Arc<Hub> {
             "pinned": {"argv": ["python3", FAKE], "family": "claude", "env": {"ACPMUX_PROFILE_ROUTE": "busy"}},
             // A profile whose `defaults` entry pins its account home.
             "deflt": {"argv": ["python3", FAKE], "family": "claude"},
-            "route-default": {"argv": ["python3", FAKE], "family": "claude"},
-            "endpoint-default": {"argv": ["python3", FAKE], "family": "claude"},
         },
-        "defaults": {
-            "deflt": {"env": {"CLAUDE_CONFIG_DIR": defaulted}},
-            "route-default": {"env": {"ACPMUX_PROFILE_ROUTE": "acct"}},
-            "endpoint-default": {"env": {"ACPMUX_OWN_ENDPOINT": "anthropic", "ANTHROPIC_BASE_URL": "https://custom.example.invalid/api"}},
-        },
+        "defaults": {"deflt": {"env": {"CLAUDE_CONFIG_DIR": defaulted}}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
         "presets": {
             "two": {"harness": "fake", "env": {"CLAUDE_CONFIG_DIR": two}},
             "canonical": {"harness": "fake", "env": {"CLAUDE_CONFIG_DIR": root.join("canonical")}},
             "checked-two": {"harness": "checked", "env": {"WHO": "two"}},
-            "route-preset": {"harness": "fake", "env": {"ACPMUX_PROFILE_ROUTE": "acct"}},
-            "endpoint-preset": {"harness": "fake", "env": {"ACPMUX_OWN_ENDPOINT": "anthropic", "ANTHROPIC_BASE_URL": "https://custom.example.invalid/api"}},
         },
         // No automatic continuation runs behind a failed turn (`auto_resume.rs`).
         "autoResumeDelaysMs": [],
@@ -193,71 +185,6 @@ async fn agent_login_respects_default_and_route_account_homes() {
         let target = c.auth(json!({"target": {"harness": harness, "cwd": std::env::temp_dir()}, "refresh": true})).await;
         assert_eq!(target["state"], "unknown", "new chats share the invalidation: {target}");
     }
-    assert!(!root.join("canonical/settings.json").exists());
-}
-
-/// Defaults and preset routes override the global provider exactly as they do at spawn.
-#[tokio::test]
-async fn agent_login_resolves_routes_from_defaults_and_presets_before_account_selection() {
-    let root = scratch("login-route-env");
-    let hub = hub(&root);
-    let mut c = client(&hub);
-    let account = root.join("route-account");
-    for params in [
-        json!({"id": "acct", "kind": "direct-subscription", "families": ["claude"], "accountHome": account}),
-        json!({"id": "api", "kind": "custom-anthropic", "anthropicBaseUrl": "http://127.0.0.1:9/v1"}),
-    ] {
-        let added = c.call("_acpmux/route/add", params).await;
-        assert!(added.get("error").is_none(), "{added}");
-    }
-    let bound =
-        c.call("_acpmux/route/default.set", json!({"scope": "global", "routeId": "api"})).await;
-    assert!(bound.get("error").is_none(), "{bound}");
-    let defaulted = c.new_session_of("route-default").await;
-    let preset = c.new_session(Some("route-preset")).await;
-    for id in [&defaulted, &preset] {
-        c.prompt(id, &format!("fail-streamed: {NOT_SIGNED_IN}")).await;
-        let auth = c.auth(json!({"sessionId": id})).await;
-        assert_eq!(auth["routeId"], "acct", "spawn route overrides apply: {auth}");
-        assert!(
-            auth["login"]["command"]
-                .as_str()
-                .is_some_and(|v| v.contains(&account.display().to_string())),
-            "login command must use the selected account: {auth}"
-        );
-        let saved = c
-            .call(
-                method::MUX_AGENT_LOGIN_API_KEY,
-                json!({"agent": "claude", "sessionId": id, "key": "sk-ant-route-env"}),
-            )
-            .await;
-        assert!(
-            saved.get("error").is_none(),
-            "subscription override must not be mistaken for global provider: {saved}"
-        );
-        assert!(
-            account.join("settings.json").is_file(),
-            "account files: {:?}",
-            std::fs::read_dir(&root)
-                .unwrap()
-                .filter_map(Result::ok)
-                .map(|e| e.path())
-                .collect::<Vec<_>>()
-        );
-        let auth = c.auth(json!({"sessionId": id})).await;
-        assert_eq!(state(&auth), ("unknown", "none"), "{auth}");
-    }
-    let target =
-        c.auth(json!({"target": {"harness": "route-default", "cwd": std::env::temp_dir()}})).await;
-    assert_eq!(target["routeId"], "acct", "new target respects default route env: {target}");
-    let own_default = c.new_session_of("endpoint-default").await;
-    let own_preset = c.new_session(Some("endpoint-preset")).await;
-    for id in [own_default, own_preset] {
-        let auth = c.auth(json!({"sessionId": id})).await;
-        assert!(auth["routeId"].is_null(), "own endpoint must not inherit global route: {auth}");
-    }
-    let target = c.auth(json!({"target": {"harness": "endpoint-default"}})).await;
-    assert!(target["routeId"].is_null(), "target respects default endpoint env: {target}");
     assert!(!root.join("canonical/settings.json").exists());
 }
 
