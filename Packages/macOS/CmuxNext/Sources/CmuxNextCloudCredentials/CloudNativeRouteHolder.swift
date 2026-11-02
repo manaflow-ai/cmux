@@ -56,3 +56,45 @@ public final class CloudNativeRouteHolder: CloudLinkLaunching {
     }
 }
 
+
+/// The app server link of a non-production build: the Native device route first, and this Mac's
+/// `cmux link` for an install whose Native route fails (a team the development Worker has no Native
+/// mesh for answers 400), so turning Native on never leaves such a team with no machine. The fallback
+/// holds until sign-out (``archive(install:)``), and `onFallback` says why it was taken.
+@MainActor
+public final class CloudNativeFirstLauncher: CloudLinkLaunching {
+    private let native: any CloudLinkLaunching
+    private let link: (any CloudLinkLaunching)?
+    private let onFallback: (any Error) -> Void
+    private var usingLink = false
+
+    public init(native: any CloudLinkLaunching, link: (any CloudLinkLaunching)?,
+                onFallback: @escaping (any Error) -> Void = { _ in }) {
+        self.native = native; self.link = link; self.onFallback = onFallback
+    }
+
+    public func ensure(install: String) async throws -> CloudLinkLauncher.Ensured {
+        if usingLink, let link { return try await link.ensure(install: install) }
+        do {
+            return try await native.ensure(install: install)
+        } catch {
+            // Signed out or cancelled is not a route failure: the link would refuse the same way.
+            guard let link, !(error is CancellationError),
+                  error as? NativeDeviceEnrollmentError != .signedOut else { throw error }
+            onFallback(error)
+            usingLink = true
+            await native.archive(install: install)
+            return try await link.ensure(install: install)
+        }
+    }
+
+    public func stop(install: String?) async {
+        if usingLink { await link?.stop(install: install) } else { await native.stop(install: install) }
+    }
+
+    public func archive(install: String?) async {
+        await native.archive(install: install)
+        await link?.archive(install: install)
+        usingLink = false
+    }
+}

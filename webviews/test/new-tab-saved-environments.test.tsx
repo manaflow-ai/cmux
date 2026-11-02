@@ -223,7 +223,7 @@ async function mount({
         }}
       >
         <NewTabScreen
-          snapshot={noChat([], {
+          snapshot={noChat(cloudHistory, {
             peers: ["devbox", "cloud-1"],
             peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
             ...(peerResources ? { peerResources } : {}),
@@ -236,13 +236,18 @@ async function mount({
           ]}
           environments={previews}
           onConnect={noop}
-          onNewWorktree={(cwd) => {
-            let folder: string | undefined;
-            return newWorktree(callNative, cwd, (used) => {
-              folder = used;
-            }).then(() => folder);
-          }}
+          onNewWorktree={
+            onNewWorktreeOverride ??
+            ((cwd) => {
+              let folder: string | undefined;
+              return newWorktree(callNative, cwd, (used) => {
+                folder = used;
+              }).then(() => folder);
+            })
+          }
           {...actions}
+          {...runRows}
+          {...(cloudStarting ? { cloudStarting } : {})}
         />
       </SignInContext.Provider>,
     ),
