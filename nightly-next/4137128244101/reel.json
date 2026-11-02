@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "build": "4137128244101",
+  "notes": "notes/4137128244101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31549,
+      "title": "fix(vnc): refuse unencrypted VeNCrypt Plain credentials (SW-08) [carry of #30665]",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31525,
+      "title": "base red: Swift 6.3 traps on the approvals notice's optional (label, closure) tuple (#31494)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31532,
+      "title": "ci(nightly): the verify jobs take the all-nightly reservation while two of its runners are idle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31538,
+      "title": "Layout grid: pin the spacings Leo settled, with his words, so a good version can't drift",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31526,
+      "title": "test(next): NewTabHoldCancellation and AAProfileMenuGallery suites close their windows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31533,
+      "title": "test(next): quarantine two window-server capture tests that get no image on some CI Macs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31499,
+      "title": "model catalog: every harness acpmux runs, so the picker lists them uninstalled",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31520,
+      "title": "cmux NEXT: Ctrl-B says when the work moved, and when Claude Code kept it in the foreground",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31483,
+      "title": "test(session-info): the section-order gaps read the grid's gap-inner and gap-block tokens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31523,
+      "title": "base red: format PaneNotices.test.tsx (#31506)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31473,
+      "title": "base red: composer alignment, quiet-row pill inset and quiet-model tests read the grid tokens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31506,
+      "title": "NEXT: fix the base compile after #31494 (import CmuxNextSettings for JSONValue); notice card look and web test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29962,
+      "title": "Cloud start: the creator's own team machine takes their Claude login (DEV builds)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31478,
+      "title": "base red: pane-english exempts transcriptGrid.ts's schema invariant (#27580)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31482,
+      "title": "base red: menus tests follow #28611 (New Tab rows on the 4 grid, History menu is glass)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31508,
+      "title": "base red: rename paneNotices.ts to paneNoticeStore.ts so it no longer collides with PaneNotices.tsx",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31503,
+      "title": "Agent chat: the last turn's footer (Copy, Fork, Pin, Read aloud) shows without a hover once the turn ends",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31505,
+      "title": "Agent chat: the turn footer's buttons lead its row, Worked for after them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28994,
+      "title": "acpmux: retry late adoption hellos; hand off a daemon with another launch policy",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29869,
+      "title": "messageslab: clamp RowDraw.drawSpan instead of trapping on narrow rows (#28977)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29870,
+      "title": "cmux NEXT: Cmd-= / Cmd-- grow the Chief chat's text, not its bubble column",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31494,
+      "title": "NEXT: draw the agent service notices in the page's notice slot, not over the transcript",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31485,
+      "title": "fix cloud image daemon shutdown settling",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
