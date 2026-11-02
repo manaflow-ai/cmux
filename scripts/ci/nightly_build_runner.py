@@ -412,19 +412,11 @@ def nightly_only_builder_route(builder: str, fallback: str,
 
 
 # The verify jobs (signer-dmg-image, both final verifies, the legacy identity verify) take the all-nightly
-# reservation while it has this many idle runners: two verifies of one run go at once, on separate runners. On
-# the shared nightly slot pool a mini GitHub lists as idle can still be full in glaeda's ledger, and a nightly
-# job then waits for running PR jobs to free units: signer-dmg-image sat 809 s in "Set up runner" ("1 of 14
-# units free, signer-dmg-image (light) needs 2", run 41365440328), and a verify over 13 min in run 41366478487,
-# where setup takes 0-4 s. The reservation's runners take no shared capacity unit, and glaeda's nightly-only
-# admission admits these light, secret-free nightly.yml jobs.
-VERIFY_NIGHTLY_ONLY_IDLE = 2
-
-
-def nightly_only_idle(runners: Sequence[Mapping[str, Any]] | None) -> int:
-    """Online, idle runners carrying the all-nightly label (the warm builder carries only its own label)."""
-    return sum(runner.get("status") == "online" and runner.get("busy") is False
-               and NIGHTLY_ONLY_LABEL in pool.runner_labels(runner) for runner in runners or [])
+# reservation on attempt 1. On the shared nightly slot pool a mini GitHub lists as idle can still be full in
+# glaeda's ledger, and a nightly job then waits for running PR jobs to free units: signer-dmg-image sat 809 s in
+# "Set up runner" ("1 of 14 units free, signer-dmg-image (light) needs 2", run 41365440328), and a verify over
+# 13 min in run 41366478487, where setup takes 0-4 s. The reservation's runners take no shared capacity unit, and
+# glaeda's nightly-only admission admits these light, secret-free nightly.yml jobs.
 
 
 def write_output(env: Mapping[str, str], values: Mapping[str, str], lines: Sequence[str]) -> None:
@@ -480,18 +472,14 @@ def main(env: Mapping[str, str] = os.environ,
     if (list(argv[:1]) == ["verify"] and repo == "manaflow-ai/cmux" and attempt == "1"
             and env.get("GITHUB_REF") == "refs/heads/nightly-next"
             and env.get("GITHUB_EVENT_NAME") in {"push", "workflow_dispatch"}
-            and nightly_only == NIGHTLY_ONLY_LABEL and env.get("ROUTE_TOKEN")):
-        runners = None
-        try:
-            runners = within(BUILDER_READ_SECONDS, lambda: (
-                read_runners or (lambda token, name: pool.GitHub(token, name).runners()))(env["ROUTE_TOKEN"], repo))
-        except Exception as error:  # noqa: BLE001 - never fail the job; the owned pick below takes it
-            print(f"::warning title=nightly build runner::could not list the all-nightly runners ({str(error)[:200]})")
-        free = nightly_only_idle(runners)
-        if free >= VERIFY_NIGHTLY_ONLY_IDLE:
-            write_output(env, {"owned": nightly_only},
-                         [f"verify: {nightly_only} ({free} idle all-nightly runner(s), which hold no shared capacity)"])
-            return 0
+            and nightly_only == NIGHTLY_ONLY_LABEL):
+        # No live read: the verify pick runs 35-40 min into the run, past the dispatch-time runner document's
+        # max age, so its read went live, hit the spent routing-App budget (403) and sent both jobs to the shared
+        # slot pool, where they waited 6-15 min for units (run 41400519218). The reservation admits only nightly
+        # jobs and holds no shared capacity, so it needs no idle check; a re-run (attempt 2) keeps the owned pick.
+        write_output(env, {"owned": nightly_only},
+                     [f"verify: {nightly_only} (the all-nightly reservation, taken without a runner read)"])
+        return 0
     dedicated_label = (env.get("DEDICATED_LABEL") or "").strip()
     only_dedicated = list(argv[:1]) == ["dedicated"]
     only_verify = list(argv[:1]) == ["verify"]
@@ -504,17 +492,20 @@ def main(env: Mapping[str, str] = os.environ,
         dedicated_label = ""
 
     route_token = env.get("ROUTE_TOKEN", "")
-    first_look = True
+    has_waited = False
+
+    def wait(seconds: float) -> None:
+        nonlocal has_waited
+        sleep(seconds)
+        has_waited = True
 
     def read() -> Sequence[Mapping[str, Any]] | None:
-        nonlocal first_look
-        use_state, first_look = first_look, False
         if not (route_token and repo):
             return None
         try:
             if read_runners is not None:
                 return read_runners(route_token, repo)
-            return pool.GitHub(route_token, repo).runners(use_state=use_state)
+            return pool.GitHub(route_token, repo).runners(use_state=not has_waited)
         except Exception as error:  # noqa: BLE001 - never fail the job; the next pool takes it
             print(f"::warning title=nightly build runner::could not list owned runners ({str(error)[:200]})")
             return None
@@ -536,7 +527,7 @@ def main(env: Mapping[str, str] = os.environ,
     if refused_why:
         dedicated, dedicated_why = "", refused_why
     else:
-        dedicated, dedicated_why = dedicated_route(dedicated_label, read, sleep=sleep, clock=clock,
+        dedicated, dedicated_why = dedicated_route(dedicated_label, read, sleep=wait, clock=clock,
                                                    wait_seconds=0 if only_dedicated else DEDICATED_WAIT_SECONDS)
     if off_event:
         dedicated_why = f"event {event or '<unset>'} is not one the builder admits (push)"
