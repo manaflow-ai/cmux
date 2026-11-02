@@ -54,11 +54,11 @@ import Testing
     func columnsAndDensityFollowTheGrid(_ c: Case) {
         Self.withDensity(c.comfortable) {
             let origin = CGFloat((c.comfortable ? 8 : 6) + c.depth * 7)
-            let width = CGFloat(320) - origin - 1.5
+            let width = CGFloat(320) - origin - SidebarStyle.horizontalInset
             let height = Metrics.sidebarRowHeight + (c.comfortable ? Metrics.space2 : 0)
             let icon: CGFloat = c.comfortable ? 20 : 16
             #expect(abs(SidebarStyle.horizontalInset - (c.comfortable ? 8 : 6)) <= 0.5)
-            #expect(abs(SidebarStyle.rowEdgeGap - 1.5) <= 0.5)
+            #expect(SidebarStyle.rowEdgeGap == SidebarStyle.horizontalInset)
             #expect(abs(SidebarStyle.groupGutter - 7) <= 0.5)
             #expect(abs(SidebarStyle.columns(rowWidth: width).iconBox - icon) <= 0.5)
             #expect(abs(SidebarDensityTokens.rowHeight - height) <= 0.5)
@@ -87,7 +87,7 @@ import Testing
         try Self.withDensity(c.comfortable) {
             let origin = CGFloat((c.comfortable ? 8 : 6) + c.depth * 7)
             let height = c.kind == .sectionHeader ? SidebarDensityTokens.headerHeight : SidebarDensityTokens.rowHeight
-            let view = Self.view(c, width: 320 - origin - 1.5, height: height)
+            let view = Self.view(c, width: 320 - origin - SidebarStyle.horizontalInset, height: height)
             view.layout()
             #expect(view.window == nil)
             let hasLeadingMark = c.kind == .workspace || c.kind == .item
@@ -116,7 +116,7 @@ import Testing
     func iconlessWorkspaceUsesLead(_ c: Case) throws {
         try Self.withDensity(c.comfortable) {
             let origin = CGFloat((c.comfortable ? 8 : 6) + c.depth * 7)
-            let workspace = try #require(Self.view(c, width: 320 - origin - 1.5,
+            let workspace = try #require(Self.view(c, width: 320 - origin - SidebarStyle.horizontalInset,
                                                   height: SidebarDensityTokens.rowHeight,
                                                   workspaceIcon: false) as? WorkspaceRowView)
             workspace.layout()
@@ -311,7 +311,7 @@ extension SidebarGridAlignmentTests {
             let height: CGFloat = comfortable ? 28 : 24
             #expect(SidebarDensityTokens.rowHeight == height)
             #expect(SidebarDensityTokens.headerHeight == (comfortable ? 26 : 22))
-            #expect(SidebarStyle.rowEdgeGap == 1.5)
+            #expect(SidebarStyle.rowEdgeGap == (comfortable ? 8 : 6))
             #expect(SidebarStyle.controlSize == Metrics.iconSize + Metrics.space2)
             #expect(SidebarStyle.trailingSlotSide == SidebarStyle.controlSize)
             #expect(SidebarStyle.titleFont == Typography.body)
@@ -395,7 +395,7 @@ extension SidebarGridAlignmentTests {
             let box: CGFloat = comfortable ? 20 : 16
             let origin: CGFloat = comfortable ? 8 : 6
             let c = Case(kind: .workspace, comfortable: comfortable, depth: 0, marks: 1)
-            let workspace = try #require(Self.view(c, width: 320 - origin - 1.5,
+            let workspace = try #require(Self.view(c, width: 320 - origin - SidebarStyle.horizontalInset,
                                                   height: SidebarDensityTokens.rowHeight) as? WorkspaceRowView)
             workspace.layout()
             #expect(abs(workspace.icon.frame.width - box) <= 0.5)
@@ -409,7 +409,7 @@ extension SidebarGridAlignmentTests {
             }
 
             let itemCase = Case(kind: .item, comfortable: comfortable, depth: 0, marks: 1)
-            let item = try #require(Self.view(itemCase, width: 320 - origin - 1.5,
+            let item = try #require(Self.view(itemCase, width: 320 - origin - SidebarStyle.horizontalInset,
                                              height: SidebarDensityTokens.rowHeight) as? SidebarItemRowView)
             item.layout()
             let ink = try #require(item.glyphInkFrame)
