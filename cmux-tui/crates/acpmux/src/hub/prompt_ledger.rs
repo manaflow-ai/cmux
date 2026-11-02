@@ -770,7 +770,9 @@ mod tests {
             "error": "original error", "data": {"reason": "original_reason"}, "recovery": "retry later",
         }));
         let error = tokio::time::timeout(std::time::Duration::from_secs(1), query)
-            .await.unwrap().unwrap_err();
+            .await
+            .unwrap()
+            .unwrap_err();
         assert_eq!(error.code, -32042);
         assert_eq!(error.message, "original error");
         assert_eq!(error.data.as_ref().unwrap()["reason"], "original_reason");

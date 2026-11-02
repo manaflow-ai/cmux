@@ -25,6 +25,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     let backdropState = PaneBackdropState()
     private var paneBackgroundsObservation: Task<Void, Never>?
     let contentHost = NSView()
+    /// The surface of the content sharing the tab row now (``PaneTabRowSharing/tabRowSurface``), whose
+    /// background the strip paints behind its tabs (``paintStrip()``); nil while nothing shares it.
+    private(set) var rowSurface: SurfaceKind?
     private(set) weak var content: NSView?
     /// Explicitly observed ownership: first-paint holds can change this without a tab-store update.
     let nativeToolOwner = PaneNativeToolOwner()
@@ -167,6 +170,8 @@ final class PaneContentView: NSView, PaneContentChrome {
         toolbar?.view.isHidden = shown <= 0
         let tools = toolbarWidth(shown: shown), room = bounds.width - tools, row = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
         let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0 // a chat's tools in the row when they fit (PaneTabRowSharing)
+        let surface = rowTools > 0 ? rowContent?.tabRowSurface : nil
+        if surface != rowSurface { rowSurface = surface; paintStrip() }
         if !isBandActive {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
@@ -440,10 +445,19 @@ final class PaneContentView: NSView, PaneContentChrome {
             let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
             contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
         }
-        // The strip: clear, or the user's tab bar background (R55).
-        stripView.wantsLayer = true
-        stripView.layer?.backgroundColor = stripView.performWithTheme { Palette.surfaceOverride(.tabBar)?.cgColor }
+        paintStrip()
         paintPaneBackdrop()
+    }
+
+    /// The strip: clear, or the user's tab bar background (R55). While a chat shares the row, the
+    /// background its page paints under the header (``PaneTabRowSharing/tabRowSurface``), so the row
+    /// behind the tabs and the chat's tools is one fill with no band of its own.
+    func paintStrip() {
+        stripView.wantsLayer = true
+        let surface = rowSurface
+        stripView.layer?.backgroundColor = stripView.performWithTheme {
+            (Palette.surfaceOverride(.tabBar) ?? surface.flatMap { Palette.surfaceOverride($0) })?.cgColor
+        }
     }
 }
 

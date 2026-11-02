@@ -329,6 +329,7 @@ public final class TerminalSurfaceView: NSView {
     public override func setFrameSize(_ newSize: NSSize) {
         let resized = newSize != frame.size
         super.setFrameSize(newSize)
+        if resized { session?.frameChanges.bump() } // its kept frame has another size now (TerminalLaunchFrameKeeper)
         if resized, isShown { updateSurfaceSize() }
         copyMode.syncCursor()
     }
@@ -493,6 +494,7 @@ public final class TerminalSurfaceView: NSView {
         let drawing = pause == nil
         guard drawing != lastOcclusionVisible else { return }
         lastOcclusionVisible = drawing
+        session?.frameChanges.bump() // drawn or paused (a window shown, minimized, occluded): its kept frame follows
         holdPresentedFrame(volatile: pause != nil)
         ghostty_surface_set_occlusion(surface, drawing)
         // A surface can parse a renderer-affecting OSC action (for example Copilot's OSC 11
