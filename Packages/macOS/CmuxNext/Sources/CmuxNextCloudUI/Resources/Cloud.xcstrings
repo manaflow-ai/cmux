@@ -787,7 +787,7 @@
       "ar": {"stringUnit": {"state": "translated","value": "ترقية"}},
       "bs": {"stringUnit": {"state": "translated","value": "Nadogradi"}},
       "da": {"stringUnit": {"state": "translated","value": "Opgrader"}},
-      "de": {"stringUnit": {"state": "translated","value": "Upgrade"}},
+      "de": {"stringUnit": {"state": "translated","value": "Upgraden"}},
       "en": {"stringUnit": {"state": "translated","value": "Upgrade"}},
       "es": {"stringUnit": {"state": "translated","value": "Mejorar"}},
       "fr": {"stringUnit": {"state": "translated","value": "Mettre à niveau"}},
