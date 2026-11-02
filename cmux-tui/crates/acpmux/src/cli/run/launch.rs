@@ -431,14 +431,25 @@ pub(super) fn show_in_group(
     deadline: Option<Instant>,
 ) -> Result<()> {
     let key = workspace_key(id);
-    let owned = group_open_args(id, &key, title, default_name, group);
-    let args = owned.iter().map(String::as_str).collect::<Vec<_>>();
     // Prefer the app's bundled CLI when the daemon was started by the app.
     // A plain shell can otherwise resolve an older standalone `cmux` first.
-    let cli =
+    let primary =
         select_cli(daemon_cli_path, std::env::var_os(crate::login_env::BUNDLED_CLI_ENV).as_deref());
     let path_cli = PathBuf::from("cmux");
-    let (cli, result) = run_with_fallback(&cli, &args, &path_cli, deadline);
+    let named = group_open_args(id, &key, title, default_name, group);
+    let plain = group_open_args(id, &key, None, None, group);
+    let mut args = named.iter().map(String::as_str).collect::<Vec<_>>();
+    let (mut cli, mut result) = run_with_fallback(&primary, &args, &path_cli, deadline);
+    // An app older than `defaultName` refuses the whole open (an unknown argument): once more
+    // without it, so a newer acpmux beside an older app still shows the session, unnamed as before.
+    if title.is_none()
+        && default_name.is_some()
+        && !result.as_ref().is_ok_and(|output| output.status.success())
+        && !result.as_ref().is_err_and(|error| error.kind() == std::io::ErrorKind::TimedOut)
+    {
+        args = plain.iter().map(String::as_str).collect();
+        (cli, result) = run_with_fallback(&primary, &args, &path_cli, deadline);
+    }
     let command = std::iter::once(cli.to_string_lossy().as_ref())
         .chain(args.iter().copied())
         .map(crate::harness_health::channel::quote)
