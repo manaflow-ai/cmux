@@ -56,7 +56,7 @@ extension CEFTab {
         guard pageBackdropReading != document else { return }
         pageBackdropReading = document
         settleTimer.schedule(after: Self.settleReadLimit) { @MainActor [weak self] in
-            guard let self, document == self.pageBackdropDocument else { return }
+            guard let self, document == self.pageBackdropDocument, !self.isClosed else { return }
             self.documentDidSettle()
         }
         Task { [weak self] in
@@ -75,13 +75,11 @@ extension CEFTab {
     /// (a few frames: the read is one renderer round trip when the renderer is free).
     static let settleReadLimit: Duration = .milliseconds(100)
 
-    /// The document finished loading (`.loadEnd`): it settles through its background read (`documentDidPaint`), and
-    /// a document already settled or already read reads its background again, as load end always did (a page that
-    /// sets its background after its first paint).
+    /// The document finished loading (`.loadEnd`): it settles through its background read (`documentDidPaint`); a
+    /// document already settled reads its background again, as load end always did (a page that sets its background
+    /// after its first paint). A read still in flight is the load-end read.
     func documentDidFinishLoad() {
-        if documentSettled || pageBackdropReading == pageBackdropDocument {
-            samplePageBackdrop()
-        }
+        if documentSettled { samplePageBackdrop() }
         documentDidPaint()
     }
 

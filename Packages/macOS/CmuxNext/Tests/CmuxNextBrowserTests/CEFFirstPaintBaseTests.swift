@@ -1,5 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -37,7 +39,7 @@ import Testing
         await rig.until { ShimLog.evaluates > 0 }
         rig.runtime.handle(.loadEnd(browser: Rig.browser, httpStatus: 200))
         for _ in 0..<10 { await Task.yield() }
-        #expect(ShimLog.evaluates == 1, "load end starts no second read")
+        #expect(ShimLog.evaluates == 1, "load end starts no second read while the paint read is in flight")
         #expect(!ShimLog.backgrounds.contains(Self.white), "no white base while the read is pending")
         rig.answerEvaluate(#"{"result":{"type":"object","value":[11,42,74]}}"#)
         await rig.until { ShimLog.backgrounds.last == Self.navy }
@@ -75,16 +77,18 @@ import Testing
         #expect(!ShimLog.backgrounds.contains(Self.white))
     }
 
-    /// A read that never answers (a renderer busy with page script) settles after the bounded wait, as before.
+    /// A read that never answers (a renderer busy with page script) settles after the bounded wait, as before, and
+    /// not earlier.
     @Test func aReadThatNeverAnswersSettlesAfterTheLimit() async throws {
         let rig = try Rig()
         defer { rig.close() }
         let tab = try rig.committedTab()
         CEFFirstPaintBridge(tab: tab).painted()
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(3))
-        while !tab.documentSettled, clock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(tab.documentSettled, "settled within the limit, not after the 5 s evaluate timeout")
+        try await rig.clock.waitForSleeper()
+        #expect(!tab.documentSettled, "the read is given its limit")
+        rig.clock.advance(by: CEFTab.settleReadLimit)
+        await rig.until { tab.documentSettled }
+        #expect(tab.documentSettled, "settled at the limit, not after the 5 s evaluate timeout")
     }
 
     /// A page with no background of its own is white, the web default.
@@ -108,13 +112,15 @@ import Testing
         await rig.until { ShimLog.evaluates > 0 }
         rig.answerEvaluate(#"{"exceptionDetails":{"text":"gone"}}"#, success: false)
         await rig.until { tab.documentSettled }
-        #expect(tab.documentSettled)
+        #expect(tab.documentSettled, "the failed read settles at once (the manual clock never reached the limit)")
     }
 
     // MARK: Rig
 
     @MainActor final class Rig {
         static let browser: Int32 = 19
+        /// The settle wait's clock: no test waits for real time; one advances it past the limit on purpose.
+        let clock = ManualClock()
         let runtime: CEFRuntime
         let root: URL
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: true)
@@ -136,6 +142,7 @@ import Testing
             try #require(tab.browserID == Self.browser)
             tab.container.frame = CGRect(x: 0, y: 0, width: 800, height: 600)
             window.contentView?.addSubview(tab.container)
+            tab.settleTimer = DemandTimer(owner: "test", clock: clock)
             runtime.handle(.loadStart(browser: Self.browser, url: "http://127.0.0.1:8000/dark.html", fromPost: false))
             try #require(!tab.documentSettled)
             ShimLog.backgrounds = []
