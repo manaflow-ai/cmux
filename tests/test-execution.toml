@@ -2206,3 +2206,8 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_claude_attached_viewer_policy.py"
 lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_claude_viewer_active_session.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
