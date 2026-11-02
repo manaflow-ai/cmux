@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextCompat
 
 /// Remembers who asked for the next quit. A `quit` action run records its
@@ -7,27 +7,33 @@ import CmuxNextCompat
 /// `NSWorkspace.willPowerOffNotification` (shut down, restart, log out)
 /// every quit is `.powerOff`, which never asks.
 @MainActor
-final class QuitOriginTracker {
+public final class QuitOriginTracker {
     private var pending: QuitOrigin?
-    private(set) var isPoweringOff = false
+    public private(set) var isPoweringOff = false
     private var powerOff: MainActorObservation?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    private let center: NotificationCenter
+    #endif
 
     /// The app keeps one for its lifetime; the observer holds it weakly.
-    init(center: NotificationCenter = NSWorkspace.shared.notificationCenter) {
+    public init(center: NotificationCenter = NSWorkspace.shared.notificationCenter) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        self.center = center
+        #endif
         powerOff = MainActorObservation(NSWorkspace.willPowerOffNotification, center: center) { [weak self] in
             self?.isPoweringOff = true
         }
     }
 
     /// Records the origin of the quit about to start.
-    func record(_ origin: QuitOrigin) {
+    public func record(_ origin: QuitOrigin) {
         pending = origin
     }
 
     /// The origin of the quit AppKit is asking about, cleared for the next.
     /// `appleEventReason` is the quit Apple event's `kAEQuitReason`, when
     /// the quit came from one (logout and shutdown send one).
-    func consume(appleEventReason: OSType? = nil) -> QuitOrigin {
+    public func consume(appleEventReason: OSType? = nil) -> QuitOrigin {
         defer { pending = nil }
         if isPoweringOff || appleEventReason.map(Self.powerOffReasons.contains) == true { return .powerOff }
         return pending ?? .interactive
@@ -35,8 +41,17 @@ final class QuitOriginTracker {
 
     /// `kAEQuitReason` values the system sends while logging out, restarting
     /// or shutting down.
-    static let powerOffReasons: Set<OSType> = [
+    public static let powerOffReasons: Set<OSType> = [
         OSType(kAELogOut), OSType(kAEReallyLogOut), OSType(kAERestart), OSType(kAEShutDown),
         OSType(kAEShowRestartDialog), OSType(kAEShowShutdownDialog),
     ]
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.app.terminate {reason}`: quits as REASON does, through the app's own path, for the reopen films
+    /// (REOPEN VIDEO, 2026-11-02: the logout case without a quit Apple event, which needs an Automation consent
+    /// the fleet never gives). Returns the refusal, or nil when the quit started.
+    public func debugTerminate(reason: String?, terminate: @MainActor () -> Void) -> String? {
+        "debug.app.terminate is not implemented"
+    }
+    #endif
 }
