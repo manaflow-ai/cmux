@@ -130,7 +130,7 @@ extension CMUXCLI {
         } else if response["pane_closed"] as? Bool == true {
             explanation = String(
                 localized: "cli.claudeAccount.resumeManuallyPaneClosed",
-                defaultValue: "The terminal was closed before cmux could resume the conversation. To continue it, run this command in a terminal:"
+                defaultValue: "The terminal was closed, moved or restarted before cmux could resume the conversation. To continue it, run this command in a terminal:"
             )
         } else {
             explanation = String(

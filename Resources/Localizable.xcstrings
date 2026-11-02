@@ -671586,55 +671586,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The terminal was closed before cmux could resume the conversation. To continue it, run this command in a terminal:\n\n%@"
+            "value": "The terminal was closed, moved or restarted before cmux could resume the conversation. To continue it, run this command in a terminal:\n\n%@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أُغلقت الطرفية قبل أن يتمكن cmux من استئناف المحادثة. لمتابعتها، شغّل هذا الأمر في طرفية:\n\n%@"
+            "value": "أُغلقت الطرفية أو نُقلت أو أُعيد تشغيلها قبل أن يتمكن cmux من استئناف المحادثة. لمتابعتها، شغّل هذا الأمر في طرفية:\n\n%@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das Terminal wurde geschlossen, bevor cmux die Unterhaltung fortsetzen konnte. Um sie fortzusetzen, führen Sie diesen Befehl in einem Terminal aus:\n\n%@"
+            "value": "Das Terminal wurde geschlossen, verschoben oder neu gestartet, bevor cmux die Unterhaltung fortsetzen konnte. Um sie fortzusetzen, führen Sie diesen Befehl in einem Terminal aus:\n\n%@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La terminal se cerró antes de que cmux pudiera reanudar la conversación. Para continuarla, ejecuta este comando en una terminal:\n\n%@"
+            "value": "La terminal se cerró, se movió o se reinició antes de que cmux pudiera reanudar la conversación. Para continuarla, ejecuta este comando en una terminal:\n\n%@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le terminal a été fermé avant que cmux puisse reprendre la conversation. Pour la poursuivre, exécutez cette commande dans un terminal :\n\n%@"
+            "value": "Le terminal a été fermé, déplacé ou redémarré avant que cmux puisse reprendre la conversation. Pour la poursuivre, exécutez cette commande dans un terminal :\n\n%@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux が会話を再開する前にターミナルが閉じられました。続けるには、ターミナルで次のコマンドを実行してください:\n\n%@"
+            "value": "cmux が会話を再開する前に、ターミナルが閉じられたか、移動されたか、再起動されました。続けるには、ターミナルで次のコマンドを実行してください:\n\n%@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 대화를 재개하기 전에 터미널이 닫혔습니다. 계속하려면 터미널에서 다음 명령을 실행하세요:\n\n%@"
+            "value": "cmux가 대화를 재개하기 전에 터미널이 닫히거나 이동되거나 다시 시작되었습니다. 계속하려면 터미널에서 다음 명령을 실행하세요:\n\n%@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "终端在 cmux 继续对话前已关闭。如需继续，请在终端中运行此命令：\n\n%@"
+            "value": "终端在 cmux 继续对话前已关闭、移动或重新启动。如需继续，请在终端中运行此命令：\n\n%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "終端機在 cmux 繼續對話前就已關閉。若要繼續，請在終端機中執行此指令：\n\n%@"
+            "value": "終端機在 cmux 繼續對話前就已關閉、移動或重新啟動。若要繼續，請在終端機中執行此指令：\n\n%@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal je zatvoren, premješten ili ponovo pokrenut prije nego što je cmux mogao nastaviti razgovor. Da ga nastavite, pokrenite ovu naredbu u terminalu:\n\n%@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen blev lukket, flyttet eller genstartet, før cmux kunne genoptage samtalen. Kør denne kommando i en terminal for at fortsætte den:\n\n%@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale è stato chiuso, spostato o riavviato prima che cmux potesse riprendere la conversazione. Per continuarla, esegui questo comando in un terminale:\n\n%@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់ត្រូវបានបិទ ផ្លាស់ទី ឬចាប់ផ្ដើមឡើងវិញ មុនពេល cmux អាចបន្តការសន្ទនាបាន។ ដើម្បីបន្តវា សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់៖\n\n%@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen ble lukket, flyttet eller startet på nytt før cmux kunne gjenoppta samtalen. For å fortsette den, kjør denne kommandoen i en terminal:\n\n%@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal został zamknięty, przeniesiony lub uruchomiony ponownie, zanim cmux mógł wznowić rozmowę. Aby ją kontynuować, uruchom to polecenie w terminalu:\n\n%@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal foi fechado, movido ou reiniciado antes que o cmux pudesse retomar a conversa. Para continuá-la, execute este comando em um terminal:\n\n%@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал был закрыт, перемещён или перезапущен до того, как cmux смог возобновить разговор. Чтобы продолжить его, выполните эту команду в терминале:\n\n%@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลถูกปิด ย้าย หรือเริ่มใหม่ก่อนที่ cmux จะดำเนินการสนทนาต่อได้ หากต้องการดำเนินการต่อ ให้เรียกใช้คำสั่งนี้ในเทอร์มินัล:\n\n%@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal, cmux konuşmayı sürdüremeden önce kapatıldı, taşındı veya yeniden başlatıldı. Devam etmek için bu komutu bir terminalde çalıştırın:\n\n%@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал було закрито, переміщено або перезапущено, перш ніж cmux зміг відновити розмову. Щоб продовжити її, виконайте цю команду в терміналі:\n\n%@"
           }
         }
       }
@@ -672072,55 +672138,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The terminal was closed before cmux could resume the conversation. To continue it, run this command in a terminal:"
+            "value": "The terminal was closed, moved or restarted before cmux could resume the conversation. To continue it, run this command in a terminal:"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أُغلقت الطرفية قبل أن يتمكن cmux من استئناف المحادثة. لمتابعتها، شغّل هذا الأمر في طرفية:"
+            "value": "أُغلقت الطرفية أو نُقلت أو أُعيد تشغيلها قبل أن يتمكن cmux من استئناف المحادثة. لمتابعتها، شغّل هذا الأمر في طرفية:"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das Terminal wurde geschlossen, bevor cmux die Unterhaltung fortsetzen konnte. Um sie fortzusetzen, führen Sie diesen Befehl in einem Terminal aus:"
+            "value": "Das Terminal wurde geschlossen, verschoben oder neu gestartet, bevor cmux die Unterhaltung fortsetzen konnte. Um sie fortzusetzen, führen Sie diesen Befehl in einem Terminal aus:"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La terminal se cerró antes de que cmux pudiera reanudar la conversación. Para continuarla, ejecuta este comando en una terminal:"
+            "value": "La terminal se cerró, se movió o se reinició antes de que cmux pudiera reanudar la conversación. Para continuarla, ejecuta este comando en una terminal:"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le terminal a été fermé avant que cmux puisse reprendre la conversation. Pour la poursuivre, exécutez cette commande dans un terminal :"
+            "value": "Le terminal a été fermé, déplacé ou redémarré avant que cmux puisse reprendre la conversation. Pour la poursuivre, exécutez cette commande dans un terminal :"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux が会話を再開する前にターミナルが閉じられました。続けるには、ターミナルで次のコマンドを実行してください:"
+            "value": "cmux が会話を再開する前に、ターミナルが閉じられたか、移動されたか、再起動されました。続けるには、ターミナルで次のコマンドを実行してください:"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 대화를 재개하기 전에 터미널이 닫혔습니다. 계속하려면 터미널에서 다음 명령을 실행하세요:"
+            "value": "cmux가 대화를 재개하기 전에 터미널이 닫히거나 이동되거나 다시 시작되었습니다. 계속하려면 터미널에서 다음 명령을 실행하세요:"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "终端在 cmux 继续对话前已关闭。如需继续，请在终端中运行此命令："
+            "value": "终端在 cmux 继续对话前已关闭、移动或重新启动。如需继续，请在终端中运行此命令："
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "終端機在 cmux 繼續對話前就已關閉。若要繼續，請在終端機中執行此指令："
+            "value": "終端機在 cmux 繼續對話前就已關閉、移動或重新啟動。若要繼續，請在終端機中執行此指令："
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal je zatvoren, premješten ili ponovo pokrenut prije nego što je cmux mogao nastaviti razgovor. Da ga nastavite, pokrenite ovu naredbu u terminalu:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen blev lukket, flyttet eller genstartet, før cmux kunne genoptage samtalen. Kør denne kommando i en terminal for at fortsætte den:"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale è stato chiuso, spostato o riavviato prima che cmux potesse riprendere la conversazione. Per continuarla, esegui questo comando in un terminale:"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់ត្រូវបានបិទ ផ្លាស់ទី ឬចាប់ផ្ដើមឡើងវិញ មុនពេល cmux អាចបន្តការសន្ទនាបាន។ ដើម្បីបន្តវា សូមដំណើរការពាក្យបញ្ជានេះនៅក្នុងទែមីណាល់៖"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen ble lukket, flyttet eller startet på nytt før cmux kunne gjenoppta samtalen. For å fortsette den, kjør denne kommandoen i en terminal:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal został zamknięty, przeniesiony lub uruchomiony ponownie, zanim cmux mógł wznowić rozmowę. Aby ją kontynuować, uruchom to polecenie w terminalu:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal foi fechado, movido ou reiniciado antes que o cmux pudesse retomar a conversa. Para continuá-la, execute este comando em um terminal:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал был закрыт, перемещён или перезапущен до того, как cmux смог возобновить разговор. Чтобы продолжить его, выполните эту команду в терминале:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลถูกปิด ย้าย หรือเริ่มใหม่ก่อนที่ cmux จะดำเนินการสนทนาต่อได้ หากต้องการดำเนินการต่อ ให้เรียกใช้คำสั่งนี้ในเทอร์มินัล:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal, cmux konuşmayı sürdüremeden önce kapatıldı, taşındı veya yeniden başlatıldı. Devam etmek için bu komutu bir terminalde çalıştırın:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал було закрито, переміщено або перезапущено, перш ніж cmux зміг відновити розмову. Щоб продовжити її, виконайте цю команду в терміналі:"
           }
         }
       }

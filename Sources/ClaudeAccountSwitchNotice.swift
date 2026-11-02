@@ -5,8 +5,8 @@ import Foundation
 /// resumed on the new account. One case per way a switch can fall short.
 enum ClaudeAccountSwitchNotice: Equatable, Sendable {
     /// The pane now runs on `accountName`, but cmux never typed the resume `command`, so the
-    /// user runs it. `paneClosed` means the respawned pane is gone, so there is nothing to type
-    /// it into.
+    /// user runs it. `paneClosed` means the respawned terminal is gone (closed, moved to another
+    /// workspace or restarted again), so there is nothing to type it into.
     case resumeManually(accountName: String, command: String, paneClosed: Bool)
     /// The pane now runs on `accountName`, but the replaced Claude (`processIDs`) was still
     /// running, so cmux did not resume: the user runs `command` once it has quit.
@@ -177,7 +177,7 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
             return String(
                 format: String(
                     localized: "dialog.claudeAccountSwitch.resumeManuallyPaneClosed.message",
-                    defaultValue: "The terminal was closed before cmux could resume the conversation. To continue it, run this command in a terminal:\n\n%@"
+                    defaultValue: "The terminal was closed, moved or restarted before cmux could resume the conversation. To continue it, run this command in a terminal:\n\n%@"
                 ),
                 command
             )
