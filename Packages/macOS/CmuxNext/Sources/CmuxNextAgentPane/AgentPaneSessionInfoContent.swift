@@ -727,8 +727,27 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
+        // A new area sends no Entered for a pointer already inside it, and then no Exited when the
+        // pointer leaves: so the line takes the pointer's place now, and an area made with the pointer
+        // inside assumes it, or a line rebuilt under the pointer stays lit at rest.
+        // Set only on a change: a repaint here would clear a reveal's highlight as its scroll lands.
+        let inside = pointerInside
+        if hovered != inside { hovered = inside }
         guard line.action != nil || line.reorderable || !line.menu.isEmpty else { return }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        var options: NSTrackingArea.Options = [.mouseEnteredAndExited, .activeAlways, .inVisibleRect]
+        if inside { options.insert(.assumeInside) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: options, owner: self))
+    }
+
+    private var pointerInside: Bool {
+        guard let window, !isHiddenOrHasHiddenAncestor else { return false }
+        return visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+    }
+
+    // A refresh takes every line out of the list and puts it back: out of the window, a line is never lit.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil, hovered { hovered = false }
     }
 
     override func mouseEntered(with event: NSEvent) { hovered = true }
@@ -807,8 +826,10 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         return true
     }
 
+    /// Only a row lights. A section's header is plain text on the glass, never a fill, hovered or not
+    /// (Leo, 2026-11-02: "we still HAVE AN ASININE FUCKIGN BACKGROUND").
     private func paint() {
-        layer?.backgroundColor = hovered && line.action != nil ? ink.colors.hover.cgColor : nil
+        layer?.backgroundColor = hovered && line.action != nil && line.kind != .header ? ink.colors.hover.cgColor : nil
     }
 }
 

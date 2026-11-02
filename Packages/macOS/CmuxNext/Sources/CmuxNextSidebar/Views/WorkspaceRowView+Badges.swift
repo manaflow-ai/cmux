@@ -61,7 +61,7 @@ extension WorkspaceRowView {
         if !rowBadge.isHidden {
             // The nearest backing pixel, so the last glyph's center stays on the column (a floor moved it up to a point left).
             // With no window the scale is unknown: whole points, on the pixel grid at every scale (a 2x guess put the 10 pt
-            // glyph on a half point, off the 1x grid, since a row's width ends 1.5 pt from the edge, `rowEdgeGap`).
+            // glyph on a half point, off the 1x grid, when a row's width ended 1.5 pt from the edge).
             let side = rowBadge.cellSide, width = rowBadge.preferredWidth, scale = window?.backingScaleFactor ?? 1
             rowBadge.frame = NSRect(x: SidebarStyle.pixelSnapped(column - width + side / 2, scale: scale),
                                     y: SidebarStyle.pixelSnapped(cy - side / 2, scale: scale), width: width, height: side)

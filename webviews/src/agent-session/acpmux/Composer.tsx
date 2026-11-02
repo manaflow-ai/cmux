@@ -635,7 +635,11 @@ export function Composer({
   // (composerLook.ts; Leo 2026-11-01: "we already have a good version").
   const look = useComposerLook();
   const quietActions = plainFooter;
-  const usage = compactingUsage(snapshot.summary?.usage, snapshot.summary?.usageStats);
+  const usage = compactingUsage(
+    snapshot.summary?.usage,
+    snapshot.summary?.usageStats,
+    snapshot.summary?.contextBreakdown,
+  );
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
