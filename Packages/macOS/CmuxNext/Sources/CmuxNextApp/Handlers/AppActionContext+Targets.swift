@@ -145,10 +145,7 @@ extension AppActionContext {
         }
         for window in services.windows.controllers {
             for pane in window.content?.panes.values.map({ $0 }) ?? [] where invocation.targetMachineID.map({ pane.daemon.machineID == $0 }) ?? true {
-                let hit = target.kind == .pane
-                    ? pane.paneKey == target.id
-                    : pane.stripModel.tab(StripTabID(target.id)) != nil
-                if hit { return pane }
+                if pane.stripModel.tab(StripTabID(target.id)) != nil { return pane }
             }
         }
         return refuse(RefusalStrings.notShownInAnyWindow(String(describing: target)))
@@ -192,8 +189,7 @@ extension AppActionContext {
         return (tab, pane.pane)
     }
 
-    /// The pane `id` names, on the invocation's machine when it names one; without one, only
-    /// when a single machine holds it (forks keep pane ids, cmux#30755). Callers refuse.
+    /// The pane `id` names, as `targetTab` finds a tab; callers refuse.
     func targetPane(_ id: String, _ invocation: ActionInvocation) -> PaneModel? {
         if let machine = invocation.targetMachineID { return services.locatePane(id, onMachine: machine) }
         return services.locatePane(id)

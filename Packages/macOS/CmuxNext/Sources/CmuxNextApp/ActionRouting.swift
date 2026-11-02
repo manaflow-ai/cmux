@@ -50,9 +50,7 @@ enum ActionRouting {
         case .workspaceGroup:
             return daemons.first { $0.store.group(WorkspaceGroupID(rawValue: target.id)) != nil }
         case .pane:
-            // Only the one machine holding the id; a shared id (forks keep pane ids) routes nowhere
-            // and the handler refuses it rather than act on the first machine's pane (cmux#30755).
-            let holders = daemons.filter { panes($0).contains { $0.id == target.id || $0.resourceID?.rawValue == target.id } }
+            let holders = daemons.filter { $0.store.pane(idOrResource: target.id) != nil } // a shared id routes nowhere (cmux#30755)
             return holders.count == 1 ? holders[0] : nil
         case .tab:
             return daemons.first { panes($0).contains { $0.tabs.contains { $0.id == target.id } } }
