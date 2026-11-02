@@ -99,6 +99,10 @@ class FleetCacheTests(unittest.TestCase):
         cache_lib.mkdir(parents=True)
         shutil.copyfile(ROOT / "scripts/cmux-next/lib/compilation-cache.sh",
                         cache_lib / "compilation-cache.sh")
+        # Sourced by the build; off here (no CMUX_NIGHTLY_HOST_BUILD_ROOT), so it builds in place.
+        (scripts / "nightly-steps").mkdir(exist_ok=True)
+        shutil.copyfile(ROOT / "scripts/ci/nightly-steps/app-host-build-root.sh",
+                        scripts / "nightly-steps/app-host-build-root.sh")
         (scripts / "run-with-helper-prebuild.py").write_text(
             "import os,sys\na=sys.argv[sys.argv.index('--')+1:]\nos.execvp(a[0],a)\n")
         wrapper = scripts / "run-xcodebuild-with-diagnostics.sh"
@@ -142,6 +146,10 @@ class FleetCacheTests(unittest.TestCase):
         cache_lib.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / "scripts/cmux-next/lib/compilation-cache.sh",
                         cache_lib / "compilation-cache.sh")
+        # Sourced by the build; off here (no CMUX_NIGHTLY_HOST_BUILD_ROOT), so it builds in place.
+        (scripts / "nightly-steps").mkdir(exist_ok=True)
+        shutil.copyfile(ROOT / "scripts/ci/nightly-steps/app-host-build-root.sh",
+                        scripts / "nightly-steps/app-host-build-root.sh")
         (scripts / "run-with-helper-prebuild.py").write_text(
             "import os,sys\na=sys.argv[sys.argv.index('--')+1:]\nos.execvp(a[0],a)\n")
         wrapper = scripts / "run-xcodebuild-with-diagnostics.sh"

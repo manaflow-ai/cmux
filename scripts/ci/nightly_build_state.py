@@ -42,6 +42,17 @@ starts clean (CLEAN_REASONS) when:
 - the downloads a build embeds by pin (CEF, GhosttyKit) changed: their manifests and
   scripts are in KEY_PATHS, the GhosttyKit pin is the ghostty submodule commit;
 - CLEAN_EVERY incremental builds ran since the last clean one.
+
+One build root per host (prepare-host, finish-host). Xcode's compilation cache keys hold the
+absolute source, DerivedData and package checkout paths, so a kept DerivedData and cache per
+runner slot gave each slot its own keys: two slots per Mac built every other or every fourth tip
+each, their entries pushed each other out of the one size-capped CAS, and an incremental build
+compared against that slot's last build several tips back. The Release build step
+(app-host-build-root.sh) therefore builds from HOST_ROOT/src, a clone of the checkout, into
+HOST_ROOT/DerivedData with the packages in HOST_ROOT/SourcePackages, under a flock that is never
+waited for; a held lock builds on the slot's own state as before. The clean rules are the same
+ones, judged against the host's last build. The paths are the same on every nightly Mac, so the
+keys match across them too.
 """
 from __future__ import annotations
 
@@ -66,7 +77,7 @@ INCREMENTAL_STATE = 'incremental.json'
 KEY_PATHS = re.compile(r'(^|/)(Package\.resolved|build\.zig\.zon|rust-toolchain(\.toml)?|\.xcode-version'
                        r'|cef-manifest\.json|ensure-cef\.sh|ensure-remote-browser-host\.sh|download-prebuilt-ghosttykit\.sh'
                        r'|nightly-swift-defines\.sh|run-xcodebuild-with-diagnostics\.sh|fleet-compilation-cache\.sh'
-                       r'|app-build-release\.sh|compilation-cache\.sh)$')
+                       r'|app-build-release\.sh|app-host-build-root\.sh|compilation-cache\.sh)$')
 # The build's own settings: the Release build step's text (its xcodebuild settings and how it forms
 # OTHER_SWIFT_FLAGS) and the decide outputs it reads (BUILD_SETTINGS in the environment of the
 # prepare step). A change to either is a clean build: objects compiled under other -D flags,
@@ -366,27 +377,126 @@ def prepare(workspace: Path, home: Path, runner: str, track: str, toolchain: str
     return True
 
 
+HOST_STATE = 'host-state.json'
+
+
+def toolchain_identity() -> str:
+    toolchain = os.environ.get('DEVELOPER_DIR', '') + '\n'
+    toolchain += subprocess.check_output(['xcodebuild', '-version'], text=True)
+    toolchain += subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-build-version'], text=True)
+    return toolchain
+
+
+def seed_packages(packages: Path, workspace: Path) -> None:
+    """The host's package checkouts, seeded once from this slot's own (a clone, so nothing is fetched again)."""
+    if packages.exists():
+        return
+    slot = workspace / '.spm-cache'
+    if slot.is_dir():
+        staging = packages.with_name(f'{packages.name}.seed.{os.getpid()}')
+        remove(staging)
+        try:
+            import apfs_clone
+            cloned = apfs_clone.clone_directory(slot.resolve(), staging)
+        except (ImportError, OSError):
+            cloned = False
+        try:
+            if not cloned:
+                shutil.copytree(slot.resolve(), staging, symlinks=True)
+            staging.replace(packages)
+            return
+        except OSError as error:
+            print(f'::warning title=nightly host build root::package checkouts not seeded ({error})')
+            remove(staging)
+    packages.mkdir(parents=True, exist_ok=True)
+
+
+def prepare_host(root: Path, workspace: Path, toolchain: str) -> tuple[str, str]:
+    """Ready ROOT/DerivedData for the tree cloned into ROOT/src; returns (mode, reason). The caller
+    holds ROOT's lock."""
+    src = root / 'src'
+    state_file = root / HOST_STATE
+    state = read_state(state_file)
+    key = input_key(src, toolchain)
+    reason = clean_reason(state, key, src)
+    derived_data = root / 'DerivedData'
+    if reason:
+        remove(derived_data)
+    else:
+        for bundle in sorted((derived_data / 'Build' / 'Products').glob('*/*.app')):
+            remove(bundle)
+    derived_data.mkdir(parents=True, exist_ok=True)
+    # Without the fleet cache the CAS lives in DerivedData; keep it across clean builds.
+    link(derived_data / 'CompilationCache.noindex', root / 'CompilationCache')
+    seed_packages(root / 'SourcePackages', workspace)
+    link(src / '.spm-cache', root / 'SourcePackages')
+    remove(src / 'build-universal')
+    head = git(src, 'rev-parse', 'HEAD').strip()
+    state = {'key': key, 'sha': head, 'built': False, 'since_clean': 0 if reason else since_clean(state) + 1}
+    temporary = state_file.with_suffix('.tmp')
+    temporary.write_text(json.dumps(state, sort_keys=True))
+    temporary.replace(state_file)
+    return ('clean', reason) if reason else ('incremental', f'{state["since_clean"]} since the last clean build')
+
+
+def finish_host(root: Path, workspace: Path, home: Path, runner: str) -> None:
+    """After a successful build in ROOT: mark it built, and give the workspace its own clone of the
+    products (later steps change the app bundle; the host's next build must not see that). The slot's
+    own kept DerivedData is dropped: the host's replaces it, and a later fallback build starts clean."""
+    state_file = root / HOST_STATE
+    state = read_state(state_file)
+    if checkpoint_complete(state):
+        state['built'] = True
+        temporary = state_file.with_suffix('.tmp')
+        temporary.write_text(json.dumps(state, sort_keys=True))
+        temporary.replace(state_file)
+    derived = workspace / 'build-universal'
+    if derived.is_symlink():
+        slot = derived.resolve()
+        if (home / STATE_ROOT / runner).resolve() in slot.parents:
+            remove(slot.parent / INCREMENTAL_STATE)
+            remove(slot)
+    remove(derived)
+    (derived / 'Build').mkdir(parents=True)
+    source = root / 'DerivedData' / 'Build' / 'Products'
+    target = derived / 'Build' / 'Products'
+    try:
+        import apfs_clone
+        cloned = apfs_clone.clone_directory(source, target)
+    except ImportError:
+        cloned = False
+    if not cloned:
+        shutil.copytree(source, target, symlinks=True)
+
+
 def main(argv: list[str]) -> int:
     workspace = Path(os.environ.get('GITHUB_WORKSPACE', '.')).resolve()
     if len(argv) == 3 and argv[1] == 'prepare':
         runner = os.environ.get('RUNNER_NAME', '')
         if keeps_state(runner, builder_label()) and argv[2] == 'nightly-next':
-            toolchain = os.environ.get('DEVELOPER_DIR', '') + '\n'
-            toolchain += subprocess.check_output(['xcodebuild', '-version'], text=True)
-            toolchain += subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-build-version'], text=True)
-            if prepare(workspace, Path.home(), runner, argv[2], toolchain, builder_label()):
+            if prepare(workspace, Path.home(), runner, argv[2], toolchain_identity(), builder_label()):
                 cache = notices_cache(Path.home(), runner)
                 print(f'NEXT third-party notices read crate sources kept in {cache}')
                 github_env = os.environ.get('GITHUB_ENV')
                 if github_env:
                     with open(github_env, 'a', encoding='utf-8') as env:
                         env.write(f'CMUX_NEXT_NOTICES_CACHE={cache}\n')
+                        if dedicated(runner, builder_label()):
+                            # The Release build step may take the host build root (app-host-build-root.sh).
+                            env.write('CMUX_NIGHTLY_HOST_BUILD_ROOT=1\n')
+        return 0
+    if len(argv) == 3 and argv[1] == 'prepare-host':
+        mode, why = prepare_host(Path(argv[2]), workspace, toolchain_identity())
+        print(f'NEXT Release build: {mode} DerivedData ({why}) in {Path(argv[2]) / "DerivedData"} (host build root)')
+        return 0
+    if len(argv) == 3 and argv[1] == 'finish-host':
+        finish_host(Path(argv[2]), workspace, Path.home(), os.environ.get('RUNNER_NAME', ''))
         return 0
     if len(argv) == 2 and argv[1] == 'mark-built':
         if mark_built(workspace, Path.home(), os.environ.get('RUNNER_NAME', '')):
             print('NEXT Release build finished; the next build on this builder may build on its DerivedData')
         return 0
-    print('usage: nightly_build_state.py prepare TRACK | mark-built', file=sys.stderr)
+    print('usage: nightly_build_state.py prepare TRACK | mark-built | prepare-host ROOT | finish-host ROOT', file=sys.stderr)
     return 2
 
 
