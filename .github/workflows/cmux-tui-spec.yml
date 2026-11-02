@@ -498,9 +498,9 @@ jobs:
           fi
 
       # Git seed's file/refs invariants must execute, not only compile under
-      # clippy --all-targets. This covers data loss on a retried full seed and
-      # the laptop/Cloud stash and three-way Git round trips. Reuse the already
-      # installed Rust toolchain, Git fixtures and warmed build artifacts.
+      # clippy --all-targets. The core state checks and both CLI transport
+      # journeys cover lost-work retries, stash, commits, and three-way pulls.
+      # Reuse this job's Rust setup, Git fixtures and warm build directory.
       - name: Git seed handoff state tests
         if: ${{ !cancelled() }}
         env:
@@ -517,8 +517,11 @@ jobs:
           cd cmux-tui
           log="$RUNNER_TEMP/cmux-git-seed-handoff-tests.log"
           cargo test --locked -p cmux-tui-core --lib git_seed::tests:: -- --test-threads=1 2>&1 | tee "$log"
-          if ! grep -qE 'test result: ok\. [1-9][0-9]* passed' "$log"; then
-            echo "::error title=Git seed handoff state tests::the Git seed suite selected no tests"
+          cargo test --locked -p cmux-tui --test link_seed -- --test-threads=1 2>&1 | tee -a "$log"
+          cargo test --locked -p cmux-tui --test seed_pull_journey -- --test-threads=1 2>&1 | tee -a "$log"
+          passed=$(grep -Ec 'test result: ok\. [1-9][0-9]* passed' "$log" || true)
+          if [[ "$passed" -lt 3 ]]; then
+            echo "::error title=Git seed handoff state tests::one or more suites selected zero tests"
             exit 1
           fi
 
