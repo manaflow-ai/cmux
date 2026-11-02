@@ -56,12 +56,21 @@ public nonisolated struct ShownResizeRange {
         let fills = !style.rowsEnabled || sum <= 1000
         // Permille as placed: a filled stack scales every row by 1000 / sum.
         let scale = fills && sum > 0 ? Double(sum) / 1000 : 1
+        /// The largest stored permille at which `row` still shows at its minimum height on this screen's pixel grid
+        /// (as `RowStackGeometry.compute` places it: the placed height rounded to a pixel, held at the minimum rounded
+        /// up to one): below it nothing moves, above it the edge moves. Searched from the exact estimate; a few steps.
         func floor(_ row: LayoutRow) -> Int {
-            // Rounded UP from the exact inverse of `pixelHeight` (not from `permille(forPixelHeight:)`, which rounds to the
-            // nearest): a permille below this shows at the minimum, so a press there would move nothing.
-            let points = SplitGeometry.minimumSize(of: row.root, style: style).height
-            let exact = Double((points + stack.gap) / (stack.frame.height + stack.gap)) * 1000 * scale
-            return max(LayoutRow.heightRange.lowerBound, Int((exact - 1e-9).rounded(.up)))
+            let minimum = SplitGeometry.ceilToPixel(SplitGeometry.minimumSize(of: row.root, style: style).height, scale: self.scale)
+            func shown(_ stored: Int) -> CGFloat {
+                SplitGeometry.roundToPixel(RowStackGeometry.pixelHeight(permille: Double(stored) / scale, columnHeight: stack.frame.height,
+                                                                         gap: stack.gap), scale: self.scale)
+            }
+            let range = LayoutRow.heightRange
+            let exact = Double((minimum + stack.gap) / (stack.frame.height + stack.gap)) * 1000 * scale
+            var stored = min(max(Int(exact.rounded(.down)), range.lowerBound), range.upperBound)
+            while stored > range.lowerBound, shown(stored) > minimum { stored -= 1 }
+            while stored < range.upperBound, shown(stored + 1) <= minimum { stored += 1 }
+            return stored
         }
         let step = Int((delta * 1000 * scale).rounded())
         guard step != 0 else { return nil }
