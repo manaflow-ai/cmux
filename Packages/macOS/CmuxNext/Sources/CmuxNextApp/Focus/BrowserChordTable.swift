@@ -61,7 +61,7 @@ enum BrowserChordTable {
 
     /// The text-editing chords of rich-text pages (Google Docs, Gmail, Notion, Slack): Bold,
     /// Italic, Underline, Insert Link, Strikethrough, bulleted and numbered lists, and paragraph
-    /// alignment. Chrome gives a page these keys before its own menus; cmux does the same in a
+    /// alignment, Google Docs' Suggesting mode. Chrome gives a page these first; cmux does the same in a
     /// Chromium tab, and runs the cmux action bound to the chord (Cmd-B Toggle Sidebar, Cmd-I New
     /// Agent Chat, Shift-Cmd-L Open Browser) only when the page leaves the key unhandled. The
     /// match is on the chord typed, not the action: Shift-Cmd-L is Left Align in Google Docs, so
@@ -70,7 +70,7 @@ enum BrowserChordTable {
         Shortcut("b"), Shortcut("i"), Shortcut("u"), Shortcut("k"),
         Shortcut("x", modifiers: [.command, .shift]), Shortcut("7", modifiers: [.command, .shift]),
         Shortcut("8", modifiers: [.command, .shift]), Shortcut("e", modifiers: [.command, .shift]),
-        Shortcut("l", modifiers: [.command, .shift]), Shortcut("j", modifiers: [.command, .shift]),
+        Shortcut("l", modifiers: [.command, .shift]), Shortcut("j", modifiers: [.command, .shift]), Shortcut("x", modifiers: [.command, .option, .shift]),
     ]
 
     /// Whether `event` is one of ``pageEditingChords``.

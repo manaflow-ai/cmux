@@ -86,8 +86,8 @@
        {"smoke_frame": {}}
      ]},
     {"do": "smoke_widths", "name": "cols1"},
-    {"do": "key", "key": "d", "modifiers": ["control", "cmd"], "mark": "r3b-split"},
-    {"do": "expect", "title": "R3b: New Column's key (Ctrl-Cmd-D) adds a column and every existing column keeps exactly its width", "since": "r3b-split", "timeout": 15, "settle": 1.5,
+    {"do": "key", "key": "x", "modifiers": ["control", "cmd"], "mark": "r3b-split"},
+    {"do": "expect", "title": "R3b: New Column's key (Ctrl-Cmd-X) adds a column and every existing column keeps exactly its width", "since": "r3b-split", "timeout": 15, "settle": 1.5,
      "all": [
        {"smoke_same_widths": {"since": "cols1", "new": 1}},
        {"smoke_frame": {}}

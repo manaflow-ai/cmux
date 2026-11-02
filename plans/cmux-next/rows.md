@@ -22,14 +22,15 @@ scrolling unit instead of a split":
 | --- | --- | --- |
 | Cmd-D | Split Right, inside the row | never |
 | Cmd-Shift-D | Split Down, inside the row | never |
-| Cmd-Ctrl-D | New Column, after the focused column | horizontally, to reveal it |
-| Cmd-Ctrl-Shift-D | New Row, below the focused row, in the focused column | vertically, to reveal it |
+| Ctrl-Cmd-X | New Column, after the focused column | horizontally, to reveal it |
+| Ctrl-Shift-Cmd-X | New Row, below the focused row, in the focused column | vertically, to reveal it |
 | Cmd-Ctrl-N | New Pane (Auto Layout), inside the row | never |
 
-New Column moved to Ctrl-Cmd-D in 5c009fc9cbc (it replaces macOS's system Look Up chord in cmux
-windows). Cmd-Ctrl-Shift-D is reserved for New Row (user decision 2026-10-02, relayed by the
-action-surfaces lead); Open Diff Viewer moves to Cmd-Ctrl-Shift-G, and
-`BrowserTabTitleTests.cmdCtrlShiftDIsReservedForNewRow` keeps the chord for action id `newRow`.
+Keys (key set A, Lawrence 2026-11-01: "cohesive defaults that work with both"): New Column Ctrl-Cmd-X,
+New Row Ctrl-Shift-Cmd-X, Split Browser Right Opt-Cmd-X, Split Browser Down Opt-Shift-Cmd-X. The pattern: X is the second D: Ctrl adds a column / row, Option a browser, Shift means below (PaneCreateKeySetTests).
+Before: New Column Ctrl-Cmd-D (5c009fc9cbc) and New Row Cmd-Ctrl-Shift-D (2026-10-02); macOS's Look Up
+(system hot key 70, on by default) takes a real Ctrl-Cmd-D before cmux sees it. Open Diff Viewer stays
+Cmd-Ctrl-Shift-G.
 
 ## Options
 
@@ -322,7 +323,7 @@ Requirement (Lawrence): rows must be easy to turn off without affecting anything
 - O2. Off hides every row entry point: `newRow` (shortcut, palette, menus, CLI answers
   `rows-disabled`), the new-row drop targets (D1), the row axis of D2 (a top or bottom edge
   drop with no room opens a column, as today), row scrolling (V5) and the row scrollbar.
-  Cmd-Ctrl-Shift-D does nothing (it stays reserved for `newRow`).
+  Ctrl-Shift-Cmd-X does nothing (it stays reserved for `newRow`).
 - O3. Off, a column that already has two or more rows renders its rows as stacked panes that
   fit the column (heights in proportion, never scrolling), the same picture as the compat chain.
   The divider between two rows trades height between them (`SetRowHeights` with `fit`). Splits,
@@ -343,7 +344,7 @@ Requirement (Lawrence): rows must be easy to turn off without affecting anything
 
 | Action id | Title | Shortcut | Palette | CLI verb | Context menu | MCP |
 | --- | --- | --- | --- | --- | --- | --- |
-| `newRow` | New Row | Cmd-Ctrl-Shift-D | yes | `pane new-row` (`--height`, `--cwd`) | pane > create, after New Column | generated |
+| `newRow` | New Row | Ctrl-Shift-Cmd-X | yes | `pane new-row` (`--height`, `--cwd`) | pane > create, after New Column | generated |
 | `equalizeRows` | Equalize Rows | none | yes | `column equalize-rows` | column | generated |
 | `flattenRows` | Flatten Rows | none | yes | `column flatten-rows` | column | generated |
 | `layout.rows` toggle | Toggle Rows | none | yes | `settings toggle-rows` | none (exemption: setting) | generated |
@@ -396,7 +397,7 @@ offset per overflowing column through the column scroll reducer behind the `RowS
 (opaque strip slots, no row id in a column id); V5 input (gaps between rows, or Command); row
 divider resize as one `set-row-heights` with a transaction through the store's intent log, settled
 on the `screen-changed` echo; `layout.rows` in cmux.json, the Settings window, the settings schema
-and the MDM export; New Row (Cmd-Ctrl-Shift-D, palette, View menu, `pane new-row`, MCP, pane
+and the MDM export; New Row (Ctrl-Shift-Cmd-X, palette, View menu, `pane new-row`, MCP, pane
 context menu New folder); no row op without `rows-v1`.
 
 Left for a later step: Toggle Rows (palette), the row scrollbar and `layout.rowScrollbar`, Equalize
@@ -419,7 +420,7 @@ with `never`), focus N1 to N3, `debug.rows`, `--height` and `--cwd` on `pane new
 ## Decisions (Lawrence, 2026-10-02, through the coordinator)
 
 1. Model (c), columns of rows: approved, with the off switch below as a hard requirement.
-2. New Row is Cmd-Ctrl-Shift-D; Open Diff Viewer moves to Cmd-Ctrl-Shift-G.
+2. New Row is Ctrl-Shift-Cmd-X (was Cmd-Ctrl-Shift-D until 2026-11-01); Open Diff Viewer is Cmd-Ctrl-Shift-G.
 3. Row scroll modifier: Command, plus plain scroll over the gaps between rows and on the row
    scrollbar (V5).
 4. Docked rows: decided later, not in `rows-v1`.
@@ -441,7 +442,7 @@ with `never`), focus N1 to N3, `debug.rows`, `--height` and `--cwd` on `pane new
 | docked-column lead | docked columns need their own vertical offset, and the fixed-coordinate paths must apply it | G5 |
 | docked-column lead | the row scrollbar is new UI and needs an explicit setting | V5, `layout.rowScrollbar` |
 | docked-column lead | the store must not use a client's minimum pane height | G4: reducer 100‰ floor, client refuses locally |
-| docked-column lead | rows join the column-sizing.md `LayoutOp` set; Cmd-Ctrl-Shift-D is taken; New Column is now Ctrl-Cmd-D | done; decision 2 |
+| docked-column lead | rows join the column-sizing.md `LayoutOp` set; New Row is Ctrl-Shift-Cmd-X; New Column is Ctrl-Cmd-X | done; decision 2 |
 | reducer owner | base on `origin/feat-cmux-next` after the crate lands; one `Destination` + `respawn`; rows heights only for now; drop decisions in the resolver | done; split ratios in a later reducer step |
 | reducer owner | respawn is never own place | R6 |
 | close-focus lead | no store neighbor hint (duplicates the client rule); extend `FocusAfterClose.pane`; keep `ColumnViewOffset.fit` | N3, viewport section; ownership lead dropped the hint for columns too |
