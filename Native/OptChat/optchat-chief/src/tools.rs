@@ -595,6 +595,10 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             "control",
             &serde_json::json!({"action": "cloud", "peer": peer}),
         ),
+        ("control", ["sessions", n]) => Call::parse(
+            "control",
+            &serde_json::json!({"action": "sessions", "n": n}),
+        ),
         ("control", ["answer", id, option]) => Call::parse(
             "control",
             &serde_json::json!({"action": "answer", "id": id, "option": option}),
@@ -655,7 +659,7 @@ pub fn usage(tool: &str) -> String {
             "chiefs" =>
                 "['{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}']",
             "control" =>
-                "status [ID] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | cap N | cloud [PEER[,PEER...]|off]",
+                "status [ID] | sessions [OFFSET] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | cap N | cloud [PEER[,PEER...]|off]",
             "tell" => "[--queue] ID \"message\"",
             _ => "ID \"message\"",
         }
@@ -711,7 +715,10 @@ impl ControlCall {
             n,
             peer: text("peer"),
         };
-        let needs_id = !matches!(call.action.as_str(), "status" | "cap" | "cloud");
+        let needs_id = !matches!(
+            call.action.as_str(),
+            "status" | "cap" | "cloud" | "sessions"
+        );
         if needs_id && call.id.is_none() {
             return Err(format!("control {}: `id` is required", call.action));
         }
@@ -1835,5 +1842,38 @@ fn ask_json(path: &Path, request: &Value) -> Result<String, String> {
         (Some(text), _) => Ok(text.to_owned()),
         (None, Some(error)) => Err(error.to_owned()),
         (None, None) => Err("empty answer".to_owned()),
+    }
+}
+
+#[cfg(test)]
+mod control_session_tests {
+    use super::*;
+
+    #[test]
+    fn sessions_needs_no_child_id_and_accepts_a_page_offset() {
+        let first = ControlCall::parse(&json!({"action": "sessions"})).unwrap();
+        assert_eq!(first.action, "sessions");
+        assert_eq!(first.id, None);
+        assert_eq!(first.n, None);
+
+        let next = ControlCall::parse(&json!({"action": "sessions", "n": 60})).unwrap();
+        assert_eq!(next.n, Some(60));
+        assert_eq!(
+            next.to_json(),
+            json!({"tool": "control", "action": "sessions", "n": 60})
+        );
+
+        let cli = match command("control", &["sessions", "60"]).unwrap() {
+            Command::Call(Call::Control(call)) => call,
+            other => panic!("unexpected command: {other:?}"),
+        };
+        assert_eq!(cli.n, Some(60));
+
+        // Actions operating on a particular child still require its id.
+        assert!(
+            ControlCall::parse(&json!({"action": "interrupt"}))
+                .unwrap_err()
+                .contains("id")
+        );
     }
 }

@@ -203,6 +203,8 @@ pub struct Peer {
     retry_immediately: AtomicBool,
     /// Wakes `serve` so `stop` closes the live connection.
     stop_signal: Notify,
+    /// Broadcasts explicit stop/replacement to callers waiting for a reconnect.
+    stop_changed: tokio::sync::watch::Sender<bool>,
     /// A client waits on the peer: reconnects come within seconds (`peer_wanted.rs`).
     wanted: wanted::Wanted,
     /// Counts connect attempts that settled (ready or failed), bumped by the
@@ -323,6 +325,7 @@ impl Peer {
             stop: AtomicBool::new(false),
             retry_immediately: AtomicBool::new(false),
             stop_signal: Notify::new(),
+            stop_changed: tokio::sync::watch::channel(false).0,
             wanted: Default::default(),
             settled: tokio::sync::watch::channel(0).0,
             link: StdMutex::new(Link::default()),
@@ -471,8 +474,14 @@ impl Peer {
         self.settled.send_modify(|count| *count += 1);
     }
 
+    /// Every explicit stop/replacement, including one with no connect attempt in flight.
+    pub(crate) fn stopped(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.stop_changed.subscribe()
+    }
+
     pub fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
+        self.stop_changed.send_replace(true);
         self.link_ended();
         // Stores a permit when `serve` is not waiting yet.
         self.stop_signal.notify_one();
