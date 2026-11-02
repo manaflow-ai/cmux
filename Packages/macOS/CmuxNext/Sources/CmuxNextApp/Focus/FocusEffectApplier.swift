@@ -78,9 +78,9 @@ final class FocusEffectApplier: FocusEffectApplying {
                 content?.layoutModel.focus(LayoutPaneID(pane), notify: false)
             case .moveResponder(let resolved):
                 moveResponder(resolved, state: state)
-                publish(state.context) // the new target's own facts (a web view, the address bar): see `publish`
+                publish(state.context) // the new target's own facts (a web view, the address bar), once per batch: see `publish`
             case .publishContext(let context):
-                publish(context)
+                if !effects.contains(where: { if case .moveResponder = $0 { true } else { false } }) { publish(context) }
             case .browserFocusMode(let tab, let active):
                 controller.services.cache.existingBrowser(tab)?.chrome.showsFocusModeIndicator = active
             }
