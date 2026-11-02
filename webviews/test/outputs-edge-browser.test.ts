@@ -107,6 +107,17 @@ await requireBrowserLane("outputs-edge-browser.test.ts", async () => {
       expect(await page.locator("output[data-opened-file]").textContent()).toContain("/demo/src/output-");
       await page.evaluate(() => document.documentElement.setAttribute("data-reduce-transparency", ""));
       expect((await edges(page)).blur).toBe("none");
+      expect((await edges(page)).top).toBe("0");
+      expect((await edges(page)).bottom).toBe("0");
+      await page.evaluate(() => document.documentElement.removeAttribute("data-reduce-transparency"));
+      const media = await page.context().newCDPSession(page);
+      await media.send("Emulation.setEmulatedMedia", {
+        features: [{ name: "prefers-reduced-transparency", value: "reduce" }],
+      });
+      expect((await edges(page)).top).toBe("0");
+      expect((await edges(page)).bottom).toBe("0");
+      await media.send("Emulation.setEmulatedMedia", { features: [] });
+      await media.detach();
       await page.emulateMedia({ reducedMotion: "reduce" });
       expect((await edges(page)).top).toBe("1");
       expect((await edges(page)).bottom).toBe("1");
