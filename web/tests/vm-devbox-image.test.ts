@@ -167,6 +167,12 @@ const sourceAgentConfig = (home: string, coderouterOrigin: string, fetchOpenCode
   });
 
 describe("devbox image template", () => {
+  test("the bake keeps the current store ahead of user-local acpmux", () => {
+    const bake = readFileSync(path.join(scriptsDir, "cmux-vm-image/bake.ts"), "utf8");
+    expect(bake).toContain('await L.step(vm, "acpmux-current-link", cmuxTuiImageAcpmuxLinkCommand());');
+    expect(bake).toContain('await L.step(vm, "store-user-profile", storeUserProfilePathCommand());');
+  });
+
   test("template directory contains exactly the expected files", () => {
     expect(readdirSync(templateDir).sort()).toEqual([
       "Dockerfile",
