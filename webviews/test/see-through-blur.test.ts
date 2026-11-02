@@ -230,6 +230,38 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
       await page.close();
     });
 
+    // The rail's preview card and the Summary popover both cover the transcript: each keeps its own
+    // hole, and the card closing leaves the Summary's blur (and its owner word) in place.
+    test("two surfaces over one element each keep their blur; one detaching leaves the other's", async () => {
+      const page = await open(browser);
+      await attach(page, { owner: "summary" });
+      await page.evaluate(() => {
+        const target = window as unknown as {
+          attachSeeThroughBlur(e: HTMLElement, candidates?: (e: HTMLElement) => Iterable<Element>): () => void;
+          detachCard?: () => void;
+        };
+        const card = document.createElement("aside");
+        card.id = "card";
+        card.style.cssText = "position:absolute;left:24px;top:40px;width:160px;height:100px;border-radius:12px";
+        document.querySelector(".stage")!.append(card);
+        target.detachCard = target.attachSeeThroughBlur(card, () => document.querySelectorAll(".chat"));
+      });
+      await settle(page);
+      const owners = () => page.evaluate(() => document.querySelector(".chat")!.getAttribute("data-glass-under"));
+      expect(await owners()).toBe("summary");
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(5);
+      expect(await barContrast(page, MIDDLE, 48, 160)).toBeLessThan(5);
+      await page.evaluate(() => {
+        (window as unknown as { detachCard(): void }).detachCard();
+        document.getElementById("card")!.remove();
+      });
+      await settle(page);
+      expect(await owners()).toBe("summary");
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(5);
+      expect(await barContrast(page, MIDDLE, 48, 160)).toBeGreaterThan(40);
+      await page.close();
+    });
+
     test("a popover mid-fade blurs the bars in full, never part way", async () => {
       const page = await open(browser);
       const before = await barContrast(page, MIDDLE, ...INSIDE);

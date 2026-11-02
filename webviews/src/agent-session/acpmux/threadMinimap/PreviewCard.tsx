@@ -141,7 +141,6 @@ export const PreviewCard = React.forwardRef<
   const layer = scroller?.parentElement;
   const anchor = useRef<HTMLSpanElement>(null);
   const self = useRef<HTMLDivElement | null>(null);
-  useSeeThroughBlur(self, !!layer, underCard);
   /// Where the card goes, as of the last render: read by `place`, which a commit or a resize runs.
   const at = useRef({ x, center, viewportHeight, layer, side });
   at.current = { x, center, viewportHeight, layer, side };
@@ -181,6 +180,8 @@ export const PreviewCard = React.forwardRef<
   }, []);
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose: the rail can move under the card with any render.
   useLayoutEffect(() => place());
+  // After the card is placed, so the blur's first measure finds it where it draws.
+  useSeeThroughBlur(self, !!layer, underCard);
   // The text budget is six lines: the old two-line prompt plus four-line reply. Measure the
   // prompt's actual wrapped lines when the card opens (and when its width changes), then give the
   // reply the remaining whole lines. Metadata and failure details keep their old natural rows.
