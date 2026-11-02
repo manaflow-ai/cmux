@@ -35,9 +35,7 @@ pub(crate) const PEER_LAGGED: &str = "peer_lagged";
 
 /// Removes peer `name`'s rows from `map`, answering their summaries (for the purge notices).
 fn take_peer_rows(map: &mut super::remote_rows::RemoteRows, name: &str) -> Vec<Value> {
-    let ids: Vec<String> =
-        map.iter().filter(|(_, r)| r.peer == name).map(|(id, _)| id.clone()).collect();
-    ids.into_iter().filter_map(|id| map.remove(&id).map(|r| r.summary)).collect()
+    map.take_peer(name).into_iter().map(|(_, r)| Arc::unwrap_or_clone(r).summary).collect()
 }
 
 impl Hub {
@@ -416,10 +414,7 @@ impl Hub {
             let listed = peers.values().map(|p| (p.name.clone(), p.summary())).collect();
             (listed, peers.values().filter(|p| p.github_broker()).map(|p| p.name.clone()).collect())
         };
-        let mut counts: HashMap<String, usize> = HashMap::new();
-        for r in self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner()).values() {
-            *counts.entry(r.peer.clone()).or_default() += 1;
-        }
+        let counts = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner()).peer_counts();
         let mut v: Vec<Value> = listed
             .into_iter()
             .map(|(name, mut s)| {
@@ -639,11 +634,10 @@ impl Hub {
                         let purged = self.with_tombstones(&peer, generation, |t| t.take());
                         let purged = purged.unwrap_or_default();
                         let mut old: HashMap<String, Value> = map
-                            .iter()
-                            .filter(|(_, r)| r.peer == peer)
-                            .map(|(id, r)| (id.clone(), r.summary.clone()))
+                            .take_peer(&peer)
+                            .into_iter()
+                            .map(|(id, r)| (id, Arc::unwrap_or_clone(r).summary))
                             .collect();
-                        map.retain(|_, r| r.peer != peer);
                         let mut changed = Vec::new();
                         for s in list {
                             let summary = Self::remote_summary(&peer, s);
@@ -663,7 +657,7 @@ impl Hub {
                         // before the lock goes: a page asked of a row read after it comes after it.
                         let created =
                             |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
-                        let listed = map.values().filter(|r| r.peer == peer);
+                        let listed = map.of_peer(&peer).map(|(_, r)| r);
                         let listed = listed.map(|r| (r.receipt.mux_session_id.clone(), created(r)));
                         self.peer_snapshots.listed(&peer, listed.collect(), true);
                         (changed, old.into_values().collect::<Vec<_>>())
@@ -692,10 +686,7 @@ impl Hub {
                             }
                             // An older list of this link must not bring it back.
                             self.with_tombstones(&peer, generation, |t| t.purged(&mux_id));
-                            let key = map
-                                .iter()
-                                .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
-                                .map(|(key, _)| key.clone());
+                            let key = map.find_mux(&peer, &mux_id).map(|(key, _)| key.clone());
                             let removed = key.and_then(|key| map.remove(&key).map(|r| r.summary));
                             // The generation the purge names (else the row's) goes from the
                             // snapshots too (`peer_snapshot.rs`), before the lock does.
@@ -731,16 +722,12 @@ impl Hub {
                             return;
                         }
                         self.with_tombstones(&peer, generation, |t| t.changed(&mux_id));
-                        let old_id = map
-                            .iter()
-                            .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
-                            .map(|(key, _)| key.clone());
-                        let previous =
-                            old_id.as_ref().and_then(|key| map.get(key).map(|r| r.summary.clone()));
-                        summary = Self::retain_summary_tools(summary, previous.as_ref());
-                        if let Some(old_id) = old_id {
-                            map.take(&old_id);
-                        }
+                        let old_id = map.find_mux(&peer, &mux_id).map(|(key, _)| key.clone());
+                        let previous = old_id.as_ref().and_then(|key| map.take(key));
+                        summary = Self::retain_summary_tools(
+                            summary,
+                            previous.as_ref().map(|r| &r.summary),
+                        );
                         map.insert(
                             id.clone(),
                             RemoteSession { peer: peer.clone(), summary: summary.clone(), receipt },
@@ -776,9 +763,8 @@ impl Hub {
                         .remote_sessions
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
-                        .values()
-                        .filter(|r| r.peer == peer)
-                        .map(|r| r.receipt.mux_session_id.clone())
+                        .of_peer(&peer)
+                        .map(|(_, r)| r.receipt.mux_session_id.clone())
                         .collect();
                     for id in ids {
                         let _ = self.events.send(HubEvent {
@@ -807,9 +793,8 @@ impl Hub {
                         .remote_sessions
                         .lock()
                         .unwrap()
-                        .values()
-                        .find(|r| r.peer == peer && r.receipt.mux_session_id == id)
-                        .map(|r| r.summary.clone())
+                        .find_mux(&peer, &id)
+                        .map(|(_, r)| r.summary.clone())
                         .unwrap_or(Value::Null);
                     let record = match m.as_str() {
                         method::SESSION_UPDATE => EventRecord {
@@ -919,8 +904,8 @@ impl Hub {
             .remote_sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .any(|r| r.peer == peer && r.receipt.mux_session_id == id);
+            .find_mux(peer, id)
+            .is_some();
         let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).contains_key(id);
         if !listed || local {
             return PeerAskRun::Forged;
@@ -1096,8 +1081,7 @@ impl Hub {
         }
         let created = |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
         let key = map
-            .iter()
-            .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux)
+            .find_mux(peer, mux)
             .filter(|(_, r)| created(r) == generation)
             .map(|(key, _)| key.clone());
         let removed = key.and_then(|key| map.take(&key));
