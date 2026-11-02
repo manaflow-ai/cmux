@@ -215,7 +215,9 @@ jobs:
     # from before it could fail (or that a later Size: edit changed) must not
     # answer for it.
     if: ${{ !cancelled() && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # A declared light job (.github/runners.json hosted_light_jobs): one GraphQL read, 4 s of work.
+    # Hosted Ubuntu on attempt 1, the reconciled Linux pool on a re-run (no secret).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -296,7 +298,9 @@ jobs:
     name: UI review advisory
     needs: base-only
     if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # A declared light job (.github/runners.json hosted_light_jobs): one file list read, 4 s of work.
+    # Hosted Ubuntu on attempt 1, the reconciled Linux pool on a re-run (no secret).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       contents: read

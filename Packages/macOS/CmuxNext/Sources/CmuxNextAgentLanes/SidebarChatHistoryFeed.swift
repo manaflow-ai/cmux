@@ -45,7 +45,8 @@ public final class SidebarChatHistoryFeed {
                 guard DesignSettings.shared.sidebarSections.sessionTree else { return nil }
                 let inputs = Inputs(live: Self.liveChats(liveTabs(), lanes: lanes, localHost: localHost),
                                     pinned: history.pinned, limit: history.limit, folded: history.earlierFolded)
-                return Shown(inputs: inputs, state: Self.state(earlier: earlier.rows, pinned: pinned.rows, inputs: inputs))
+                return Shown(inputs: inputs, state: Self.state(earlier: earlier.rows, more: earlier.hasMore, pinned: pinned.rows,
+                                                               inputs: inputs))
             }) {
                 if let shown {
                     windows.open(shown.inputs.earlierSpec)
@@ -72,10 +73,10 @@ public final class SidebarChatHistoryFeed {
         var limit: Int
         var folded: Bool
 
-        /// Earlier's window: one more row than the page, so the history knows Show More; one row
-        /// while folded, so its header knows whether Earlier has a chat.
+        /// Earlier's window: the page (acpmux says whether more chats wait past it, `hasMore`); one
+        /// row while folded, so its header knows whether Earlier has a chat.
         var earlierSpec: AcpmuxChatWindows.Spec {
-            AcpmuxChatWindows.Spec(window: SidebarChatHistoryFeed.earlierWindow, limit: folded ? 1 : max(0, limit) + 1,
+            AcpmuxChatWindows.Spec(window: SidebarChatHistoryFeed.earlierWindow, limit: folded ? 1 : max(1, limit),
                                    topLevel: true, exclude: live.union(pinned).sorted())
         }
 
@@ -85,12 +86,13 @@ public final class SidebarChatHistoryFeed {
         }
     }
 
-    /// The history of the two windows' rows. The local skip (`live`, `pinned`) holds only until
-    /// acpmux answers a new spec, so a chat just pinned never lists twice.
-    static func state(earlier: [AcpmuxChat], pinned: [AcpmuxChat], inputs: Inputs) -> SidebarChatHistoryState {
+    /// The history of the two windows' rows; `more`: acpmux's Earlier window has chats past its page.
+    /// The local skip (`live`, `pinned`) holds only until acpmux answers a new spec, so a chat just
+    /// pinned never lists twice.
+    static func state(earlier: [AcpmuxChat], more: Bool, pinned: [AcpmuxChat], inputs: Inputs) -> SidebarChatHistoryState {
         let pinnedByID = Dictionary(pinned.map { ($0.id, historyChat($0)) }, uniquingKeysWith: { first, _ in first })
         return SidebarChatHistoryState.make(newest: earlier.lazy.map(historyChat), chat: { pinnedByID[$0] }, live: inputs.live,
-                                            pinned: inputs.pinned, limit: inputs.limit, folded: inputs.folded)
+                                            pinned: inputs.pinned, limit: inputs.limit, folded: inputs.folded, more: more)
     }
 
     /// The live-tab projection used by the app. It observes each session's chat binding only;

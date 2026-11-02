@@ -122,6 +122,15 @@ final class LayoutViewContext {
 
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }
+        // A close that springs is taken back before it landed (a refused close, a reopen): the same host shows again.
+        if let entry = retired.removeValue(forKey: pane) {
+            entry.host.isHidden = false
+            entry.host.chrome.isHidden = false
+            // Its ring is placed again by the next overlay sync, whatever it last showed.
+            entry.host.overlaySyncKey = nil
+            hosts[pane] = entry.host
+            return entry.host
+        }
         let content = provider?.makeContentView(for: pane) ?? NSView()
         let host = PaneHostView(pane: pane, content: content) { [weak self] in
             self?.provider?.holdsContentInMotion(for: pane) ?? false
@@ -132,8 +141,53 @@ final class LayoutViewContext {
 
     func release(_ pane: PaneID) {
         guard let host = hosts.removeValue(forKey: pane) else { return }
+        tearDown(host)
+    }
+
+    private func tearDown(_ host: PaneHostView) {
         host.removeFromSuperview()
         host.chrome.removeFromSuperview()
-        provider?.releaseContentView(host.content, for: pane)
+        provider?.releaseContentView(host.content, for: host.pane)
     }
+
+    /// Hosts of panes a springing close took out of the layout (`ScreenContentView.reconcile`), by the screen that
+    /// showed them: hidden in the close's own turn (a page window orders out with the hide, `CEFHostView.viewDidHide`),
+    /// torn down when that screen's motion lands (`releaseRetired`). The teardown (the host's layers leaving the
+    /// tree, the content released to the provider: its pane controller and a terminal's surface going) is work no
+    /// frame shows; done in the close's first frame it added to that frame's main turn and Core Animation commit,
+    /// which missed refreshes (RESIZE VIDEOS F1).
+    /// A zoom keeps the panes it covers the same way, until the screen unzooms (`Retirement.zoom`): they come back
+    /// with the unzoom as they were (RESIZE VIDEOS Z1: the landing tore down every other pane, 11 pane controllers in
+    /// one frame of 42 ms, and the unzoom made them all again in one frame of 48 ms).
+    private(set) var retired: [PaneID: (host: PaneHostView, screen: ScreenID, until: Retirement)] = [:]
+
+    /// Until when a retired host is kept.
+    enum Retirement {
+        /// A close: until its screen's motion lands.
+        case landing
+        /// A zoom's covered pane: until its screen unzooms (it comes back then, or is torn down).
+        case zoom
+    }
+
+    /// Takes `pane`'s host out of the layout without tearing it down: hidden now (no hit, no focus, no AX, its ring
+    /// with it; a hidden terminal stops drawing), released at `until`. A pane with no host does nothing.
+    func retire(_ pane: PaneID, from screen: ScreenID, until: Retirement = .landing) {
+        guard let host = hosts.removeValue(forKey: pane) else { return }
+        host.isHidden = true
+        host.chrome.isHidden = true
+        retired[pane] = (host, screen, until)
+    }
+
+    /// Tears down the hosts `screen` retired until `until` (a close's: its motion landed or it settles at once; a
+    /// zoom's: it unzoomed and they did not come back), or every one with nil (the screen went away).
+    func releaseRetired(of screen: ScreenID, until: Retirement? = .landing) {
+        guard retired.values.contains(where: { $0.screen == screen && (until == nil || $0.until == until) }) else { return }
+        for (pane, entry) in retired where entry.screen == screen && (until == nil || entry.until == until) {
+            retired[pane] = nil
+            tearDown(entry.host)
+        }
+    }
+
+    /// Whether `chrome` is the ring of a retired host: the overlay sync leaves it for the teardown.
+    func isRetiredChrome(_ chrome: NSView) -> Bool { retired.values.contains { $0.host.chrome === chrome } }
 }

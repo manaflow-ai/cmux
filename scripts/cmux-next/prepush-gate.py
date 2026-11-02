@@ -198,6 +198,11 @@ SCANNERS = (
 # Ghostty's default split keys stay Ghostty's (Lawrence 2026-10-20, after 2f3e1f95983).
 RESERVED_CHECK = "Ghostty-default keys (schemas/keybindings/ghostty-reserved-keys.json)"
 CONFLICT_CHECK = "Merge conflict markers"
+CARGO_LOCK_CHECK = "Cargo.lock matches its manifests (cargo metadata --locked)"
+CARGO_FILE = re.compile(r"(^|/)Cargo\.(toml|lock)$")
+CARGO_DRIFT = "cannot update the lock file"
+CARGO_HINT = ("Fix the lock: run `cargo metadata --offline --format-version 1 >/dev/null` in that workspace (it "
+              "rewrites Cargo.lock with no version changes), commit it, then push.")
 SIDEBAR_CHECK = "Sidebar look owner (plans/cmux-next/sidebar-owner.md)"
 SIDEBAR_VIEWS = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/"
 # The sidebar package's code, not only Views/: a702 (9a2fceefbbb, 2026-10-25) changed the pinned section from tiles
@@ -875,6 +880,60 @@ def leo_bans(repo: Path, base: str, head: str, trusted_scripts: Path | None = No
         return [line for line in findings("--rev", head, "--base", base) if line not in base_lines]
 
 
+def cargo_lock_drift(repo: Path, base: str, head: str) -> list[str]:
+    """Each Cargo workspace whose Cargo.lock no longer matches its manifests at head, when the push changes a
+    Cargo.toml or Cargo.lock in it.
+
+    2026-11-02: #31462 moved fs4 between two crates' Cargo.toml and put it under the wrong crate in Cargo.lock.
+    Every --locked cargo step on feat-cmux-next then stopped ("cannot update the lock file"), the NEXT nightly
+    included, until #31717. It reads the pushing checkout itself (no tree is exported), so it runs only when
+    head is the checked-out HEAD and the workspace's Cargo files have no uncommitted edits; it refuses only on
+    cargo's own lock error and lets the push through on any other (no cargo, an uncached index, a timeout).
+    """
+    changed = [p for p in changed_files(repo, base, head) if CARGO_FILE.search(p)]
+    if not changed or shutil.which("cargo") is None:
+        return []
+    try:
+        checked_out = git(repo, "rev-parse", "HEAD").decode().strip() == git(repo, "rev-parse", head).decode().strip()
+    except subprocess.CalledProcessError:
+        return []
+    # Pathspecs here use git's default matching, where `*` also matches `/`.
+    locks = [p for p in git(repo, "ls-files", "-z", "--", "*Cargo.lock").decode().split("\0")
+             if p.rpartition("/")[2] == "Cargo.lock"]
+    roots = sorted({lock.rpartition("/")[0] for lock in locks
+                    if any(p.startswith(lock.rpartition("/")[0] + "/") or "/" not in lock for p in changed)})
+    if not roots:
+        return []
+    dirty = subprocess.run(["git", "-C", str(repo), "diff", "--quiet", "HEAD", "--",
+                            *(f"{root}/*Cargo.toml" if root else "*Cargo.toml" for root in roots),
+                            *(f"{root}/Cargo.lock" if root else "Cargo.lock" for root in roots)],
+                           capture_output=True).returncode != 0
+    if not checked_out or dirty:
+        log("prepush-gate: Cargo.lock check skipped: the pushed head is not this checkout's clean HEAD")
+        return []
+    # A toolchain the workspace pins but this host lacks is never installed for a lock check.
+    env = {**os.environ, "RUSTUP_AUTO_INSTALL": "0", "CARGO_TERM_COLOR": "never"}
+    found = []
+    for root in roots:
+        manifest = repo.resolve() / root / "Cargo.toml"
+        if not manifest.is_file():
+            continue
+        for network in ("--offline", None):
+            args = ["cargo", "metadata", "--locked", "--format-version", "1", "--manifest-path", str(manifest)]
+            try:
+                run = subprocess.run(args + ([network] if network else []), cwd=manifest.parent, env=env,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=60)
+            except (OSError, subprocess.TimeoutExpired):
+                break
+            if run.returncode == 0:
+                break
+            if CARGO_DRIFT in run.stderr:
+                found.append(f"{root + '/' if root else ''}Cargo.lock: does not match its manifests "
+                             f"(cargo metadata --locked: {CARGO_DRIFT})")
+                break
+    return found
+
+
 def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
     """`file:line` of each conflict marker the push adds, in any file of the repository.
 
@@ -1046,6 +1105,12 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         markers = conflict_markers(repo, base, head)
         if markers:
             reserved.append((CONFLICT_CHECK, markers))
+    # Local only, like SwiftFormat: CI's own --locked cargo steps stay the backstop. Not in gate_own's runs over the
+    # ranges a merge does not own (RESTRICT): the check reads only the checkout, never those ranges' heads.
+    if (highlights_layer if only is None else "cargo-lock" in only) and restrict is None:
+        drift = cargo_lock_drift(repo, base, head)
+        if drift:
+            reserved.append((CARGO_LOCK_CHECK, drift))
     if only is None or "sidebar" in only:
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
@@ -1486,7 +1551,7 @@ def main(argv: list[str] | None = None) -> int:
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved,leo-bans,conflicts,"
-                                       "sidebar,crash-allow,freeze,highlights")
+                                       "cargo-lock,sidebar,crash-allow,freeze,highlights")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     args = parser.parse_args(argv)
@@ -1624,6 +1689,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if any(name == HIGHLIGHTS_CHECK for name, _ in found_any):
         print(HIGHLIGHTS_HINT)
+    if any(name == CARGO_LOCK_CHECK for name, _ in found_any):
+        print(CARGO_HINT)
     print(HOW_TO_FIX)
     print(f"prepush-gate: push refused ({elapsed:.1f}s)")
     return 1

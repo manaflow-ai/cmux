@@ -59,11 +59,11 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
     await vite?.close();
   });
 
-  const open = async (variant: string, theme: string): Promise<Page> => {
+  const open = async (variant: string, theme: string, entry = ENTRY): Promise<Page> => {
     const page = await browser.newPage({ viewport: { width: 900, height: 1200 }, deviceScaleFactor: 2 });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
-      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 720, theme, reducedMotion: "true" })}`,
+      `http://127.0.0.1:${port}${galleryFrame(entry, { variant, width: 720, theme, reducedMotion: "true" })}`,
     );
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
@@ -184,6 +184,27 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         await page.mouse.move(1, 1);
         const earlier = await footers(page, ".acpmux-turnSummary:not(.acpmux-row--final-footer)");
         for (const footer of earlier) expect(footer.actionsOpacity).toBe(0);
+      } finally {
+        await page.close();
+      }
+    });
+    // A stopped turn's Continue is a labelled button: the footer's 32 squares are its icon buttons
+    // only, so its word is never clipped to one (#31690's review).
+    test(`a stopped turn's Continue keeps its label's width (${theme.name})`, async () => {
+      const page = await open("turn-stopped", theme.name, "agent-pane.transcript");
+      try {
+        const button = page.locator(".cv-turn-continue").first();
+        await button.waitFor({ timeout: 10_000 });
+        const fit = await button.evaluate((el) => ({
+          width: el.getBoundingClientRect().width,
+          scroll: el.scrollWidth,
+          client: el.clientWidth,
+          glyph: el.querySelector("svg")?.getBoundingClientRect().width ?? 0,
+        }));
+        console.log(`REPLY_FOOTER ${theme.file} continue ${JSON.stringify(fit)}`);
+        expect(fit.width).toBeGreaterThan(40);
+        expect(fit.scroll).toBeLessThanOrEqual(fit.client + 1);
+        expect(fit.glyph).toBeLessThan(20);
       } finally {
         await page.close();
       }

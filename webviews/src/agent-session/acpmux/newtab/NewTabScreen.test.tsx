@@ -571,6 +571,78 @@ test("a /word anywhere in the text loads the agent's command list, not only one 
   expect(asked.length).toBe(1);
 });
 
+test("shell mode asks for no command list and starts no chat for a path in its command", async () => {
+  const asked: string[] = [];
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat()}
+        onCommands={(harness) => asked.push(harness)}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    );
+  });
+  await typePrompt("!");
+  await typePrompt("cat /etc/hosts");
+  expect(container.querySelector(".nt-shell-glyph")).not.toBeNull();
+  expect(asked).toEqual([]);
+  expect(asks).toEqual([]);
+  expect(container.querySelector(".nt-field .acpmux-slash-token")).toBeNull();
+});
+
+test("a cleared draft forgets the row the arrows chose: the same word typed again and Return sends", async () => {
+  const asks: unknown[][] = [];
+  const skill = { name: "review-pr", description: "", source: "skill" as const };
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([], { commands: [skill] })}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    );
+  });
+  let field = await typePrompt("fix /pr");
+  expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  await press(field, "ArrowDown");
+  await typePrompt("");
+  field = await typePrompt("fix /pr");
+  // The same word typed again opens the list again.
+  expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  await press(field, "Enter");
+  expect(promptValue()).not.toContain("/review-pr");
+  expect(asks.map((ask) => ask[1])).toEqual(["fix /pr"]);
+});
+
+test("an Escape on the list is forgotten once the text changes: the same word typed again shows it", async () => {
+  // The host's list sends the field an Escape as it closes (ui/popupHost.ts), as a person's Escape.
+  const skill = { name: "review-pr", description: "", source: "skill" as const };
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat([], { commands: [skill] })} />);
+  });
+  const menu = () => container.querySelector("#acpmux-slash-menu");
+  let field = await typePrompt("fix /pr");
+  await press(field, "ArrowDown");
+  await press(field, "Escape");
+  expect(menu()).toBeNull();
+  // Cleared, then the same word again: the list is back.
+  await typePrompt("");
+  field = await typePrompt("fix /pr");
+  expect(menu()).not.toBeNull();
+  // Escape, then more typing on the word, then back to it: back each time.
+  await press(field, "Escape");
+  expect(menu()).toBeNull();
+  await typePrompt("fix /pre");
+  await typePrompt("fix /pr");
+  expect(menu()).not.toBeNull();
+  // Cleared, then `/` at the start: every command.
+  await typePrompt("");
+  await typePrompt("/");
+  expect(menu()).not.toBeNull();
+});
+
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {
   const uploaded: File[][] = [];
   const asks: unknown[][] = [];

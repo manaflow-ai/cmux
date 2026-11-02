@@ -142,11 +142,14 @@ export const Undo = (p: CvIconProps) => (
   </Svg>
 );
 
-/// A counterclockwise arrow: send the prompt again.
+/// A counterclockwise arrow: send the prompt again. The arc runs on into the arrowhead's corner
+/// (2.5, 5.56), so the head joins the line instead of floating off its end, and it spans Copy's
+/// 11px (2.5-13.5) beside it (Leo, 2026-10-27: "Looks like a, like a mangled little corpse on that
+/// arrow bit").
 export const Retry = (p: CvIconProps) => (
   <Svg {...p}>
-    <path d="M3.25 8a4.75 4.75 0 1 0 1.4-3.36" />
-    <path d="M3.25 2.75v2.5h2.5" />
+    <path d="M2.5 8a5.5 5.5 0 1 0 5.5-5.5 6 6 0 0 0-4.12 1.67L2.5 5.56" />
+    <path d="M2.5 2.5v3.06h3.06" />
   </Svg>
 );
 

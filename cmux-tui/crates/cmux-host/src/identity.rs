@@ -10,7 +10,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::cloud::client::Store;
-use crate::cloud::wire::{BIND_FILE, INSTALL_KEY_FILE};
+use crate::cloud::wire::INSTALL_KEY_FILE;
+// Used only by `scoped`, which is compiled on Linux and in tests (#31721).
+#[cfg(any(target_os = "linux", test))]
+use crate::cloud::wire::BIND_FILE;
+#[cfg(any(target_os = "linux", test))]
 use crate::config::Paths;
 
 pub const SOCKET: &str = "/run/cmux-host/identity.sock";
@@ -18,7 +22,10 @@ pub const SOCKET: &str = "/run/cmux-host/identity.sock";
 pub const RECEIPT: &str = "/var/lib/cmux/install/identity.json";
 /// Platform-scope enrollment is deliberately kept separate from legacy bind state.  A
 /// late scoped read must never rotate the key or receipt owned by normal enrollment.
+/// Like `scoped`, they exist on Linux and in tests only.
+#[cfg(any(target_os = "linux", test))]
 const SCOPED_INSTALL_KEY_FILE: &str = "/var/lib/cmux/install/platform-scope-key.json";
+#[cfg(any(target_os = "linux", test))]
 const SCOPED_RECEIPT: &str = "/var/lib/cmux/install/platform-scope-identity.json";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

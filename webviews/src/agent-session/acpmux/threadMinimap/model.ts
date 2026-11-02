@@ -36,8 +36,8 @@ export type MinimapTurn = {
 
 /// The rail's geometry and timing, measured from 60 Hz recordings of the Codex desktop app's prompt
 /// rail (lane notes: minimap-ref/SPEC.md). CSS px and ms; the drawn sizes live in threadMinimap.css.
-/// The rail shows from this many prompts...
-export const MIN_PROMPTS = 4;
+/// Every prompt has a tick, even when the whole chat fits on one screen.
+export const MIN_PROMPTS = 1;
 /// One row per prompt: a fixed 10 px pitch (not proportional to the thread), 36 px wide to hit.
 export const ROW_PITCH = 10;
 export const ROW_WIDTH = 36;
@@ -56,10 +56,16 @@ export function railPlacement(
   spacing: { min: number; max: number; compact: number; narrowest?: number } = { min: 8, max: 16, compact: 12 },
 ): { left: number; width: number; overlapsText: boolean; gutter: number } {
   const paneInset = transcriptColumn(paneWidth).inset;
-  const left = Math.min(spacing.max, Math.max(spacing.min, Math.floor(paneInset - ROW_WIDTH)));
   // The narrowest hit width: the compact step for the tight gutter (gutter.experiment.ts), so the
   // resting rail fits the page edge; the inset plus that step for the edge strip.
   const minimumWidth = spacing.narrowest ?? spacing.min + spacing.compact;
+  // The tight gutter: a gutter too short for the widest step keeps up to the compact step of room left
+  // of the ticks, taken from the hit width down to its narrowest, before the inset drops toward the
+  // narrowest step (Lawrence via Leo, 2026-10-28: "needs more left padding"). The edge strip keeps its
+  // 2026-10-28 placement.
+  const roomy =
+    spacing.narrowest === undefined ? spacing.min : Math.min(spacing.compact, Math.floor(paneInset - minimumWidth));
+  const left = Math.min(spacing.max, Math.max(spacing.min, Math.floor(paneInset - ROW_WIDTH), roomy));
   const width = Math.min(ROW_WIDTH, Math.max(minimumWidth, textInset - left));
   // `gutter` is the text's own inset, so the occluded rail's hover strip can stop at the text edge.
   return { left, width, overlapsText: left + width > textInset, gutter: Math.max(0, textInset) };
@@ -240,6 +246,19 @@ export function cardOffset(center: number, cardHeight: number, viewportHeight: n
 export function jumpDuration(distance: number): number {
   const share = Math.min(1, Math.max(0, (Math.abs(distance) - 150) / 500));
   return Math.round(200 + 200 * share);
+}
+
+/// How many viewports of a long Jump to latest are glided; the rest is skipped at once.
+export const JUMP_GLIDE_VIEWPORTS = 1;
+
+/// Where Jump to latest's glide starts: from `from` when the end is within JUMP_GLIDE_VIEWPORTS,
+/// else that far above `target`. Gliding the whole way through a long chat mounted every row in
+/// between for a frame or two, drawn blank while they measured (Leo, 2026-10-28: "when I click the
+/// jump to bottom button, it should be, like, on the in-between. It shouldn't need to be doing that
+/// thing"). Skipping the middle draws only rows near the end.
+export function jumpGlideStart(from: number, target: number, viewport: number): number {
+  const span = Math.max(0, viewport) * JUMP_GLIDE_VIEWPORTS;
+  return target - from > span ? target - span : from;
 }
 
 /// Each prompt's turn and the reply it previews, by row object: rows are immutable, so a long

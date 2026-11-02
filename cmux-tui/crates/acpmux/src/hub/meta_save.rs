@@ -271,20 +271,12 @@ impl Hub {
     /// session when the node is built, left about 450 of them in two hours (2026-10-20).
     fn write_snapshot(&self, session: &Session) -> Result<()> {
         if session.purged.load(Ordering::SeqCst) {
+            self.remove_cached_closed_summary(&session.id);
             return Ok(());
         }
         let meta = session.meta();
-        if meta.status == SessionStatus::Closed {
-            let list = self.session_list_summary(session);
-            let full = self.session_summary(session);
-            let generation = self.events.summary_generation.load(Ordering::SeqCst);
-            let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
-            cache.insert(
-                session.id.clone(),
-                (generation, serde_json::to_string(&list)?, serde_json::to_string(&full)?),
-            );
-        } else {
-            self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner()).remove(&session.id);
+        if meta.status != SessionStatus::Closed {
+            self.remove_cached_closed_summary(&session.id);
         }
         #[cfg(debug_assertions)]
         hold_seam(&session.id);

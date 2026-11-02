@@ -60,6 +60,12 @@ struct CmuxMobileApp: App {
                 scenePhase: scenePhase,
                 accountID: auth.isSignedIn ? auth.user?.id : nil
             ))
+            #if DEBUG
+            // Rig: `-cmux-mobile-run-intent new-agent-chat` with CMUX_MOBILE_INTENT_MESSAGE runs the
+            // App Shortcut's own perform() at launch, as the system would on a tap (a headless
+            // simulator's Spotlight opens the app without running an app's intents).
+            .task { await NewAgentChatIntent.runFromLaunchArguments() }
+            #endif
         }
     }
 }
