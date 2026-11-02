@@ -63,6 +63,7 @@ import {
   LANE_NOTICE_BATCH,
   MESSAGE_RUN,
   isLineRow,
+  isLiveStep,
   restRoom,
 } from "./model";
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
@@ -133,7 +134,7 @@ import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type Acpmu
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
 import { animateScroll, stopScroll } from "./threadMinimap/scrollMotion";
-import { JUMP_CURVE, jumpDuration } from "./threadMinimap/model";
+import { JUMP_CURVE, jumpDuration, jumpGlideStart } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
@@ -389,7 +390,7 @@ import {
   sessionEdits,
   type SessionEdits,
 } from "./turnChanges/sessionRows";
-import { repositoryRoot, viewChangesBeside, viewChangesTurn } from "./turnChanges/viewChanges";
+import { headerChangesInPlace, repositoryRoot, viewChangesBeside, viewChangesTurn } from "./turnChanges/viewChanges";
 import { resendToOwner, retryFailedTurn } from "./conversation/turnRetry";
 import {
   TurnActionsContext,
@@ -2394,6 +2395,9 @@ function settleFollowBottom(node: HTMLElement, latest: number): boolean {
 /// A scroll commits from its event, a frame after the offset moved, so without the
 /// lead a fling shows a blank edge on every frame.
 const SCROLL_LEAD_STEPS = 2;
+/// Once a fling stops, keep its lead only briefly. A stale direction keeps rows mounted far ahead
+/// of the reader and makes every later render pay for a scroll that already ended.
+const SCROLL_LEAD_IDLE_MS = 120;
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
 
@@ -2740,11 +2744,26 @@ export function VirtualTranscript({
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
   const scrollRef = useRef({ top: 0, delta: 0 });
+  const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [, setScroll] = useState(scrollRef.current);
+  const scheduleScrollLeadReset = () => {
+    clearTimeout(scrollLeadTimer.current);
+    if (scrollRef.current.delta === 0) {
+      scrollLeadTimer.current = undefined;
+      return;
+    }
+    scrollLeadTimer.current = setTimeout(() => {
+      scrollLeadTimer.current = undefined;
+      if (scrollRef.current.delta === 0) return;
+      scrollRef.current = { ...scrollRef.current, delta: 0 };
+      setScroll(scrollRef.current);
+    }, SCROLL_LEAD_IDLE_MS);
+  };
   const setScrollAt = (top: number, delta = top - scrollRef.current.top) => {
     const next = { top, delta };
     scrollRef.current = next;
     setScroll(next);
+    scheduleScrollLeadReset();
   };
   /// The view follows the latest row (scrolledTo.atLatest, as of the last scroll). Jump to latest shows
   /// when it does not and the latest message is more than JUMP_LATEST_DISTANCE below, read each render,
@@ -2834,6 +2853,7 @@ export function VirtualTranscript({
     // of 0 left the next render no lead, and a fling painted blank frames (transcript-fling on the
     // CI runner, mounted rows a step behind the view).
     scrollRef.current = { top, delta: top - scrollRef.current.top || scrollRef.current.delta };
+    scheduleScrollLeadReset();
     scrollPacer.current!.enqueue({ top, atLatest });
   };
   useEffect(() => {
@@ -2841,6 +2861,7 @@ export function VirtualTranscript({
     return () => {
       transcriptMounted.current = false;
       scrollPacer.current?.cancel();
+      clearTimeout(scrollLeadTimer.current);
     };
   }, []);
   /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
@@ -4919,10 +4940,14 @@ export function VirtualTranscript({
     const move = cssTimeMs(
       node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-move") ?? "",
     );
+    jumpTarget.current = target;
+    // A long way from the end: skip the middle at once and glide only the last viewport, so the rows
+    // in between never mount (jumpGlideStart). Set after jumpTarget, so its scroll reads as a glide step.
+    const glideFrom = jumpGlideStart(node.scrollTop, target, node.clientHeight);
+    if (!reduce && glideFrom !== node.scrollTop) node.scrollTop = glideFrom;
     const duration = reduce
       ? 0
       : jumpDuration(target - node.scrollTop) * ((move ?? MOTION_MS.standard) / MOTION_MS.standard);
-    jumpTarget.current = target;
     animateScroll(
       node,
       () =>
@@ -5445,10 +5470,15 @@ export function VirtualTranscript({
                       key={`${sessionId ?? ""}:${row.id}`}
                       row={row}
                       kind={kind}
-                      joinsPrevious={isStepRow(row) && isStepRow(rows[absoluteIndex - 1])}
+                      joinsPrevious={
+                        (isStepRow(row) && isStepRow(rows[absoluteIndex - 1])) ||
+                        isLiveStep(row, prevDrawnRow(rows, absoluteIndex))
+                      }
                       joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
                       beforeFooter={isBeforeFooter(row, next)}
-                      beforeIndicator={next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR}
+                      beforeIndicator={
+                        next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR
+                      }
                       replyActions={keepsReplyRoom(row, next)}
                       status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
                       lastFooter={isLastFooter(row, next)}
@@ -11524,6 +11554,18 @@ function AcpmuxPane() {
     runHeaderAction(id, cwd, mode);
     window.setTimeout(refreshTabState, 400);
   };
+  // Changes opens the folder's diff tab beside the chat. A folder outside a repository has no diff for
+  // that tab, and the app's fallback was the folder picker in the palette (Leo, 2026-10-28: "All it does
+  // is open up the command palette, and it doesn't open up the diff viewer on the right side"), so there
+  // it toggles the last turn's changes view on the chat's right, as the edited-files card does.
+  const toggleChanges = (mode: QuickActionMode) => {
+    void headerChangesInPlace(localCwd, litSplits.includes(HEADER_ACTIONS.changes), readFolderStatus).then(
+      (inPlace) => {
+        if (!inPlace) runSplitAction(HEADER_ACTIONS.changes, localCwd, mode);
+        else if (mode === "toggle" || !diffOpen) toggleLastChanges();
+      },
+    );
+  };
   const togglePreview = (url: string | undefined) => {
     ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, ...(url ? { url } : {}), mode: "toggle" }));
     window.setTimeout(refreshTabState, 400);
@@ -13337,6 +13379,7 @@ function AcpmuxPane() {
               machineName,
               peerKinds: snapshot.peerKinds,
               repository: githubRepository,
+              cloudRepositoryAvailable,
               onOpenFolder:
                 quick || !sessionInfoLocal
                   ? undefined
@@ -13766,7 +13809,7 @@ function AcpmuxPane() {
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
                       // Changes owns the diff of the chat's folder; a remote chat's folder is not on this Mac.
                       hasChanges={lastEditTurn !== undefined && localCwd !== undefined}
-                      onChanges={(mode) => runSplitAction(HEADER_ACTIONS.changes, localCwd, mode)}
+                      onChanges={toggleChanges}
                       onFiles={localCwd ? (mode) => runSplitAction(HEADER_ACTIONS.files, localCwd, mode) : undefined}
                       previewUrl={previewUrl}
                       onPreview={(url, mode) => {
