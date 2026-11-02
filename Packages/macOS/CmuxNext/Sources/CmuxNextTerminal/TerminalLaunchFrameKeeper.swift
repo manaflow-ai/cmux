@@ -47,6 +47,8 @@ final class TerminalLaunchFrameKeeper {
     private(set) var saves = 0
     /// Files removed (a terminal hidden or closed, or one this run does not show).
     private(set) var removals = 0
+    /// Checks run on the main actor (each one a timer wake): tests count the ones a hidden terminal costs.
+    private(set) var checks = 0
     /// Runs on the files lane after each write or removal of a key's file (tests).
     var onWritten: (@Sendable (String) -> Void)?
 
@@ -112,9 +114,11 @@ final class TerminalLaunchFrameKeeper {
     /// quiet for ``idle`` (one still changing after ``busyWait`` of a due save saves anyway), else checks again later.
     func check(_ key: String) async { // perf-hot: 1ms launch-first-frame (one terminal's frame keep check)
         guard !stopped, var entry = kept[key] else { return }
-        // Not on screen (hidden, its workspace away, closed): its file goes at once, with no interval.
+        checks += 1
+        // Not on screen (hidden, its workspace away, closed): its file goes at once, with no interval. No read of the
+        // changes: output while hidden only counts (the model), with no hop or timer here; the next visibility change
+        // (``TerminalFrameChanges/wake()``: shown, drawn, closed) wakes the keeper again (SWITCH FRAMES SF-5).
         guard let session = entry.session, Self.isOnScreen(session) else {
-            _ = entry.changes.take()
             remove(key)
             // Closed: nothing visits it again. One only out of a window for now (a move) stays: its next window wakes it.
             if entry.session?.isClosed ?? true {
