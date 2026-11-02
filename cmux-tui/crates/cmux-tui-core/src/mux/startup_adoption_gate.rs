@@ -40,10 +40,18 @@ impl GateState {
     }
 }
 
-#[derive(Default)]
+/// Also the respawn gate after a kill of everything (`Mux::respawn_gate`,
+/// mux/terminal_respawn.rs), with its own slot count.
 pub(crate) struct StartupAdoptionGate {
     state: Mutex<GateState>,
     changed: Condvar,
+    slots: usize,
+}
+
+impl Default for StartupAdoptionGate {
+    fn default() -> Self {
+        Self::with_slots(STARTUP_ADOPTION_SLOTS)
+    }
 }
 
 /// A place in line, taken when the adoption is scheduled. Dropping it before
@@ -74,6 +82,11 @@ impl Drop for Ticket {
 pub(crate) struct Turn<'a>(&'a StartupAdoptionGate);
 
 impl StartupAdoptionGate {
+    /// A gate that lets `slots` turns run at once (at least one).
+    pub(super) fn with_slots(slots: usize) -> Self {
+        Self { state: Mutex::default(), changed: Condvar::new(), slots: slots.max(1) }
+    }
+
     pub(super) fn ticket(self: &Arc<Self>) -> Ticket {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let number = state.next_ticket;
@@ -93,7 +106,7 @@ impl StartupAdoptionGate {
                 drop(state);
                 return None;
             }
-            if state.serving == ticket.number && state.active < STARTUP_ADOPTION_SLOTS {
+            if state.serving == ticket.number && state.active < self.slots {
                 ticket.used = true;
                 state.serving += 1;
                 state.skip_abandoned();

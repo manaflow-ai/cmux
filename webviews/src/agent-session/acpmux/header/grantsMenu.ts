@@ -2,7 +2,7 @@
 // Revoke Granted Access row that takes each back. The composer's mode menu lists the modes alone
 // (Leo, 2026-10-29: "What is this bottom fucking bullshit?"), so a grant needs a home that is
 // always there: the chat menu (…) is in every chat with default settings, where Session Info's
-// Environment (session-info/EnvironmentSection.tsx) shows only with Debug Settings `agent.inspector`
+// Environment (session-info/EnvironmentSection.tsx) shows only with Debug Settings `agent.sessionInfo`
 // on. Once trust is decided the trust bar is gone, so without this row a trusted folder had no
 // visible way back with default settings.
 import { type Translate, translate } from "../i18n";
