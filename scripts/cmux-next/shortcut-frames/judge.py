@@ -199,7 +199,10 @@ def judge_press(key_ns: int, label: str, frames: list[tuple[int, float, np.ndarr
     # Layout: the first frame against the settled frame, then every later frame against the one before it.
     lines = [layout_lines(img, s, keep) for img in gray_post[first:settled_i + 1]] or [layout_lines(gray_post[first], s, keep)]
     final = layout_lines(settled, s, keep)
-    if lines[0] != final and not s.animated:
+    # Animated: lines may still be moving in the first frame, but none may be missing (a line count below the
+    # settled frame's is chrome that is not there yet).
+    missing_lines = (len(lines[0][0]) + len(lines[0][1])) < (len(final[0]) + len(final[1]))
+    if lines[0] != final and (not s.animated or missing_lines):
         row["defects"].append({"kind": "half-drawn", "movie_s": round(sec_first, 4),
                                "detail": {"vertical": line_change(final[0], lines[0][0]),
                                           "horizontal": line_change(final[1], lines[0][1]),
@@ -216,9 +219,13 @@ def judge_press(key_ns: int, label: str, frames: list[tuple[int, float, np.ndarr
             row["defects"].append({"kind": "re-layout", "movie_s": round(post[idx][1], 4),
                                    "refresh": vsync.refreshes(key_ns, post[idx][0]), "detail": change})
             continue
-        # Animated: a line may move toward its end, never back.
+        # Animated: a line may move toward its end, never back; a line that appears or goes (no partner) is
+        # chrome or content arriving late, not motion.
         for axis in ("vertical", "horizontal"):
             add, rem = change[axis]["added"], change[axis]["removed"]
+            if bool(add) != bool(rem):
+                row["defects"].append({"kind": "re-layout", "movie_s": round(post[idx][1], 4), "axis": axis,
+                                       "refresh": vsync.refreshes(key_ns, post[idx][0]), "detail": change[axis]})
             if add and rem:
                 step = (sum(add) / len(add)) - (sum(rem) / len(rem))
                 sign = 1 if step > 0 else -1
