@@ -89,6 +89,8 @@ export async function sendAlert(config: ApnsConfig, target: ApnsTarget, alert: A
     } catch {
       reason = "";
     }
+    // A refused provider token is made again on the next push instead of failing for 50 minutes.
+    if (res.status === 403 && (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken")) cached = null;
     if (res.status === 410 || reason === "BadDeviceToken" || reason === "Unregistered" || reason === "DeviceTokenNotForTopic") return "gone";
     console.error("apns push failed", res.status, reason);
     return "failed";

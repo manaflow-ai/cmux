@@ -97,6 +97,8 @@ interface RelayRow {
 }
 
 export const PENDING_TTL_MS = 5 * 60 * 1000;
+/** Open Computer Use questions one machine may have at once. */
+export const MAX_PENDING_APPROVALS = 32;
 /** How long a device may stay disconnected before its sessions end (reason peer_offline). */
 export const OFFLINE_GRACE_MS = 30_000;
 /**
@@ -417,6 +419,12 @@ export class UserDO extends DurableObject<Env> {
     const existing = this.device(h.id);
     if (existing?.removed_at != null) throw new ApiError(403, "device_removed", "this device was removed; register a new device id");
     if (existing && existing.signing_key !== signingKey) throw new ApiError(409, "device_key_mismatch", "device id is registered with another signing key");
+    // What a device is decides whether it answers Computer Use questions: it never changes, and its key
+    // assurance only goes down (a box that lost its keyring), never up.
+    if (existing && existing.platform !== platform) throw new ApiError(409, "device_platform_mismatch", "device id is registered as another platform");
+    if (existing && ASSURANCES.indexOf(assurance) < ASSURANCES.indexOf(existing.assurance)) {
+      throw new ApiError(409, "device_platform_mismatch", "a device's key assurance never goes up");
+    }
     this.burnSignature(h.id, h.ts, h.sig, now);
     if (existing) {
       this.sql.exec(
@@ -939,6 +947,12 @@ export class UserDO extends DurableObject<Env> {
       if (existing.digest !== v.digest || (existing.allow_always === 1) !== allowAlways) throw new ApiError(409, "approval_exists", "this nonce was used for another question");
       return json({ approval: this.approvalJson(existing) });
     }
+    if (this.sql.exec("SELECT 1 FROM approvals WHERE state = 'pending' AND digest = ? AND asker_id != ?", v.digest, me.id).toArray().length > 0) {
+      // A copy of another machine's question: an answer to it would verify for the original too.
+      throw new ApiError(409, "approval_exists", "another device asks this question");
+    }
+    const open = this.sql.exec("SELECT COUNT(*) AS n FROM approvals WHERE state = 'pending' AND asker_id = ?", me.id).one().n as number;
+    if (open >= MAX_PENDING_APPROVALS) throw new ApiError(429, "rate_limited", "this machine has too many open questions");
     const id = crypto.randomUUID();
     this.sql.exec(
       "INSERT INTO approvals(id, asker_id, nonce, digest, request, allow_always, state, created_at, answerable_until, owner_kind, owner_id) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, 'user', ?)",
@@ -1049,6 +1063,10 @@ export class UserDO extends DurableObject<Env> {
       const current = this.approval(id)!;
       if (current.state !== "pending") throw new ApiError(409, "approval_not_pending", "this question was already answered or cancelled");
       const now = Date.now();
+      if (current.answerable_until <= now) {
+        this.expireApproval(current);
+        throw new ApiError(409, "approval_expired", "this question can no longer be answered");
+      }
       this.sql.exec("UPDATE approvals SET state = 'decided', decision = ?, decider_id = ?, sig = ?, decided_at = ? WHERE id = ?", decision, me.id, sig, now, id);
       this.audit("cu_decided", { hostId: a.asker_id, viewerId: me.id, sessionId: id, detail: decision });
       this.send(a.asker_id, { type: "approval.decided", id, decision, digest: a.digest, deciderId: me.id, sig });
@@ -1218,10 +1236,18 @@ export class UserDO extends DurableObject<Env> {
   private hostAllowed(m: string, parts: string[], me: DeviceRow, raw: Uint8Array): boolean {
     const [a, b, d] = parts;
     const n = parts.length;
-    if (m === "GET") return (a === "me" && n === 1) || (a === "user" && b === "ws" && n === 2) || (a === "devices" && n === 1) || (a === "permissions" && n === 1) || (a === "relays" && n === 1) || (a === "audit" && n === 1) || (a === "approvals" && n <= 2);
-    // Computer Use on this Mac may ask its own questions and cancel them; deciding needs the signed-in app.
-    if (a === "approvals" && n === 1 && m === "POST") return true;
-    if (a === "approvals" && n === 2 && m === "DELETE") return this.approval(b!)?.asker_id === me.id;
+    // Computer Use on this Mac may ask its own questions, read and cancel them; other machines' questions
+    // and deciding need the signed-in app.
+    const ownApproval = () => {
+      const row = this.approval(b!);
+      return !row || row.asker_id === me.id;
+    };
+    if (a === "approvals") {
+      if (n === 1 && m === "POST") return true;
+      if (n === 2 && (m === "GET" || m === "DELETE")) return ownApproval();
+      return false;
+    }
+    if (m === "GET") return (a === "me" && n === 1) || (a === "user" && b === "ws" && n === 2) || (a === "devices" && n === 1) || (a === "permissions" && n === 1) || (a === "relays" && n === 1) || (a === "audit" && n === 1);
     if (a === "devices" && n === 3 && d === "mac-screen" && m === "PUT" && b === me.id) {
       try {
         return (JSON.parse(new TextDecoder().decode(raw)) as { shared?: unknown }).shared === false;

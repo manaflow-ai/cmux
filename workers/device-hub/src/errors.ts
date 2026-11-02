@@ -20,6 +20,7 @@ export type ErrorCode =
   | "host_scope"
   | "not_anchored"
   | "not_self"
+  | "device_platform_mismatch"
   | "digest_mismatch"
   | "approval_exists"
   | "self_approval"

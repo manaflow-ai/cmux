@@ -25,8 +25,9 @@ const DIGEST = /^[0-9a-f]{64}$/;
 /**
  * Canonical JSON: keys (ASCII only) sorted by code point, no whitespace,
  * integers only, strings escaped only for `"`, `\`, \b \f \n \r \t and other
- * U+0000-U+001F as \u00xx. `JSON.stringify` of a string escapes exactly that
- * set (plus lone surrogates, which UTF-8 clients cannot send).
+ * U+0000-U+001F as \u00xx. `JSON.stringify` of a well-formed string escapes
+ * exactly that set. A lone surrogate (`"\ud800"` in the body) is refused: Swift
+ * and Rust clients cannot hold one, so their digests would differ.
  */
 export function canonicalJson(value: unknown): string {
   if (value === null) return "null";
@@ -35,7 +36,10 @@ export function canonicalJson(value: unknown): string {
     if (!Number.isSafeInteger(value)) throw badRequest("request numbers must be integers");
     return String(value);
   }
-  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "string") {
+    if (!(value as string & { isWellFormed(): boolean }).isWellFormed()) throw badRequest("request strings must be valid Unicode");
+    return JSON.stringify(value);
+  }
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (typeof value === "object") {
     const obj = value as Record<string, unknown>;

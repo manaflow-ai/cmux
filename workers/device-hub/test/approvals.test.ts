@@ -326,12 +326,58 @@ describe("Computer Use approvals", () => {
     const r2 = await question();
     const other = (await ask(box, r2)).json.approval.id as string;
     const sig = await mac.sign(decisionMessage(r2.digest as string, "once"));
+    // Another machine's question is not this Mac's to read, list or answer.
+    for (const path of [`/v1/approvals/${other}`, "/v1/approvals"]) {
+      const read = await mac.call("GET", path, undefined, { session: host });
+      expect(read.status, path).toBe(403);
+      expect(read.json.error.code).toBe("host_scope");
+    }
     const decide = await mac.call("POST", `/v1/approvals/${other}/decision`, { decision: "once", digest: r2.digest, sig }, { session: host });
     expect(decide.status).toBe(403);
     expect(decide.json.error.code).toBe("host_scope");
     const cancelOther = await mac.call("DELETE", `/v1/approvals/${other}`, undefined, { session: host });
     expect(cancelOther.json.error.code).toBe("host_scope");
     expect((await phone.call("GET", "/v1/approvals")).json.approvals.map((a: any) => a.id)).toEqual([other]);
+  });
+  it("caps a machine's open questions", async () => {
+    const { box } = await family();
+    for (let i = 0; i < 32; i++) expect((await ask(box, await question())).status).toBe(200);
+    const res = await ask(box, await question());
+    expect(res.status).toBe(429);
+    expect(res.json.error.code).toBe("rate_limited");
+  });
+
+  it("refuses a copy of another machine's open question", async () => {
+    const { box, win } = await family();
+    const r = await question();
+    expect((await ask(box, r)).status).toBe(200);
+    // Same nonce and digest from another device: an answer to the copy would verify for the original.
+    const copy = await ask(win, r);
+    expect(copy.status).toBe(409);
+    expect(copy.json.error.code).toBe("approval_exists");
+  });
+
+  it("refuses a string Swift and Rust cannot hold (a lone surrogate)", async () => {
+    const { box } = await family();
+    const r = await question();
+    (r.target as Record<string, unknown>).name = "Safari \ud800";
+    const res = await ask(box, r);
+    expect(res.status).toBe(400);
+    expect(res.json.error.code).toBe("bad_request");
+  });
+
+  it("deletes a closed question an hour after its deadline; the audit stays", async () => {
+    const { account, box, phone } = await family();
+    const r = await question();
+    const id = (await ask(box, r)).json.approval.id as string;
+    expect((await answer(phone, id, r.digest as string, "once")).status).toBe(200);
+    const stub = hubEnv.USER_DO.get(hubEnv.USER_DO.idFromName(account.userId));
+    await runInDurableObject(stub, async (instance: any, ctx) => {
+      ctx.storage.sql.exec("UPDATE approvals SET answerable_until = ? WHERE id = ?", Date.now() - 3600_001, id);
+      await instance.alarm();
+    });
+    expect((await box.call("GET", `/v1/approvals/${id}`)).status).toBe(404);
+    expect((await auditEvents(phone)).filter((e) => e.startsWith("cu_"))).toEqual(["cu_requested", "cu_decided"]);
   });
 });
 
@@ -353,6 +399,21 @@ describe("device registration for Computer Use machines", () => {
     expect(refused.status).toBe(400);
     const unknown = await bad.call("POST", "/v1/devices", { id: bad.id, name: "x", platform: "freebsd", signingKey: bad.signingKey, agreementKey: bad.agreementKey });
     expect(unknown.status).toBe(400);
+  });
+
+  it("never changes a device's platform or raises its key assurance", async () => {
+    const account = await signIn();
+    const box = await Device.create(account, "box", "linux");
+    const reg = (platform: string, assurance?: string) =>
+      box.call("POST", "/v1/devices", { id: box.id, name: "box", platform, signingKey: box.signingKey, agreementKey: box.agreementKey, ...(assurance ? { assurance } : {}) });
+    expect((await reg("linux", "keystore")).status).toBe(200);
+    // A box that says it is a Mac would become an approver.
+    const asMac = await reg("macos", "hardware");
+    expect(asMac.status).toBe(409);
+    expect(asMac.json.error.code).toBe("device_platform_mismatch");
+    expect((await reg("linux", "hardware")).json.error.code).toBe("device_platform_mismatch");
+    expect((await reg("linux", "file")).json.device.assurance).toBe("file");
+    expect((await reg("linux", "keystore")).status).toBe(409);
   });
 });
 
