@@ -87,7 +87,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     func park(serial: UInt64) {
         parkedSerial = serial
         isParked = true
-        sparePane = nil // only the shown workspace keeps one
+        takeSparePane(drop: true) // only the shown workspace keeps one
         isOffScreen = true
         attentionObservation?.cancel()
         setDrawsNothing(true)
@@ -147,7 +147,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         _ = layoutView  // built here, then the bar and the content view, as before
         spareRefill = layoutView.observeLayoutMotion { [weak self] moving in if !moving { self?.refillSparePane() } }
-        sparePressure = services.memoryPressure.observe { [weak self] level in if level != .normal { self?.sparePane = nil } }
+        sparePressure = services.memoryPressure.observe { [weak self] level in if level != .normal { self?.takeSparePane(drop: true) } }
         // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
         layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
         // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).
@@ -194,7 +194,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         screenBar.teardown()
         for controller in Array(panes.values) + retiredPanes.values { controller.teardown() }
         (panes, retiredPanes) = ([:], [:])
-        spareRefill?.cancel(); sparePressure = nil; sparePane = nil
+        spareRefill?.cancel(); sparePressure = nil; takeSparePane(drop: true)
         // A Home closed before its page came stops counting toward `.home`'s wait.
         services.launchReveal.release(contentView)
         contentView.removeFromSuperview()
@@ -442,25 +442,24 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 }
 
-/// A split's key turn takes a pane view tree built ahead, out of the window, instead of building a strip, a content view
-/// and their layout in the turn the key must commit (RESIZE VIDEOS F1 step 1a). Its content view's identifier is
-/// `cmux.sparePane` (tests read it).
+/// A split's key turn takes a pane view tree built ahead, on the layout's shelf (`LayoutRootView.shelve`), instead of
+/// building a strip, a content view and their layout in the turn the key must commit (RESIZE VIDEOS F1 step 1a); its
+/// layers are made and committed at idle (step c). Its content view's identifier is `cmux.sparePane` (tests read it).
 extension WorkspaceContentController {
     /// Builds the spare pane at rest: one per shown workspace, at half the focused pane's width (a split's new pane),
-    /// out of the window; nothing while parked or in a motion. Memory pressure drops it (`AppServices.memoryPressure`).
+    /// on the shelf; nothing while parked or in a motion. Memory pressure drops it (`AppServices.memoryPressure`).
     func refillSparePane() {
         guard sparePane == nil, !isParked, !layoutView.isLayoutInMotion else { return }
         let model = TabStripModel(), view = PaneContentView(stripModel: model)
         view.identifier = NSUserInterfaceItemIdentifier("cmux.sparePane")
         let size = panes.values.first { $0.isFocusedInWorkspace }?.view.frame.size ?? contentView.bounds.size
         view.frame = NSRect(x: 0, y: 0, width: max(1, (size.width / 2).rounded()), height: max(1, size.height))
-        view.layoutSubtreeIfNeeded()
-        sparePane = (model, view)
+        layoutView.shelve(view); view.layoutSubtreeIfNeeded(); sparePane = (model, view)
     }
 
-    /// Takes the spare pane for a new pane's controller; nil when none is ready (the next one is built at rest).
-    func takeSparePane() -> (stripModel: TabStripModel, view: PaneContentView)? {
-        defer { sparePane = nil }
+    /// Takes the spare pane for a new pane's controller (`drop`: off the shelf too); nil when none is ready.
+    @discardableResult func takeSparePane(drop: Bool = false) -> (stripModel: TabStripModel, view: PaneContentView)? {
+        defer { if drop, let view = sparePane?.view { layoutView.unshelve(view) }; sparePane = nil }
         return sparePane
     }
 }
