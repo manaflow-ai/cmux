@@ -394,6 +394,7 @@ final class WindowManager {
             placedWindows += 1
         }
         let controller = WindowController(state: state, services: services, frame: frame)
+        controller.window?.animationBehavior = registry.isLaunching || !restored || !Motion.panes.animatesMovement ? .none : .documentWindow // REOPEN-F2: a restore shows in place, never AppKit's zoom
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
         services.dragSession.installWorkspaceHandoff(on: controller)

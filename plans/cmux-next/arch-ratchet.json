@@ -811,6 +811,16 @@
       "owner": "reopen-fix agent (PL-launch)",
       "receipt": "Review (independent subagent): SHIP at 493db884ff01be7619efae92ad400b9c2660d6d1",
       "expiry": "2026-12-02"
+    },
+    {
+      "date": "2026-11-02",
+      "row": "app_lines",
+      "allow": 1,
+      "why": "REOPEN-F2 (a window the launch restores opens in place, no AppKit zoom): one line in WindowManager.makeController sets animationBehavior from the launch state (registry.isLaunching, restored) and the Motion.panes gate. That state is App-only WindowManager, so the line moves with the Windows row of the destination map.",
+      "author": "reopen-fix agent",
+      "owner": "reopen-fix agent (PL-launch)",
+      "receipt": "Review (independent subagent): SHIP at dc5a8fdde8fbb094e2dad2718d0bd42926a566f7",
+      "expiry": "2026-12-02"
     }
   ],
   "escape_reviews": [
