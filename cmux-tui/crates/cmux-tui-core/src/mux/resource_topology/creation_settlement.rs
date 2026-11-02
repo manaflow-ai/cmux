@@ -103,6 +103,7 @@ impl Mux {
                     .resource_creation_recovery(correlation_key)?
                     .context("executing resource creation omitted its recovery record")?;
                 crate::debug_spans::mark("creation.executing_marked");
+                self.run_creation_before_effect_hook();
                 let result = match self.execute_resource_topology_effect(
                     &mutation.actor,
                     operation,

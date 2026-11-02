@@ -106,6 +106,8 @@ mod tab_workspace_move;
 mod topology_operation;
 #[cfg(test)]
 mod topology_test_hooks;
+#[cfg(test)]
+pub(super) use topology_test_hooks::CreationBurstSeams;
 mod unpublished_creation;
 pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget, CloseReason, RoomClose};
 use layout_projection::{remove_pane_from_layout, sync_layout_column_projection};

@@ -731,6 +731,9 @@ pub struct Mux {
     /// frontend bootstraps an otherwise empty session.
     initial_bootstrap: Mutex<()>,
     resource_creation_execution: Mutex<()>,
+    /// Test seams of a burst of creations (`CreationBurstSeams`).
+    #[cfg(test)]
+    creation_burst_seams: resource_topology::CreationBurstSeams,
     #[cfg(unix)]
     agent_cli_job_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
