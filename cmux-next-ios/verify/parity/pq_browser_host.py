@@ -113,7 +113,6 @@ def menu_new_tab(j):
     if BEFORE:
         return f"long press on a link: Open Link in New Tab offered: {bool(row)}; rows: {rows}"
     check(row, f"no Open Link in New Tab in the link's menu: {rows}")
-    check(j.sim.find(label="View Page Source", kind="Button"), f"no View Page Source in the menu: {rows}")
     j.sim.tap_el(row[0])
     (count, ), took = t.until(lambda: (lambda n: (n, ) if n == before + 1 else None)(b.tab_count(name)),
                               timeout=60, what="the Mac's new tab")
@@ -246,7 +245,9 @@ def find(j):
             f"{', '.join(f'{c[0]} of {c[1]}' for c in counts[1:])}; Done closed the bar")
 
 
-ORDER = ["menu-new-tab", "view-source", "frame-dialog", "find"]
+# view-source stays runnable by name: on the phone the row is left out (a phone may not open a
+# view-source: tab, cmux-mobile-host policy.rs), so it is not in the default order.
+ORDER = ["menu-new-tab", "frame-dialog", "find"]
 
 
 if __name__ == "__main__":

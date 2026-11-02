@@ -113,10 +113,11 @@ import Testing
         // Rows that act on the Mac itself (Incognito, Save, Copy, Print, Cast, QR Code, Inspect,
         // and Speech, whose ids CEF renumbers) are left out with their separators; Chromium's
         // `&` mnemonics are dropped (`&&` is `&`). Page rows stay, and so do the rows that open
-        // a tab (View Page Source, Open Link in New Tab and Window, Search for): the host hands
-        // their tab to the phone as `rb.open_tab` (the ids it sent on the real link, 2026-10-29).
+        // a web page in a tab (Open Link in New Tab and Window, Search for): the host hands their
+        // tab to the phone as `rb.open_tab` (the ids it sent on the real link, 2026-10-29). View
+        // Page Source is left out: a phone may not open its view-source: tab.
         let rows = open.menu.phoneItems
-        #expect(rows.map(\.label) == ["Back", "Reload", "", "View Page Source", "", "Open Link in New Tab",
+        #expect(rows.map(\.label) == ["Back", "Reload", "", "Open Link in New Tab",
                                       "Open Link in New Window", "", "Search for \u{201C}R&D\u{201D}", "", "Spelling"])
         #expect(rows.last?.items.map(\.label) == ["Check Spelling While Typing"])
         #expect(RemoteBrowserMenuItem.withoutMnemonic("&Search for \u{201C}R&&D\u{201D}") == "Search for \u{201C}R&D\u{201D}")
@@ -326,7 +327,7 @@ import Testing
         model.requestContextMenu(x: 40, y: 80) { _ in }
         await host(sink, Self.linkMenu)
         let rows = try #require(model.contextMenu).menu.phoneItems
-        #expect(rows.contains { $0.id == 50100 } && rows.contains { $0.id == 35002 })
+        #expect(rows.contains { $0.id == 50100 } && !rows.contains { $0.id == 35002 })
         model.choose(.command(50100), in: 3)
         #expect((sent(stream, "rb.menu.result").last?["choice"] as? [String: Any])?["id"] as? Int == 50100)
         await host(sink, #"{"t":"rb.open_tab","request":1,"url":"https://example.com/linked","disposition":"background_tab","user_gesture":true}"#)

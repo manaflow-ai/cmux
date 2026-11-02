@@ -113,9 +113,11 @@ public struct RemoteBrowserMenu: Sendable, Equatable {
     /// the Mac, so a row whose work lands on the Mac's own pasteboard, disk, printer, voice or
     /// developer tools (Copy Link Address, Save Image As…, Copy, Paste, Print…, Speech, Inspect)
     /// would do nothing the person sees on the iPhone: those rows are left out (never a control
-    /// that does nothing). Rows that open a tab (Open Link in New Tab or Window, Search for,
-    /// View Page Source) stay: the browser host hands each new tab to the viewer
-    /// (`rb.open_tab`), and it opens beside the page. Separators are kept only between rows.
+    /// that does nothing). Rows that open a web page in a tab (Open Link in New Tab or Window,
+    /// Search for) stay: the browser host hands each new tab to the viewer (`rb.open_tab`), and
+    /// it opens beside the page. View Page Source is left out: its tab is `view-source:`, which
+    /// the Mac's mobile policy does not open from a phone (`new-browser-tab` takes http and https
+    /// only). Separators are kept only between rows.
     public var phoneItems: [RemoteBrowserMenuItem] {
         Self.phoneRows(items)
     }
@@ -159,6 +161,7 @@ public struct RemoteBrowserMenu: Sendable, Equatable {
         50151, // IDC_CONTENT_CONTEXT_CUT
         50152, // IDC_CONTENT_CONTEXT_PASTE
         50153, // IDC_CONTENT_CONTEXT_PASTE_AND_MATCH_STYLE
+        35002, // IDC_VIEW_SOURCE (a view-source: tab, which a phone may not open; see phoneItems)
         50161, // IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE (Chromium's own view-source tab, in the Mac's hidden window)
         50162, // IDC_CONTENT_CONTEXT_INSPECTELEMENT
         50165, // IDC_CONTENT_CONTEXT_LOOK_UP

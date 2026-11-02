@@ -699,8 +699,10 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   a tab stay (2026-11-01): the browser host forwards the tabs Chromium opens
   through `OpenURLFromTab` (Open Link in New Tab or Window, Open Image in New
   Tab, Search for, Cmd-click) as `rb.open_tab`, like the page's own popups
-  (`OnBeforePopup`), and answers View Page Source itself with an `rb.open_tab`
-  of the page's `view-source:` address. The pick goes back as `rb.menu.result
+  (`OnBeforePopup`). View Page Source stays off the phone's menu: the host
+  answers it with an `rb.open_tab` of the page's `view-source:` address, which
+  the Mac's viewer opens but `new-browser-tab` refuses from a phone (http and
+  https only). The pick goes back as `rb.menu.result
   {token, choice: {choice: "command", id}}`, and a menu closed with no pick,
   or one that arrives with no long press waiting (after 1.5 s), as `{choice:
   "cancel"}`. A `<select>` (`rb.menu.show` of kind `select`) shows its options
