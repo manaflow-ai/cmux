@@ -122,10 +122,11 @@ PRESSURE_SAMPLES = 30
 # and grew swap by 7+ GB like the others, but their lowest level was 21-32, not <= PRESSURE_LEVEL. Without a
 # replacement, a build with no fault had about a 3% chance (0.7^10) of a .pass. A replacement round keeps its slot:
 # a real-key slot is typed with real keys again. A failed round is never replaced.
-# The cause (smoke-hog, 2026-11-02, 44 rounds on cmux18/19/21/22/23): the hog stopped at its fixed cap, 0.9 of the
-# 16 GB of the M6 minis (14.25 GB), about 4 s after its start; the kernel then swapped its idle pages and the level
-# went back up to 30-47. smoke_hog.py now grows past that cap while the level is above its floor (bounded by the swap
-# target and the free disk), so it holds the level at its band (12-20) and logs the kernel's pressure level.
+# The cause (smoke-hog, 2026-11-02, 44 rounds on cmux18/19/21/22/23, and hog-only runs): on macOS the level counts
+# active and inactive pages as free; only wired memory and the compressor lower it. The hog's swappable memory filled
+# the compressor, the kernel moved it to swap as fast as the hog made more, and the level stayed at 21-47 (25 GB of
+# it on cmux21 still left 28-39). smoke_hog.py now adds a wired (mlock) part that steers the level to its target (16)
+# and logs the kernel's pressure level and the wired size; the replacement above stays for a hog that cannot wire.
 
 
 def git(*args):
@@ -201,12 +202,14 @@ def pressure(out, swap_gb):
     ok = (len(rows) >= PRESSURE_SAMPLES and held >= PRESSURE_HELD_GB
           and (grown >= swap_gb * 0.95 or (low is not None and low <= PRESSURE_LEVEL)))
     # The hog's own record (smoke_hog.py since smoke-hog 2026-11-02): the kernel's pressure level it reached (1 normal,
-    # 2 warning, 4 critical) and the cap it sized from the mini. Shown only; the rule above judges.
+    # 2 warning, 4 critical), the cap of its swap part and the most it wired. Shown only; the rule above judges.
     vm = [int(r["vm_pressure"]) for r in rows if isinstance(r.get("vm_pressure"), (int, float))]
     cap = next((s.get("cap_mb") for s in starts if isinstance(s.get("cap_mb"), (int, float))), None)
+    wired = [float(r["wired_mb"]) for r in rows if isinstance(r.get("wired_mb"), (int, float))]
     return {"ok": ok, "samples": len(rows), "held_gb_max": round(held, 2), "swap_growth_gb": round(grown, 2),
             "level_min": low, "swap_target_reached": grown >= swap_gb * 0.95,
-            "vm_pressure_max": max(vm) if vm else None, "hog_cap_gb": round(cap / 1024, 2) if cap is not None else None}
+            "vm_pressure_max": max(vm) if vm else None, "hog_cap_gb": round(cap / 1024, 2) if cap is not None else None,
+            "wired_gb_max": round(max(wired) / 1024, 2) if wired else None}
 
 
 def failing_step(out):
@@ -927,7 +930,8 @@ def main(argv=None):
         lines.append(f"  round {r['round']:2d} (slot {r.get('slot')}) on {r['host']} ({r.get('key_path')}): "
                      + ("replaced" if r.get("replaced") else r["status"]) + (f" -- {detail}" if detail else "")
                      + f" [hog held {hog.get('held_gb_max')} GB, swap +{hog.get('swap_growth_gb')} GB, level min {hog.get('level_min')}"
-                     + (f", vm pressure max {hog['vm_pressure_max']}" if hog.get("vm_pressure_max") is not None else "") + "]"
+                     + (f", vm pressure max {hog['vm_pressure_max']}" if hog.get("vm_pressure_max") is not None else "")
+                     + (f", wired {hog['wired_gb_max']} GB" if hog.get("wired_gb_max") is not None else "") + "]"
                      + (f" -- {(r['reason'] or '')[:200]}" if r["status"] != "pass" and not detail else ""))
     if golden_run:
         lines.append(golden_report(opts, golden_run, golden_listing, golden_blockers(opts.build, golden_listing)))
