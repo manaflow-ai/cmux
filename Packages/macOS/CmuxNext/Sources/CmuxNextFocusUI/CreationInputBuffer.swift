@@ -31,6 +31,8 @@ public final class CreationInputBuffer {
     private var madeWorkspaces: [Int: String] = [:]
     /// The new workspaces the person moved on from (``personMovedOn()``): their keys typed before it still wait for them.
     private var movedOnFrom: Set<Int> = []
+    /// The new workspaces whose create failed: over, they hold nothing of the person's (``personLeftEveryCreation``).
+    private var failedWorkspaces: Set<Int> = []
     /// The focus generation (the person's newest intent) the newest creation of this hold was asked under.
     public private(set) var newestGeneration: UInt64?
     private var nextID = 0
@@ -184,6 +186,7 @@ public final class CreationInputBuffer {
             madeWorkspaces[ticket.id] = workspace
         } else {
             workspaceTickets.remove(ticket.id)
+            failedWorkspaces.insert(ticket.id) // released at once: it keeps no later key waiting (review of #32148)
             let before = events.count
             events.removeAll { $0.creation == ticket.id }
             Self.logDropped(before - events.count, why: "its create failed")
@@ -207,9 +210,10 @@ public final class CreationInputBuffer {
         newestGeneration = nil
     }
 
-    /// Every creation of this hold is a new workspace the person moved on from (``personMovedOn()``): a focused terminal
-    /// still to show takes the keys typed now in its own lane, as with no hold (REOPEN-F4, review of #32148).
-    public var personLeftEveryCreation: Bool { nextID > 0 && movedOnFrom.count == nextID }
+    /// Every creation of this hold is a new workspace the person moved on from (``personMovedOn()``) or one whose create
+    /// failed: a focused terminal still to show takes the keys typed now in its own lane, as with no hold (REOPEN-F4, review
+    /// of #32148). A failed one alone is not enough: until the person acts, their claim keeps the keys.
+    public var personLeftEveryCreation: Bool { !movedOnFrom.isEmpty && movedOnFrom.union(failedWorkspaces).count == nextID }
 
     /// Whether a key typed now with the focus on `focusedTab` goes on to the view at once: the person moved on from every
     /// creation of this hold (new workspaces only), the key is for no creation's or surface's terminal, and no key that
