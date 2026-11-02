@@ -1527,6 +1527,14 @@ def step_textedit_control(j, step):
                                     "saved_text", "textedit_quit", "app_front_again", "error")}
 
 
+def step_rpc_try(j, step):
+    """Calls METHOD with PARAMS and records the reply or the error; never fails the journey (evidence only)."""
+    try:
+        return {"reply": j.app.rpc(step["method"], j.sub(step.get("params") or {}), timeout=15)}
+    except (D.StepError, OSError, ValueError) as error:
+        return {"error": str(error)[:400]}
+
+
 def step_focus_probe(j, step):
     """Records focus_probe (no check): evidence for a key check that follows."""
     return focus_probe(j)
@@ -1631,7 +1639,7 @@ def cond_terminal_in_other_workspace(j, want, cache):
     return wa != wb, {"workspace": pa[0].get("name"), "other_workspace": pb[0].get("name")}
 
 
-STEPS = {"cua_schema": step_cua_schema, "textedit_control": step_textedit_control, "window_probe": step_window_probe, "focus_probe": step_focus_probe, "hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
+STEPS = {"rpc_try": step_rpc_try, "cua_schema": step_cua_schema, "textedit_control": step_textedit_control, "window_probe": step_window_probe, "focus_probe": step_focus_probe, "hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
 CONDITIONS = {"key_window_focus": ("app", cond_key_window_focus),
               "terminal_in_other_workspace": ("app", cond_terminal_in_other_workspace),
               "reopen_window_frame_within": ("app", cond_reopen_window_frame_within),

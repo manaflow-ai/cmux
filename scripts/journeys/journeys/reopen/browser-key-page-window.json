@@ -232,7 +232,7 @@
    "title": "probe: the page loaded and has the keyboard (before any click)"
   },
   {
-   "do": "rpc",
+   "do": "rpc_try",
    "method": "debug.key",
    "params": {
     "sequence": [
@@ -247,7 +247,7 @@
     ],
     "key_window": "page"
    },
-   "title": "control B: debug.key makes the page's Chromium window the app's key window the app's own way (makeKey; a Shift press and release)"
+   "title": "control B: debug.key makes the page's Chromium window the app's key window the app's own way (makeKey; a Shift press and release) (at 44dc8431 this call makes the page window key, then answers 'no event timestamp to start the sequence from'; the error is recorded, the probe after shows the key window)"
   },
   {
    "do": "wait",
