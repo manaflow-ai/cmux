@@ -63,5 +63,52 @@ class LayoutGridTests(unittest.TestCase):
             grid.validate(self.data)
 
 
+class SettledSpacingTests(unittest.TestCase):
+    """Leo's settled spacings stay where he settled them (ask-08a8b942a0)."""
+
+    def setUp(self):
+        self.data = json.loads((ROOT / grid.SOURCE).read_text())
+        self.settled = json.loads((ROOT / grid.SETTLED).read_text())
+        self.files = {}
+
+    def read(self, path):
+        return self.files[path] if path in self.files else grid.read_file(path)
+
+    def drift(self):
+        return grid.settled_drift(self.data, self.settled, self.read)
+
+    def pin(self, name):
+        return next(pin for pin in self.settled['pins'] if pin['id'] == name)
+
+    def test_committed_pins_hold(self):
+        self.assertEqual([], self.drift())
+
+    def test_moved_grid_metric_names_leos_words(self):
+        next(m for m in self.data['metrics'] if m['name'] == 'gap-turn')['pt'] = 24
+        [finding] = self.drift()
+        self.assertIn('gap-turn is 24; Leo settled turn-gap = 32', finding)
+        self.assertIn('center it', finding)
+
+    def test_moved_file_value_is_reported(self):
+        path = self.pin('rest-gap')['source']['file']
+        self.files[path] = grid.read_file(path).replace('REST_GAP = 56;', 'REST_GAP = 16;')
+        [finding] = self.drift()
+        self.assertIn('rest-gap is 16; Leo settled rest-gap = 56', finding)
+
+    def test_source_keeps_its_comment(self):
+        path = self.pin('rest-gap')['source']['file']
+        self.files[path] = grid.read_file(path).replace('settled-spacing: rest-gap', 'rest gap')
+        self.assertIn('lost its "settled-spacing: rest-gap" comment', self.drift()[0])
+        metric = next(m for m in self.data['metrics'] if m['name'] == 'gap-turn')
+        metric['description'] = 'Gap between transcript turns'
+        self.assertTrue(any('lost "(settled-spacing: turn-gap)"' in f for f in self.drift()))
+
+    def test_a_pin_needs_words_and_one_match(self):
+        del self.pin('turn-gap')['words']
+        self.assertIn("pin 'turn-gap' lacks words", self.drift()[0])
+        self.pin('rest-gap')['source']['pattern'] = r'const (\d+)'
+        self.assertTrue(any('matches 0 times' in f for f in self.drift()))
+
+
 if __name__ == '__main__':
     unittest.main()
