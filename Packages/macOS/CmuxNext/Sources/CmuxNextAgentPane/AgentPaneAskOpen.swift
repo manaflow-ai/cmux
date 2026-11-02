@@ -25,21 +25,7 @@
 /// nothing, and the page leaves the chat on screen as it is. Kept off ``AgentPaneModel``, whose
 /// type is at its size limit.
 enum AgentPaneAskOpen {
-    /// Where the chat opens: the request's `where`.
-    enum Place: String, Equatable, Sendable {
-        case right
-        case workspace
-        case newWorkspace
-
-        /// `where` absent is `right`; any other value than the three names is nil (refused).
-        init?(_ value: Any?) {
-            guard let value else { self = .right; return }
-            guard let name = value as? String, let place = Self(rawValue: name) else { return nil }
-            self = place
-        }
-    }
-
-    @MainActor static func respond(_ session: String, at place: Place = .right, in model: AgentPaneModel) -> [String: Any] {
+    @MainActor static func respond(_ session: String, at place: AgentPaneAskPlace = .right, in model: AgentPaneModel) -> [String: Any] {
         guard let chat = model.sessionId, model.newTab == nil, let header = model.header,
               model.pendingAsksSocket != nil, let local = AgentPanePendingAsks.localSession(session),
               local != AgentPanePendingAsks.localSession(chat) else {
@@ -53,5 +39,19 @@ enum AgentPaneAskOpen {
         }
         if !header.showSession(bare), !header.openRight(bare) { header.openSide(chat, bare) }
         return AgentPaneReply.success()
+    }
+}
+
+/// Where `chat.asks.open` opens the chat: its `where` (``AgentPaneAskOpen``).
+public nonisolated enum AgentPaneAskPlace: String, Equatable, Sendable {
+    case right
+    case workspace
+    case newWorkspace
+
+    /// `where` absent is `right`; any value but the three names is nil (refused).
+    init?(_ value: Any?) {
+        guard let value else { self = .right; return }
+        guard let name = value as? String, let place = Self(rawValue: name) else { return nil }
+        self = place
     }
 }
