@@ -207,7 +207,14 @@ final class CEFDevToolsController {
         guard let tab, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
         standIn = false
         opening = true
-        if tab.container.window != nil, tab.runtime.supportsEmbeddedDevTools {
+        let embedded = tab.container.window != nil && tab.runtime.supportsEmbeddedDevTools
+        // The DevTools frontend keeps its own dock side (its profile setting) and applies it when it loads; the fork
+        // reports that as a dock-side choice (`dockSideChosen`), which moved a just-opened DevTools from cmux's side
+        // to the frontend's (BROWSER VIDEO F2: bottom, then right ~13 refreshes later). As in Chrome, one side counts:
+        // cmux's is written into that setting here, before the frontend exists, for every way DevTools opens (cmux's
+        // commands, a panel, the page's Inspect, Chromium's own commands).
+        _ = shim.devToolsSetFrontendDockSide(browserID, Self.forkSide(of: embedded ? layout.dock : .window))
+        if embedded {
             // Docked or in its own window, DevTools is a child of a cmux
             // view, so a later move keeps it alive.
             // Chromium creates DevTools synchronously over a view in the
@@ -216,6 +223,9 @@ final class CEFDevToolsController {
             let views = views ?? makeViews(in: tab)
             tab.container.layoutContent()
             if views.host.bounds.isEmpty { views.host.frame = tab.container.bounds }
+            // Until its frontend draws, DevTools shows its browser's background: the pane's theme color, as every
+            // page of the pane starts with (`CEFPaneHost`), never the color CEF started with (BROWSER VIDEO F1).
+            shim.devToolsSetBackground(browserID, PageBackground.themeARGB(in: views.host))
             let size = views.host.bounds.size
             shim.devToolsSetPlacement(browserID, Unmanaged.passUnretained(views.host).toOpaque(), 0, 0,
                                       Int32(max(size.width, 1)), Int32(max(size.height, 1)))
@@ -223,6 +233,7 @@ final class CEFDevToolsController {
             opening = false
             removeViews()
             let frame = Self.undockedFrame(near: tab.container.window)
+            shim.devToolsSetBackground(browserID, PageBackground.themeARGB(in: tab.container))
             shim.devToolsSetPlacement(browserID, nil, Int32(frame.minX), Int32(frame.minY),
                                       Int32(frame.width), Int32(frame.height))
         }
@@ -283,6 +294,16 @@ final class CEFDevToolsController {
         case 2: .bottom
         case 3: .right
         default: nil
+        }
+    }
+
+    /// The fork's dock-side value of `dock` (the inverse of `dock(forkSide:)`).
+    nonisolated static func forkSide(of dock: BrowserDevToolsDock) -> Int32 {
+        switch dock {
+        case .window: 0
+        case .left: 1
+        case .bottom: 2
+        case .right: 3
         }
     }
 
