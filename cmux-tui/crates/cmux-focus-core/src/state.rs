@@ -299,19 +299,6 @@ pub enum CloseFocusPolicy {
     MostRecent,
 }
 
-impl CloseFocusPolicy {
-    /// Parses the cmux.json `layout.closeFocus` value (case-insensitive).
-    pub fn from_config_value(value: &str) -> Option<CloseFocusPolicy> {
-        if value.eq_ignore_ascii_case("previousNeighbor") {
-            Some(CloseFocusPolicy::PreviousNeighbor)
-        } else if value.eq_ignore_ascii_case("mostRecent") {
-            Some(CloseFocusPolicy::MostRecent)
-        } else {
-            None
-        }
-    }
-}
-
 /// What the app reads from the state without recomputing a rule: kept
 /// current by every reduction (`FocusState::derive`). The shown workspace's
 /// focus history is not here: it is read on request (`recent_panes`).

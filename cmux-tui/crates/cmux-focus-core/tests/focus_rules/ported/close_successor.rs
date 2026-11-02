@@ -5,7 +5,6 @@
 //! else the previous one (close-focus.md, Tab; manaflow-ai/cmux#21805 row 1).
 
 use cmux_focus_core::close_focus::{live_openers, tab, workspace};
-use cmux_focus_core::state::CloseFocusPolicy;
 use std::collections::{HashMap, HashSet};
 
 fn s(ids: &[&str]) -> Vec<String> {
@@ -216,17 +215,4 @@ fn a_workspace_hands_off_to_the_next_drawn_row() {
     assert_eq!(workspace(Some(&"w2".to_owned()), &old, &surviving, &[]), some("w2"));
     assert_eq!(workspace(None, &old, &surviving, &[]), some("w1"));
     assert_eq!(workspace(Some(&"w1".to_owned()), &s(&["w1"]), &[], &[]), None);
-}
-
-#[test]
-fn the_close_focus_setting_parses_case_insensitively() {
-    assert_eq!(
-        CloseFocusPolicy::from_config_value("previousNeighbor"),
-        Some(CloseFocusPolicy::PreviousNeighbor)
-    );
-    assert_eq!(
-        CloseFocusPolicy::from_config_value("MOSTRECENT"),
-        Some(CloseFocusPolicy::MostRecent)
-    );
-    assert_eq!(CloseFocusPolicy::from_config_value("recent"), None);
 }
