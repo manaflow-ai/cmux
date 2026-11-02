@@ -479,7 +479,11 @@ public final class TerminalSurfaceView: NSView {
         #endif
         holdPresentedFrame(volatile: pause != nil)
         #if DEBUG || CMUX_BENCH_HOOKS
-        if drawing { revealTrace.revealed(hadVolatile: hadVolatile, contentsNil: layer?.contents == nil) }
+        if drawing {
+            revealTrace.revealed(hadVolatile: hadVolatile, contentsNil: layer?.contents == nil)
+        } else {
+            revealTrace.hidden(contentsNil: layer?.contents == nil)
+        }
         #endif
         ghostty_surface_set_occlusion(surface, drawing)
         // A surface can parse a renderer-affecting OSC action (for example Copilot's OSC 11
@@ -511,6 +515,9 @@ public final class TerminalSurfaceView: NSView {
         guard let frame = presentedFrame else { return nil }
         guard frame === volatileFrame else { return frame }
         guard frame.reclaim() else {
+            #if DEBUG || CMUX_BENCH_HOOKS
+            revealTrace.purgedOnRead()
+            #endif
             volatileFrame = nil
             layer?.contents = nil
             return nil

@@ -25,13 +25,25 @@ final class TerminalRevealTrace {
 
     init(view: TerminalSurfaceView) { self.view = view }
 
+    /// A hide: the time, whether the layer is empty then, and the ink of the frame it keeps (kind 1).
+    func hidden(contentsNil: Bool) {
+        finish()
+        append(["kind": 1, "t": CACurrentMediaTime(), "contents_nil": contentsNil ? 1 : 0,
+                "ink": Double(Self.ink(view?.presentedFrame))])
+    }
+
+    /// A reader found the hidden frame purged and emptied the layer (beginFrameRead; kind 2).
+    func purgedOnRead() {
+        append(["kind": 2, "t": CACurrentMediaTime()])
+    }
+
     func revealed(hadVolatile: Bool, contentsNil: Bool) {
         finish()
         let shown = view?.layer?.contents as AnyObject?
         lastShown = shown
         ticks = 0
         seen = 0
-        current = ["t": CACurrentMediaTime(), "had_volatile": hadVolatile ? 1 : 0, "contents_nil": contentsNil ? 1 : 0,
+        current = ["kind": 0, "t": CACurrentMediaTime(), "had_volatile": hadVolatile ? 1 : 0, "contents_nil": contentsNil ? 1 : 0,
                    "ink": Double(Self.ink(view?.presentedFrame))]
         frames.activate()
     }
@@ -58,11 +70,16 @@ final class TerminalRevealTrace {
     private func finish() {
         guard var row = current else { return }
         row["ticks"] = Double(ticks)
+        current = nil
+        append(row)
+    }
+
+    private func append(_ row: [String: Double]) {
+        var row = row
         row["surface"] = Double(UInt(bitPattern: view.map { ObjectIdentifier($0).hashValue } ?? 0) % 1_000_000_007)
         rows.append(row)
-        if rows.count > 512 { rows.removeFirst(rows.count - 512) }
-        current = nil
-        // This surface's reveals as one JSON array in $TMPDIR/cmux-reveal-trace-<pid>-<surface>.json, written off
+        if rows.count > 1024 { rows.removeFirst(rows.count - 1024) }
+        // This surface's rows as one JSON array in $TMPDIR/cmux-reveal-trace-<pid>-<surface>.json, written off
         // the main thread (the journey reads them after the run; no App code, no socket method).
         guard let data = try? JSONSerialization.data(withJSONObject: rows) else { return }
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
