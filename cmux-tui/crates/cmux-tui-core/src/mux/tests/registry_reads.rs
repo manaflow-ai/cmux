@@ -159,7 +159,6 @@ fn a_progress_report_frees_the_session_lock_while_it_writes_the_registry() {
     })));
     let publishing = {
         let mux = mux.clone();
-        let surface = surface.clone();
         std::thread::spawn(move || {
             mux.publish_terminal_progress(&surface, "terminal.progress.test")
                 .map_err(|error| error.to_string())

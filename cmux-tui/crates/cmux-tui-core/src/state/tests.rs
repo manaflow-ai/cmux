@@ -1658,7 +1658,6 @@ fn a_status_commit_frees_the_session_lock_while_it_writes_the_registry() {
     })));
     let committing = {
         let mux = mux.clone();
-        let workspace = workspace.clone();
         std::thread::spawn(move || {
             mutate(
                 &mux,

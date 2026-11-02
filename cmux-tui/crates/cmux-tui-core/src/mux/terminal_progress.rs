@@ -57,7 +57,7 @@ impl Mux {
             &value,
             &deltas,
         )?;
-        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).resource_revision =
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).resource_revision =
             commit.revision;
         drop(registry);
         self.publish_resource_event();
