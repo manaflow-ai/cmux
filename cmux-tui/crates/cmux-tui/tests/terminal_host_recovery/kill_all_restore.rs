@@ -406,3 +406,39 @@ fn an_unreplayable_screen_does_not_stop_the_tail() {
         std::thread::sleep(Duration::from_millis(200));
     }
 }
+
+/// Failure-mode table, "resize storm": a terminal whose size changes every
+/// 100 ms (a divider drag) is not snapshotted on every pass; its snapshot
+/// waits until the size settles.
+#[test]
+fn a_resize_storm_writes_one_snapshot_after_the_size_settles() {
+    let _exclusive = exclusive_process_test();
+    let harness = production_harness("resize-storm");
+    let home = harness.dir.clone();
+    let (_terminal_id, _incarnation, surface) = start_shell_in(&harness, "storm", &home);
+    send_line(&harness.socket, surface, "printf 'storm-ready\\n'");
+    wait_for_screen(&harness.socket, surface, "storm-ready\n");
+    std::thread::sleep(Duration::from_secs(1));
+    let snapshot = || {
+        walk_files(&harness.state)
+            .into_iter()
+            .find(|path| path.extension().is_some_and(|extension| extension == "snap"))
+            .and_then(|path| fs::metadata(path).ok()?.modified().ok())
+    };
+    let mut writes = 0;
+    let mut last = snapshot();
+    for step in 0..20_u16 {
+        request(
+            &harness.socket,
+            serde_json::json!({"id": 100 + u64::from(step), "cmd": "resize-surface", "surface": surface,
+                               "cols": 80 + step, "rows": 30}),
+        );
+        std::thread::sleep(Duration::from_millis(100));
+        let now = snapshot();
+        if now != last {
+            writes += 1;
+            last = now;
+        }
+    }
+    assert!(writes <= 2, "{writes} snapshots during a 2 s resize storm");
+}

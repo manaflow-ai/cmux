@@ -318,4 +318,34 @@ mod tests {
         assert_eq!(rebuilt.plain_text().unwrap(), source.plain_text().unwrap());
         let _ = fs::remove_dir_all(&directory);
     }
+
+    /// Failure-mode table, "unreplayable screen": a tail that ends inside a
+    /// Kitty upload too large to replay still restores the text before it.
+    #[test]
+    fn a_tail_that_ends_inside_an_oversized_upload_still_restores_its_text() {
+        let directory = directory("upload");
+        let id = id();
+        let mut source = ghostty_vt::Terminal::new(40, 5, 1_000_000, Default::default()).unwrap();
+        source.vt_write(b"first\r\n");
+        let snapshot = TerminalReplay {
+            cols: 40,
+            rows: 5,
+            bytes: source.vt_replay_bounded(1 << 20).unwrap().into_self_contained_bytes(),
+        };
+        let mut tail = b"after-snapshot\r\n".to_vec();
+        // Chunks of a multipart upload past what a replay can hold, never ended.
+        let chunk = vec![b'A'; 1 << 20];
+        for _ in 0..16 {
+            tail.extend_from_slice(b"\x1b_Ga=t,f=100,m=1;");
+            tail.extend_from_slice(&chunk);
+            tail.extend_from_slice(b"\x1b\\");
+        }
+        append(&directory, &id, "g", 7, 7, &tail, false).unwrap();
+        let restored = restore(&directory, &id, "g", Some(7), snapshot);
+        let mut rebuilt = ghostty_vt::Terminal::new(40, 5, 1_000_000, Default::default()).unwrap();
+        rebuilt.vt_write(&restored.bytes);
+        let text = rebuilt.plain_text().unwrap();
+        let _ = fs::remove_dir_all(&directory);
+        assert!(text.contains("after-snapshot"), "the tail's text was dropped: {text:?}");
+    }
 }

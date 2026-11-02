@@ -240,3 +240,79 @@ fn a_flood_during_a_write_backoff_does_not_wake_the_writer_per_chunk() {
         "a chunk during the backoff woke the writer at once"
     );
 }
+
+/// Failure-mode table, "flood": unwritten bytes past the cap are not written
+/// as one huge frame; the terminal falls back to its snapshot (which covers
+/// them) and keeps no bytes in memory.
+#[test]
+fn a_flood_past_the_cap_falls_back_to_the_snapshot() {
+    let directory = directory("flood-cap");
+    let store = OutputStore::new(None);
+    let log = log(&vec![b'x'; super::super::TAIL_MAX_UNWRITTEN_BYTES + 1024]);
+    flush_tail(
+        &store,
+        &directory,
+        &log,
+        Seen { digest: 1, settled: true, end: 0, size: None },
+        false,
+    );
+    let stored = super::super::tail::bytes_after(&directory, &log.terminal_id, "g", 0);
+    let state = log.state.lock().unwrap();
+    let (pending, force, tail_end) = (state.pending.len(), state.force_snapshot, state.tail_end);
+    drop(state);
+    let _ = std::fs::remove_dir_all(&directory);
+    assert!(stored.is_empty(), "a {} byte frame went to the tail", stored.len());
+    assert_eq!(pending, 0, "the bytes the snapshot covers stay in memory");
+    assert!(force && tail_end.is_none());
+}
+
+/// Failure-mode table, "full disk" / "slow disk": bytes that the tail cannot
+/// continue with are not kept in memory; the next snapshot covers them.
+#[test]
+fn a_tail_that_does_not_continue_keeps_no_bytes() {
+    let directory = directory("no-continue");
+    let store = OutputStore::new(None);
+    let log = log(b"some output");
+    log.state.lock().unwrap().tail_end = None;
+    flush_tail(
+        &store,
+        &directory,
+        &log,
+        Seen { digest: 1, settled: true, end: 11, size: None },
+        false,
+    );
+    let state = log.state.lock().unwrap();
+    let (pending, force) = (state.pending.len(), state.force_snapshot);
+    drop(state);
+    let _ = std::fs::remove_dir_all(&directory);
+    assert_eq!(pending, 0, "bytes wait in memory for a snapshot that covers them anyway");
+    assert!(force);
+}
+
+/// Failure-mode table, "idle TUI during a backoff": held redraws past the
+/// idle cap are dropped (the snapshot covers them), not kept up to 8 MiB.
+#[test]
+fn held_redraws_past_the_idle_cap_fall_back_to_the_snapshot() {
+    let directory = directory("idle-cap");
+    let store = OutputStore::new(None);
+    let log = log(b"screen");
+    flush_tail(
+        &store,
+        &directory,
+        &log,
+        Seen { digest: 5, settled: true, end: 6, size: None },
+        false,
+    );
+    log.state.lock().unwrap().store_failed();
+    push(&log, &vec![b'.'; super::super::TAIL_IDLE_BYTES + 1]);
+    flush_tail(
+        &store,
+        &directory,
+        &log,
+        Seen { digest: 5, settled: true, end: 0, size: None },
+        false,
+    );
+    let pending = log.state.lock().unwrap().pending.len();
+    let _ = std::fs::remove_dir_all(&directory);
+    assert_eq!(pending, 0, "{pending} held redraw bytes stay in memory");
+}
