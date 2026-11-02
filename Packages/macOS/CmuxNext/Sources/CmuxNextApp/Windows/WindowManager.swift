@@ -282,12 +282,10 @@ final class WindowManager {
             }
         }
         reconcileMembership()
-        // Every remaining window closed (the open ones lost their workspaces while the app was
-        // not running): the most recent one opens, so the app never starts with no window.
-        if restoreClosed.windows.isEmpty, !registry.value.windows.isEmpty, !registry.value.windows.contains(where: \.isOpen),
-           let front = registry.value.recency.first {
-            registry.apply { $0.setRestored(front, open: true); return WindowRegistry.Changes() }
-        }
+        // No saved window open (the last one closed, then quit, or the open ones' workspaces ended meanwhile): a relaunch restores
+        // only what was open at quit (#31514). Closed windows keep their workspaces; the launch window opens on a new one (or `firstWorkspace`).
+        let opensFresh = restoreClosed.windows.isEmpty && !registry.value.windows.isEmpty && !registry.value.windows.contains(where: \.isOpen)
+        if opensFresh, firstWorkspace == nil { if let launch = launchWindowID { Task { _ = await createWorkspace(into: launch, newTabPage: true) } } else { newWindow() } }
         // Restored windows but the front one come back at their saved place, in any content arrival order.
         restacking = Set(registry.value.recency.filter { registry.value.window($0)?.isOpen == true }.dropFirst())
         sync(previous: [:])
@@ -297,7 +295,7 @@ final class WindowManager {
         if let launch = launchWindowID, registry.value.window(launch) != nil { launchWindowID = nil }
         // Other windows took every workspace: the unregistered launch window
         // has nothing to show and closes.
-        if let launch = launchWindowID, !registry.value.windows.isEmpty, let controller = controller(for: launch) {
+        if !opensFresh, let launch = launchWindowID, !registry.value.windows.isEmpty, let controller = controller(for: launch) {
             launchWindowID = nil
             states[launch] = nil
             closeProgrammatically(controller)
