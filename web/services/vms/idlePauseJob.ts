@@ -11,6 +11,7 @@ import {
   vmIdlePauseClaimFromRow,
   vmIdlePauseMinutesFromRow,
   vmIdlePrivateAddressesFromRow,
+  vmIdleAutoPauseEnabled,
   vmIdleProbeCommand,
   vmLastApiActivityFromRow,
   VM_IDLE_PROBE_TIMEOUT_MS,
@@ -60,7 +61,8 @@ type CheckDecision = Pick<VmIdleLastDecision, "outcome" | "reason">;
  * The `vm-idle-pause` cron body (services/vms/idlePause.ts): probe each running
  * Freestyle machine, decide, and pause the idle ones through the same pause
  * path the Pause Machine action uses. A machine set to Off, or without a
- * private address, is not probed.
+ * private address, is not probed; with the kill switch off
+ * ({@link vmIdleAutoPauseEnabled}, the default) no machine is.
  */
 export function enforceVmIdlePause(input: { readonly now?: () => number; readonly limit?: number } = {}) {
   return Effect.gen(function* () {
@@ -75,8 +77,9 @@ export function enforceVmIdlePause(input: { readonly now?: () => number; readonl
     const rows = yield* candidates({ limit });
     let checked = 0;
     const now = input.now ?? Date.now;
+    const autoPause = vmIdleAutoPauseEnabled();
     const results = yield* Effect.forEach(rows, (vm) => Effect.gen(function* () {
-      const decision = yield* checkMachine(vm, now).pipe(
+      const decision = yield* checkMachine(vm, now, autoPause).pipe(
         Effect.catchAll((error) => Effect.sync((): CheckDecision => {
           console.error("[VM] idle pause failed", { vmId: vm.id, error });
           return { outcome: "error", reason: "check_failed" };
@@ -131,7 +134,7 @@ function warnIfSaturated(checked: number, limit: number, elapsedMs: number) {
   console.warn("[VM] idle pause run saturated", JSON.stringify({ checked, limit, elapsedMs }));
 }
 
-function checkMachine(vm: CloudVmRow, now: () => number) {
+function checkMachine(vm: CloudVmRow, now: () => number, autoPause: boolean) {
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
     if (!providerVmId || vm.status === "destroyed") return { outcome: "off", reason: "machine_unavailable" } as const;
@@ -141,6 +144,7 @@ function checkMachine(vm: CloudVmRow, now: () => number) {
       return { outcome, reason: `recover_claim:${outcome}` };
     }
     if (vm.status !== "running") return { outcome: "off", reason: "not_running" } as const;
+    if (!autoPause) return { outcome: "off", reason: "auto_pause_off" } as const;
     const minutes = vmIdlePauseMinutesFromRow(vm);
     const addresses = vmIdlePrivateAddressesFromRow(vm);
     const decide = (probe: VmIdleProbe | null, at: number) => decideVmIdlePause({
