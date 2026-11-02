@@ -273,8 +273,14 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
     const view = () =>
       page.evaluate(() => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-        const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
-        const last = Math.max(...rows.map((row) => row.getBoundingClientRect().bottom));
+        // The transcript's end: the last row, or the turn footer's action row (its time, Copy and
+        // Retry). On the layout grid (#27580, leo-workspace design/grid.md 5.5) the footer takes no
+        // height and its action row is laid in the block gap under the reply, so it ends below every
+        // row's box; the rest gap starts at its bottom (transcriptGrid.ts restBand).
+        const ends = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row, .cv-turn-actions")]
+          .map((element) => element.getBoundingClientRect())
+          .filter((rect) => rect.height > 0);
+        const last = Math.max(...ends.map((rect) => rect.bottom));
         // The view's foot: the bottom stack lies over the transcript's foot (bottomStack.css).
         const stack = document.querySelector(".acpmux-main[data-dock=float] > .acpmux-dock");
         const foot = stack ? stack.getBoundingClientRect().top : scroller.getBoundingClientRect().bottom;
