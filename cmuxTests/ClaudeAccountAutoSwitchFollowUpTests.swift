@@ -67,6 +67,15 @@ struct ClaudeAccountAutoSwitchFollowUpTests {
         #expect(ClaudeAccountAutoSwitchFollowUp(result: .paneInUse, sendContinue: true) == .paneInUse)
     }
 
+    /// Debug logs get a fixed name: never the accounts or the session the follow-up carries.
+    @Test
+    func theLogNameNamesNoAccountOrSession() throws {
+        let followUp = ClaudeAccountAutoSwitchFollowUp(result: .switched(try makePlan(), .copied), sendContinue: true)
+
+        #expect(followUp.logName == "announce.continue")
+        #expect(ClaudeAccountAutoSwitchFollowUp.announceWithoutResume(from: "default", to: "work").logName == "announceWithoutResume")
+    }
+
     private func makePlan() throws -> ClaudeAccountSwitchPlan {
         try ClaudeAccountSwitchPlanner.plan(
             sessionID: sessionId,

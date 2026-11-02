@@ -18,6 +18,20 @@ enum ClaudeAccountAutoSwitchFollowUp: Equatable, Sendable {
     /// the user, as a hold-back does.
     case paneInUse
 
+    /// A fixed name for debug logs. It names no account or session.
+    var logName: String {
+        switch self {
+        case .announce(_, _, _, let typeContinue):
+            return typeContinue ? "announce.continue" : "announce"
+        case .announceWithoutResume:
+            return "announceWithoutResume"
+        case .keepUsageLimitStatus:
+            return "keepUsageLimitStatus"
+        case .paneInUse:
+            return "paneInUse"
+        }
+    }
+
     /// The follow-up for `result`.
     ///
     /// - Parameters:

@@ -160,7 +160,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
             ledger.recordExhaustion(accountKey: exhaustion.accountKey, until: exhaustion.until)
             action = action.recording(succeeded: await writeExhaustion(exhaustion))
         }
-        log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) action=\(action)")
+        log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) action=\(action.logName)")
         // The limit stays recorded; a pane closed while it was written gets no notice or switch.
         guard !Task.isCancelled else { return }
         switch action {
@@ -201,8 +201,9 @@ final class ClaudeAccountAutoSwitchCoordinator {
                 return self.paneInUse(request, workspace: workspace) == nil
             }
         )
-        log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) to=\(target.name) result=\(result)")
-        switch ClaudeAccountAutoSwitchFollowUp(result: result, sendContinue: sendContinue) {
+        let followUp = ClaudeAccountAutoSwitchFollowUp(result: result, sendContinue: sendContinue)
+        log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) followUp=\(followUp.logName)")
+        switch followUp {
         case .announce(let from, let to, let sessionId, let typeContinue):
             ledger.noteAutomaticSwitch(panelId: panelId, atMs: Self.nowMs())
             let announcement = ClaudeAccountAutoSwitchAnnouncement(
@@ -283,7 +284,8 @@ final class ClaudeAccountAutoSwitchCoordinator {
             try await exhaustionStore.markExhausted(accountKey: exhaustion.accountKey, until: exhaustion.until)
             return true
         } catch {
-            log("claudeAccount.autoSwitch markExhausted.failed account=\(exhaustion.account.name) error=\(error)")
+            // The error's type only: its description can carry the file's path.
+            log("claudeAccount.autoSwitch markExhausted.failed errorType=\(type(of: error))")
             return false
         }
     }

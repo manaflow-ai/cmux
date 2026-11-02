@@ -82,6 +82,20 @@ enum ClaudeAccountAutoSwitchAction: Equatable, Sendable {
         }
     }
 
+    /// A fixed name for debug logs. It names no account, path or time.
+    var logName: String {
+        switch self {
+        case .ignore:
+            return "ignore"
+        case .markExhaustedOnly:
+            return "markExhaustedOnly"
+        case .holdBack(_, let reason):
+            return "holdBack.\(reason)"
+        case .switchAccount(_, let sendContinue, _):
+            return sendContinue ? "switchAccount.continue" : "switchAccount.confirmTrust"
+        }
+    }
+
     /// Whether this report replaces a `continue` still waiting on the pane. A report ignored as
     /// late or duplicate (it came from the replaced Claude) leaves the wait alone.
     var supersedesPendingContinue: Bool {

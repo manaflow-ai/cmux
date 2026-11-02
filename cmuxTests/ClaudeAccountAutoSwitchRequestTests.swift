@@ -29,6 +29,19 @@ struct ClaudeAccountAutoSwitchRequestTests {
         #expect(request.pendingWork)
     }
 
+    /// Debug logs get a fixed name: never the account, its config directory or the reset time.
+    @Test
+    func theActionLogNameNamesNoAccountPathOrTime() {
+        let action = fixture.decide(fixture.request(), pane: fixture.pane())
+        guard case .switchAccount = action else {
+            Issue.record("expected a switch, got \(action)")
+            return
+        }
+
+        #expect(action.logName == "switchAccount.continue")
+        #expect(fixture.decide(fixture.request(), pane: fixture.pane(), sourceTextBoxHasDraft: true).logName == "holdBack.draftPending")
+    }
+
     @Test
     func nothingHappensWhileTheSettingIsOff() {
         #expect(ClaudeAccountAutoSwitchRequest(draft: fixture.draft(), isEnabled: false) == nil)
