@@ -529,6 +529,8 @@ test("a note folded between tool rows is estimated as the lines it wraps to at t
   expect(wide % 20).toBe(0);
   expect(narrow % 20).toBe(0);
   expect(narrow).toBeGreaterThan(wide);
+  // The note wraps with `white-space: normal`: a newline in a short note draws as a space, one line.
+  expect(at("Checking\nthe tests.", 720)).toBe(tools + 20 + 2 * 12);
 });
 
 // A code card's estimate (model.ts codeCardHeight) follows what the card draws.

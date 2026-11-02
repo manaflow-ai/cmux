@@ -1080,7 +1080,10 @@ const NOTE_GAP = 12;
 const notePrepared = new Map<string, PreparedText | null>();
 function noteHeight(text: string | undefined, width: number): number {
   if (notePrepared.size > 256) notePrepared.clear();
-  const lines = text ? textHeight(text, width, notePrepared, undefined, NOTE_LINE) : NOTE_LINE;
+  // `.cv-tool-note` wraps with the default `white-space: normal`, so a newline or a run of spaces in
+  // the note draws as one space: measure the text that way, not as the replies' pre-wrap.
+  const flat = text?.replace(/\s+/g, " ").trim();
+  const lines = flat ? textHeight(flat, width, notePrepared, undefined, NOTE_LINE) : NOTE_LINE;
   return Math.max(NOTE_LINE, lines) + 2 * NOTE_GAP;
 }
 function activityStepHeight(item: AcpmuxActivity, width: number): number {
