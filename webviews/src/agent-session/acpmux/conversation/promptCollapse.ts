@@ -3,6 +3,8 @@
 // a paste is a chip, "<first words> · N lines", that opens in place. model.ts estimates the row
 // from the same numbers, so a prompt that mounts moves nothing below it.
 
+import { sliceWhole } from "../../../ui/wholeChars";
+
 /// A prompt taller than this many lines opens collapsed to them.
 export const COLLAPSED_PROMPT_LINES = 10;
 /// The Show more line under a collapsed prompt (`.cv-user__more`: 4px above a 20px line).
@@ -123,7 +125,7 @@ export function promptParts(text: string, ranges: readonly PasteRange[]): Prompt
 export function pasteName(text: string): string {
   const line = text.split("\n").find((candidate) => candidate.trim()) ?? "";
   const words = line.trim().replace(/\s+/g, " ");
-  return words.length > 40 ? `${words.slice(0, 39).trimEnd()}…` : words;
+  return words.length > 40 ? `${sliceWhole(words, 39).trimEnd()}…` : words;
 }
 
 /// A paste's line count (a final line break ends its last line, not a new one).

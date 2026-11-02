@@ -8,7 +8,7 @@ import Testing
 
 /// Leo 2026-11-01: "we can reorder them a little bit so they orb doesn't come first ... obv i assume
 /// this won't switch up what they've currently selected...?" The characters now run Series 1 without
-/// the orbs, Mochi, Series 2, then the orbs. A choice is kept by its id, never its place: the default
+/// the orbs, the animated sets, Series 2, then the orbs. A choice is kept by its id, never its place: the default
 /// Chief's in cmux.json (`home.chiefPetMascot`), every other Chief's in the app's defaults
 /// (`home.chief.mascots`, participant id to character id). So the same saved choices read back the same
 /// characters, a person who never picked still wears orb, and the grid checks a cell by its id.

@@ -100,6 +100,16 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
         .filter((rect) => rect.width > 0);
       const screen = document.querySelector(".nt-screen, .acpmux-newtab");
       const bar = document.querySelector(".acpmux-newtab-foot");
+      // The page edge the column never comes nearer than (--cv-edge), resolved on the page itself:
+      // the layout grid's icon box since #27580, 18 px before it.
+      let edge = 0;
+      if (screen) {
+        const probe = document.createElement("div");
+        probe.style.cssText = "position:absolute;visibility:hidden;width:var(--cv-edge, 18px)";
+        screen.appendChild(probe);
+        edge = probe.getBoundingClientRect().width;
+        probe.remove();
+      }
       return {
         box: { left: card.left, right: card.right },
         first: Math.min(...controls.map((rect) => rect.left)),
@@ -107,7 +117,7 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
         column: rows.length
           ? { left: Math.min(...rows.map((rect) => rect.left)), right: Math.max(...rows.map((rect) => rect.right)) }
           : null,
-        page: screen ? { left: screen.getBoundingClientRect().left, width: screen.clientWidth } : null,
+        page: screen ? { left: screen.getBoundingClientRect().left, width: screen.clientWidth, edge } : null,
         footPad: bar ? parseFloat(getComputedStyle(bar).paddingRight) : 0,
       };
     }, box);
@@ -145,9 +155,11 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
           const at = await measure(page, box);
           await page.close();
           // The chat's column (conversation.css --cv-column, --cv-inset): 720 px, widening to 800 px
-          // at 62.5% of a wide pane, never nearer the sides than the 18 px page edge.
+          // at 62.5% of a wide pane, never nearer the sides than the page edge (--cv-edge, the layout
+          // grid's 16 px icon box since #27580).
           const column = Math.min(800, Math.max(720, at.page!.width * 0.625));
-          const inset = Math.max(18, (at.page!.width - column) / 2);
+          expect(at.page!.edge, "the page edge resolves").toBeGreaterThan(0);
+          const inset = Math.max(at.page!.edge, (at.page!.width - column) / 2);
           expect(
             Math.abs(at.box.left - (at.page!.left + inset)),
             "the box's left edge on the chat's column",

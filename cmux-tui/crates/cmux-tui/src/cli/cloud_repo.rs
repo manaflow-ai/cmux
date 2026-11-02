@@ -162,7 +162,7 @@ pub(super) fn call(global: &GlobalArgs, action: &str, args: Value) -> Result<Val
             error: super::wire::resolve_failure(&error),
             idempotency_key: None,
         })?;
-    let mut stream =
+    let stream =
         cmux_tui_core::server::connect_session_socket(&socket, derived).map_err(|error| {
             fail(
                 FailureKind::NotRun,
@@ -176,14 +176,17 @@ pub(super) fn call(global: &GlobalArgs, action: &str, args: Value) -> Result<Val
     let _ = stream.set_read_timeout(Some(timeout));
     request.insert("cmd".into(), json!(action));
     request.insert("id".into(), json!("cloud-repo"));
-    let mut bytes = Value::Object(request).to_string().into_bytes();
+    let mut reader = BufReader::new(stream);
+    let mut request = Value::Object(request);
+    super::launch_credential::attach(&mut reader, &socket, &mut request);
+    let mut bytes = request.to_string().into_bytes();
     bytes.push(b'\n');
     let sent_kind = if matches!(action, "cloud.repo.add" | "cloud.repo.sync") {
         FailureKind::InProgress
     } else {
         FailureKind::NotRun
     };
-    stream.write_all(&bytes).map_err(|error| {
+    reader.get_mut().write_all(&bytes).map_err(|error| {
         fail(
             sent_kind,
             "transport.failed",
@@ -191,7 +194,7 @@ pub(super) fn call(global: &GlobalArgs, action: &str, args: Value) -> Result<Val
         )
     })?;
     let mut line = String::new();
-    BufReader::new(stream).take(MAX_REPLY + 1).read_line(&mut line).map_err(|error| {
+    reader.take(MAX_REPLY + 1).read_line(&mut line).map_err(|error| {
         fail(
             sent_kind,
             "transport.failed",

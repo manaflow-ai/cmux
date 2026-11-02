@@ -133,9 +133,17 @@ extension AutomationInputEvent {
     }
 
     private static func number(_ object: [String: Any], _ key: String, in field: String) throws -> Double {
+        #if canImport(Darwin)
         guard let value = object[key] as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID() else {
             throw AutomationInputEventError.invalidField(field)
         }
+        #else
+        // No CFBoolean type ID here: JSON booleans are the shared boolean NSNumber instances.
+        guard let value = object[key] as? NSNumber,
+              value !== NSNumber(value: true), value !== NSNumber(value: false) else {
+            throw AutomationInputEventError.invalidField(field)
+        }
+        #endif
         return value.doubleValue
     }
 

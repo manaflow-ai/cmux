@@ -150,4 +150,12 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
     shortNamePrefix: "Gemini ",
     familyNames: { "gemini-pro": "Pro", "gemini-flash": "Flash", "gemini-flash-lite": "Flash Lite" },
   },
+  // Every other harness acpmux runs (discover.rs), so the picker lists them installed or not (Leo
+  // 2026-10-26: "show all harnesses, all models (pi, opencode, prime intellect, etc…)").
+  { id: "prime", docsUrl: "https://github.com/PrimeIntellect-ai/prime-agent", name: "Prime Intellect", brand: "prime", families: ["prime"], modelSource: "probe" },
+  { id: "omp", docsUrl: "https://github.com/can1357/oh-my-pi", name: "oh-my-pi", brand: "omp", families: ["omp"], modelSource: "probe" },
+  { id: "grok", name: "Grok", brand: "grok", families: ["grok"], modelSource: "probe" },
+  { id: "cursor", name: "Cursor", brand: "cursor", families: ["cursor"], modelSource: "probe" },
+  { id: "hermes", docsUrl: "https://github.com/NousResearch/hermes-agent", name: "Hermes Agent", brand: "hermes", families: ["hermes"], modelSource: "probe" },
+  { id: "deepseek", name: "DeepSeek", brand: "deepseek", families: ["deepseek"], modelSource: "probe" },
 ];
