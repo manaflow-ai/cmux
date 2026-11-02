@@ -11,7 +11,7 @@
 //! phone's Face ID signature.
 
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::control::SessionExposure;
 
@@ -151,6 +151,14 @@ pub fn response_id(message: &str) -> Option<String> {
     serde_json::from_str::<Value>(message).ok()?.get("id").map(Value::to_string)
 }
 
+pub fn response_ids(message: &str) -> Vec<String> {
+    let Ok(value) = serde_json::from_str::<Value>(message) else { return Vec::new() };
+    match value {
+        Value::Array(items) => items.iter().filter_map(|v| v.get("id").map(Value::to_string)).collect(),
+        value => value.get("id").map(Value::to_string).into_iter().collect(),
+    }
+}
+
 fn exposure_error(id: Value, reason: &str) -> String {
     json!({"jsonrpc":"2.0", "id": id, "error": {"code": -32602,
         "message": "This chat is not exposed to iPhone Remote Control",
@@ -179,7 +187,7 @@ fn allowed(state: &SessionExposure, session: &str, _bound: &HashSet<String>) -> 
 /// Refuse a request that is not explicitly global or that names a blocked chat.
 /// This runs before Full Access marking; credentials never bypass exposure.
 pub fn exposure_refusal(message: &str, state: &SessionExposure, bound: &HashSet<String>) -> Option<String> {
-    exposure_refusal_with_replies(message, state, bound, &HashSet::new())
+    exposure_refusal_with_replies(message, state, bound, &HashMap::new())
 }
 
 /// As [`exposure_refusal`], while accepting method-less JSON-RPC replies to
@@ -188,7 +196,7 @@ pub fn exposure_refusal_with_replies(
     message: &str,
     state: &SessionExposure,
     bound: &HashSet<String>,
-    replies: &HashSet<String>,
+    replies: &HashMap<String, String>,
 ) -> Option<String> {
     let value: Value = match serde_json::from_str(message) {
         Ok(value) => value,
@@ -201,7 +209,10 @@ pub fn exposure_refusal_with_replies(
     for request in requests {
         let id = request.get("id").cloned().unwrap_or(Value::Null);
         let Some(method) = request.get("method").and_then(Value::as_str) else {
-            if replies.contains(&id.to_string()) {
+            if let Some(session) = replies.get(&id.to_string()) {
+                if !allowed(state, session, bound) {
+                    return Some(exposure_error(id, "remote_control.session_not_exposed"));
+                }
                 continue;
             }
             return Some(exposure_error(id, "remote_control.invalid_request"));
@@ -433,8 +444,8 @@ mod tests {
         let state = exposure(&[]);
         let answer = r#"{"jsonrpc":"2.0","id":"approval-1","result":{"approved":true}}"#;
         assert!(exposure_refusal(answer, &state, &HashSet::new()).is_some());
-        let mut replies = HashSet::new();
-        replies.insert("\"approval-1\"".into());
+        let mut replies = HashMap::new();
+        replies.insert("\"approval-1\"".into(), "00000000-0000-7000-8000-000000000002".into());
         assert_eq!(exposure_refusal_with_replies(answer, &state, &HashSet::new(), &replies), None);
     }
 

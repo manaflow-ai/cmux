@@ -59,31 +59,34 @@ struct SessionExposureTests {
 
     @Test func runningHostAcknowledgesExactAllowAndRejectsDurableFailure() async throws {
         let success = try Self.script(mode: "success")
+        defer { Self.remove(success) }
         let supervisor = MobileHostSupervisor()
         await supervisor.start(Self.inputs(executable: success))
+        await Self.waitForStart(supervisor)
         try await supervisor.setSessionExposure(sessionID: "chat-a", allowed: true)
         await supervisor.stop()
-        Self.remove(success)
 
         let failure = try Self.script(mode: "error")
+        defer { Self.remove(failure) }
         let rejecting = MobileHostSupervisor()
         await rejecting.start(Self.inputs(executable: failure))
+        await Self.waitForStart(rejecting)
         await #expect(throws: MobileHostSupervisor.SessionExposureError.self) {
             try await rejecting.setSessionExposure(sessionID: "chat-a", allowed: false)
         }
         await rejecting.stop()
-        Self.remove(failure)
     }
 
     @Test func runningHostTimeoutIsNotSuccess() async throws {
         let executable = try Self.script(mode: "timeout")
+        defer { Self.remove(executable) }
         let supervisor = MobileHostSupervisor()
         await supervisor.start(Self.inputs(executable: executable))
+        await Self.waitForStart(supervisor)
         await #expect(throws: MobileHostSupervisor.SessionExposureError.timedOut) {
             try await supervisor.setSessionExposure(sessionID: "chat-a", allowed: true)
         }
         await supervisor.stop()
-        Self.remove(executable)
     }
 
     private static func inputs(executable: URL) -> MobileHostSupervisor.Inputs {
@@ -93,6 +96,12 @@ struct SessionExposureTests {
                                       fileRoots: [], stackProjectID: "project")
         return .init(launch: launch, accessToken: { _ in "token" }, acpmux: { nil }, log: nil,
                      inherited: ["HOME": "/tmp", "PATH": "/usr/bin:/bin", "TMPDIR": "/tmp"])
+    }
+
+    private static func waitForStart(_ supervisor: MobileHostSupervisor) async {
+        for await state in supervisor.states {
+            if case .connecting = state.phase { return }
+        }
     }
 
     private static func script(mode: String) throws -> URL {

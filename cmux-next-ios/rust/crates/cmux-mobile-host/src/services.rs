@@ -1026,7 +1026,7 @@ async fn acpmux(
     let mut exposure = peer.session_exposure.clone();
     let mut bound_sessions = HashSet::<String>::new();
     let mut pending_new = HashSet::<String>::new();
-    let mut server_reply_ids = HashSet::<String>::new();
+    let mut server_reply_ids = std::collections::HashMap::<String, String>::new();
     // A second connection of hostd's own, for `_acpmux/info` (the mode check).
     let mut side: Option<AcpmuxSocket> = None;
     loop {
@@ -1054,6 +1054,9 @@ async fn acpmux(
                         if sender.send(Bytes::from(answer.into_bytes())).await.is_err() { break; }
                         continue;
                     }
+                    for id in crate::acpmux_policy::response_ids(&text) {
+                        server_reply_ids.remove(&id);
+                    }
                     if let Ok(value) = serde_json::from_str::<Value>(&text) {
                         let requests = match &value { Value::Array(items) => items.iter().collect::<Vec<_>>(), other => vec![other] };
                         for request in requests {
@@ -1066,7 +1069,7 @@ async fn acpmux(
                     // prompt/retry methods; info, events and mode changes also
                     // keep a live channel's exposure alive.
                     for (id, session) in crate::acpmux_policy::request_targets(&text) {
-                        bound_sessions.insert(session);
+                        bound_sessions.insert(session.clone());
                         server_reply_ids.remove(&id);
                     }
                     // An agent a phone drives stays in a mode that asks
@@ -1116,7 +1119,7 @@ async fn acpmux(
                             if request.get("method").is_some() {
                                 for (id, session) in crate::acpmux_policy::request_targets(&request.to_string()) {
                                     bound_sessions.insert(session);
-                                    server_reply_ids.insert(id);
+                                    server_reply_ids.insert(id, session);
                                 }
                             }
                         }
@@ -1223,6 +1226,21 @@ async fn canonicalize_requests(target: &AcpmuxTarget, text: &str) -> Option<Stri
     };
     for request in requests {
         if request.get("method").is_none() {
+            continue;
+        }
+        if request.get("method").and_then(Value::as_str).is_some_and(|method| {
+            [
+                "initialize",
+                "session/new",
+                "acp.session.new",
+                "session/list",
+                "acp.session.list",
+                "_acpmux/status",
+                "_acpmux/sessions",
+                "_acpmux/watch",
+            ]
+            .contains(&method)
+        }) {
             continue;
         }
         let Some(params) = request.get_mut("params").and_then(Value::as_object_mut) else { continue };
