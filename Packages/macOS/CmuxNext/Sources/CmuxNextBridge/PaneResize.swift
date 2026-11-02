@@ -31,6 +31,10 @@ public nonisolated enum PaneResize {
             return stepped(ratio, by: delta, within: SplitRatio.range, shown: shown?.ratio(of: split)).map { .splitRatio(split, $0) }
         }
         guard let column = layout.column(containing: pane) else { return nil }
+        // A pane in a row (rows-v1) with no vertical split of its own: up and down move its row's edge.
+        if axis == .vertical, column.hasRows {
+            return shown?.rowHeights(moving: pane, in: column, by: delta).map { .rowHeights(column.id, $0) }
+        }
         let range = ColumnWidthPreset.widthRange
         // A top or bottom dock's extent is its height: up and down move its
         // inner edge (down grows a top dock, up grows a bottom dock).
