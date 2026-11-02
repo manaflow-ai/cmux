@@ -66,12 +66,12 @@ import Testing
         return window
     }
 
-    /// Off, the indicator never makes the service, even with the Debug toggle turned on after launch: the
-    /// toggle is the feature's launch-time override, so the code uses the value `features.list` reports.
+    /// Off by default (Lawrence 2026-11-02: "get rid of host-pressure warning by default, can be enabled in cmd shift p
+    /// tho"): with nothing set, the indicator never makes the service, so no monitor, no 15 s timer and no banner.
     @Test func theFeatureShipsOffAndOffNeverMakesTheService() {
         #expect(HostPressureTunables.enabled.defaultValue == false)
         #expect(Feature.Channel.allCases.allSatisfy { !Feature.hostPressure.defaults.value(for: $0) })
-        let store = Self.store(forcing: .critical, toggle: true), rig = MainDeadlineRig()
+        let store = Self.store(forcing: .critical), rig = MainDeadlineRig()
         var made = 0
         let indicator = Self.indicator(store: store, rig: rig, node: VisibilityNode(root: "window", own: .visible),
                                        feature: false) { _ in made += 1 }
@@ -80,6 +80,32 @@ import Testing
         #expect(!indicator.isSampling)
         #expect(made == 0)
         #expect(indicator.isHidden)
+    }
+
+    /// The palette's Show / Hide Host Pressure Warning set the Debug toggle after launch: the indicator reads it as the
+    /// feature's live local override, so it starts sampling (the monitor and its 15 s timer) and stops at once.
+    @Test func theToggleAfterLaunchStartsAndStopsSampling() async {
+        let store = Self.store(forcing: nil), rig = MainDeadlineRig()
+        var service: HostPressureService?
+        let indicator = Self.indicator(store: store, rig: rig, node: VisibilityNode(root: "window", own: .visible),
+                                       feature: false) { service = $0 }
+        let window = Self.window()
+        window.contentView?.addSubview(indicator)
+        #expect(!indicator.isSampling)
+        #expect(service == nil)
+
+        _ = store.set(HostPressureTunables.enabled.key, true.tunableValue)
+        hostPressureSpin(until: { indicator.isSampling }, rig: rig)
+        #expect(indicator.isSampling)
+        #expect(await service?.monitorIsRunning() == true)
+
+        _ = store.set(HostPressureTunables.enabled.key, false.tunableValue)
+        hostPressureSpin(until: { !indicator.isSampling }, rig: rig)
+        #expect(!indicator.isSampling)
+        #expect(await service?.monitorIsRunning() == false)
+        #expect(indicator.isHidden)
+        indicator.removeFromSuperview()
+        service?.stop()
     }
 
     /// The window's node is the gate: its flips (occluded, minimized, Hide cmux) reconcile the indicator with no
