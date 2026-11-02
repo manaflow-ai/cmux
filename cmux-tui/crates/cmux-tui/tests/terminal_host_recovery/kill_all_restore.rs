@@ -473,11 +473,16 @@ fn a_resize_storm_writes_one_snapshot_after_the_size_settles() {
 /// tail (a restore rebuilds snapshot plus tail per terminal). Prints
 /// `kill-all-restore-time: {...}` (ms per terminal, sorted).
 #[test]
-#[ignore = "measurement: run it with --ignored"]
 fn kill_all_restore_time_of_12_terminals() {
     const TERMINALS: usize = 12;
     let _exclusive = exclusive_process_test();
-    let mut harness = production_harness("kill-all-restore-time");
+    let mut harness = RecoveryHarness::start_unstarted("kill-all-restore-time");
+    let trace_path = harness.dir.join("respawn-trace.log");
+    harness.extra_env.push(("CMUX_TUI_TERMINAL_PERSISTENCE".into(), "snapshot".into()));
+    harness
+        .extra_env
+        .push(("CMUX_TUI_SCRATCH_RESPAWN_TRACE".into(), trace_path.display().to_string()));
+    harness.restart();
     let home = harness.dir.clone();
     let mut terminals = Vec::new();
     for index in 0..TERMINALS {
@@ -510,9 +515,26 @@ fn kill_all_restore_time_of_12_terminals() {
         assert!(screen.contains(&format!("t{index}-90000")), "terminal {index} lost its text");
         restored_ms.push(spawned.elapsed().as_millis());
     }
+    let spawn_us = harness_spawn_marker(&spawned);
+    let log_text = fs::read_to_string(&trace_path)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_owned)
+        .chain(std::iter::once(spawn_us))
+        .collect::<Vec<_>>();
     restored_ms.sort_unstable();
+    panic!(
+        "kill-all-restore-time: {} TRACE-BEGIN\n{}\nTRACE-END",
+        serde_json::json!({"terminals": TERMINALS, "restored_ms": restored_ms}),
+        log_text.join("\n")
+    );
+    #[allow(unreachable_code)]
     eprintln!(
         "kill-all-restore-time: {}",
         serde_json::json!({"terminals": TERMINALS, "restored_ms": restored_ms})
     );
+}
+
+fn harness_spawn_marker(spawned: &Instant) -> String {
+    format!("TEST elapsed_since_daemon_spawn_us={}", spawned.elapsed().as_micros())
 }

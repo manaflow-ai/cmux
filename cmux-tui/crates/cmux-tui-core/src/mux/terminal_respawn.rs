@@ -454,6 +454,7 @@ impl Mux {
         if self.shutting_down.load(Ordering::Acquire) {
             return Ok(None);
         }
+        respawn_trace(&plan.terminal_id, "start");
         let old_runtime = plan.old_runtime.take();
         // A user restart may replace a runtime whose host still runs (a
         // process end kept by `on_exit` keep keeps its host until the last
@@ -473,9 +474,12 @@ impl Mux {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .terminal_relaunch_record(&plan.terminal_id)?;
+        respawn_trace(&plan.terminal_id, "record");
         // Its own short registry holds: the rebuild runs with no lock.
         let seed_source = self.previous_screen(&plan);
+        respawn_trace(&plan.terminal_id, "previous_screen");
         let launch = self.respawn_launch(&plan, record.as_ref(), seed_source, geometry);
+        respawn_trace(&plan.terminal_id, "launch_plan");
         let workspace_key = {
             let mut registry =
                 self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
@@ -490,6 +494,7 @@ impl Mux {
             self.emit_terminal_registry_changed(&registry, revision);
             registry.terminal_record(&plan.terminal_id)?.map(|terminal| terminal.workspace_key)
         };
+        respawn_trace(&plan.terminal_id, "begin_respawn");
         if let Some(root) = self.terminal_host_root() {
             // Only a Unix owner restarts a dead tab (`manual.rs`).
             #[cfg(unix)]
@@ -504,6 +509,7 @@ impl Mux {
             // removal finds no old record and touches nothing.
             crate::terminal_host_runtime::wait_for_terminal_host_record_removals();
         }
+        respawn_trace(&plan.terminal_id, "old_hosts");
         let terminal_id = TerminalId::from_hex(&plan.terminal_id)
             .context("terminal id is not a canonical UUIDv4")?;
         let surface = Surface::respawn_hosted(
@@ -515,6 +521,7 @@ impl Mux {
             launch.cell_pixels,
             &launch.seed,
         )?;
+        respawn_trace(&plan.terminal_id, "host_spawned");
         let _pending_host_release = PendingTerminalHostRelease(surface.clone());
         let mut forgot_kept = false;
         let activated = match self.install_respawned_runtime(&plan, &surface) {
@@ -547,6 +554,7 @@ impl Mux {
             }
             Err(error) => Err(error),
         };
+        respawn_trace(&plan.terminal_id, "installed");
         if let Err(error) = activated {
             surface.kill();
             // A failed launch leaves a kept tab kept (dead, for the next
@@ -706,5 +714,23 @@ mod tests {
         let memory = respawns.argv.lock().unwrap_or_else(PoisonError::into_inner);
         assert_eq!(memory.by_terminal.len(), ARGV_LIMIT);
         assert_eq!(memory.order.len(), ARGV_LIMIT);
+    }
+}
+
+/// SCRATCH (never merge): a respawn phase mark on stderr.
+fn respawn_trace(terminal_id: &str, phase: &str) {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    let start = START.get_or_init(std::time::Instant::now);
+    let Ok(path) = std::env::var("CMUX_TUI_SCRATCH_RESPAWN_TRACE") else { return };
+    let line = format!(
+        "RESPAWN-TRACE {} {} {} {:?}\n",
+        start.elapsed().as_micros(),
+        terminal_id,
+        phase,
+        std::thread::current().name().unwrap_or("")
+    );
+    use std::io::Write as _;
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = file.write_all(line.as_bytes());
     }
 }
