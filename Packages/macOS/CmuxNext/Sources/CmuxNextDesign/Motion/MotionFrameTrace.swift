@@ -98,7 +98,7 @@ final class MotionFrameTrace {
 
     private func report(looping: Bool) -> [String: Any] {
         // `t0_s`: the first tick's host time (CACurrentMediaTime's clock, seconds), so a sample's `t` lines up
-        // with other clocks of this host (`debug.screen_record`'s frame display times, the input journal).
+        // with other clocks of this host (`record_*`'s frame display times, the input journal).
         var report: [String: Any] = ["running": client?.isActive == true, "refresh_ms": Self.round(refresh * 1_000), "samples": samples,
                                      "t0_s": first]
         if looping, let root = window?.contentView?.superview?.layer ?? window?.contentView?.layer {
