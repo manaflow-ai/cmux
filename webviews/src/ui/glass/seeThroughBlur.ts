@@ -13,9 +13,9 @@
 // Cost: nothing in WebKit (no listeners, no elements). In Chromium, while one surface is open: one
 // hidden <svg> with a filter per covered element, a ResizeObserver on the surface, its parent and
 // the candidates, a MutationObserver (direct children only, never the subtree) on the candidates'
-// parents, and a requestAnimationFrame loop that follows the surface while its rect, opacity or
-// visibility changes (its enter and exit, a resize, a banner or Find bar coming in) and stops after
-// STABLE_FRAMES unchanged frames. Each frame reads every rect first and writes only what changed.
+// parents and on the surface's own inline style, and a requestAnimationFrame loop that follows the
+// surface while its rect, opacity or visibility changes (its enter and exit, a resize, a move, a
+// banner or Find bar coming in) and stops after STABLE_FRAMES unchanged frames. Each frame reads every rect first and writes only what changed.
 // Closing the surface removes all of it. A window without those observers (a test DOM) gets nothing.
 import { type RefObject, useLayoutEffect } from "react";
 
@@ -146,15 +146,35 @@ function canFollow(view: Window): boolean {
 
 let nextId = 0;
 
+/** Every surface's filter on each covered element, by surface: two glasses over one element (the
+ * rail's preview card and the Summary popover, both over the transcript) each keep their own hole.
+ * The element draws their filters one after the other and carries every owner, so one surface's
+ * release takes out its own hole alone. */
+const holesOn = new WeakMap<HTMLElement, Map<number, { owner: string; filter: string }>>();
+
+/** Writes `target`'s filter list and owners from its holes, or clears both when it has none. */
+function writeHoles(target: HTMLElement): void {
+  const holes = [...(holesOn.get(target)?.values() ?? [])];
+  if (holes.length === 0) {
+    holesOn.delete(target);
+    target.removeAttribute(UNDER_ATTRIBUTE);
+    target.style.removeProperty(UNDER_FILTER_PROPERTY);
+    return;
+  }
+  target.setAttribute(UNDER_ATTRIBUTE, [...new Set(holes.map((hole) => hole.owner))].join(" ").trim());
+  target.style.setProperty(UNDER_FILTER_PROPERTY, holes.map((hole) => `url(#${hole.filter})`).join(" "));
+}
+
 /** The elements a surface may cover: by default its siblings. */
 export type CoveredCandidates = (surface: HTMLElement) => Iterable<Element>;
 
 const siblings: CoveredCandidates = (surface) => surface.parentElement?.children ?? [];
 
 export type SeeThroughOptions = {
-  /** The value of data-glass-under on what this surface covers, so a stylesheet can switch off
-   * one surface's filters. A surface CSS hides with `visibility` must: its holes stay (summary.css
-   * does it for the Summary card under Find, review and inspect). */
+  /** A word of data-glass-under on what this surface covers (a list, matched with `~=`, when
+   * several glasses cover one element), so a stylesheet can switch off one surface's filters. A
+   * surface CSS hides with `visibility` must: its holes stay (summary.css does it for the Summary
+   * card under Find, review and inspect). */
   owner?: string;
   /** Elements that must not take a filter (one would re-anchor their fixed menus: the composer).
    * While the surface overlaps one, it keeps its underlay, which hides what is under it there. */
@@ -173,6 +193,7 @@ export function attachSeeThroughBlur(
   const view = doc.defaultView;
   const parent = surface.parentElement;
   if (!view || !parent || !drawsBackdropOver(view) || !canFollow(view)) return () => {};
+  const self = ++nextId;
   const svg = doc.createElementNS(SVG_NS, "svg");
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("width", "0");
@@ -201,8 +222,8 @@ export function attachSeeThroughBlur(
     const entry = covered.get(target);
     if (!entry) return;
     entry.filter.remove();
-    target.removeAttribute(UNDER_ATTRIBUTE);
-    target.style.removeProperty(UNDER_FILTER_PROPERTY);
+    holesOn.get(target)?.delete(self);
+    writeHoles(target);
     covered.delete(target);
   };
 
@@ -247,8 +268,10 @@ export function attachSeeThroughBlur(
         svg.append(filter);
         entry = { filter, key: "" };
         covered.set(target, entry);
-        target.setAttribute(UNDER_ATTRIBUTE, owner);
-        target.style.setProperty(UNDER_FILTER_PROPERTY, `url(#${filter.id})`);
+        let holes = holesOn.get(target);
+        if (!holes) holesOn.set(target, (holes = new Map()));
+        holes.set(self, { owner, filter: filter.id });
+        writeHoles(target);
       }
       if (entry.key !== key) {
         writeHoleFilter(entry.filter, box, hole);
@@ -272,6 +295,9 @@ export function attachSeeThroughBlur(
 
   watch(surface, false);
   watch(parent, true);
+  // A surface placed by its own inline style (the rail's preview card follows the pointer from row
+  // to row by its transform) moves with no resize or child change: its style measures again.
+  mutations.observe(surface, { attributes: true, attributeFilter: ["style"] });
   measure();
   kick();
   surface.addEventListener("transitionrun", kick);

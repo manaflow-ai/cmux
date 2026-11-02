@@ -53,7 +53,7 @@
 // a new message does, leaves on a kept snapshot, its list opens and folds on the shared fold
 // (conversation/fold.ts), a line that joins it rises in, and its header's words tick. What runs
 // turns the shared spinner, never a breathing dot.
-import { memo, type ReactElement, useCallback, useId, useLayoutEffect, useRef, useState } from "react";
+import { memo, type ReactElement, useCallback, useContext, useId, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { foldMotion, useFold } from "../conversation/fold";
@@ -67,10 +67,11 @@ import { StopButton as ProcessStopButton } from "../session-info/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
 import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentLine } from "./AgentLine";
+import { SUBAGENT_FALLBACK } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
-import { elapsed, StopButton, useNow } from "./SubagentGroup";
+import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
 import { toolDetail } from "./trayDetail";
 import { trayPanelLook, trayRowLook } from "./trayPanel.experiment";
@@ -154,6 +155,8 @@ export const SubagentTray = memo(function SubagentTray({
 }) {
   const t = useT();
   const language = usePaneLanguage();
+  // The chat's harness, for a subagent that names none (SubagentGroup.tsx `Avatar`).
+  const chatHarness = useContext(SubagentHarnessContext);
   const listId = useId();
   const now = useNow(items.length > 0);
   const trayNode = useRef<HTMLElement | null>(null);
@@ -458,7 +461,8 @@ export const SubagentTray = memo(function SubagentTray({
           name={item.agent.name}
           progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
           progressAgent={item.agent}
-          mark={item.agent.harness}
+          icon={SUBAGENT_FALLBACK}
+          mark={item.agent.harness ?? chatHarness}
           tone={agentTone(item.agent.id)}
           status={subagentStatus(item.agent, waiting)}
           working={subagentStatus(item.agent, waiting) === "running"}

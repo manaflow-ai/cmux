@@ -95,7 +95,7 @@ fn opts(argv: &[String]) -> Result<Opts, String> {
         return Err("--cell is 1 or 2".into());
     }
     let mode = Mode::parse(a.text("pace").unwrap_or("spin"))
-        .ok_or_else(|| "--pace is spin, hybrid or sleep".to_string())?;
+        .ok_or_else(|| "--pace is spin, rt, hybrid or sleep".to_string())?;
     Ok(Opts {
         style,
         fps,
@@ -110,6 +110,28 @@ fn opts(argv: &[String]) -> Result<Opts, String> {
         log: a.text("log").map(str::to_string),
         summary: a.flag("summary"),
     })
+}
+
+/// Writes the whole frame. A non-blocking stdout that is full (WouldBlock) waits until it can write
+/// again, as tuikit.py's Out does with select; any other error ends the program.
+fn write_frame(out: &mut impl Write, mut bytes: &[u8]) -> std::io::Result<()> {
+    while !bytes.is_empty() {
+        match out.write(bytes) {
+            Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+            Ok(n) => bytes = bytes.get(n..).unwrap_or_default(),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => sys::wait_writable(1),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    loop {
+        match out.flush() {
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => sys::wait_writable(1),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -136,7 +158,13 @@ fn main() -> ExitCode {
     let t0 = sys::monotonic();
     let mut pacer = Pacer::new(o.fps, o.mode, o.spin_ms, t0);
     let mut clock = sys::monotonic;
-    let mut sleep = |s: f64| std::thread::sleep(std::time::Duration::from_secs_f64(s.max(0.0)));
+    let realtime = o.mode == Mode::Rt && sys::realtime_thread(1.0 / o.fps);
+    let sleep_fn: fn(f64) = if o.mode == Mode::Rt {
+        sys::precise_sleep
+    } else {
+        sys::plain_sleep
+    };
+    let mut sleep = |s: f64| sleep_fn(s);
     let mut k: u64 = 0;
     let mut first: Option<f64> = None;
     let mut last = 0.0_f64;
@@ -161,6 +189,8 @@ fn main() -> ExitCode {
             ("pace", Value::Str(format!("{:?}", o.mode).to_lowercase())),
             ("spin_ms", Value::Num(o.spin_ms, 3)),
             ("engine", Value::Str("rust".into())),
+            ("darwin_bg", Value::Str(sys::darwin_bg().into())),
+            ("realtime", Value::Bool(realtime)),
             ("pid", Value::Int(i64::from(std::process::id()))),
         ],
     );
@@ -195,11 +225,7 @@ fn main() -> ExitCode {
             drawn - t0
         };
         let text = g.frame(k, t);
-        if out
-            .write_all(text.as_bytes())
-            .and_then(|()| out.flush())
-            .is_err()
-        {
+        if write_frame(&mut out, text.as_bytes()).is_err() {
             break; // the reader went away (EPIPE): end quietly
         }
         if late > period {
@@ -260,6 +286,7 @@ fn main() -> ExitCode {
             ("late_over_one_frame", Value::Int(late_frames as i64)),
             ("verdict", Value::Str(verdict.into())),
             ("engine", Value::Str("rust".into())),
+            ("darwin_bg", Value::Str(sys::darwin_bg().into())),
         ],
     );
     log.flush();

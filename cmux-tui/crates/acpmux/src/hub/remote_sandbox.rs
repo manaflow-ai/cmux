@@ -756,15 +756,42 @@ pub(super) fn wrap(
     Ok((exec.to_string_lossy().into_owned(), out))
 }
 
+/// The first word of `argv` a remote chain refuses (`REFUSED_ARGS`), skipping
+/// acpmux's own `--disallowedTools NAME` (`tools::disallowed_args`: a built-in
+/// tool the chat started without, such as the AskUserQuestion that `acpmux new
+/// --prompt-file`, `--report-to` and `--worktree` leave out, or an MCP server
+/// it turned off). Such a pair only takes a tool away, so the chain keeps it;
+/// refusing it refused every remote Claude start those flags make. Any other
+/// spelling, or a value that is not a plain tool name (a pattern such as
+/// `Bash(rm:*)`), is still refused.
+fn refused_arg(argv: &[String]) -> Option<&String> {
+    let refused = |a: &str| REFUSED_ARGS.iter().any(|r| a == *r || a.starts_with(&format!("{r}=")));
+    // A name, never a flag: `--disallowedTools --settings` must not hide the --settings after it.
+    let tool_name = |n: &str| {
+        n.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_')
+            && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    };
+    let mut words = argv.iter();
+    while let Some(word) = words.next() {
+        if word == "--disallowedTools" {
+            match words.next() {
+                Some(name) if tool_name(name) => continue,
+                _ => return Some(word),
+            }
+        }
+        if refused(word) {
+            return Some(word);
+        }
+    }
+    None
+}
+
 fn claude_args(
     endpoint: Option<&Endpoint>,
     profile: &HarnessProfile,
     mut args: Vec<String>,
 ) -> Result<Vec<String>, String> {
-    let refused = |a: &String| {
-        REFUSED_ARGS.iter().any(|r| a.as_str() == *r || a.starts_with(&format!("{r}=")))
-    };
-    if let Some(bad) = profile.argv.iter().find(|a| refused(a)) {
+    if let Some(bad) = refused_arg(&profile.argv) {
         return Err(format!("a remote chain never runs Claude Code with {bad}"));
     }
     #[cfg(target_os = "linux")]
@@ -1471,6 +1498,33 @@ mod endpoint_tests {
             (Some(1), Some(1), Some(0), None),
         ] {
             assert!(!canary_report_held(true, fields, true));
+        }
+    }
+
+    #[test]
+    fn acpmuxs_own_disallowed_tools_pass_and_other_tool_args_do_not() {
+        let ok = |argv: &[&str]| {
+            claude_args(bound(None).endpoint.as_ref(), &profile(argv, &[]), vec![]).is_ok()
+        };
+        // `acpmux new --prompt-file` / `--report-to` from a peer, and a chat with a server off.
+        assert!(ok(&["claude", "--disallowedTools", "AskUserQuestion"]));
+        assert!(ok(&[
+            "claude",
+            "--disallowedTools",
+            "AskUserQuestion",
+            "--disallowedTools",
+            "mcp__claude_ai_Gmail"
+        ]));
+        for argv in [
+            &["claude", "--disallowedTools"][..],
+            &["claude", "--disallowedTools", "Bash(rm:*)"],
+            &["claude", "--disallowedTools", "--settings"],
+            &["claude", "--disallowedTools=AskUserQuestion"],
+            &["claude", "--disallowed-tools", "AskUserQuestion"],
+            &["claude", "--disallowedTools", "AskUserQuestion", "--allowedTools", "Bash"],
+            &["claude", "--disallowedTools", "AskUserQuestion", "--dangerously-skip-permissions"],
+        ] {
+            assert!(!ok(argv), "{argv:?}");
         }
     }
 

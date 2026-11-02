@@ -192,6 +192,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 2
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           JOBS: ci-guard-group tooling-tests release-notary
           # Fork branch first: a fork never reads the runner variables (and its job is skipped); ubuntu-24.04 places nothing.
           FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}

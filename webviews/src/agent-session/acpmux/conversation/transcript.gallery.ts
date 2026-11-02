@@ -1397,6 +1397,30 @@ const gridSettledSnapshot = chat([
   summary(0.4, { id: "grid-summary", status: "completed", durationMs: 9_000 }),
 ]);
 
+// Codex's turn header (Leo, 2026-11-02: "i assume the x previous messages are when there's a mix and
+// the worked for is if it's one contiguous thing"): the first turn's work has a note between its
+// calls, the second's is one stretch of calls.
+const codexHeadersSnapshot = chat(
+  [
+    user("Find why the parser drops the last line.", 6, { id: "codex-mix-prompt" }),
+    activity([tool("Read parser.ts", "read", "completed"), tool("Run the parser tests", "execute", "completed")], 5.8),
+    assistant("The tokenizer stops one character early on a file without a final newline.", 5.5),
+    activity(
+      [tool("Edit tokenizer.ts", "edit", "completed"), tool("Run the parser tests", "execute", "completed")],
+      5.2,
+    ),
+    assistant("Fixed: the tokenizer now reads to the end of the input, and the parser tests pass.", 5, {
+      id: "codex-mix-answer",
+    }),
+    summary(4.9, { id: "codex-mix-summary", status: "completed", durationMs: 66_000 }),
+    user("Run the whole suite.", 3, { id: "codex-run-prompt" }),
+    activity([tool("Run the test suite", "execute", "completed"), tool("Run the linter", "execute", "completed")], 2.8),
+    assistant("All 412 tests and the linter pass.", 2, { id: "codex-run-answer" }),
+    summary(1.9, { id: "codex-run-summary", status: "completed", durationMs: 54_000 }),
+  ],
+  { harness: "codex", model: "gpt-6-astra" },
+);
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -1466,6 +1490,11 @@ export default agentPaneEntry({
       height: 900,
       note: "A prompt waiting for its first output: the working indicator sits centred, the block gap above and below it.",
       snapshot: gridWaitingSnapshot,
+    },
+    "codex-turn-headers": {
+      height: 640,
+      note: "Codex turn headers: N previous messages over work mixed with the agent's notes, Worked for over one stretch of calls.",
+      snapshot: codexHeadersSnapshot,
     },
     "grid-settled": {
       height: 900,

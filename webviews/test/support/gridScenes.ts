@@ -21,7 +21,6 @@ const selectorRoles: Record<string, string> = {
   ".cv-tool__icon": "icon",
   ".cv-iconbtn svg": "icon",
   ".acpmux-lineage__icon": "lead",
-  ".acpmux-running-tray__head .acpmux-lineage__icon": "lead",
   ".acpmux-location-leading svg": "lead",
   ".acpmux-location-picker:last-child svg": "trail",
   ".acpmux-access-trigger svg": "lead",
@@ -339,21 +338,21 @@ export const gridScenes: GridScene[] = [
       ".acpmux-agent-line__stop-slot",
     ),
   ),
+  // The tray's header draws no mark (#31424, trayHead.experiment.ts `bare`: Leo, 2026-11-01, "why
+  // did you guys not remove the 3/4"). Its slot stays, hidden, so the counts keep the lines' text
+  // column; the header's lines are its text, its chevron and its row, centred on the row's mid.
   ...["many-folded", "grid-31"].map((variant) =>
-    stack(
-      "stack.tray",
-      "agent-pane.subagent-tray",
-      variant,
-      ".acpmux-running-tray__head",
-      ".acpmux-lineage__icon",
-      ".acpmux-running-tray__title",
-      ".acpmux-running-tray__status",
-    ),
+    scene("stack.tray", "agent-pane.subagent-tray", variant, ".acpmux-running-tray__head", [
+      left("text", ".acpmux-running-tray__title", "text", token("tray-text")),
+      trail(".acpmux-running-tray__status", token("tray-trail-center")),
+      value("row height", ":scope", "height", token("row")),
+      mid(".acpmux-running-tray__title", ":scope"),
+      value("mid: trail", ".acpmux-running-tray__status", "cy", point(":scope", "cy")),
+    ]),
   ),
   scene("stack.subagents", "agent-pane.subagent-tray", "grid-31", ".acpmux-running-tray", [
-    left("header: lead", ".acpmux-running-tray__head .acpmux-lineage__icon", "cx", token("tray-lead-center")),
     left("header: text", ".acpmux-running-tray__title", "text", token("tray-text")),
-    mid(".acpmux-running-tray__title", ".acpmux-running-tray__head .acpmux-lineage__icon"),
+    mid(".acpmux-running-tray__title", ".acpmux-running-tray__head"),
   ]),
   stack(
     "stack.queued",

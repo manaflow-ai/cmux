@@ -160,6 +160,7 @@ extension LiveCoordinator {
                 await session.acpmux.bind(nil)
             }
             if chiefMacID == macID { chiefOffline() }
+            ChiefComputer.shared.macChanged()
             return
         }
         if let prepared = session.link.takePrepared(for: link) as? PreparedLink {
@@ -408,6 +409,8 @@ extension LiveCoordinator {
         let protocolVersion = object?["link"] as? Int ?? 1
         let capabilities = Set(object?["capabilities"] as? [String] ?? [])
         if store.macCapabilities[macID] != capabilities { store.macCapabilities[macID] = capabilities }
+        // The Mac is up and said what it serves: Chief info's Computer card reads its Cloud directory again.
+        ChiefComputer.shared.macChanged()
         log.info("Mac host: \(object?["hostd"] as? String ?? "before 0.2", privacy: .public), link protocol \(protocolVersion, privacy: .public)")
         let outdated = protocolVersion < 2
         guard outdated != session.outdated else { return }
@@ -553,6 +556,15 @@ extension LiveCoordinator {
         for session in sessions.values where session.workspaces.daemon != nil {
             await session.workspaces.refresh()
         }
+    }
+
+    /// Opens the Mac's link if it was idle and waits for its agents (acpmux) to answer, up to
+    /// `timeout`: New Agent Chat from Shortcuts may run before anything linked that Mac.
+    public func agentsReady(on macID: String, timeout: Duration = .seconds(20)) async -> Bool {
+        guard canLink(macID: macID) else { return false }
+        touch(macID)
+        guard let session = sessions[macID] else { return false }
+        return await session.acpmux.waitUntilReady(timeout: timeout, clock: clock)
     }
 
     /// The Mac was used now: its link opens if it was closed, and stays while recent.

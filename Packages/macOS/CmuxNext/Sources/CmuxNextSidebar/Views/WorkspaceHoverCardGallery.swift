@@ -85,7 +85,48 @@ public struct WorkspaceHoverCardGallery {
             if expanded { card.detailsToggle.performClick(nil) }
             return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
         }
-        return tabCards + workCards(now: now) + richCards
+        return tabCards + tabRowCards(now: now) + workCards(now: now) + richCards
+    }
+
+    /// The tab rows' line in each style (Leo 2026-11-01: "local or nonlocal is probably useful to see in the
+    /// hover previews"; "these are not informative enough nor look very good. there's no symbols, not much
+    /// metadata, nothing"), on this Mac and on another machine; the shipped one says so in its name.
+    @MainActor static func tabRowCards(now: Date) -> [(name: String, view: NSView)] {
+        var chat = SidebarTab(id: TabID("coord"), title: "claude-sr2-coord", kind: .agentChat, brand: "claude", folder: "~/Projects",
+                              state: .working, lastActivity: now.addingTimeInterval(-60))
+        chat.model = "claude-opus-5-5"
+        chat.subagentsRunning = 2
+        var shell = SidebarTab(id: TabID("shell"), title: "~", kind: .terminal, folder: "~")
+        shell.command = "npm test"
+        var pull = SidebarTab(id: TabID("pr"), title: "Hover card rows · Pull Request #12", kind: .browser, host: "github.com")
+        pull.path = "/manaflow-ai/cmux/pull/12"
+        var unloaded = SidebarTab(id: TabID("issues"), title: "github.com", kind: .browser, host: "github.com")
+        unloaded.path = "/manaflow-ai/cmux/issues"
+        let tabs = [chat, shell, pull, unloaded, SidebarTab(id: TabID("new"), title: Strings.hoverCardNewTab, kind: .newTab)]
+        // A made-up machine name: the capture's privacy check refuses a real host's.
+        let local = SidebarMachine(id: .local, name: "studio", kind: .local)
+        let remote = SidebarMachine(id: MachineID("dev-mini"), name: "dev-mini", kind: .ssh)
+        var remoteOnly = WorkspaceTabHoverCardStyle.standard
+        remoteOnly.namesLocalMachine = false
+        var trailing = WorkspaceTabHoverCardStyle.standard
+        trailing.trailing = .machine
+        var before = WorkspaceTabHoverCardStyle.standard
+        before.detail = [.place, .state, .time]
+        let variants: [(String, WorkspaceTabHoverCardStyle)] = [
+            ("Tab rows · machine on every line · chosen", .standard),
+            ("Tab rows · only another machine named", remoteOnly),
+            ("Tab rows · machine in the trailing column", trailing),
+            ("Tab rows · before (place · state · time)", before),
+        ]
+        let content = WorkspaceHoverCardContent(title: "claude-sr2-coord", icon: .agentChat, facts: [])
+        return variants.flatMap { name, style in
+            [(local, "this Mac"), (remote, "another machine")].map { machine, place in
+                let card = WorkspaceHoverCardView(style: style)
+                card.configure(content, now: now)
+                card.configureTabs(title: content.title, tabs: tabs, now: now, machine: machine)
+                return ("\(name) · \(place)", HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
+            }
+        }
     }
 
     /// The expanded card with its agent's running work, in each `WorkspaceHoverCardWork.Style`

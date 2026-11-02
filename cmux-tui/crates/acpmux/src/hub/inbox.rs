@@ -59,7 +59,7 @@
 //! cmux tools (`agent_tools::left_out`: a remote origin, `ACPMUX_AGENT_TOOLS=0`,
 //! `--strict-mcp-config`). Another agent's message queues for it as before the inbox, so its agent
 //! reads every word; a notice that goes to such an agent anyway (messages the inbox took before
-//! it respawned without the tools, or before a restart's first spawn) carries each one whole. Nothing here waits on Labs `meshRelay.teamMessaging`: an agent reads its inbox
+//! it respawned without the tools, or before a restart's first spawn) carries each one whole. Nothing here waits on `meshRelay.teamMessaging`: an agent reads its inbox
 //! with `inbox_read`, in a shell with `acpmux session inbox`, and, while team messaging is off,
 //! with the team mailbox's `team_inbox` and `acpmux inbox` too (`inbox_team_page.rs`), which an
 //! agent started before the inbox has instead of `inbox_read`.

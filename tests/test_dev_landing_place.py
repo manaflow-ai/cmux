@@ -10,11 +10,18 @@ workflow's wiring.
 """
 from __future__ import annotations
 
+import base64
+import contextlib
+import datetime as dt
+import gzip
+import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -294,6 +301,40 @@ class DailyPickerTests(unittest.TestCase):
             raise RuntimeError("HTTP 403")
         self.assertEqual(self.daily(refused, self.records(cmux8s=1))["runs_on"], "")
         self.assertEqual(self.daily([slot("cmux8s-glaeda-2")], {}, SIDE_LABEL="blacksmith-6vcpu-macos-26")["runs_on"], "")
+
+
+class SharedFirstLook(unittest.TestCase):
+    def test_busy_document_is_used_once_then_live_state_places_the_compile(self):
+        import pr_runner_pool as pool
+        idle = dict(root_runner("synthetic-glaeda-1"), id=1, os="macOS")
+        busy = dict(idle, busy=True)
+        doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
+                   generated_at=dt.datetime.now(dt.timezone.utc).isoformat(),
+                   repository_runners=[], runner_groups={"glaeda-minis": [busy]}, scale_sets={})
+        raw = base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode()
+        env = dict(GITHUB_REPOSITORY="manaflow-ai/cmux", ROUTE_TOKEN="synthetic-token", SIDE_LABEL=SIDE,
+                   SHA="a" * 40, WAIT_SECONDS="60", POLL_SECONDS="30", CI_RUNNER_STATE=raw)
+        paths, clock, output = [], [0.0], io.StringIO()
+        def api(path):
+            paths.append(path)
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": "glaeda-minis", "id": 10}]}
+            if "/10/runners" in path:
+                return {"runners": [idle]}
+            return {}
+        real_place = place.place
+        def execute(env, *args):
+            return real_place(env, *args, clock=lambda: clock[0],
+                              sleep=lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(pool.GitHub, "get_api", side_effect=api), \
+             mock.patch.object(place, "place", side_effect=execute), \
+             contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(place.main([]), 0)
+        self.assertIn(place.static_label(idle["name"]), output.getvalue())
+        self.assertEqual(clock[0], 30)
+        self.assertEqual(sum("/10/runners" in path for path in paths), 1)
+        self.assertEqual(sum(path.startswith("/repos/manaflow-ai/cmux/actions/runners") for path in paths), 1)
 
 
 class HolderScriptTests(unittest.TestCase):

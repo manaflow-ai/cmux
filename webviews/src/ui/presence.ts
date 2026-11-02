@@ -48,9 +48,16 @@ function transitionMs(element: HTMLElement): number {
 
 /// Presence of a surface that enters from `edge` while `shown`. With `appear`, a surface mounted
 /// already shown enters too (a notice, a new card); without it, one shown at mount is simply there
-/// (a panel restored with the page).
-export function usePresence(shown: boolean, edge: EnterEdge, { appear = false }: { appear?: boolean } = {}): Presence {
+/// (a panel restored with the page). A change of `snapOn` (a surface's placement, which a resize
+/// picks, not the person) takes `shown` at once, with no enter or exit: the surface is simply there
+/// in its new place, or gone.
+export function usePresence(
+  shown: boolean,
+  edge: EnterEdge,
+  { appear = false, snapOn }: { appear?: boolean; snapOn?: unknown } = {},
+): Presence {
   const [phase, setPhase] = useState<Phase>(() => (shown ? (appear ? "from" : "shown") : "hidden"));
+  const [snapKey, setSnapKey] = useState(snapOn);
   const element = useRef<HTMLElement | null>(null);
   const ref = useCallback((node: HTMLElement | null) => {
     element.current = node;
@@ -58,8 +65,13 @@ export function usePresence(shown: boolean, edge: EnterEdge, { appear = false }:
 
   // Follow `shown` during render, so the first frame after a change already carries its phase.
   let next = phase;
-  if (shown && (phase === "hidden" || phase === "leaving")) next = phase === "hidden" ? "from" : "shown";
-  if (!shown && (phase === "from" || phase === "shown")) next = "leaving";
+  if (!Object.is(snapOn, snapKey)) {
+    setSnapKey(snapOn);
+    next = shown ? "shown" : "hidden";
+  } else {
+    if (shown && (phase === "hidden" || phase === "leaving")) next = phase === "hidden" ? "from" : "shown";
+    if (!shown && (phase === "from" || phase === "shown")) next = "leaving";
+  }
   if (next !== phase) setPhase(next);
 
   useLayoutEffect(() => {

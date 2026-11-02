@@ -1110,8 +1110,15 @@ export function mergeToolItem(
   const ended = status === "completed" || status === "failed";
   const kind = update.kind ?? before?.kind;
   const locations = readLocations(update.locations) ?? before?.locations;
+  // ACP sends an empty object when an update changes status or output without changing the
+  // call's input. Keep the input from the initial call so a draft command never regresses to
+  // the blank/Thinking state after that update.
+  const hasRawInput =
+    update.rawInput !== undefined &&
+    update.rawInput !== null &&
+    !(objectValue(update.rawInput) && Object.keys(update.rawInput).length === 0);
   // The input's file, from the update that carries the input.
-  const input = update.rawInput ? inputPath(update) : before?.inputPath;
+  const input = hasRawInput ? inputPath(update) : before?.inputPath;
   const placed =
     update.content === undefined ? placeDiffs(before?.diffs, update.locations) : toolDiffs(update.content, locations);
   // An edit whose content names no `diff` (Claude Code's Edit, whose result is plain text) still
@@ -1133,7 +1140,7 @@ export function mergeToolItem(
       title: String(update.title ?? update.name ?? before?.title ?? callId),
       kind,
       status,
-      inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
+      inputSummary: hasRawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
       output:
         output || formattedOutput(update.rawOutput) || (update.content === undefined ? before?.output : undefined),
       command: shellCommand(update.rawInput) ?? before?.command,
@@ -2392,12 +2399,19 @@ export class AcpmuxDirectClient {
       // frame waits on one round trip rather than one per read (Leo, 2026-10-29: "as in i want
       // ours to load fast too :(").
       const peersSince = this.peerEvents.statusStarted();
-      const peersRead = this.request("_acpmux/status", {}).catch(() => undefined);
+      const peersRead = this.request("_acpmux/status", {})
+        .catch(() => undefined)
+        .then((status) => {
+          // A late read belongs only to this connection. A closed or replaced socket must not
+          // replace the next connection's peer state or emit a connected snapshot.
+          if (this.closed || openingSocket !== this.socket || openingSocket.readyState !== WebSocket.OPEN) return;
+          this.readPeers(status, peersSince);
+          if (!this.opening && !this.snapshotHold) this.emit();
+        });
       const listRead = this.sessionPages.first();
-      // Awaited below, after the machines: a list that fails meanwhile is not left unobserved.
+      // Awaited below: a list that fails meanwhile is not left unobserved.
       listRead.catch(() => undefined);
       early = this.askEarly();
-      this.readPeers(await peersRead, peersSince);
       // The chat's own row, when its attach answered before the list: the chat opens on it, and the
       // list settles behind the open (`attachedBeforeList`).
       const attachedRow = early && (await this.attachedBeforeList(early, listRead));
@@ -2430,6 +2444,17 @@ export class AcpmuxDirectClient {
         laterPages = undefined;
       }
       this.listedSessions = !attachedRow && (first !== undefined || this.sessions.length > 0);
+      // A known chat on this daemon can draw from its attach without the machine list. Keep
+      // status on the path for remote wires, peer chats and missing/unspecified sessions: they
+      // use it to choose a peer copy or explain availability. The late local reply fills the
+      // environment picker above, without holding the transcript's first frame.
+      const localChat =
+        this.localOrigin &&
+        this.selectedSessionId !== undefined &&
+        this.sessions.some(
+          (session) => session.sessionId === this.selectedSessionId && typeof session.peer !== "string",
+        );
+      if (!localChat) await peersRead;
       // A chat on another machine: that machine's daemon attached the session its store records for
       // this tab (agent-session-attach checks it), so that session is the tab's chat even when this
       // page holds another name for it: a session name the tab recorded, or the id from before the
