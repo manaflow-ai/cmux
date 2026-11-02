@@ -67,9 +67,11 @@ extension CEFRuntime {
         if devToolsOrder.isIdle(browser) {
             guard allowed() else { return { throw BrowserTabError.snapshotUnavailable } }
             let sent = sendDevTools(browser, method: method, encodedParams: text)
+            // The caller awaits from a later turn: an answer that comes first is kept for it.
+            if let sent, sent.answered == nil { unawaitedDevTools[sent.key] = .some(nil) }
             return { [weak self] in
                 guard let self else { throw BrowserTabError.closed }
-                return try await self.result(of: sent, method: method, timeout: timeout)
+                return try await self.awaitedResult(of: sent, method: method, timeout: timeout)
             }
         }
         let ticket = devToolsOrder.take(browser)
@@ -84,6 +86,15 @@ extension CEFRuntime {
             return try await self.result(of: sent, method: method, timeout: timeout)
         }
         return { try await call.value }
+    }
+
+    /// ``result(of:method:timeout:)`` of a call ``startDevTools(_:method:params:timeout:while:)`` sent in an earlier
+    /// turn: its answer if it came meanwhile, `closed` when its browser closed or quit began meanwhile.
+    private func awaitedResult(of sent: CEFDevToolsSend?, method: String, timeout: Duration) async throws -> String {
+        guard let sent, sent.answered == nil else { return try await result(of: sent, method: method, timeout: timeout) }
+        guard let entry = unawaitedDevTools.removeValue(forKey: sent.key) else { throw BrowserTabError.closed }
+        if let answered = entry { return try answered.get() }
+        return try await result(of: sent, method: method, timeout: timeout)
     }
 
     /// The JSON result of a DevTools method ``sendDevTools(_:method:encodedParams:)`` sent (nil: the browser was
