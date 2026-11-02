@@ -118,7 +118,7 @@ final class WindowHintController {
         }
         session = current
         switch outcome {
-        case .cancel:
+        case .cancel, .passThrough:
             cancel()
         case .narrow(let prefix):
             draw(prefix: prefix)
