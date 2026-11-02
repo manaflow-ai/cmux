@@ -18,6 +18,9 @@ import Foundation
 /// - `main_ns`: main-thread time spent in the measured paths, nanoseconds.
 /// - `order_builds`: `SidebarModel.workspaceOrder` builds (one per structural change at most, never per query).
 /// - `mirror_ns`: main-thread time in `SidebarMirror` calls (request encode, the Rust call, reading the reply), nanoseconds.
+/// - `row_invalidations`: listed rows whose observed content changed (`SidebarRowFeed`): one change in one workspace
+///   marks that workspace's row only, never every row (TYPING UNDER LOAD F6).
+/// - `row_maps`: row mappings `SidebarRowFeed` ran (a new row, a dirty row, every row after an inputs change).
 nonisolated enum SidebarPerfCounters {
     enum Counter: String, CaseIterable, Sendable {
         case rebuilds
@@ -34,6 +37,8 @@ nonisolated enum SidebarPerfCounters {
         case mainNanoseconds = "main_ns"
         case mirrorNanoseconds = "mirror_ns"
         case orderBuilds = "order_builds"
+        case rowInvalidations = "row_invalidations"
+        case rowMaps = "row_maps"
     }
 
     private static let counts = Mutex<[Counter: Int]>([:])
