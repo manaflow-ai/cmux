@@ -109,25 +109,6 @@ import Testing
         #expect(FocusSpyShim.granted == [11])
     }
 
-    /// reopen-browser-plain-keys cycle B: the app ends its key hold when the page can take keys, which is when Chromium
-    /// created the browser, after the tab's content was shown. The tab says so once its browser exists.
-    @Test func aTabSaysWhenItsBrowserExists() throws {
-        let (runtime, root) = try FocusSpyShim.runtime()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
-        let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
-        host.add(tab)
-        var attached = 0
-        tab.onAttached = { attached += 1 }
-        #expect(!tab.pageReady, "a tab with no browser yet is not ready")
-        host.ensureCreated(tab)
-        let request = try #require(runtime.pendingWindows.keys.first)
-        #expect(attached == 0)
-        runtime.handle(.afterCreated(browser: 15, request: request, window: 1))
-        #expect(attached == 1, "the tab did not say its browser exists")
-        #expect(tab.pageReady)
-    }
-
     /// reopen-browser-plain-keys cycle B, second finding (REOPEN VIDEO 7660): the restored page's navigation starts after
     /// Chromium created the browser, so keys sent on at the browser's creation reached the empty document the
     /// navigation then replaced. The page is ready for keys once its first document committed (or failed to load).
@@ -138,7 +119,7 @@ import Testing
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
         host.add(tab)
         var reported = 0
-        tab.onAttached = { reported += 1 }
+        tab.onReadyForKeys = { reported += 1 }
         host.ensureCreated(tab)
         let request = try #require(runtime.pendingWindows.keys.first)
         runtime.handle(.afterCreated(browser: 16, request: request, window: 1))

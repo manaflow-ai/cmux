@@ -278,11 +278,15 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     // MARK: Lifetime (called by CEFPaneHost / CEFRuntime)
 
-    /// Chromium created this tab's browser (``attach(browser:)``): a key may reach the page from now on.
-    @ObservationIgnored public var onAttached: (@MainActor () -> Void)?
+    /// The page can take keys from now on: Chromium created its browser and the first document committed (or failed to
+    /// load). Before that a key reached the empty document a restore then replaced. Once per browser.
+    @ObservationIgnored public var onReadyForKeys: (@MainActor () -> Void)?
+    /// The first document of this browser committed or failed (``onReadyForKeys``).
+    @ObservationIgnored var hasDocument = false
 
     func attach(browser: Int32) {
         browserID = browser
+        hasDocument = false
         isCreationPending = false
         CEFAgentURLGuard.applyShimGuard(self)
         if let url = loadAfterAttach {
@@ -326,7 +330,13 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             if code != 1, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
         }
         refreshExtensionActions()
-        onAttached?()
+    }
+
+    /// The first document of this browser committed or failed: the page takes keys now.
+    func documentArrived() {
+        guard !hasDocument else { return }
+        hasDocument = true
+        onReadyForKeys?()
     }
 
     // What the page area shows, and when the document takes it over, are in
