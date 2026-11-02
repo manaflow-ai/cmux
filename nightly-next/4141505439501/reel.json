@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "build": "4141505439501",
+  "notes": "notes/4141505439501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31967,
+      "title": "fix(launch): keep each visible terminal's last frame on disk while the app runs, so a reopen after a kill shows it",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28215,
+      "title": "cmux-tui: one-time cleanup of stored terminal output in old registries (takes over #23313)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27213,
+      "title": "fix(acpmux): resume forwarded prompts after peer restart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32008,
+      "title": "fix(next diagnostics): debug.frames counts view layouts and window layout passes in every build",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31974,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-c94408d3c4853068b32e73e50afd3cbbeea776c7",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26745,
+      "title": "perf(chat): add immutable transcript geometry checkpoint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31998,
+      "title": "cmux NEXT: Go to Workspace pane rows resolve their pane on its own machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27308,
+      "title": "cmux NEXT spaces: each space owns its pins and groups",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/27308/22456f65/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "22456f65",
+      "tour": "core"
+    },
+    {
+      "pr": 31711,
+      "title": "Agent pane: an approved guest message says nothing, no \"Read after this turn\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32006,
+      "title": "P0 RESIZE VIDEOS A3b: a divider drag keeps terminal text in place and reflows once when it lands",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32005,
+      "title": "fix(irx): the tunnel policy refuses a scoped IPv6 literal (fe80::1%en0) instead of dialing another address",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31999,
+      "title": "fix(cmux-tui): a resize asks the output store for a snapshot; kill_all_restore tests hold on Linux (base red)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30082,
+      "title": "Chief: coordinator tools and a configurable point of contact",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
