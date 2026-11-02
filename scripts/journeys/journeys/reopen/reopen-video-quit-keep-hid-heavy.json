@@ -14,6 +14,16 @@
    "seconds": 4
   },
   {
+   "do": "window_place",
+   "fraction": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "title": "set-up: the window fills the screen (12 TUI panes visible, not one column)"
+  },
+  {
    "do": "heavy_profile",
    "seed": 7,
    "workspaces": 40,
@@ -70,6 +80,10 @@
  "finally": [
   {
    "do": "heavy_teardown"
+  },
+  {
+   "do": "restore_window",
+   "from": "before-place"
   }
  ]
 }
