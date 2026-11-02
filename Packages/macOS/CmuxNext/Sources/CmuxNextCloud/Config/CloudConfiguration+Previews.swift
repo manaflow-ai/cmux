@@ -2,7 +2,7 @@ public import Foundation
 
 extension CloudConfiguration {
     /// Preview ingress is served directly by cmux-platform. Until production ingress is ready,
-    /// only the staging Cloud owner has a default preview API; other builds keep their browser route.
+    /// only the staging and development Cloud owners have a default preview API; other builds keep their browser route.
     public func platformPreviewAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
         guard linkSource == .appServer, isDebugBuild, !isProductionAuth else { return nil }
         if let raw = environment["CMUX_NEXT_PLATFORM_PREVIEW_API_URL"] {
@@ -11,8 +11,12 @@ extension CloudConfiguration {
                   url.path.isEmpty || url.path == "/" else { return nil }
             return url
         }
-        guard ownerAPIBaseURL(environment: environment).host == "cloud-api-staging.cmux.dev" else { return nil }
-        return URL(string: "https://cmux-platform-staging.debussy.workers.dev")
+        // Each Cloud owner's previews come from its own environment's cmux-platform.
+        switch ownerAPIBaseURL(environment: environment).host {
+        case "cloud-api-staging.cmux.dev": return URL(string: "https://cmux-platform-staging.debussy.workers.dev")
+        case Self.developmentWorkerOrigin.host: return URL(string: "https://cmux-platform-development.debussy.workers.dev")
+        default: return nil
+        }
     }
 
     /// The cmux-platform origin used by the Artifacts page. Release builds always use the

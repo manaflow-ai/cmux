@@ -232,9 +232,12 @@ public final class CreationInputBuffer {
 
     /// Holds `event`, typed while the focus named `focusedTab` (``lane(focusedTab:)``). A key typed for no creation's tab
     /// while a new workspace's terminal is on its way and the person has not moved on (`forNewWorkspace`) is that
-    /// terminal's: its keys wait for the window to show it.
+    /// terminal's: its keys wait for the window to show it. An adopted lane (a cold terminal's surface hold, keys carried
+    /// from another hold) is the terminal the person typed into before they asked for the workspace: it gives way to it.
     public func capture(_ event: NSEvent, focusedTab: String?, forNewWorkspace: Bool = false) {
-        events.append((event, lane(focusedTab: focusedTab) ?? (forNewWorkspace ? workspaceTickets.max() : nil)))
+        let workspace = forNewWorkspace ? workspaceTickets.max() : nil
+        let own = lane(focusedTab: focusedTab).flatMap { $0 < 0 && workspace != nil ? nil : $0 }
+        events.append((event, own ?? workspace))
     }
 
     /// Holds `earlier` (keys taken and not run yet, typed after the key that started the newest creation) before the

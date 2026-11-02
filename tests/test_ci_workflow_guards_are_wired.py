@@ -46,7 +46,7 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # this test exists to prevent.
 UNWIRED: set[str] = {
     # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows only as data: which files exist and which
-    # call a reusable declared workflow, for scripts/ci/hosted_light_rescue.py's scope. Exit: as above.
+    # call a reusable declared workflow, for scripts/ci/hosted_light_rescue.py's scope. Exit: as below.
     "tests/test_ci_hosted_light_rescue.py",
     # Both are lane = "manual" in tests/test-execution.toml: CLAUDE.md forbids adding CI tests (Lawrence
     # 2026-10-23: "not to add gates/tests in CI, but you have to run them yourself"). Each reads a workflow

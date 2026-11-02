@@ -29,8 +29,8 @@ final class CreationInputCoordinator {
     private var buffers: [Int: CreationInputBuffer] = [:]
     /// The person's new terminals' claims on their windows' keyboards (``beginWorkspace(in:)``).
     private let claims = CreationKeyboardClaims()
-    /// Set while a captured key runs again, so it is not captured a second time.
-    private var replaying = false
+    /// Set while a captured key runs again (`lane`: it was held for a terminal), so it is not captured a second time.
+    private var replaying: (on: Bool, lane: Bool) = (false, false)
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     var holdLimit: Duration = .seconds(2)
     private let replay: HeldKeyReplay // a held key runs again (``HeldKeyReplay``)
@@ -213,8 +213,8 @@ final class CreationInputCoordinator {
         let (controller, kind) = router.focus(for: window)
         // A Chromium page window is a child of the shell, whose number keys the buffer.
         let shell = controller?.window ?? window
-        // A held key runs again: never captured twice, but a person's claim still keeps it from what has the focus now.
-        if replaying { return kind == .content && keepsFromWindow(event, in: shell) }
+        // A held key runs again: never captured twice; a person's claim still keeps one typed for no terminal from the window.
+        if replaying.on { return !replaying.lane && kind == .content && keepsFromWindow(event, in: shell) }
         // The focus names a terminal whose surface is not shown yet (a reopened window, a workspace shown
         // cold): the key waits for it, at most `holdLimit`, and goes to that terminal (REOPEN-F4); a second one gets its own lane.
         if buffers[shell.windowNumber].map({ $0.awaitedTab != nil }) ?? true, kind == .content, let controller, ActionRunScope.viewChangeAllowed(),
@@ -261,7 +261,7 @@ final class CreationInputCoordinator {
     private func runAgain(_ keys: [CreationInputBuffer.HeldKey], from buffer: CreationInputBuffer, in window: NSWindow) -> Bool {
         let opened = buffer.openedCount
         for (index, key) in keys.enumerated() {
-            replaying = true
+            replaying = (true, key.lane != nil)
             switch key {
             case .run(let event, _): if let router { replay(event, window, router) }
             case .type(let events, let lane): type(events, into: lane)
@@ -269,7 +269,7 @@ final class CreationInputCoordinator {
                 guard let (binding, context) = shortcut(event, tab: lane.tab, in: window), let router else { type([event], into: lane); break }
                 RegistryKeyBindings(router.registry).run(binding, keyContext: context.bits, target: ActionTargetRef(kind: .tab, id: lane.tab))
             }
-            replaying = false
+            replaying = (false, false)
             if let next = buffers[window.windowNumber], next !== buffer || next.openedCount != opened {
                 next.prepend(keys.dropFirst(index + 1).flatMap(\.keys), issuer: key.lane)
                 return false

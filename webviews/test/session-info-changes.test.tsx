@@ -185,8 +185,11 @@ test("the title leads, then repo #N, the line counts, the comments, and the fail
   // Green checks: a dot with no text, and no comment count at zero.
   expect(second!.querySelector(".acpmux-session-info-pr__comments")).toBeNull();
   expect(second!.querySelector('.acpmux-session-info-pr__checks[data-checks="passing"]')).not.toBeNull();
-  // Nothing read yet: its number stands in for the title, and the end of the line is empty.
-  expect(third!.querySelector(".acpmux-session-info-pr__title")?.textContent).toBe("#22523");
+  // Nothing read yet: its reference stands in for the title, once, never `#N` over `repo #N` (Leo
+  // 2026-10-21, ask-520cee7be7: "#23377 / cmux #23377"), and the end of the line is empty.
+  expect(third!.querySelector(".acpmux-session-info-pr__title")?.textContent).toBe("cmux #22523");
+  expect(third!.querySelectorAll(".acpmux-session-info-pr__ref")).toHaveLength(1);
+  expect(third!.textContent).not.toMatch(/#22523.*#22523/);
   expect(third!.querySelector(".acpmux-session-info-pr__checks")).toBeNull();
 });
 
