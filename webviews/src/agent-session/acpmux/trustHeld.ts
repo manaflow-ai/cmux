@@ -316,13 +316,21 @@ export function useTrustHeldPrompts({
     },
     /// Takes every new chat's held prompt out, in order, for a tab that opens another chat: what
     /// they say goes with the new chat's leftover (cmux#32276), and none is sent after.
+    /// One going (a start the pick cancelled, not settled yet) is taken first, as `release` takes
+    /// it: its send settling later puts nothing back, and a copy that reached acpmux stays a draft.
     takeNewChat: () => {
-      const taken = now.current.held.filter((entry) => entry.chat === undefined);
-      if (!taken.length) return taken;
-      const ids = new Set(taken.map((entry) => entry.id));
-      now.current = { ...now.current, held: now.current.held.filter((entry) => !ids.has(entry.id)) };
-      setHeld((list) => list.filter((entry) => !ids.has(entry.id)));
-      return taken;
+      const inFlight = going.current?.chat === undefined ? going.current : undefined;
+      if (inFlight) {
+        going.current = undefined;
+        released.current.add(inFlight.id);
+      }
+      const held = now.current.held.filter((entry) => entry.chat === undefined);
+      if (held.length) {
+        const ids = new Set(held.map((entry) => entry.id));
+        now.current = { ...now.current, held: now.current.held.filter((entry) => !ids.has(entry.id)) };
+        setHeld((list) => list.filter((entry) => !ids.has(entry.id)));
+      }
+      return inFlight ? [inFlight, ...held] : held;
     },
     /// The held prompt `id`, for an edit that takes it back into the composer.
     get: (id: string) => now.current.held.find((entry) => entry.id === id),
