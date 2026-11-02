@@ -2437,8 +2437,11 @@ class GitHub:
                 return "ephemeral"
         return None
 
-    def runners(self) -> list[Mapping[str, Any]]:
+    def runners(self, *, use_state: bool = True) -> list[Mapping[str, Any]]:
         """The repository runners plus explicitly approved organization groups.
+
+        Capacity rechecks after a wait use use_state=False: the workflow's
+        document retains the same observation throughout that run.
 
         The glaeda minis and GCP Linux pool are organization runners, which
         the repository endpoint does not list. Listing those groups needs the
@@ -2449,7 +2452,7 @@ class GitHub:
         callers fall back to a snapshot instead of treating an incomplete
         listing as idle.
         """
-        document = runner_state(self.repo)
+        document = runner_state(self.repo) if use_state else None
         if document is not None:
             print("Runner state: trusted repository document (no runner API requests)", file=sys.stderr)
             return [*document["repository_runners"],
