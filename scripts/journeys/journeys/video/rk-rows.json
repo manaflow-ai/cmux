@@ -151,10 +151,9 @@
    ]
   },
   {
-   "do": "use_pane",
+   "do": "rk_focus",
    "pane": "p1",
-   "click": true,
-   "title": "set-up: focus p1 (a click)"
+   "title": "set-up: focus p1 (cmux pane focus; the strip reveals it)"
   },
   {
    "do": "wait",
@@ -285,17 +284,31 @@
   },
   {
    "do": "use_pane",
-   "pane": "p0",
-   "click": true,
-   "title": "after: click into p0"
+   "pane": "p1",
+   "title": "after: p1 is the journey's pane (no click: it keeps the focus)"
   },
   {
-   "do": "key",
+   "do": "expect",
+   "title": "after: p1 still has the focus",
+   "timeout": 5,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "terminal"
+     }
+    }
+   ]
+  },
+  {
+   "do": "hid_key",
    "key": "c",
    "modifiers": [
     "control"
    ],
-   "title": "after: Ctrl-C ends p0's load program"
+   "mark": "ctrlc",
+   "title": "after: a real HID Ctrl-C ends p1's load program"
   },
   {
    "do": "type",
@@ -305,7 +318,7 @@
   },
   {
    "do": "expect",
-   "title": "p0 echoes the line: app, daemon and frame",
+   "title": "p1 echoes the line: app, daemon and frame",
    "since": "after",
    "timeout": 10,
    "all": [

@@ -52,16 +52,28 @@ def panes_note(names, as_):
 
 
 def focus(pane):
-    return {"do": "use_pane", "pane": pane, "click": True, "title": f"set-up: focus {pane} (a click)"}
+    return {"do": "rk_focus", "pane": pane, "title": f"set-up: focus {pane} (cmux pane focus; the strip reveals it)"}
+
+
+def after_check(pane):
+    """After the motion: the pane under test still has the focus, takes a REAL HID Ctrl-C (its load program ends; a
+    debug.key Ctrl-C can go to the "Center" menu item on the tip, STATUS 6209) and shows the echo: app, daemon, frame."""
+    return [focus(pane) if pane == "p0" else {"do": "use_pane", "pane": pane, "title": f"after: {pane} is the journey's pane (no click: it keeps the focus)"},
+            {"do": "expect", "title": f"after: {pane} still has the focus", "timeout": 5,
+             "all": [{"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "terminal"}}]},
+            G.kit_key("c", ["control"], "ctrlc", f"after: a real HID Ctrl-C ends {pane}'s load program"),
+            {"do": "type", "text": "echo rv-done-${nonce}", "enter": True, "mark": "after"},
+            {"do": "expect", "title": f"{pane} echoes the line: app, daemon and frame", "since": "after", "timeout": 10,
+             "all": [{"daemon_line": "rv-done-${nonce}"}, {"app_text_line": "rv-done-${nonce}"}, {"frame_text": "rv-done-${nonce}"}]}]
 
 
 CASES = []
 
 
-def case(cid, title, build, play, notes, seconds, budget=125, jid=None):
+def case(cid, title, build, play, notes, seconds, budget=125, jid=None, after="p1"):
     jid = jid or f"rk-{cid}"
     lead = 0
-    while lead < len(play) and play[lead]["do"] == "use_pane":
+    while lead < len(play) and play[lead]["do"] in ("use_pane", "rk_focus"):
         lead += 1
     steps = [G.theme(True)] + G.first_pane(jid, True) + build(True) + play[:lead] + [G.settle(1.5)]
     steps += [panes_note(notes, "before"),
@@ -72,7 +84,7 @@ def case(cid, title, build, play, notes, seconds, budget=125, jid=None):
     steps += [G.kit_record_stop(jid, 1.0),
               {"do": "rpc", "method": "debug.frames", "params": {"action": "stop", "raw": True}, "title": "probe: per-frame main thread (raw)"},
               panes_note(notes, "after")]
-    steps += G.after_check()
+    steps += after_check(after)
     CASES.append({"id": jid, "priority": "P0", "title": title,
                   "why": "cmux-ad 2026-11-02 (P0): \"still dont have pixel perfect ctrl shift hjkl for resizing\". Each key press is "
                          "judged per frame (judge_keys.py): equal steps on device pixels, the declared curve, no jump back, no "
@@ -154,7 +166,7 @@ case("twelve", "12 panes under load (3 columns x 4): Ctrl-Shift-L, H, J, K on p1
 # 8. Browser and agent panes.
 case("browser-agent", "Ctrl-Shift-L, H, J, K with a browser page focused (p1), then with an agent chat focused (p2)",
      browser_agent, [focus("p1")] + singles([L, H, J, K], "page") + [focus("p2")] + singles([L, H, J, K], "chat"),
-     ["p0"], seconds=16, budget=180)
+     ["p0"], seconds=16, budget=180, after="p0")
 
 
 def main():

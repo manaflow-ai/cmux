@@ -157,10 +157,9 @@
    "title": "set-up: the chat shows"
   },
   {
-   "do": "use_pane",
+   "do": "rk_focus",
    "pane": "p1",
-   "click": true,
-   "title": "set-up: focus p1 (a click)"
+   "title": "set-up: focus p1 (cmux pane focus; the strip reveals it)"
   },
   {
    "do": "wait",
@@ -265,10 +264,9 @@
    "title": "the motion lands"
   },
   {
-   "do": "use_pane",
+   "do": "rk_focus",
    "pane": "p2",
-   "click": true,
-   "title": "set-up: focus p2 (a click)"
+   "title": "set-up: focus p2 (cmux pane focus; the strip reveals it)"
   },
   {
    "do": "rk_press",
@@ -362,18 +360,32 @@
    "title": "focus, grid and SIGWINCH count of p0"
   },
   {
-   "do": "use_pane",
+   "do": "rk_focus",
    "pane": "p0",
-   "click": true,
-   "title": "after: click into p0"
+   "title": "set-up: focus p0 (cmux pane focus; the strip reveals it)"
   },
   {
-   "do": "key",
+   "do": "expect",
+   "title": "after: p0 still has the focus",
+   "timeout": 5,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "terminal"
+     }
+    }
+   ]
+  },
+  {
+   "do": "hid_key",
    "key": "c",
    "modifiers": [
     "control"
    ],
-   "title": "after: Ctrl-C ends p0's load program"
+   "mark": "ctrlc",
+   "title": "after: a real HID Ctrl-C ends p0's load program"
   },
   {
    "do": "type",

@@ -15,6 +15,10 @@ Steps (`do`):
              press, a repeat every INTERVAL s from DELAY s until SECONDS, then the key up). NOT a HID key: a real
              HID auto-repeat needs hid_inject's PostEvent grant (KIT.md 2c), not done on the minis. Logged in
              events.json as kind "hold" with the schedule and the replies' counts.
+  rk_focus   {pane, timeout?}
+             Focuses a named pane through the app (`cmux pane <id> focus`, the CLI's focus: the strip reveals it), waits
+             until debug.surfaces reports it focused, and makes it the journey's pane (as use_pane). A click cannot
+             reach a pane the strip scrolled out of view, or one whose program takes the mouse.
   rk_panes   {panes: [NAME...], as}
              For each named pane: focused or not, its daemon screen's tuikit `sigwinch` header ("SIGWINCH CxR
              winch=N reflow=M") when it runs that program, and the app's grid. Kept in the recording's meta notes
@@ -84,6 +88,21 @@ def step_rk_hold(j, step):
     return reply
 
 
+def step_rk_focus(j, step):
+    rec = W.named(j, step["pane"])
+    reply = j.app.cmux("pane", rec["pane"], "focus")
+    end = D.now() + float(step.get("timeout", 5))
+    while D.now() < end:
+        row = W.pane_row(j, rec["pane"])
+        if row and row.get("focused"):
+            j.pane, j.term, j.host_pid, j.ext_window = rec["pane"], rec["term"], rec["host_pid"], rec["window"]
+            j.key_window = rec["window"]
+            j.app.snapshot_window = rec["window"]
+            return {"focused": rec["pane"], "reply": reply}
+        time.sleep(0.05)  # orchestration poll of the app's own report
+    raise D.StepError(f"rk_focus: pane {step['pane']} is not focused after `pane focus`: {json.dumps(reply)[:200]}")
+
+
 def step_rk_panes(j, step):
     out = {}
     for name in step["panes"]:
@@ -110,7 +129,7 @@ def step_rk_panes(j, step):
     return out
 
 
-STEPS = {"rk_press": step_rk_press, "rk_hold": step_rk_hold, "rk_panes": step_rk_panes}
+STEPS = {"rk_focus": step_rk_focus, "rk_press": step_rk_press, "rk_hold": step_rk_hold, "rk_panes": step_rk_panes}
 CONDITIONS = {}
 
 
