@@ -72,7 +72,7 @@ final class CreationInputCoordinator {
     }
 
     /// `window` closes: its claim goes with it.
-    func windowClosed(_ window: NSWindow?) { if let window { claims.end(inWindow: window.windowNumber) } }
+    func windowClosed(_ window: NSWindow?) { if let window { claims.end(inWindow: window.windowNumber); asking[window.windowNumber] = nil } } // its questions go with it
 
     /// Whether `window`'s claim holds now (``CreationKeyboardClaims/holds(in:shows:intents:lastInput:)``).
     private func claimHolds(in window: NSWindow) -> Bool {
@@ -185,13 +185,12 @@ final class CreationInputCoordinator {
         let number = window.windowNumber
         if parked == nil, asking[number] != nil, let ticket, let more = buffers[number]?.parkClose(ticket) { asking[number]?.events.append(contentsOf: more.events) }
         if parked == nil, asking[number] != nil { return } // the answer lets these keys go on (``flush(in:force:end:)`` waits for it)
-        let parked = parked.map { CreationInputBuffer.ParkedClose(events: $0.events + (asking[number]?.events ?? []), closing: $0.closing, machine: $0.machine) }
         // The question is answered: the keys the hold kept meanwhile go on, once no other close's question is up.
         defer { if parked != nil { asking[number]?.events = []; asking[number]?.questions -= 1; if asking[number]?.questions == 0 { asking[number] = nil }; scheduleFlush(in: window) } }
-        if stays, let parked, !parked.closing.isEmpty, !parked.events.isEmpty {
-            let lane = CreationInputBuffer.HeldLane(tab: parked.closing, machine: parked.machine)
-            return _ = runAgain(CreationInputBuffer.heldKeys(parked.events, for: lane), from: buffers[number] ?? CreationInputBuffer(began: ContinuousClock.now), in: window)
-        }
+        // Its own keys go to the terminal that stays; other closes' keys (ended while it asked) where theirs send them, never into it.
+        let others: [NSEvent] = parked == nil ? [] : asking[number]?.events ?? [], keeps = stays && parked?.closing.isEmpty == false
+        if keeps, let own = parked, !own.events.isEmpty { _ = runAgain(CreationInputBuffer.heldKeys(own.events, for: .init(tab: own.closing, machine: own.machine)), from: buffers[number] ?? CreationInputBuffer(began: ContinuousClock.now), in: window) }
+        let parked = keeps ? (others.isEmpty ? nil : CreationInputBuffer.ParkedClose(events: others, closing: "", machine: nil)) : parked.map { CreationInputBuffer.ParkedClose(events: $0.events + others, closing: $0.closing, machine: $0.machine) }
         let controller = router?.focus(for: window).0
         guard let ticket = ticket ?? parked.flatMap({ $0.events.isEmpty ? nil : buffer(in: window).openClose(closing: [$0.closing], machine: $0.machine) }) else { return }
         buffers[number]?.settleClose(ticket, parked: parked, keysTo: controller?.focus.state.terminalTab, machine: controller?.content?.daemon.machineID)
