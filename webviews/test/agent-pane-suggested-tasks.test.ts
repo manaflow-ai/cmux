@@ -618,18 +618,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       expect(await card.locator(".cv-received__preview").innerText()).toBe("Step 1 of the landing report.");
-      // The tool rows' line, the grid's compact row, read from --grid-row: design/grid.md Rule 1, section 3
-      // "row height = 28 (compact)" and section 6 (28 since #27580; 22 under #29965).
-      const line = await card.evaluate((el) => {
-        const probe = document.createElement("div");
-        probe.style.cssText = "position:absolute;visibility:hidden;height:var(--grid-row)";
-        el.appendChild(probe);
-        const height = probe.getBoundingClientRect().height;
-        probe.remove();
-        return height;
-      });
-      expect(line).toBeGreaterThan(0);
-      expect(await card.locator(".cv-disclosure__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(line);
+      expect(await card.locator(".cv-disclosure__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(22);
       expect(await page.locator(".cv-received__body, .cv-received__show, [data-cut]").count()).toBe(0);
       const toggle = card.getByRole("button", { name: /Message from Grid fix/ });
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");

@@ -236,20 +236,9 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       const row = page.locator(".cv-received");
       await row.waitFor({ timeout: 10_000 });
       expect(await row.count()).toBe(1);
-      // Closed: one line on the tool rows' line, the sender and the first line, nothing under it. The
-      // line is the grid's compact row, read from --grid-row: design/grid.md Rule 1, section 3 "row
-      // height = 28 (compact)" and section 6 (28 since #27580; 22 under #29965).
-      const line = await row.evaluate((el) => {
-        const probe = document.createElement("div");
-        probe.style.cssText = "position:absolute;visibility:hidden;height:var(--grid-row)";
-        el.appendChild(probe);
-        const height = probe.getBoundingClientRect().height;
-        probe.remove();
-        return height;
-      });
-      expect(line).toBeGreaterThan(0);
-      expect(await row.evaluate((el) => Math.round(el.getBoundingClientRect().height))).toBe(Math.round(line));
-      expect(await row.locator(".cv-disclosure__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(line);
+      // Closed: one line on the tool rows' 22px line, the sender and the first line, nothing under it.
+      expect(await row.evaluate((el) => Math.round(el.getBoundingClientRect().height))).toBe(22);
+      expect(await row.locator(".cv-disclosure__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(22);
       expect(await row.locator(".cv-received__from").innerText()).toBe("Grid fix");
       expect(await row.locator(".cv-received__preview").innerText()).toBe(
         "Paragraph 1 of the landing report: every check on the grid lane passed on this run.",

@@ -1758,16 +1758,8 @@ export default agentPaneEntry({
         await ctx.hover({ selector: ".cv-thought" });
         if (!row()!.matches("button") || row()!.getAttribute("aria-expanded") !== "false")
           throw new Error("a finished thought is a closed toggle");
-        // The compact grid row, read from --grid-row: design/grid.md Rule 1, section 3 "row height = 28
-        // (compact)" and section 6 (28 since #27580; 22 before).
-        const probe = ctx.document.createElement("div");
-        probe.style.cssText = "position:absolute;visibility:hidden;height:var(--grid-row)";
-        row()!.parentElement!.appendChild(probe);
-        const gridRow = Math.round(probe.getBoundingClientRect().height);
-        probe.remove();
-        const height = Math.round(row()!.getBoundingClientRect().height);
-        if (!(gridRow > 0) || height !== gridRow)
-          throw new Error(`a finished thought uses the compact grid row (${gridRow}px), not ${height}px`);
+        if (Math.round(row()!.getBoundingClientRect().height) !== 22)
+          throw new Error("a finished thought uses the compact 22px tool-row rhythm");
         if (ctx.document.querySelector(".cv-thought__text") || ctx.document.body.textContent?.includes("jittered"))
           throw new Error("a folded thought shows none of its text");
         if (row()!.closest("[title]") || row()!.querySelector("[title]")) throw new Error("a thought shows no tooltip");

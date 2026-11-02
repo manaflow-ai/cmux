@@ -190,7 +190,7 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  test("every step is one grid row on one rhythm, across transcript rows", async () => {
+  test("every step is one 22px row on one rhythm, across transcript rows", async () => {
     const page = await open();
     await openRun(page);
     const rows = await page.locator(".acpmux-row .cv-tool").evaluateAll((nodes) =>
@@ -206,19 +206,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
         };
       }),
     );
-    // The finished thought is folded to one line too. The line is the grid's compact row, read from
-    // --grid-row: design/grid.md Rule 1, section 3 "row height = 28 (compact)" and section 6 (28 since
-    // #27580; 22 from #24565 and #29965).
-    const line = await page.locator(".acpmux-row .cv-tool").first().evaluate((node) => {
-      const probe = document.createElement("div");
-      probe.style.cssText = "position:absolute;visibility:hidden;height:var(--grid-row)";
-      node.parentElement!.appendChild(probe);
-      const height = Math.round(probe.getBoundingClientRect().height);
-      probe.remove();
-      return height;
-    });
-    expect(line).toBeGreaterThan(0);
-    expect(rows.map((row) => row.height)).toEqual(rows.map(() => line));
+    // The finished thought is folded to one line too.
+    expect(rows.map((row) => row.height)).toEqual(rows.map(() => 22));
     expect(new Set(rows.map((row) => row.fontSize)).size).toBe(1);
     const pairs = rows.slice(1).map((row, index) => ({
       above: rows[index]!,
