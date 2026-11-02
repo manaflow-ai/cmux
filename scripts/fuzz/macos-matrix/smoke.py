@@ -25,7 +25,7 @@ Steps (each one ok/FAIL in result.json, with a screenshot shot-<step>.png):
              gesture-free round trip): the page's input handler holds the page for 1.2 s, so the
              call takes 0.9 s or more, and the field holds the text
   design_on  with Debug Settings' UI pointer picker on (browserPage.uiPointer, off by default),
-             Ctrl-Opt-Cmd-D (VNC keys, the person's) turns design mode on: its overlay host is in
+             Ctrl-Opt-Cmd-E (VNC keys, the person's) turns design mode on: its overlay host is in
              the page (enableDesignMode runs in an isolated world without a gesture)
   design_off the same keys turn it off: the overlay host is gone
   page_info  View Site Information (browser.pageInfo) opens its panel (debug.window_list)
@@ -287,10 +287,10 @@ class Smoke:
         overlay = "!!document.querySelector('[data-cmux-design-mode=\"overlay\"]')"
         # Design mode is behind a Debug Settings toggle (off by default): on for these two steps.
         picker = self.call("debug.tunables", {"action": "set", "key": "browserPage.uiPointer", "value": True})
-        self.vnc.chord("ctrl+opt+cmd+d")
+        self.vnc.chord("ctrl+opt+cmd+e")
         on = self.wait(lambda: self.page_eval(overlay) is True, 15)
         self.step("design_on", bool(on), {"overlay": self.page_eval(overlay)})
-        self.vnc.chord("ctrl+opt+cmd+d")
+        self.vnc.chord("ctrl+opt+cmd+e")
         off = self.wait(lambda: self.page_eval(overlay) is False, 15)
         self.step("design_off", bool(on) and bool(off), {"overlay": self.page_eval(overlay), "picker": picker})
         self.call("debug.tunables", {"action": "set", "key": "browserPage.uiPointer", "value": None})

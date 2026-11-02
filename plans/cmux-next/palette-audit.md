@@ -353,7 +353,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Panes | `focusUp` | Focus Pane Above | ⌥⌘ | b. standard | its section, catalog order |
 | Panes | `increaseWorkspaceTerminalFontSize` | Increase Workspace Font Size | ⌘= | c. niche | last in its section, −120 while typing |
 | Panes | `layout.undo` | Undo Layout Change |  | b. standard | its section, catalog order |
-| Panes | `newColumn` | New Column | ⌃⌘D | b. standard | its section, catalog order |
+| Panes | `newColumn` | New Column | ⌃⌥⌘D | b. standard | its section, catalog order |
 | Panes | `newPaneAutoLayout` | New Pane (Auto Layout) | ⌃⌘N | b. standard | its section, catalog order |
 | Panes | `newRow` | New Row | ⌃⇧⌘D | b. standard | its section, catalog order |
 | Panes | `palette.newSimulatorPane` | New Simulator Pane |  | b. standard | its section, catalog order |
@@ -814,7 +814,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Browser and Viewers | `showBrowserJavaScriptConsole` | Show JavaScript Console | ⌥⌘J | b. standard | its section, catalog order |
 | Browser and Viewers | `splitBrowserDown` | Split Browser Down | ⌥⇧⌘D | b. standard | its section, catalog order |
 | Browser and Viewers | `splitBrowserRight` | Split Browser Right | ⌥⌘D | b. standard | its section, catalog order |
-| Browser and Viewers | `toggleBrowserDesignMode` | Toggle Browser Design Mode | ⌃⌥⌘D | b. standard | its section, catalog order |
+| Browser and Viewers | `toggleBrowserDesignMode` | Toggle Browser Design Mode | ⌃⌥⌘E | b. standard | its section, catalog order |
 | Browser and Viewers | `toggleBrowserDeveloperTools` | Toggle Developer Tools | ⌥⌘I | b. standard | its section, catalog order |
 | Browser and Viewers | `toggleBrowserFocusMode` | Toggle Browser Focus Mode | ⌥⌘
  | b. standard | its section, catalog order |

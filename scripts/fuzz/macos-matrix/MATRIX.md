@@ -73,7 +73,7 @@ fallback), `webkit` (a WebKit tab loads the same page), then WebKit's gesture-fr
 tab (port 8738): `favicon` (the favicon URL FaviconScript reads reaches the store), `type_waits`
 (`browser.page.insert_text` answers only after the page handled the text: the page holds 1.2 s in its input handler,
 under the router's 2 s request deadline),
-`design_on` and `design_off` (Ctrl-Opt-Cmd-D over VNC adds and removes the design-mode overlay), `page_info` (View
+`design_on` and `design_off` (Ctrl-Opt-Cmd-E over VNC adds and removes the design-mode overlay), `page_info` (View
 Site Information opens its panel), `settings` (Settings opens and paints), `alive`, `quit`
 (`quitEndEverything` ends the process within 30 s; else a `sample` and a kill). A crash report fails the run.
 

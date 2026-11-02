@@ -23,11 +23,13 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ),
             // New Column Right keeps the `newColumn` id (cmux.json bindings, scripts); New Column
             // Left opens before the pane's column (`column-left-v1`). Both search as "new column".
+            // Ctrl-Opt-Cmd-D, not Ctrl-Cmd-D: macOS's Look Up (system hot key 70, on by default)
+            // takes Ctrl-Cmd-D before cmux sees it (MacOSSystemShortcutsTests).
             ActionDescriptor(
                 id: "newColumn",
                 title: String(localized: "action.newColumn", defaultValue: "New Column Right", bundle: .module),
                 keywords: ["new column", "scroll", "column", "pane", "right", "add"],
-                defaultShortcut: Shortcut("d", modifiers: [.control, .command]), category: .pane,
+                defaultShortcut: Shortcut("d", modifiers: [.control, .option, .command]), category: .pane,
                 symbol: "rectangle.split.3x1", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane],
                 cliName: "pane new-column", mainMenu: .view, startsTerminal: true
             ),

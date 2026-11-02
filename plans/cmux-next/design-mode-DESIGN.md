@@ -38,7 +38,7 @@ Classic Design Mode (#8034, #8393, later #18884, #19190) lives in two places:
   page that writes screenshots and `context.json` to disk and pastes a prompt into a terminal agent.
 
 cmux-next today only flips `document.designMode` (contenteditable) behind the same action
-(`toggleBrowserDesignMode`, Ctrl-Opt-Cmd-D) and toolbar button (`BrowserPageModes.designMode`).
+(`toggleBrowserDesignMode`, Ctrl-Opt-Cmd-E; Ctrl-Opt-Cmd-D until 2026-10-31, now New Column) and toolbar button (`BrowserPageModes.designMode`).
 
 ## Decisions
 

@@ -161,7 +161,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | browserZoomIn/Out/Reset, markdownZoom* | Zoom | ⌘= / ⌘- / ⌘0 | PKM | KSS:206-211 |
 | toggleBrowserDeveloperTools / showBrowserJavaScriptConsole | DevTools / JS Console | ⌥⌘I / ⌥⌘C | PKM | KSS:218-219 |
 | toggleBrowserFocusMode | Browser Focus Mode | ⌥⌘↩ | PKMC | KSS:220, CWV:1672 |
-| toggleBrowserDesignMode | Browser Design Mode | ⌃⌥⌘D | KM | KSS:221 |
+| toggleBrowserDesignMode | Browser Design Mode | ⌃⌥⌘E | KM | KSS:221 |
 | toggleReactGrab | React Grab | ⇧⌘G | PKM | KSS:222 |
 | splitBrowserRight / Down | Split Browser Right / Down | ⌥⌘D / ⇧⌥⌘D | PKM | KSS:175-176 |
 | palette.browserOpenDefault / ToggleOmnibar / ClearHistory | Open in Default Browser / Omnibar / Clear History | — | P(M) | CV:8196-8297 |
