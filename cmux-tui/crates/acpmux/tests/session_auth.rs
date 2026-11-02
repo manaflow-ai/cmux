@@ -40,6 +40,7 @@ fn hub(root: &Path) -> Arc<Hub> {
             "claude": {"kind": "claude-stdio", "argv": ["claude"], "env": {"CLAUDE_CONFIG_DIR": root.join("canonical")}},
             "fake": {"argv": ["python3", FAKE], "family": "claude"},
             "file": {"argv": [root.join("claude")], "family": "claude", "env": {"CLAUDE_CONFIG_DIR": root.join("file-account"), "HOME": root.join("home")}},
+            "file-endpoint": {"argv": [root.join("claude")], "family": "claude", "env": {"CLAUDE_CONFIG_DIR": root.join("file-account"), "HOME": root.join("home"), "ANTHROPIC_BASE_URL": "https://custom.example.invalid/api"}},
             // A harness whose own check passes only in the env its preset `checked-two` or the
             // chat's own env sets.
             "checked": {"argv": ["python3", FAKE], "family": "plain"},
@@ -292,6 +293,49 @@ async fn session_auth_rechecks_expiry_in_the_selected_project_after_a_successful
         ("unknown", "none"),
         "subscription expiry leaked to route: {routed}"
     );
+}
+
+/// A custom endpoint can provide its own auth or require none. A local subscription's
+/// expired token cannot prove that endpoint is signed out, even with full project context.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn session_auth_does_not_apply_subscription_expiry_to_custom_endpoint_settings() {
+    for source in ["env", "user", "project", "local"] {
+        let root = scratch(&format!("custom-endpoint-{source}"));
+        let account = root.join("file-account");
+        let project = root.join("project");
+        std::fs::create_dir_all(&account).unwrap();
+        std::fs::create_dir_all(project.join(".claude")).unwrap();
+        std::fs::write(
+            account.join(".credentials.json"),
+            r#"{"claudeAiOauth":{"accessToken":"synthetic-access","expiresAt":1}}"#,
+        )
+        .unwrap();
+        let file = match source {
+            "user" => Some(account.join("settings.json")),
+            "project" => Some(project.join(".claude/settings.json")),
+            "local" => Some(project.join(".claude/settings.local.json")),
+            _ => None,
+        };
+        if let Some(file) = file {
+            std::fs::write(
+                file,
+                r#"{"env":{"ANTHROPIC_BASE_URL":"https://custom.example.invalid/api"}}"#,
+            )
+            .unwrap();
+        }
+        let hub = hub(&root);
+        let mut c = client(&hub);
+        let harness = if source == "env" { "file-endpoint" } else { "file" };
+        let out =
+            c.auth(json!({"target": {"harness": harness, "cwd": project}, "refresh": true})).await;
+        assert_eq!(
+            state(&out),
+            ("unknown", "none"),
+            "{source}: unrelated subscription expiry must not block a custom endpoint: {out}"
+        );
+        assert!(!out.to_string().contains("synthetic-access"));
+    }
 }
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
