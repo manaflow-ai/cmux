@@ -63,38 +63,48 @@ import Testing
         return (services, bridge)
     }
 
-    /// The rows `body` invalidated, and the rows it mapped (with the structural pass that follows it).
-    static func cost(_ bridge: SidebarBridge, _ body: () -> Void) -> (invalidated: Int, mapped: Int) {
+    /// Lets the row feed's frame flush run: it maps the dirty rows again and arms them, so the next phase starts with
+    /// every row observed (the flush waits for a display frame, or the frame scheduler's stall deadline).
+    static func settle() async {
+        for _ in 0..<5 { await Task.yield() }
+        try? await Task.sleep(for: .milliseconds(300))
+    }
+
+    /// The rows `body` invalidated, and the rows mapped again (the structural pass that follows it and the flush).
+    static func cost(_ bridge: SidebarBridge, _ body: () -> Void) async -> (invalidated: Int, mapped: Int) {
+        await settle()
         _ = SidebarPerfCounters.report(reset: true)
         body()
         bridge.sameTurn.syncNow(rows: true)
+        await settle()
         let report = SidebarPerfCounters.report(reset: true)
         return (report["row_invalidations"] ?? 0, report["row_maps"] ?? 0)
     }
 
-    @Test func aTabChangeInOneWorkspaceInvalidatesOnlyItsRow() throws {
+    @Test func aTabChangeInOneWorkspaceInvalidatesOnlyItsRow() async throws {
         let (services, bridge) = try Self.sidebar()
         defer { bridge.teardown() }
         let store = services.machines.local.store
         #expect(bridge.model.sections.flatMap(\.workspaces).count == Self.count, "the fixture lists every workspace")
         // The CLI storm makes a terminal tab in its own workspace, moves it, then closes it.
-        let made = Self.cost(bridge) { store.apply(snapshot: Self.tree { Self.workspace($0, index: $1, extra: 1) }) }
-        let moved = Self.cost(bridge) { store.apply(snapshot: Self.tree { Self.workspace($0, index: $1, extra: 1, reversed: true) }) }
-        let closed = Self.cost(bridge) { store.apply(snapshot: Self.tree()) }
+        let made = await Self.cost(bridge) { store.apply(snapshot: Self.tree { Self.workspace($0, index: $1, extra: 1) }) }
+        let moved = await Self.cost(bridge) { store.apply(snapshot: Self.tree { Self.workspace($0, index: $1, extra: 1, reversed: true) }) }
+        let closed = await Self.cost(bridge) { store.apply(snapshot: Self.tree()) }
         print("SIDEBAR-FAN-OUT n=\(Self.count) made=\(made) moved=\(moved) closed=\(closed)")
         #expect(made.invalidated <= 1, "a tab made in one workspace invalidated \(made.invalidated) of \(Self.count) rows")
         #expect(moved.invalidated <= 1, "a tab moved in one workspace invalidated \(moved.invalidated) of \(Self.count) rows")
         #expect(closed.invalidated <= 1, "a tab closed in one workspace invalidated \(closed.invalidated) of \(Self.count) rows")
-        #expect(made.mapped <= 1 && moved.mapped <= 1 && closed.mapped <= 1, "rows mapped: \(made.mapped), \(moved.mapped), \(closed.mapped)")
+        #expect(made.mapped <= 1 && moved.mapped <= 1 && closed.mapped <= 1,
+                "rows mapped again: \(made.mapped), \(moved.mapped), \(closed.mapped) of \(Self.count)")
     }
 
-    @Test func aWorkspaceMadeOrClosedInvalidatesNoOtherRow() throws {
+    @Test func aWorkspaceMadeOrClosedInvalidatesNoOtherRow() async throws {
         let (services, bridge) = try Self.sidebar()
         defer { bridge.teardown() }
         let store = services.machines.local.store
         // An agent makes a workspace the window does not list, then closes one it does.
-        let made = Self.cost(bridge) { store.apply(snapshot: Self.tree(Self.keys + ["k900"])) }
-        let closed = Self.cost(bridge) { store.apply(snapshot: Self.tree(Self.keys.filter { $0 != "k017" })) }
+        let made = await Self.cost(bridge) { store.apply(snapshot: Self.tree(Self.keys + ["k900"])) }
+        let closed = await Self.cost(bridge) { store.apply(snapshot: Self.tree(Self.keys.filter { $0 != "k017" })) }
         print("SIDEBAR-FAN-OUT workspaces n=\(Self.count) made=\(made) closed=\(closed)")
         #expect(made.invalidated == 0, "a workspace made elsewhere invalidated \(made.invalidated) of \(Self.count) rows")
         // At most the closed workspace's own row (it leaves the sidebar), never the others.
