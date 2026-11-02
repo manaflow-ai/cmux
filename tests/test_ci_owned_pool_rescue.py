@@ -4920,6 +4920,24 @@ class Sweeper(unittest.TestCase):
         self.assertEqual(self.sweep(api, ticks=rescue.SIDE_FAILURE_TICKS + 1)[0], [(1, 1, False), (1, 1, False)])
         self.assertEqual(api.queued_listings, 2)
 
+    def test_a_queued_run_that_is_no_longer_watchable_is_not_read_again(self):
+        # Watched once; then the run reads as finished (sweep_target() refuses it), though a listing still names it:
+        # it is not read again at every listing.
+        push = dict(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                    head_branch="feat-cmux-next", status="queued", conclusion=None)
+        api = SweepAPI([listed(1, **push)], queued=[1])
+        real = api.run
+
+        def later(run_id):
+            run = dict(real(run_id))
+            if len(api.reads) > 1:
+                run.update(status="completed", conclusion="success")
+            return run
+        api.run = later
+        self.assertEqual(self.sweep(api, ticks=2 * rescue.SIDE_FAILURE_TICKS + 1)[0], [(1, 1, False)])
+        self.assertEqual(api.queued_listings, 3)
+        self.assertEqual(api.reads, [1, 1])
+
     def test_the_queued_side_lane_listing_looks_back_a_day(self):
         # A later sweeper still finds a run that has waited past SWEEP_MAX_AGE_SECONDS.
         api = SweepAPI([], queued=[])

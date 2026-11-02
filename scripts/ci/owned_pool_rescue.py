@@ -5167,6 +5167,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         target = sweep_target(run, repository, late=late, full_rerun=full_rerun, since=since)
         if isinstance(target, str):
             log(f"[run {run_id}] not watched: {target}")
+            # An ended watch no longer makes the queued listing take it up again: it would be read every listing.
+            watching.pop(run_id, None)
             return True
         if run_id in refusals_runs:
             target = dataclasses.replace(target, refusals_only=True)
