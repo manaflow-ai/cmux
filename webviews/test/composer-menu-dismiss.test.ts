@@ -105,8 +105,23 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
     return page;
   };
   /** A real press and release at the centre of `selector`'s box: whatever is on top there takes it. */
+  const visibleChip = (page: Page, selector: string) =>
+    page.locator(selector).filter({ visible: true }).first();
   const pressAt = async (page: Page, selector: string) => {
-    const box = (await page.locator(selector).first().boundingBox())!;
+    const chip = visibleChip(page, selector);
+    await chip.waitFor({ state: "visible" });
+    const box = (await chip.boundingBox())!;
+    await page.waitForFunction(
+      ({ selector, x, y }) => {
+        const buttons = [...document.querySelectorAll<HTMLElement>(selector)];
+        const button = buttons.find((candidate) => {
+          const box = candidate.getBoundingClientRect();
+          return box.width > 0 && box.height > 0 && document.elementFromPoint(x, y)?.closest(selector) === candidate;
+        });
+        return !!button;
+      },
+      { selector, x: box.x + box.width / 2, y: box.y + box.height / 2 },
+    );
     await pressPoint(page, box.x + box.width / 2, box.y + box.height / 2);
   };
   const pressPoint = async (page: Page, x: number, y: number) => {
@@ -131,7 +146,10 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
       (pairs) =>
         pairs
           .filter(([, selector]) => {
-            const button = document.querySelector(selector);
+            const button = [...document.querySelectorAll<HTMLElement>(selector)].find((candidate) => {
+              const box = candidate.getBoundingClientRect();
+              return box.width > 0 && box.height > 0 && getComputedStyle(candidate).visibility !== "hidden";
+            });
             return button?.getAttribute("aria-expanded") === "true" || button?.hasAttribute("data-popup-open");
           })
           .map(([name]) => name),
@@ -150,7 +168,10 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
       ([pairs, want]) => {
         const open = pairs
           .filter(([, selector]) => {
-            const button = document.querySelector(selector);
+            const button = [...document.querySelectorAll<HTMLElement>(selector)].find((candidate) => {
+              const box = candidate.getBoundingClientRect();
+              return box.width > 0 && box.height > 0 && getComputedStyle(candidate).visibility !== "hidden";
+            });
             return button?.getAttribute("aria-expanded") === "true" || button?.hasAttribute("data-popup-open");
           })
           .map(([name]) => name);
@@ -159,7 +180,10 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
         const livePopups = popups.filter((popup) => !popup.hasAttribute("data-ending-style"));
         if (want.length === 0 ? livePopups.length > 0 : livePopups.length === 0) return false;
         for (const name of want) {
-          const button = document.querySelector(pairs.find(([label]) => label === name)![1])!;
+          const button = [...document.querySelectorAll<HTMLElement>(pairs.find(([label]) => label === name)![1])].find((candidate) => {
+            const box = candidate.getBoundingClientRect();
+            return box.width > 0 && box.height > 0 && getComputedStyle(candidate).visibility !== "hidden";
+          })!;
           const controls = button.getAttribute("aria-controls");
           const controlled = controls ? document.getElementById(controls) : null;
           const controlledPopup = controlled?.closest<HTMLElement>(".ui-popup");
@@ -222,8 +246,12 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
   /** Whether `name`'s chip is what the pointer would press at its centre (no open menu over it). */
   const onTop = (page: Page, name: string) =>
     page.evaluate((selector) => {
-      const box = document.querySelector(selector)!.getBoundingClientRect();
-      return !!document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest(selector);
+      const button = [...document.querySelectorAll<HTMLElement>(selector)].find((candidate) => {
+        const box = candidate.getBoundingClientRect();
+        return box.width > 0 && box.height > 0 && getComputedStyle(candidate).visibility !== "hidden";
+      })!;
+      const box = button.getBoundingClientRect();
+      return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest(selector) === button;
     }, chip(name));
 
   for (const [engine] of engines)
