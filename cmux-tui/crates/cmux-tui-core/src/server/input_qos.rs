@@ -30,6 +30,12 @@ impl InputLane {
         raise_this_thread();
     }
 
+    /// Whether the connection is marked as carrying the person's keys (test hook).
+    #[cfg(test)]
+    pub(super) fn carries_person_input(&self) -> bool {
+        self.carries_person_input.load(Ordering::Acquire)
+    }
+
     /// Raises the calling thread when its connection carries the person's keys. One atomic load per line, request
     /// or reply, one system call per thread.
     pub(super) fn raise_this_thread_if_marked(&self) {
