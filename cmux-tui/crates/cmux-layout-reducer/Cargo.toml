@@ -16,6 +16,8 @@ unicode-normalization = { workspace = true }
 unicode-segmentation = { workspace = true }
 
 [dev-dependencies]
+# The spring the scroll tests step to rest (src/scroll/tests.rs), as the app does.
+cmux-motion = { path = "../cmux-motion", default-features = false }
 proptest = { version = "1", default-features = false, features = ["std"] }
 
 [lints]

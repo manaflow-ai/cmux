@@ -1279,6 +1279,7 @@ dependencies = [
 name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
+ "cmux-motion",
  "proptest",
  "serde",
  "serde_json",

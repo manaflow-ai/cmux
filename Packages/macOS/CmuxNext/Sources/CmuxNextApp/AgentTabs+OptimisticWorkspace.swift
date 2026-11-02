@@ -3,7 +3,7 @@ import CmuxNextDaemon
 import CmuxNextWorkspaceRepair
 import Foundation
 
-/// A person's Cmd-N on this Mac (instant-new-surfaces): the new workspace and its New Tab page
+/// A person's Cmd-N on this Mac, or an open of a chat (instant-new-surfaces): the new workspace and its New Tab page or chat
 /// show in the key's frame as a store intent (`Intent.createWorkspace`), under the key and name
 /// the create sends; `create-workspace` and its first tab (`new-conversation-tab {workspace,
 /// transaction}`) run behind, and the daemon's workspace and tab take the stand-ins over in place.
@@ -30,12 +30,13 @@ extension AgentTabStore {
 
     /// Shows workspace `key` named `name` with its New Tab page (starting in `cwd`; `token` is the
     /// key hold of the press) at daemon-order `index` in this turn, and returns the work that
-    /// confirms it. Nil when it cannot (``showsWorkspaceAtOnce(on:)``).
-    func showWorkspace(_ key: WorkspaceKey, name: String, index: Int?, cwd: String?, token: String?,
-                       on daemon: DaemonService, repair: EmptyWorkspaceRepair) -> OptimisticWorkspace? {
+    /// confirms it; with `chat` (a seed) or `session` (`linked`: ``linkedSessions``), that chat (P4).
+    /// Nil when it cannot (``showsWorkspaceAtOnce(on:)``).
+    func showWorkspace(_ key: WorkspaceKey, name: String, index: Int?, cwd: String?, token: String?, chat: AgentPaneSeed? = nil,
+                       session: (id: String, host: String?, linked: Bool)? = nil, on daemon: DaemonService, repair: EmptyWorkspaceRepair) -> OptimisticWorkspace? {
         guard showsWorkspaceAtOnce(on: daemon), let localHost else { return nil }
         let store = daemon.store
-        let record = AgentSessionRef(host: localHost, hostName: localHostName)
+        let record = AgentSessionRef(host: session?.host ?? localHost, hostName: localHostName, session: session?.id)
         let provisional = ProvisionalTab()
         let tabKey = provisional.id
         let snapshot = provisional.conversation(ConversationTabRef(agentSession: record))
@@ -47,10 +48,12 @@ extension AgentTabStore {
             store.intend(.createWorkspace(provisional: ProvisionalWorkspace(key: key, name: name, tab: snapshot), index: index),
                          transaction: transaction)
         }
-        seeds[tabKey] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
-        newTabPages[tabKey] = firstPage(cwd: cwd, token: token)
+        sessions[tabKey] = session?.id
+        if session?.linked == true { linkedSessions.insert(tabKey) }
+        if session == nil { seeds[tabKey] = AgentPaneSeedSource(chat.map { var chat = $0; chat.cwd = chat.cwd ?? cwd; return chat } ?? AgentPaneSeed(cwd: cwd)) }
+        if session == nil, chat == nil { newTabPages[tabKey] = firstPage(cwd: cwd, token: token) }
         track(tabKey, in: store)
-        if let spare = takeSpare?(), let page = newTabPages[tabKey]?.page { adoptSpare(spare, key: tabKey, page: page) }
+        if let page = newTabPages[tabKey]?.page, let spare = takeSpare?() { adoptSpare(spare, key: tabKey, page: page) }
         let fail: @MainActor () -> Void = { [weak self] in
             store.rejectIntent(transaction)
             self?.release(tabKey)
@@ -75,6 +78,7 @@ extension AgentTabStore {
                 self?.tabCreated(tabKey, as: created.0)
                 ProvisionalTab.created(transaction, surface: created.0.surface, in: store)
                 if let sequence = created.1 { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
+                if let started = self?.sessions[created.0.key] { self?.sendSession(started, for: created.0.key) } // a chat its page started first binds now (as `open`)
                 return key.rawValue
             } catch {
                 fail()
