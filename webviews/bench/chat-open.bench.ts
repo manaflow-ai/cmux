@@ -12,7 +12,7 @@
 // The stages that follow `attach` are the page's own: parse, first render and layout passes.
 // Long tasks (count, total) and the layout-shift sum cover the whole load; the transcript's scroll drift
 // after `latest` says how much the page still moved after the newest messages appeared.
-//   [LATENCY=ms] bun bench/chat-open.bench.ts [rounds=7] [turns=300]
+//   [LATENCY=ms] [HOST_LATENCY=ms] bun bench/chat-open.bench.ts [rounds=7] [turns=300]
 // PROFILE=1 adds a CPU profile of one load and prints the functions with the most self time between
 // navigation and the newest message plus 500 ms. The build is then unminified (so functions keep their
 // names) and every timed round runs on it, so the stage times are not the production build's.
@@ -29,6 +29,9 @@ const TURNS = Number(process.argv[3] ?? 300);
 /// LATENCY=ms delays every answer, as a busy daemon or the app's bridge does (chat-switch.bench.ts):
 /// the open's serial round trips before its newest message show as multiples of it.
 const LATENCY = Number(process.env.LATENCY ?? 0);
+/// HOST_LATENCY=ms answers the app host's read of where the chat opens (`chat.scrollAnchor.get`)
+/// that late, as the app's host does over its bridge (the browser dev host refuses it at once).
+const HOST_LATENCY = Number(process.env.HOST_LATENCY ?? 0);
 const webviews = path.resolve(import.meta.dir, "..");
 const LATEST = `Answer ${TURNS}:`;
 
@@ -224,7 +227,11 @@ try {
       localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
     }, rail);
     await page.addInitScript(
-      ([latestText, instrument]) => {
+      ([latestText, instrument, hostLatency]) => {
+        if (hostLatency > 0)
+          (window as unknown as { cmuxAcpmuxActions: Record<string, () => Promise<unknown>> }).cmuxAcpmuxActions = {
+            "chat.scrollAnchor.get": () => new Promise((resolve) => setTimeout(() => resolve(null), hostLatency)),
+          };
         const forced = {
           writes: 0,
           writeMs: 0,
@@ -327,7 +334,7 @@ try {
         };
         requestAnimationFrame(tick);
       },
-      [LATEST, process.env.TRACE === "1" ? "trace" : process.env.INSTRUMENT === "1"] as const,
+      [LATEST, process.env.TRACE === "1" ? "trace" : process.env.INSTRUMENT === "1", HOST_LATENCY] as const,
     );
     attachedAt = 0;
     arrivals = new Map();
@@ -384,9 +391,13 @@ try {
     await page.close();
     const attach = attachedAt ? attachedAt - got.origin : 0;
     if (process.env.TRACE === "1") {
-      console.log(`trace of one load (ms from navigation): attach answered ${attach.toFixed(0)}, latest ${got.latest.toFixed(0)}`);
+      console.log(
+        `trace of one load (ms from navigation): attach answered ${attach.toFixed(0)}, latest ${got.latest.toFixed(0)}`,
+      );
       for (const line of got.trace as string[]) console.log(`  ${line}`);
-      console.log(`  calls (ms after the socket opened at ${(socketOpenedAt - got.origin).toFixed(0)}): ${calls.join(", ")}`);
+      console.log(
+        `  calls (ms after the socket opened at ${(socketOpenedAt - got.origin).toFixed(0)}): ${calls.join(", ")}`,
+      );
     }
     const at = (when: number | undefined) => (when ? when - got.origin : 0);
     void started;
@@ -476,10 +487,13 @@ try {
       const busy = [...bucket.values()].reduce((a, b) => a + b, 0);
       console.log(`window ${window}-${window + 100} ms: busy ${busy.toFixed(0)} ms`);
       for (const [key, ms] of [...bucket].sort((a, b) => b[1] - a[1]).slice(0, 7))
-        console.log(`  ${ms.toFixed(1)}\t${key.replace(/home\/runner\/_work\/cmux\/cmux\/.fast-checks-checkout\/webviews\//g, "").slice(0, 150)}`);
+        console.log(
+          `  ${ms.toFixed(1)}\t${key.replace(/home\/runner\/_work\/cmux\/cmux\/.fast-checks-checkout\/webviews\//g, "").slice(0, 150)}`,
+        );
     }
     console.log("profile by script (ms):");
-    for (const [key, ms] of [...byFile].sort((a, b) => b[1] - a[1]).slice(0, 15)) console.log(`${ms.toFixed(1)}\t${key}`);
+    for (const [key, ms] of [...byFile].sort((a, b) => b[1] - a[1]).slice(0, 15))
+      console.log(`${ms.toFixed(1)}\t${key}`);
     console.log("busy per 25 ms window from profile start (ms):");
     console.log([...byWindow].map(([key, ms]) => `${key}: ${ms.toFixed(0)}`).join(", "));
     const total = [...self.values()].reduce((a, b) => a + b, 0);
@@ -498,7 +512,7 @@ try {
     const median = (pick: (r: Round) => number) =>
       rounds.map(pick).sort((a, b) => a - b)[Math.floor(rounds.length / 2)]!;
     console.log(
-      `chat-open [rail ${arm}]: ${TURNS} turns, answers delayed ${LATENCY} ms, ${events.length} events, attach page ${attachEvents} events, ${(attachBytes / 1024).toFixed(0)} KiB, median of ${ROUNDS}`,
+      `chat-open [rail ${arm}]: ${TURNS} turns, answers delayed ${LATENCY} ms (host ${HOST_LATENCY} ms), ${events.length} events, attach page ${attachEvents} events, ${(attachBytes / 1024).toFixed(0)} KiB, median of ${ROUNDS}`,
     );
     console.log(
       "boot: page DOMContentLoaded ms | socket opened ms | initialize arrived ms | watch arrived ms | script KiB (decoded)",
