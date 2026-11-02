@@ -76,7 +76,19 @@ export class ArtifactsStore {
       // (or nothing saved any more) drops it, so another account's tree never stays up.
       const keep = !["cmux.artifacts.not_found", "cmux.artifacts.signed_out"].includes(failure.code);
       if (this.snapshot.status === "ready" && keep) return;
-      this.set({ status: failure.code === "cmux.artifacts.not_found" ? "empty" : "failed", failure, paths: [] });
+      this.fileRequest += 1;
+      this.fileHead = undefined;
+      this.set({
+        status: failure.code === "cmux.artifacts.not_found" ? "empty" : "failed",
+        failure,
+        paths: [],
+        truncated: false,
+        headSha: undefined,
+        selected: undefined,
+        file: undefined,
+        fileLoading: false,
+        fileFailure: undefined,
+      });
     }
   }
 

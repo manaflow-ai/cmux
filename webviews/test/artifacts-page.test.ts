@@ -283,5 +283,7 @@ test("a refresh that finds the person signed out drops the tree", async () => {
     status: "failed",
     paths: [],
     failure: { code: "cmux.artifacts.signed_out" },
+    selected: undefined,
+    file: undefined,
   });
 });
