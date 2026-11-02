@@ -188,9 +188,8 @@ final class CreationInputCoordinator {
         let parked = parked.map { CreationInputBuffer.ParkedClose(events: $0.events + (asking[number]?.events ?? []), closing: $0.closing, machine: $0.machine) }
         // The question is answered: the keys the hold kept meanwhile go on, once no other close's question is up.
         defer { if parked != nil { asking[number]?.events = []; asking[number]?.questions -= 1; if asking[number]?.questions == 0 { asking[number] = nil }; scheduleFlush(in: window) } }
-        if stays, let parked, !parked.closing.isEmpty, !parked.events.isEmpty {
-            let lane = CreationInputBuffer.HeldLane(tab: parked.closing, machine: parked.machine)
-            return _ = runAgain(CreationInputBuffer.heldKeys(parked.events, for: lane), from: buffers[number] ?? CreationInputBuffer(began: ContinuousClock.now), in: window)
+        if stays, let parked, !parked.closing.isEmpty, !parked.events.isEmpty { // Cancel: the keys go to the terminal that stays
+            return _ = runAgain(CreationInputBuffer.heldKeys(parked.events, for: CreationInputBuffer.HeldLane(tab: parked.closing, machine: parked.machine)), from: buffers[number] ?? CreationInputBuffer(began: ContinuousClock.now), in: window)
         }
         let controller = router?.focus(for: window).0
         guard let ticket = ticket ?? parked.flatMap({ $0.events.isEmpty ? nil : buffer(in: window).openClose(closing: [$0.closing], machine: $0.machine) }) else { return }
