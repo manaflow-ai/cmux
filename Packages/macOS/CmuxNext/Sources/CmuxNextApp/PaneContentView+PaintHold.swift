@@ -2,7 +2,7 @@ import AppKit
 public import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextPages
-import CmuxNextTerminal
+public import CmuxNextTerminal
 import CmuxNextWakeups
 
 /// One that painted and is shown again waits for its frame at the size it
