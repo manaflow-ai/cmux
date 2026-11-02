@@ -306,6 +306,19 @@ public final class TerminalLaunchFrames {
         shown.view.removeFromSuperview()
     }
 
+    /// The terminals whose saved frame a pane on screen shows ahead of their surface (#32274), or will show when the
+    /// launch read ends (it asked ahead before then): no session is shown there yet, so no quit snapshot or keeper save
+    /// covers them, and their saved frame is the one the pane shows. On screen as the quit and the keeper count it.
+    var keysShownAhead: Set<String> {
+        func onScreen(_ content: NSView?) -> Bool {
+            guard let content else { return false }
+            return content.window?.isVisible == true && !content.isHiddenOrHasHiddenAncestor
+        }
+        let shown = ahead.values.filter { $0.view.superview === $0.content && onScreen($0.content) }.map(\.key)
+        let asked = waiting.filter { $0.value.session == nil && onScreen($0.value.content) }.map(\.key)
+        return Set(shown).union(asked)
+    }
+
     /// Whether `content` shows a frame ahead of its terminal's surface (tests).
     func showsAhead(in content: NSView) -> Bool {
         aheadEntry(in: content).map { $0.view.superview === content } ?? false
@@ -377,10 +390,10 @@ public final class TerminalLaunchFrames {
     public func keep(_ key: String, session: TerminalSession, work: BackgroundWork) {
         guard let directory else { return }
         if keeper == nil {
-            keeper = TerminalLaunchFrameKeeper(directory: directory, work: work) { [weak self] in
+            keeper = TerminalLaunchFrameKeeper(directory: directory, work: work, readEnded: { [weak self] in
                 guard let self else { return false }
                 return self.readDropped || self.read?.value != nil || self.read == nil
-            }
+            }, shownAhead: { [weak self] in self?.keysShownAhead ?? [] })
         }
         keeper?.keep(key, session: session)
     }
@@ -394,21 +407,45 @@ public final class TerminalLaunchFrames {
 
     /// Saves the frames of `sessions` on screen, by tab key, replacing the last quit's. A bare
     /// prompt too: it is what the pane showed. The keeper stops first: no save of its may land after these.
+    ///
+    /// Issue #32274 (3 of 20 STRESS reopens showed a visible pane empty): a terminal on screen with no new frame keeps
+    /// the one saved for it. A pane that still shows its saved frame ahead of its surface (its surface had not come, or
+    /// its session was not presented yet) has no frame to take here; its saved frame is exactly what it shows. A shown
+    /// terminal whose snapshot gave nothing keeps the keeper's last frame. Only terminals no pane shows lose theirs.
     public func save(_ sessions: [String: TerminalSession]) async {
         keeper?.stop()
         var frames: [String: NSImage] = [:]
-        for (key, session) in sessions where !session.isRenderingSuspended {
+        var kept = keysShownAhead
+        for key in kept { mark("quit.terminal_frame.\(key).ahead") }
+        for (key, session) in sessions {
+            guard !session.isRenderingSuspended else {
+                mark("quit.terminal_frame.\(key).suspended")
+                continue
+            }
             let surface = session.surfaceView
-            guard surface.window?.isVisible == true, !surface.isHiddenOrHasHiddenAncestor, surface.bounds.width > 0,
-                  // What the pane shows: a terminal still held over its slow attach saves its held frame.
-                  let frame = await session.shownFrameInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
+            // Each shown terminal's outcome is a quit mark (`quit.terminal_frame.<key>.<outcome>`, issue #32274).
+            let skipped = surface.window?.isVisible != true ? "not_visible"
+                : surface.isHiddenOrHasHiddenAncestor ? "hidden" : surface.bounds.width > 0 ? nil : "no_width"
+            if let skipped {
+                mark("quit.terminal_frame.\(key).\(skipped)")
+                continue
+            }
+            // What the pane shows: a terminal still held over its slow attach saves its held frame.
+            guard let frame = await session.shownFrameInBackground(maxPixelSize: .greatestFiniteMagnitude) else {
+                mark("quit.terminal_frame.\(key).no_snapshot")
+                kept.insert(key) // on screen: its last kept frame beats none
+                continue
+            }
+            mark("quit.terminal_frame.\(key).snapshot")
             frames[key] = NSImage(cgImage: frame, size: surface.bounds.size)
         }
-        await save(images: frames)
+        await save(images: frames, keeping: kept.subtracting(frames.keys))
+        mark("quit.terminal_frames.written")
     }
 
-    /// Replaces the saved frames with `images` (by tab key, at their point size).
-    func save(images: [String: NSImage]) async {
+    /// Replaces the saved frames with `images` (by tab key, at their point size); the files of the keys in `keeping`
+    /// stay as they are (terminals on screen with no new frame).
+    func save(images: [String: NSImage], keeping: Set<String> = []) async {
         guard let directory else { return }
         // NSImage stays on the main actor; the JPEG encode and the writes run detached.
         var frames: [String: CGImage] = [:]
@@ -416,7 +453,7 @@ public final class TerminalLaunchFrames {
             guard let frame = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
             frames["\(key)@\(max(1, min(3, Int((CGFloat(frame.width) / image.size.width).rounded()))))x.jpg"] = frame
         }
-        await Task.detached { Self.write(frames, to: directory) }.value
+        await Task.detached { Self.write(frames, keeping: keeping, to: directory) }.value
     }
 
     /// Every saved frame in `directory`, decoded, with its point size and scale, by tab key (for each
@@ -436,10 +473,11 @@ public final class TerminalLaunchFrames {
         return frames
     }
 
-    private nonisolated static func write(_ frames: [String: CGImage], to directory: URL) {
+    private nonisolated static func write(_ frames: [String: CGImage], keeping: Set<String>, to directory: URL) {
         let manager = FileManager.default
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where frames[old] == nil {
+            guard !keeping.contains(owner(of: old) ?? old) else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
         for (name, frame) in frames {
@@ -462,8 +500,8 @@ public final class TerminalLaunchFrames {
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old != name {
-            let owner = old.split(separator: "@", maxSplits: 1).first.map(String.init) ?? old
-            guard owner == key || keeping.map({ !$0.contains(owner) }) == true else { continue }
+            // Only saved frames: another write's file before its rename (the quit's, beside this one) is left alone.
+            guard let tab = owner(of: old), tab == key || keeping.map({ !$0.contains(tab) }) == true else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
     }
@@ -471,9 +509,18 @@ public final class TerminalLaunchFrames {
     /// Removes every saved frame of `key` (the keeper: a terminal hidden or closed).
     nonisolated static func removeAll(of key: String, in directory: URL) {
         let manager = FileManager.checked
-        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old.hasPrefix(key + "@") {
+        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where owner(of: old) == key {
             try? manager.removeItem(at: directory.appending(path: old))
         }
+    }
+
+    /// The tab key of a saved frame (`<key>@<scale>x.jpg`, scale 1 to 3); nil for any other file, such as Foundation's
+    /// atomic-write file beside one before its rename (`<key>@2x.jpg.sb-<id>`).
+    nonisolated static func owner(of file: String) -> String? {
+        guard file.hasSuffix("x.jpg"), let at = file.lastIndex(of: "@") else { return nil }
+        let scale = file[file.index(after: at)..<file.index(file.endIndex, offsetBy: -"x.jpg".count)]
+        guard scale.count == 1, let digit = scale.first, ("1"..."3").contains(digit) else { return nil }
+        return String(file[..<at])
     }
 
     /// Tab keys are `tab_<hex>`; anything else never becomes a path.

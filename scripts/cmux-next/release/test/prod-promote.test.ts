@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { candidateRuns, guardedVarGate, holdPinned, holdReleases, isPromotableLineage, main, missingSecrets, pickCandidate, rollbackPlan, serving, SOAK_MINUTES, type Approvals, type GitRunner } from "../prod-promote.ts"
+import { candidateRuns, gh, guardedVarGate, holdPinned, holdReleases, isPromotableLineage, main, missingSecrets, pickCandidate, rollbackPlan, serving, SOAK_MINUTES, type Approvals, type GitRunner } from "../prod-promote.ts"
 
 const SHA = "0123456789abcdef0123456789abcdef01234567"
 const OTHER = "89abcdef0123456789abcdef0123456789abcdef"
@@ -374,5 +374,53 @@ describe("production promotion lineage", () => {
     const production = t.commit("export const value = 99\n", "unmatched production change")
 
     expect(isPromotableLineage(production, candidate, t.run)).toBe(false)
+  })
+})
+
+describe("gh() retries GitHub 5xx", () => {
+  // Captured in beforeAll (after the file-level fake fetch is installed), so afterEach puts that fake back.
+  const saved: { fetch: typeof fetch; token: string | undefined } = { fetch: globalThis.fetch, token: undefined }
+  const stub = (statuses: Array<number | "throw">) => {
+    const calls: Array<string> = []
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push(`${init?.method ?? "GET"} ${String(input)}`)
+      const s = statuses.shift()
+      if (s === undefined || s === "throw") throw new Error("test: network down")
+      return new Response(s === 204 ? null : JSON.stringify(s < 400 ? { ok: true } : { message: "Server Error" }), { status: s })
+    }) as typeof fetch
+    return calls
+  }
+  beforeAll(() => {
+    saved.fetch = globalThis.fetch
+    saved.token = process.env.GITHUB_TOKEN
+    process.env.GITHUB_TOKEN = "test-token"
+  })
+  afterEach(() => { globalThis.fetch = saved.fetch })
+  afterAll(() => { if (saved.token === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = saved.token })
+
+  it("a 502 then a 200 returns the 200", async () => {
+    const calls = stub([502, 200])
+    expect(await gh("/actions/runs/1/jobs", {}, [0, 0, 0])).toEqual({ ok: true })
+    expect(calls.length).toBe(2)
+  })
+  it("a network error then a 200 returns the 200", async () => {
+    const calls = stub(["throw", 200])
+    expect(await gh("/actions/runs/1/jobs", {}, [0, 0, 0])).toEqual({ ok: true })
+    expect(calls.length).toBe(2)
+  })
+  it("5xx on every try throws the original error text after the last retry", async () => {
+    const calls = stub([502, 503, 500, 502])
+    await expect(gh("/actions/runs/1/jobs", {}, [0, 0, 0])).rejects.toThrow("GitHub /actions/runs/1/jobs: HTTP 502")
+    expect(calls.length).toBe(4)
+  })
+  it("a 404 throws at once", async () => {
+    const calls = stub([404, 200])
+    await expect(gh("/issues/9", {}, [0, 0, 0])).rejects.toThrow("HTTP 404")
+    expect(calls.length).toBe(1)
+  })
+  it("a POST is never retried (a 5xx may already have created it)", async () => {
+    const calls = stub([502, 200])
+    await expect(gh("/issues", { method: "POST", body: "{}" }, [0, 0, 0])).rejects.toThrow("HTTP 502")
+    expect(calls.length).toBe(1)
   })
 })
