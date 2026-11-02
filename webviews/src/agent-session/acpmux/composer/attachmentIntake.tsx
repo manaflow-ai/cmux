@@ -215,6 +215,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const t = useT();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [pending, setPending] = useState<PendingAttachment[]>([]);
+  const pendingRef = useRef<PendingAttachment[]>([]);
+  pendingRef.current = pending;
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
   /// The drop overlay's state (composer/DropOverlay.tsx). Kept in a ref too: a refused drag's
@@ -451,7 +453,20 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         const stop = retryUploadLater(
           tries,
           () => {
-            if (still()) retryRef.current(id);
+            if (!still()) return;
+            // A delayed retry must use the chat that owns these bytes. The user may have
+            // switched chats since this failure (including via the key/click that queued
+            // this callback). Retrying through live.options would upload this old File to
+            // the *new* chat's machine. Keep the old scoped chip with a manual Retry.
+            // `batch` is removed when its first intake settles, but a carried chip can still
+            // change scope afterward. Read the chip's current scope so an intentional carry
+            // retries through its destination chat while a plain switch still fails closed.
+            const chip = pendingRef.current.find((candidate) => candidate.id === id);
+            if (!chip || chip.scope !== live.current.options.scope) {
+              giveUp();
+              return;
+            }
+            retryRef.current(id);
           },
           giveUp,
         );
