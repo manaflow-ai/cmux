@@ -16,6 +16,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
+import { sessionInfoPushes } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { SESSION_INFO_WIDTH } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 
 await requireBrowserLane("session-info-push-motion.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -161,10 +163,21 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
 
   // Floating and pushing keep the same right margin (the inset), so a switch between the two (Settings
   // Push always) moves the panel to its new place at once, with no margin sliding after.
+  // Since #31423 the default (Overlay) floats only where the pane's right gutter holds the panel; in a
+  // narrower pane (900px) it pushes too, so Push always changes nothing there. The switch is made in a
+  // pane wide enough that Overlay really floats (SessionInfo.tsx sessionInfoPushes, at the panel's
+  // opening width), the same 1600px the layout-still and rail tests float in.
+  const floatingPane = { width: 1600, height: 600 };
+  test("the switch's pane floats with Overlay and pushes with Push always", () => {
+    expect({
+      overlay: sessionInfoPushes("overlay", floatingPane, SESSION_INFO_WIDTH.fallback),
+      push: sessionInfoPushes("push", floatingPane, SESSION_INFO_WIDTH.fallback),
+    }).toEqual({ overlay: false, push: true });
+  });
   for (const name of browsers.keys())
     test(`${name}: a switch between floating and pushing starts no slide`, async () => {
       current = browsers.get(name)!;
-      const page = await pane!.open({ width: 900, height: 600 });
+      const page = await pane!.open(floatingPane);
       try {
         const toggle = await ready(page);
         await toggle.click({ force: true });
