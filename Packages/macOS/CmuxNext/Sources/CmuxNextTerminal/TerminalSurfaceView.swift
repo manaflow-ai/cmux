@@ -233,6 +233,9 @@ public final class TerminalSurfaceView: NSView {
         isShown = shown
         observeWindow(shown)
         if !shown { linkPointer.exited() }
+        // Out of its window, no drag's end may reach it (its layout root can go before it): it stops following, so
+        // its next shown size reports as any other, never held for a drag that is gone.
+        if window == nil { isFollowingResizeGesture = false }
         if shown {
             updateContentScale()
             // A view that joins a pane on a layout spring sends the grid the spring rests at, once; its first
