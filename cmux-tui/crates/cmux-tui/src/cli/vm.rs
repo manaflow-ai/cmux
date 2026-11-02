@@ -455,7 +455,8 @@ Make a Cloud machine. With the cmux app signed in, this is the same machine
 File > New Cloud Machine… makes: it shows in the sidebar, the app asks you to
 confirm when an agent asks, and it prints the machine's target and how to open
 a terminal, start an agent or run a command there. With no flags it takes the
-app's default size and pauses when idle (--persistent keeps it running).
+app's default size and keeps running when idle; `cmux cloud set-idle-pause`
+sets a pause, and --persistent makes sure none is set.
 
   cmux machine new
   cmux machine new --name api-dev --size medium --repo OWNER/NAME
@@ -470,13 +471,24 @@ which also takes --snapshot SNAPSHOT_ID, --image IMAGE_ID --image-revision REV,
 ";
 
 /// What a person reads after `cmux machine new` (the app's `cloud new-machine`)
-/// made a machine: its name and target, then the three things one does next.
-/// `None` for every other run, and for a JSON or quiet caller.
-pub(super) fn created_line(params: &Value, result: &Value) -> Option<String> {
+/// made a machine: its name and target, then the three things one does next,
+/// each with the `--socket` / `--app-socket` this command was routed through so
+/// it reaches the same app. `None` for every other run, for a JSON or quiet
+/// caller, and when a bootstrap or machine config ran: then the full field
+/// table prints, with its status, reason and the commands to check or recover.
+pub(super) fn created_line(params: &Value, result: &Value, global: &GlobalArgs) -> Option<String> {
     if params.get("action")?.as_str()? != "cloud new-machine" {
         return None;
     }
     let result = result.get("result")?;
+    let setup_ran = |key: &str| {
+        result.get(key).is_some_and(|setup| {
+            setup.get("status").and_then(Value::as_str).is_none_or(|status| status != "none")
+        })
+    };
+    if setup_ran("bootstrap") || setup_ran("machine_config") {
+        return None;
+    }
     if result.get("pending").and_then(Value::as_bool) == Some(true) {
         return Some(
             "Creating a Cloud machine; it is still starting. It shows in the sidebar and in \
@@ -492,13 +504,45 @@ pub(super) fn created_line(params: &Value, result: &Value) -> Option<String> {
     let title = result.get("title").and_then(Value::as_str).filter(|title| !title.is_empty());
     let status = result.get("status").and_then(Value::as_str).unwrap_or("created");
     let name = title.map_or_else(|| id.to_owned(), |title| format!("{title} ({id})"));
+    let cmux = cmux_with_route(global);
     Some(format!(
         "Created Cloud machine {name}: {status}.\n\n\
          Next:\n  \
-         open a terminal:  cmux cloud ssh --target {target}\n  \
-         start an agent:   cmux cloud start-session --target {target} --agent claude\n  \
-         run a command:    cmux cloud exec --target {target} --command 'uname -a'\n"
+         open a terminal:  {cmux} cloud ssh --target {target}\n  \
+         start an agent:   {cmux} cloud start-session --target {target} --agent claude\n  \
+         run a command:    {cmux} cloud exec --target {target} --command 'uname -a'\n"
     ))
+}
+
+/// `cmux` with the socket flags this command was given, shell-quoted and
+/// pinned absolute, so a suggested command reaches the same app.
+fn cmux_with_route(global: &GlobalArgs) -> String {
+    let quote = |word: &str| {
+        if word.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_./:=@%+,".contains(&b)) {
+            word.to_owned()
+        } else {
+            format!("'{}'", word.replace('\'', "'\\''"))
+        }
+    };
+    let pinned =
+        |path: &std::path::Path| std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut words = vec!["cmux".to_owned()];
+    for (flag, path) in [("--socket", &global.socket), ("--app-socket", &global.app_socket)] {
+        if let Some(path) = path {
+            words.push(quote(&format!("{flag}={}", pinned(path).to_string_lossy())));
+        }
+    }
+    words.join(" ")
+}
+
+/// `cmux machine new … --help`: a help flag anywhere before `--` prints
+/// `NEW_HELP` instead of sending `help` to the app or the VM API.
+pub(super) fn new_wants_help(scope: Scope, tail: &[String]) -> bool {
+    scope == Scope::Machine
+        && tail
+            .iter()
+            .take_while(|word| *word != "--")
+            .any(|word| matches!(word.as_str(), "-h" | "--help"))
 }
 
 /// `cmux machine VERB …` for this module's verbs, and `cmux vm …`. `None` for
@@ -522,10 +566,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if let [verb, tail @ ..] = rest
         && matches!(verb.as_str(), "new" | "create")
     {
-        if scope == Scope::Machine
-            && tail.len() == 1
-            && tail.first().is_some_and(|word| matches!(word.as_str(), "-h" | "--help"))
-        {
+        if new_wants_help(scope, tail) {
             print!("{NEW_HELP}");
             return Some(0);
         }
