@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "build": "4152325530501",
+  "notes": "notes/4152325530501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32552,
+      "title": "reopen: the first reason a launch frame did not show stays; STRESS bench restores its windows (#32493)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32560,
+      "title": "fix(acpmux): web_modes test states the session's cloudMobileAsks (base red from #30294)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
