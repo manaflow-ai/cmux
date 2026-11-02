@@ -539,7 +539,7 @@ final class NotificationCenterService {
         guard let located else {
             guard desktopPostingEnabled else { return note("desktop posting suppressed") }
             feedDriver?.run()
-            if let workspace, decision.attention { moveToTop(workspace, for: notification) }
+            if let workspace, decision.attention { moveToTop(workspace, finishedTurn: notification.isFinishedTurn) }
             soundGate.admit(&decision, cooldownSeconds: preferences.sounds.cooldownSeconds)
             if decision.desktop {
                 // A workspace's notification names its workspace in the title, as a terminal's does.
@@ -613,7 +613,7 @@ final class NotificationCenterService {
         // The feed (and the iPhone push) gets only what would alert on this Mac: the
         // driver's pass applies the policy to the daemon's item, and a notice that did
         // not alert here (pane in view, app active, banners off) stays local.
-        moveToTop(located.workspace, for: notification)
+        moveToTop(located.workspace, finishedTurn: notification.isFinishedTurn)
         notifyChiefPet(notification, located: located, decision: decision, program: program)
         // Showcase captures read and order rows as the app does, and post nothing.
         guard desktopPostingEnabled else {
