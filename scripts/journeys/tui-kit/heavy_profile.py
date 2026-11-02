@@ -48,7 +48,7 @@ HIDDEN_PROGRAMS = (
     ("top", ["--fps", "2"]),
     ("flood", ["--rate", "30"]),
     ("sigwinch", ["--tick", "1"]),
-    ("gradient", ["--fps", "10", "--cell", "2"]),
+    ("gradient", ["--fps", "10", "--cell", "2", "--pace", "sleep"]),  # hidden: no core-pegging spin
     ("agent-stream", ["--cps", "40"]),
 )
 
@@ -120,7 +120,7 @@ def make_plan(a):
         hidden.append({"name": "tk-%d-w%02d" % (a.seed, w + 1), "tabs": tabs})
     pages = sorted({tab["page_seed"] for ws in hidden for tab in ws["tabs"] if tab["kind"] == "browser"}
                    | {p["page_seed"] for p in shown["extra_column"] if p["kind"] == "browser"})
-    return {"version": 1, "seed": a.seed, "duration": a.duration, "kit": kit, "python": a.python, "out": out,
+    return {"version": 1, "seed": a.seed, "no_focus": bool(getattr(a, "no_focus", False)), "duration": a.duration, "kit": kit, "python": a.python, "out": out,
             "counts": {"workspaces": a.workspaces, "tabs": a.tabs, "shown_tui_panes": a.visible,
                        "shown_panes": a.visible + len(shown["extra_column"]), "columns": columns,
                        "rows_per_column": rows},
@@ -450,6 +450,8 @@ def make_shown(app, plan, rec, base):
                 rec.refused("placeholder tab %s" % placeholder, error)
         made["panes"].append(entry)
         rec.save()
+    if plan.get("no_focus"):
+        return  # a background load (load_profiles.py L5): the person's focus stays where it is
     try:
         app.cmux("workspace", made["workspace_id"], "focus")
     except Refused as error:
@@ -466,7 +468,8 @@ def check(app, plan, rec):
     found = {"workspaces": len(ours), "tabs": tabs, "shown_panes": shown_panes,
              "focused_workspace": (topo.get("focus") or {}).get("workspace")}
     want = {"workspaces": plan["counts"]["workspaces"], "tabs": plan["counts"]["tabs"],
-            "shown_panes": plan["counts"]["shown_panes"], "focused_workspace": shown_id}
+            "shown_panes": plan["counts"]["shown_panes"],
+            "focused_workspace": found["focused_workspace"] if plan.get("no_focus") else shown_id}
     rec.data["check"] = {"found": found, "want": want, "ok": found == want}
     rec.save()
     return found == want
@@ -580,6 +583,8 @@ def shape(p):
     p.add_argument("--kit", help="tuikit.py on the Mac that runs the app (default beside this file)")
     p.add_argument("--python", default="/usr/bin/python3")
     p.add_argument("--out", help="manifest, logs and pages (default $TMPDIR/tk-heavy-SEED)")
+    p.add_argument("--no-focus", action="store_true",
+                   help="do not focus the shown workspace at the end (a background load under typing)")
 
 
 def reach(p):
