@@ -3828,9 +3828,11 @@ a.cv-sha:focus-visible {
 }
 .acpmux-turnSummary[data-turn-revealed] .cv-turn-time,
 .acpmux-turnSummary:hover .cv-turn-time,
+.acpmux-turnSummary:has([data-popup-open]) .cv-turn-time,
 .acpmux-turnSummary:focus-visible .cv-turn-time,
 .acpmux-turnSummary .cv-turn-actions:focus-within .cv-turn-time,
 .acpmux-assistant:hover .cv-reply-actions .cv-turn-time,
+.acpmux-assistant:has([data-popup-open]) .cv-reply-actions .cv-turn-time,
 .acpmux-assistant:focus-visible .cv-reply-actions .cv-turn-time,
 .cv-reply-actions:focus-within .cv-turn-time {
   opacity: 1;
