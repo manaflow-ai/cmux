@@ -245,9 +245,8 @@ import Testing
     private static func shown(_ tab: CEFTab, in host: CEFPaneHost) -> (NSWindow, NSWindow) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
-        window.contentView?.addSubview(container)
-        host.present(tab, in: container)
+        window.contentView?.addSubview(tab.contentView) // the tab presents itself in its own container
+        if host.hostView.superview == nil { host.present(tab, in: tab.contentView) }
         let frame = window.convertToScreen(host.hostView.convert(host.hostView.bounds, to: nil))
         let page = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: true)
         page.isReleasedWhenClosed = false
