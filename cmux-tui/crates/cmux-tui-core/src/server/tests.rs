@@ -546,6 +546,7 @@ mod resource_waits;
 mod session_streams;
 mod sizing;
 mod socket_and_render;
+mod subscribe_scroll_on_attach;
 mod test_socket_path;
 mod view_leases;
 mod wire_commands;

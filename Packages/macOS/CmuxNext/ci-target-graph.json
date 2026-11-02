@@ -311,6 +311,7 @@
         "CmuxNextMallocZone",
         "CmuxNextMobile",
         "CmuxNextMobileHost",
+        "CmuxNextNotifications",
         "CmuxNextNowPlaying",
         "CmuxNextOnboarding",
         "CmuxNextPages",
@@ -433,6 +434,7 @@
         "CmuxNextMacScreen",
         "CmuxNextMobile",
         "CmuxNextMobileHost",
+        "CmuxNextNotifications",
         "CmuxNextNowPlaying",
         "CmuxNextOnboarding",
         "CmuxNextPagesTestSupport",
@@ -775,6 +777,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDaemon"
@@ -1437,6 +1440,21 @@
       "reads": [
         "scripts/cmux-next/pin-cmux-tui.sh"
       ]
+    },
+    "CmuxNextNotifications": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications",
+      "targets": [
+        "CmuxNextAgentPane",
+        "CmuxNextControl",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextDesign",
+        "CmuxNextFeed",
+        "CmuxNextMobileHost",
+        "CmuxNextSettings"
+      ],
+      "packages": []
     },
     "CmuxNextNowPlaying": {
       "kind": "regular",

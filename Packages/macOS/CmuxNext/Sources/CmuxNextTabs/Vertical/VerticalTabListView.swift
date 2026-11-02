@@ -64,8 +64,8 @@ public final class VerticalTabListView: NSView {
     private var trackingArea: NSTrackingArea?
     var lastSelectedID: TabID?
     var accessibilityRows: [TabID: TabAccessibilityElement] = [:]
-    /// Set while a menu from the list is open (`trackMenu`).
-    var menuEndObserver: (any NSObjectProtocol)?
+    /// Set while a menu from the list is open (`trackMenu`): its end-of-tracking notice (``MenuTracking``).
+    var menuEnd: MenuTracking?
 
     public init(model: TabStripModel) {
         self.model = model
@@ -81,17 +81,6 @@ public final class VerticalTabListView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    // cx-t7hu: not an isolated deinit (see PaneContentView).
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            observation?.cancel()
-            tokenObservation?.cancel()
-            hoverTimer.cancel()
-            if let menuEndObserver { NotificationCenter.default.removeObserver(menuEndObserver) }
-        }
-    }
 
     nonisolated public override var isFlipped: Bool { true }
     public override var isOpaque: Bool { false }
