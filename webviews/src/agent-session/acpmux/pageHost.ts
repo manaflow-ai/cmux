@@ -24,7 +24,7 @@ import { receivePromptUploadState } from "./promptUploadState";
 import { setComputerUsePreview } from "./computerUse/computerUsePreview";
 import { setMachineLink } from "./machineLink";
 import { setRemoteControl } from "./remoteControl";
-import { setPaneNotices } from "./paneNotices";
+import { setPaneNotices } from "./paneNoticeStore";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.

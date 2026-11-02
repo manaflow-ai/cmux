@@ -1,7 +1,7 @@
-import { type PaneNotice, usePaneNotices } from "./paneNotices";
+import { type PaneNotice, usePaneNotices } from "./paneNoticeStore";
 import { Notice } from "./NoticeSlot";
 
-/// One app notice as a card above the composer (paneNotices.ts): the title, the detail under it,
+/// One app notice as a card above the composer (paneNoticeStore.ts): the title, the detail under it,
 /// and the app's button, off while its action runs.
 export function PaneNoticeCard({ notice, onAction }: { notice: PaneNotice; onAction(id: string): void }) {
   return (
