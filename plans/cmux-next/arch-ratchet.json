@@ -801,6 +801,16 @@
       "owner": "cloud refresh implementation",
       "receipt": "Review (independent Codex gate-design-review subagent): SHIP at f786167eebcf937d410ce58abac50d81db82b6c2",
       "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-11-02",
+      "row": "app_lines",
+      "allow": 9,
+      "why": "#31862 (04cbf79d4c1c, terminal dictation) added 129 CmuxNextApp lines; #31953 moves its TerminalDictation (121) to CmuxNextTerminal. What stays is #31862's call site in AgentHandlers.swift (10 lines: the CmuxNextTerminal import, the stored TerminalDictation, the terminal branch of palette.toggleDictation and its stopIfActive fallback), less 1 line that unrelated commits since fc013e84c65e removed. Those lines read only App types (AppActionContext.visibleContent, PaneController, TerminalEntry, TabModel through pane.pane, AppServices.daemon(for:)), so they leave the App only when the whole dictation toggle bind does.",
+      "author": "arch-red-31862 agent (Claude Opus 5.5, lead session)",
+      "owner": "Performance Lead (PL-arch): removed when palette.toggleDictation moves out of CmuxNextApp",
+      "receipt": "Review (independent reviewer subagent, read-only): SHIP at e07b8cc0a16dcf5cdbf7f0c11af03bec4f1136fd",
+      "expiry": "2026-12-31"
     }
   ],
   "escape_reviews": [
