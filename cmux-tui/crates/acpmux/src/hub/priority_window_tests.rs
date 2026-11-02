@@ -334,3 +334,23 @@ async fn a_peers_purge_removes_its_lane_and_a_change_writes_it() {
     assert_eq!(change.id, "s1");
     assert_eq!(change.lane.and_then(|lane| lane.peer).as_deref(), Some("mini"));
 }
+
+/// Archive is a request to the acpmux that owns the chat: the app refused it for a chat no
+/// acpmux socket of its own lists (another machine's chat tab), and kept it for this daemon's
+/// chats and the Chief home's (`AgentPriorityChats.archive`). A reported lane says the client
+/// has its owner's socket with `archivable`.
+#[test]
+fn archive_is_refused_for_a_chat_no_owning_acpmux_lists() {
+    let set = LaneSet::from_lanes([lane("here", "idle", 1)]);
+    let mut chief = summary("chief-sub", "idle", 1);
+    chief["archivable"] = json!(true);
+    let window =
+        spec(json!({"window": "p", "lanes": [chief, summary("other-machine", "idle", 1)]}));
+    let WindowKind::Priority(priority) = &window.kind else { panic!("a priority window") };
+    let archive = |id: &str| priority.mark(MarkOp::Archive(id.to_owned()), &set);
+    assert!(archive("here").is_ok(), "this daemon's chat");
+    assert!(archive("chief-sub").is_ok(), "a chat the client's own acpmux socket lists");
+    assert!(archive("other-machine").is_err(), "another machine's chat: no acpmux to archive it");
+    // Other marks stay with any chat the window lists.
+    assert!(priority.mark(MarkOp::TogglePin("other-machine".into()), &set).is_ok());
+}
