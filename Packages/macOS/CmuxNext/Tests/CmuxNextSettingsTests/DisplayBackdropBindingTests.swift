@@ -1,10 +1,11 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
-@MainActor @Suite(.serialized) struct DisplayBackdropBindingTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct DisplayBackdropBindingTests {
     let first = "00000000-0000-0000-0000-000000000001"
     let second = "00000000-0000-0000-0000-000000000002"
 
@@ -24,6 +25,7 @@ import Testing
         let left = ThemeScope(level: .room, parent: app)
         let right = ThemeScope(level: .room, parent: app)
         let window = NSWindow()
+        defer { window.closeAfterTest() }
         let center = NotificationCenter()
         var display: String? = first
         var date = Date(timeIntervalSince1970: 1_791_938_451)
@@ -32,7 +34,9 @@ import Testing
         let fixedCalendar = calendar
         let binding = DisplayBackdropBinding(window: window, scope: left, center: center,
                                             displayID: { display }, now: { date }, calendar: { fixedCalendar })
-        let other = DisplayBackdropBinding(window: NSWindow(), scope: right, center: center,
+        let otherWindow = NSWindow()
+        defer { otherWindow.closeAfterTest() }
+        let other = DisplayBackdropBinding(window: otherWindow, scope: right, center: center,
                                           displayID: { second }, now: { date }, calendar: { fixedCalendar })
         defer { binding.stop(); other.stop() }
         binding.apply(root)
@@ -63,7 +67,9 @@ import Testing
         let center = NotificationCenter()
         var registrations: [(Notification.Name, AnyObject?, OperationQueue?)] = []
         var removals = 0
-        let binding = DisplayBackdropBinding(window: NSWindow(), scope: ThemeScope(level: .room), center: center,
+        let window = NSWindow()
+        defer { window.closeAfterTest() }
+        let binding = DisplayBackdropBinding(window: window, scope: ThemeScope(level: .room), center: center,
                                              displayID: { nil }, recordObserver: { registrations.append(($0, $1, $2)) },
                                              recordRemoval: { removals += 1 })
         #expect(registrations.map(\.0) == [NSWindow.didChangeScreenNotification, .NSSystemClockDidChange,
@@ -77,7 +83,9 @@ import Testing
 
     @Test func folderListingRunsOffMainActor() async {
         let scope = ThemeScope(level: .room)
-        let binding = DisplayBackdropBinding(window: NSWindow(), scope: scope, displayID: { first }, listFolder: { Self.folderFixture($0) })
+        let window = NSWindow()
+        defer { window.closeAfterTest() }
+        let binding = DisplayBackdropBinding(window: window, scope: scope, displayID: { first }, listFolder: { Self.folderFixture($0) })
         defer { binding.stop() }
         binding.apply(["appearance": ["displayBackgrounds": .object([first: "folder:/wallpapers"])]])
         await binding.folderRefresh?.value
@@ -97,7 +105,9 @@ import Testing
         let scope = ThemeScope(level: .room, parent: app)
         var display = first
         var date = Date(timeIntervalSince1970: 1_791_938_451)
-        let binding = DisplayBackdropBinding(window: NSWindow(), scope: scope, displayID: { display }, now: { date },
+        let window = NSWindow()
+        defer { window.closeAfterTest() }
+        let binding = DisplayBackdropBinding(window: window, scope: scope, displayID: { display }, now: { date },
                                             listFolder: { await loader.list($0) })
         defer { binding.stop() }
         let root: JSONValue = ["appearance": [
@@ -135,7 +145,9 @@ import Testing
         let loader = SuspendedBackdropFolderListing()
         let app = ThemeScope(level: .room)
         let scope = ThemeScope(level: .room, parent: app)
-        var binding: DisplayBackdropBinding? = DisplayBackdropBinding(window: NSWindow(), scope: scope,
+        let window = NSWindow()
+        defer { window.closeAfterTest() }
+        var binding: DisplayBackdropBinding? = DisplayBackdropBinding(window: window, scope: scope,
                                                                       displayID: { first }, listFolder: { await loader.list($0) })
         weak var released = binding
         binding?.apply(["appearance": ["displayBackgrounds": .object([first: "folder:/slow"])]])
@@ -152,7 +164,9 @@ import Testing
         let loader = SuspendedBackdropFolderListing()
         let scope = ThemeScope(level: .room)
         var date = Date(timeIntervalSince1970: 1_791_938_451)
-        let binding = DisplayBackdropBinding(window: NSWindow(), scope: scope, displayID: { first }, now: { date },
+        let window = NSWindow()
+        defer { window.closeAfterTest() }
+        let binding = DisplayBackdropBinding(window: window, scope: scope, displayID: { first }, now: { date },
                                             listFolder: { await loader.immediateList($0) })
         defer { binding.stop() }
         var root: JSONValue = ["appearance": ["displayBackgrounds": .object([first: "folder:/changing"])]]
@@ -174,7 +188,9 @@ import Testing
         let scope = ThemeScope(level: .room)
         var display = first
         var date = Date(timeIntervalSince1970: 1_791_938_451)
-        let binding = DisplayBackdropBinding(window: NSWindow(), scope: scope, displayID: { display }, now: { date },
+        let window = NSWindow()
+        defer { window.closeAfterTest() }
+        let binding = DisplayBackdropBinding(window: window, scope: scope, displayID: { display }, now: { date },
                                             listFolder: { await loader.list($0) })
         defer { binding.stop() }
         let root: JSONValue = ["appearance": ["displayBackgrounds": .object([first: "folder:/inactive", second: "none"])]]
@@ -198,7 +214,9 @@ import Testing
         let loader = SuspendedBackdropFolderListing()
         let scope = ThemeScope(level: .room)
         var date = Date(timeIntervalSince1970: 1_791_938_451)
-        let binding = DisplayBackdropBinding(window: NSWindow(), scope: scope, displayID: { first }, now: { date },
+        let window = NSWindow()
+        defer { window.closeAfterTest() }
+        let binding = DisplayBackdropBinding(window: window, scope: scope, displayID: { first }, now: { date },
                                             listFolder: { await loader.list($0) })
         defer { binding.stop() }
         binding.apply(["appearance": ["displayBackgrounds": .object([first: "folder:/boundary"]),
@@ -219,6 +237,7 @@ import Testing
         app.setBackdropSelection(.art(.munchScream))
         let room = ThemeScope(level: .room, parent: app)
         let window = NSWindow()
+        defer { window.closeAfterTest() }
         let center = NotificationCenter()
         var display = first
         let binding = DisplayBackdropBinding(window: window, scope: room, center: center, displayID: { display })
