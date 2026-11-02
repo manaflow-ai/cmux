@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4144882653901",
+  "notes": "notes/4144882653901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32275,
+      "title": "fix(nightly): nightly-next feed writers take an R2 lease instead of an evicting group",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32250,
+      "title": "acpmux: a peer's start never recreates a folder that cleanup removed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32159,
+      "title": "cmux NEXT: ship native Session Info by default",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32184,
+      "title": "Session Info's setting keys drop the Inspector name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32231,
+      "title": "ci(autofix): base autofix regenerates app-host files without waiting on the Mac exports",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32251,
+      "title": "base red: gallery health shift rows follow today's intended layout changes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32131,
+      "title": "Agent pane: an open folder trust question never blocks Send or steer (prompts wait, then go after Trust)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32219,
+      "title": "base red: a subagent whose name equals a plain id keeps it; only a session/tool-call id reads as Subagent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32258,
+      "title": "base red: fork branches for release-compile-fast and the DEV candidate; pool requirement step coverage",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32164,
+      "title": "fix(cmux-tui): a respawn wave sizes the Kitty budget before its first respawn reserves",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
