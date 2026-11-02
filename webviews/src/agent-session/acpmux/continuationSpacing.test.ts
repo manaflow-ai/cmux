@@ -1,7 +1,12 @@
 // l10n-allow-file: transcript geometry fixtures.
 import { expect, test } from "bun:test";
 import { layoutConversation, placeRows, type AcpmuxRow, type RowHeights } from "./model";
-import { TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP } from "./transcriptGrid";
+import {
+  TRANSCRIPT_BLOCK_GAP,
+  TRANSCRIPT_FOOTER_CONTROL,
+  TRANSCRIPT_FOOTER_GAP,
+  TRANSCRIPT_TURN_GAP,
+} from "./transcriptGrid";
 
 const row = (id: string, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -14,7 +19,11 @@ const answer = row("answer", "assistant", { text: "Done." });
 const footer = row("footer", "turnSummary", { text: "Done.", durationMs: 1000, status: "completed" });
 const hidden = row("hidden", "user", { incoming: { kind: "hidden" } });
 
-test("container gaps cross hover footers and bookkeeping without adding a second gap", () => {
+// A reply's footer is a row of its own, as ChatGPT's (design/transcript-spacing.md "Reply footer";
+// Leo, 2026-11-02: "didn't i always say we can do it like chatgpt"): its 32 line of buttons 8 under
+// the reply, then the block gap (a prompt's turn gap) to what follows, past bookkeeping that draws
+// nothing, never a second gap.
+test("a reply's footer row sits 8 under it, and the next row 24 (a prompt 32) under the footer", () => {
   for (const next of [
     row("reply", "assistant", { text: "Next." }),
     row("prompt", "user", { text: "Next." }),
@@ -22,13 +31,22 @@ test("container gaps cross hover footers and bookkeeping without adding a second
   ]) {
     const rows = [answer, footer, hidden, next];
     const layout = layoutConversation(rows, 720);
-    expect(layout.heights[1]).toBe(0);
+    expect(layout.tops[1]! - layout.heights[0]!).toBe(TRANSCRIPT_FOOTER_GAP);
+    expect(layout.heights[1]).toBe(TRANSCRIPT_FOOTER_CONTROL);
     expect(layout.heights[2]).toBe(0);
     const gap = next.id === "prompt" ? TRANSCRIPT_TURN_GAP : TRANSCRIPT_BLOCK_GAP;
-    expect(layout.tops[3]! - layout.heights[0]!).toBe(gap);
+    expect(layout.tops[3]! - (layout.tops[1]! + layout.heights[1]!)).toBe(gap);
     const measured = placeRows(layout, (index) => (index === 0 ? 100 : undefined));
-    expect(measured.tops[3]).toBe(100 + gap);
+    expect(measured.tops[3]).toBe(100 + TRANSCRIPT_FOOTER_GAP + TRANSCRIPT_FOOTER_CONTROL + gap);
   }
+});
+
+test("an empty footer still lies over the gap: no height, one gap from the reply to the next row", () => {
+  const empty = row("empty", "turnSummary", { durationMs: 1000, status: "completed" });
+  const next = row("prompt", "user", { text: "Next." });
+  const layout = layoutConversation([answer, empty, next], 720);
+  expect(layout.heights[1]).toBe(0);
+  expect(layout.tops[2]! - layout.heights[0]!).toBe(TRANSCRIPT_TURN_GAP);
 });
 
 test("incremental placement matches fresh placement when a continuation becomes a prompt", () => {
@@ -44,8 +62,8 @@ test("incremental placement matches fresh placement when a continuation becomes 
   );
 });
 
-test("failure and Continue controls remain content; completed footer copy is an overlay", () => {
-  expect(layoutConversation([footer], 720).totalHeight).toBe(0);
+test("failure and Continue controls remain content; a reply's footer is a row of its own", () => {
+  expect(layoutConversation([footer], 720).totalHeight).toBe(TRANSCRIPT_FOOTER_CONTROL);
   for (const fields of [{ status: "failed", error: "Retry" }, { resumable: true }])
     expect(layoutConversation([{ ...footer, ...fields }], 720).heights[0]).toBeGreaterThan(0);
 });
@@ -53,9 +71,9 @@ test("failure and Continue controls remain content; completed footer copy is an 
 test("measured empty rows do not leave a gap at the beginning or the end", () => {
   const rows = [hidden, answer, footer];
   const estimate = layoutConversation(rows, 720);
-  const measured = placeRows(estimate, (index) => (index === 1 ? 40 : 0));
-  expect([...measured.tops]).toEqual([0, 0, 40]);
-  expect(measured.totalHeight).toBe(40);
+  const measured = placeRows(estimate, (index) => (index === 1 ? 40 : index === 2 ? undefined : 0));
+  expect([...measured.tops]).toEqual([0, 0, 40 + TRANSCRIPT_FOOTER_GAP]);
+  expect(measured.totalHeight).toBe(40 + TRANSCRIPT_FOOTER_GAP + TRANSCRIPT_FOOTER_CONTROL);
 });
 
 // Review at 1691838: a placement kept from 100% must not survive a change to 125% Interface Size,
