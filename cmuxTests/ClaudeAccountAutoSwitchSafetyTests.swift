@@ -125,10 +125,22 @@ struct ClaudeAccountAutoSwitchHoldBackTests {
         typealias HoldBack = ClaudeAccountAutoSwitchAction.HoldBack
         // The same check runs again, synchronously, right before the pane restarts.
         #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .emptyPrompt) == nil)
-        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .unknown) == nil)
         #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .draft) == .draftPending)
         #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .emptyPrompt) == .userInput)
         #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .draft) == .draftPending)
+    }
+
+    @Test(arguments: [
+        AgentAutoResumeCoordinator.ScreenState.unknown, .dialog, .codexGoalResume, .codexResumePicker,
+    ])
+    func aScreenThatIsNotClaudesEmptyPromptHoldsTheSwitchBack(screen: AgentAutoResumeCoordinator.ScreenState) {
+        // Only Claude's empty input box shows the pane is idle. A screen cmux can't read or
+        // place may hold anything, so the unattended restart fails closed.
+        #expect(ClaudeAccountAutoSwitchAction.HoldBack.paneInUse(receivedInputSinceReport: false, screen: screen) != nil)
+        guard case .holdBack = fixture.decide(fixture.request(), pane: fixture.pane(), sourceScreen: screen) else {
+            Issue.record("a screen read as \(screen) must hold the switch back")
+            return
+        }
     }
 
     @Test
