@@ -147,7 +147,9 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
           expect(Math.abs(state.turn - 32 * scale), "turn gap").toBeLessThanOrEqual(0.5);
           if (state.actionMid !== undefined)
             expect(Math.abs(state.actionMid - 12 * scale), "action glyph center in block gap").toBeLessThanOrEqual(0.5);
-          for (const gap of state.gaps) expect(Math.abs(gap - 24 * scale), "block gap").toBeLessThanOrEqual(0.5);
+          // A run and the prose by it: the run gap (design/transcript-spacing.md rule 4).
+          for (const gap of state.gaps)
+            expect(Math.abs(gap - gridLength("gap-run") * scale), "run gap").toBeLessThanOrEqual(0.5);
           expect(Math.abs(state.liveUnderRun), "live line flush under its run").toBeLessThanOrEqual(0.5);
           expect(Math.abs(state.inner - 12 * scale), "paragraph gap").toBeLessThanOrEqual(0.5);
           // Over a floating stack the newest line rests the rest gap over it (model.ts REST_GAP, Leo

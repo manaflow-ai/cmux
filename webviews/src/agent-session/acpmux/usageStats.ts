@@ -110,3 +110,16 @@ export function byUsage<T extends { sessionId: string; usageStats?: SessionUsage
         (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0),
     );
 }
+
+/** The context `usage` read against the window the session compacts at: its autocompact cap when
+ *  that is under the model's window, as Claude Code's own /context reads it (Leo 2026-10-20, of a
+ *  ring that read "213.1K of 1M tokens": "I usually have, like, 400K on my typical [Claude]
+ *  sessions"). `usage` itself when there is no smaller cap. */
+export function compactingUsage<U extends { used: number; size: number }>(
+  usage: U | undefined,
+  stats: SessionUsageStats | undefined,
+): U | undefined {
+  const cap = stats?.autocompact === "capped" ? stats.autocompactCap : undefined;
+  if (!usage || !cap || cap <= 0 || (usage.size > 0 && cap >= usage.size)) return usage;
+  return { ...usage, size: cap };
+}

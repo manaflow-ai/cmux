@@ -26,7 +26,7 @@ export async function openSourceFile(
   }
 }
 
-function scopedPath(path: string, cwd?: string): string | undefined {
+export function scopedPath(path: string, cwd?: string): string | undefined {
   if (!cwd?.startsWith("/") || path.startsWith("~") || path.includes("\0")) return;
   const normalize = (value: string) => {
     const parts: string[] = [];

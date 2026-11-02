@@ -316,7 +316,9 @@ test("in a wide pane it floats beside the transcript", async () => {
 
 // Leo, 2026-10-27: "why am i sent to a whole new thing instead of a tab opening on the right?" The
 // project row asks for its Files tab (App.tsx: right of the chat), and a panel floating over the chat
-// steps aside, still open for its toggle, so the chat and the new tab are what show.
+// steps aside, still open for its toggle, so the chat and the new tab are what show. Where the gutter
+// cannot hold it the panel pushes the chat (#31423), so it floats over the chat only in a short pane,
+// as a popover (POPOVER_BELOW_HEIGHT).
 function FolderPane({ opened }: { opened: string[] }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
   const sessionInfo = useSessionInfo({
@@ -337,12 +339,18 @@ function FolderPane({ opened }: { opened: string[] }) {
   );
 }
 
-async function mountFolderPane(width: number, opened: string[]) {
+async function mountFolderPane(width: number, opened: string[], height = 0) {
   const container = installDom();
   Object.defineProperty(dom!.window.HTMLElement.prototype, "clientWidth", {
     configurable: true,
     get(this: HTMLElement) {
       return this.classList.contains("acpmux-shell") ? width : 0;
+    },
+  });
+  Object.defineProperty(dom!.window.HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList.contains("acpmux-shell") ? height : 0;
     },
   });
   await act(async () => setSessionInfoOpen(true));
@@ -358,7 +366,8 @@ const projectRow = (container: HTMLElement) =>
 
 test("over the chat, a project click opens its Files tab and the panel steps aside, still open", async () => {
   const opened: string[] = [];
-  const container = await mountFolderPane(480, opened);
+  // A short narrow pane: the panel is a popover over the chat, not a pushed column.
+  const container = await mountFolderPane(480, opened, 400);
   expect(panel(container)).not.toBeNull();
   await act(async () => projectRow(container).click());
   expect(opened).toEqual([snapshot.summary!.cwd!]);
