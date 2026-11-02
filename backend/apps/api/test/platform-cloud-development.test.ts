@@ -57,4 +57,13 @@ describe("development routes NEXT Cloud to cmux-platform-development", () => {
       expect(JSON.stringify(e.services ?? []), name).not.toContain("cmux-platform-development")
     }
   })
+
+  it("forwards production's cloud surface to cmux-platform-production, which binds this Worker's objects", () => {
+    const prod = envs().production!
+    expect(prod.name).toBe("cmux-api")
+    expect(prod.vars.PLATFORM_SURFACES).toBe("cloud")
+    expect(prod.services).toEqual([{ binding: "PLATFORM", service: "cmux-platform-production" }])
+    // The platform binds cmux-api's own CloudDO (script_name "cmux-api"), so the class and its data stay here.
+    expect(cloudDo(prod)).toEqual({ name: "CLOUD_DO", class_name: "CloudDO" })
+  })
 })
