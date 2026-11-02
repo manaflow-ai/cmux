@@ -250,6 +250,20 @@ runs a hold reported), `spam_unchanged` (negative: nothing changed after the key
 `spam_selected` (the selection moved N places, for Ctrl-Tab and Cmd-Shift-[ ]), `spam_runs`. The docstring has
 every field. The 10x slow-motion clips need the Motion Inspector (cp/motion-inspector-N) in the build.
 
+`ext_routing.py` (group focus and input routing, `journeys/dogfood/routing-*.json`, written by
+`routing/gen.py`; VIDEO EXTRA item 5) asks where a person's typed text lands after an action that moves the
+focus (Cmd-N then Ctrl-\`, Cmd-D, Cmd-W, a click while a split animates, Cmd-1..8, a tab switch). Each attempt
+types a unique marker line at once with real HID keys (`key_path=real`, `smoke_type_now`). Condition
+`routing_marker`: the line ran on exactly the expected terminal (a named one, the one new since a snapshot, or
+the focused one) and no other, and the app shows it in that pane; its detail names the verdict (`right`, `wrong`,
+`lost`, `split`, or `unjudged` when the harness cannot name one expected terminal). Steps: `routing_click` (a real
+click inside a named pane while it animates), `routing_map_workspace_keys` (set-up: the app's own Cmd-digit of each
+named workspace) and `routing_select_workspace`. `routing/tally.py RUN_DIR...` tallies the verdicts.
+
+`ext_typing.py` (VIDEO EXTRA item 1) types N real HID keys at a person's pace (`typing_keys`) and records each
+key's post time on the host clock of the HARNESS kit's frames.json; `typing/judge.py` counts the display
+refreshes from each key to the first frame that shows its glyph, from the kit's movie.
+
 `ext_window.py` (group window-pane-resize) adds pointer and window steps. Drags go through
 `debug.mouse`: a press, one drag event per 60 Hz frame with the button held, a release, so
 AppKit's live-resize tracking or the layout's divider drag reads them as it reads a person's drag.

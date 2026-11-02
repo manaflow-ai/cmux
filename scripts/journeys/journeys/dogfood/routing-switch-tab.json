@@ -64,6 +64,9 @@
       "mark": "setup-g1"
     },
     {
+      "do": "outwait_hold"
+    },
+    {
       "do": "smoke_type",
       "text": "echo g1home-${nonce}",
       "enter": true
@@ -95,6 +98,9 @@
         "control"
       ],
       "mark": "setup-g2"
+    },
+    {
+      "do": "outwait_hold"
     },
     {
       "do": "smoke_type",

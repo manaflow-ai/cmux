@@ -81,5 +81,60 @@ class RoutingMarkerTests(unittest.TestCase):
         self.assertTrue(any("does not show it" in p for p in detail["problems"]))
 
 
+    def test_unjudged_when_the_harness_cannot_name_one_expected_terminal(self):
+        j = Journey(App({"term_2": LINE}, {"p2": LINE}))
+        j.smoke_snapshots = {"s": {"terms": []}}  # two new terminals since the snapshot
+        ok, detail = ext_routing.cond_routing_marker(j, {"line": LINE, "on": "new:s"}, {})
+        self.assertFalse(ok)
+        self.assertEqual(detail["verdict"], "unjudged")
+
+    def test_in_new_workspace_refuses_a_new_terminal_in_an_old_workspace(self):
+        j = Journey(App({"term_2": LINE}, {"p2": LINE}))
+        j.smoke_snapshots = {"s": {"terms": ["k1"], "workspaces": ["w1"]}}
+        ok, detail = ext_routing.cond_routing_marker(j, {"line": LINE, "on": "new:s", "in_new_workspace": True}, {})
+        self.assertFalse(ok)
+        self.assertEqual(detail["verdict"], "right")
+        self.assertTrue(any("made no new workspace" in p for p in detail["problems"]))
+
+
+class WorkspaceKeyMapTests(unittest.TestCase):
+    """routing_map_workspace_keys takes the app's own digit of each workspace: Cmd-1 is Home here, Cmd-2 the
+    slot's first workspace, Cmd-3 and Cmd-4 the journey's; a digit that changes nothing maps nothing."""
+
+    def test_maps_by_what_the_window_shows_after_each_digit(self):
+        shown = {"page": None, "selected": "ws_f2"}
+        effect = {1: ("home", None), 2: (None, "ws_slot"), 3: (None, "ws_f1"), 4: (None, "ws_f2")}
+        pressed = []
+
+        class Fake:
+            smoke_named = {"f1": {"workspace": "ws_f1"}, "f2": {"workspace": "ws_f2"}}
+            key_window = "win1"
+
+            class app:
+                @staticmethod
+                def rpc(method, params=None):
+                    assert method == "debug.windows"
+                    return {"windows": [{"id": "win1", "open": True, "visible": True, "shown_page": shown["page"],
+                                         "selected": shown["selected"]}]}
+
+            def topology(self):
+                return {"workspaces": [{"id": w, "key": w} for w in ("ws_slot", "ws_f1", "ws_f2")]}
+
+        def key(j, step):
+            digit = int(step["key"])
+            pressed.append(digit)
+            page, sel = effect.get(digit, (shown["page"], shown["selected"]))
+            shown["page"], shown["selected"] = page, (sel or shown["selected"])
+            return {}
+        saved = ext_smoke.step_smoke_key
+        ext_smoke.step_smoke_key = key
+        try:
+            rec = ext_routing.step_routing_map_workspace_keys(Fake(), {"names": ["f1", "f2"]})
+        finally:
+            ext_smoke.step_smoke_key = saved
+        self.assertEqual(rec["digits"], {"f1": 3, "f2": 4})
+        self.assertEqual(pressed[:4], [1, 2, 3, 4])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -33,22 +33,24 @@ def type_now(case, n):
     return {"do": "smoke_type_now", "text": f"echo {text}-$((6*7))"}
 
 
-def check(case, n, on, title, since, extra=()):
+def check(case, n, on, title, since, extra=(), **marker_opts):
     _text, line = marker(case, n)
     return {"do": "expect", "title": title, "since": since, "timeout": 20,
-            "all": [{"routing_marker": {"line": line, "on": on, "attempt": f"{case}{n}"}}, {"smoke_key_window": {}},
+            "all": [{"routing_marker": dict({"line": line, "on": on, "attempt": f"{case}{n}"}, **marker_opts)},
+                    {"smoke_key_window": {}},
                     {"frame_screen": {"shows": [line]}}, *extra]}
 
 
 def home_terminal(name, tag):
     """A new workspace (Cmd-N) with one terminal (Ctrl-`) that ran `echo <tag>-<nonce>`, named NAME (set-up: typed
-    after the creation hold, checked, then named)."""
+    after the creation hold (outwait_hold), checked, then named)."""
     line = f"{tag}-${{nonce}}"
     return [
         {"do": "smoke_key", "key": "n", "modifiers": ["cmd"], "mark": f"setup-{name}-ws"},
         {"do": "expect", "title": f"set-up: Cmd-N makes the workspace of {name}", "since": f"setup-{name}-ws",
          "timeout": 20, "all": [{"smoke_frame": {}}]},
         {"do": "smoke_key", "key": "`", "modifiers": ["control"], "mark": f"setup-{name}"},
+        {"do": "outwait_hold"},
         {"do": "smoke_type", "text": f"echo {tag}-${{nonce}}", "enter": True},
         {"do": "expect", "title": f"set-up: the terminal of {name} ran its line", "since": f"setup-{name}",
          "timeout": 30, "all": [{"smoke_daemon_lines": {"lines": [line]}}]},
@@ -60,6 +62,7 @@ def split_terminal(name, tag, key="d", mods=("cmd",)):
     line = f"{tag}-${{nonce}}"
     return [
         {"do": "smoke_key", "key": key, "modifiers": list(mods), "mark": f"setup-{name}"},
+        {"do": "outwait_hold"},
         {"do": "smoke_type", "text": f"echo {tag}-${{nonce}}", "enter": True},
         {"do": "expect", "title": f"set-up: the split terminal of {name} ran its line", "since": f"setup-{name}",
          "timeout": 30, "all": [{"smoke_daemon_lines": {"lines": [line]}}]},
@@ -82,11 +85,11 @@ def cases(attempts):
         steps += [{"do": "smoke_snapshot", "name": f"a{n}"},
                   {"do": "smoke_key", "key": "n", "modifiers": ["cmd"], "mark": f"a{n}-ws"},
                   {"do": "expect", "title": f"A{n}: Cmd-N shows its workspace", "since": f"a{n}-ws", "timeout": 20,
-                   "all": [{"smoke_frame": {}}]},
+                   "all": [{"smoke_workspaces": {"new": n}}, {"smoke_frame": {}}]},
                   {"do": "smoke_key", "key": "`", "modifiers": ["control"], "mark": f"a{n}"},
                   type_now("A", n),
                   check("A", n, f"new:a{n}", f"A{n}: the line typed at once after Ctrl-` ran in the new terminal only",
-                        f"a{n}")]
+                        f"a{n}", in_new_workspace=True)]
     out.append(journey("routing-cmdn-ctrlbt", "Routing A: Cmd-N, Ctrl-` when the workspace shows, then a line at once: "
                        "it runs in the new terminal only", "P0 #29530 / #30827 (dogfood #30271): the keys went to the "
                        "New Tab page or nowhere", steps, 40 + 25 * attempts))
@@ -98,7 +101,7 @@ def cases(attempts):
                   {"do": "smoke_key", "key": "`", "modifiers": ["control"], "mark": f"b{n}"},
                   type_now("B", n),
                   check("B", n, f"new:b{n}", f"B{n}: Cmd-N, Ctrl-` and the line all at once: the line ran in the new "
-                        "terminal only", f"b{n}")]
+                        "terminal only", f"b{n}", extra=({"smoke_workspaces": {"new": n}},), in_new_workspace=True)]
     out.append(journey("routing-cmdn-ctrlbt-at-once", "Routing B: Cmd-N, Ctrl-` and a line with no wait: the line runs "
                        "in the new terminal only", "P0 #29530 (Cmd-N's New Tab hold took Ctrl-`), #30827", steps,
                        40 + 20 * attempts))
@@ -126,19 +129,23 @@ def cases(attempts):
                        "app shows focused", "wrong-pane typing after a close (focus moved during the close animation)",
                        steps, 150))
     # E. A click into the old pane while the split animates, then the line at once: the clicked pane gets it.
-    steps = home_terminal("e0", "e0home")
+    steps = []
     for n in range(1, attempts + 1):
+        # Each attempt in its own new workspace (review N4 at 2d05ea3072e): one pane, then one split, so the clicked
+        # pane never shrinks below the minimum width and never moves to a new column.
+        steps += home_terminal(f"e{n}0", f"e{n}0home")
         steps += [{"do": "smoke_key", "key": "d", "modifiers": ["cmd"], "mark": f"e{n}-split"},
-                  {"do": "routing_click", "pane": "e0", "mark": f"e{n}"},
+                  {"do": "routing_click", "pane": f"e{n}0", "mark": f"e{n}"},
                   type_now("E", n),
-                  check("E", n, "e0", f"E{n}: Cmd-D, a click into the first pane during the split animation, then a "
-                        "line at once: it ran in the clicked pane only", f"e{n}")]
+                  check("E", n, f"e{n}0", f"E{n}: Cmd-D, a click into the first pane during the split animation, then "
+                        "a line at once: it ran in the clicked pane only", f"e{n}")]
     out.append(journey("routing-click-during-split", "Routing E: a click into a pane while a split animates, then a "
                        "line at once: it runs in the clicked pane", "#29262 (only the pane AppKit gives a press to "
                        "takes the focus); the creation hold must not keep keys a click sent elsewhere", steps,
-                       60 + 25 * attempts))
+                       30 + 45 * attempts))
     # F. Cmd-1..9 switches workspaces; the line at once runs in the shown workspace's focused terminal.
     steps = home_terminal("f1", "f1home") + home_terminal("f2", "f2home")
+    steps += [{"do": "routing_map_workspace_keys", "names": ["f1", "f2"]}]
     for n in range(1, attempts + 1):
         target = "f1" if n % 2 else "f2"
         steps += [{"do": "routing_select_workspace", "pane": target, "mark": f"f{n}"},
@@ -147,7 +154,7 @@ def cases(attempts):
                         f"ran in {target} only", f"f{n}")]
     out.append(journey("routing-switch-workspace", "Routing F: Cmd-1..9 workspace switch, then a line at once: it runs "
                        "in the shown workspace's terminal", "wrong-pane typing after a switch (keys to the old "
-                       "workspace's terminal)", steps, 100 + 15 * attempts))
+                       "workspace's terminal)", steps, 130 + 15 * attempts))
     # G. Shift-Cmd-[ / ] switches tabs in a pane; the line at once runs in the selected tab.
     steps = home_terminal("g1", "g1home") + split_terminal("g2", "g2home", key="`", mods=("control",))
     for n in range(1, attempts + 1):

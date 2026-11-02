@@ -70,7 +70,8 @@
           "routing_marker": {
             "line": "RB1-${nonce}-42",
             "on": "new:b1",
-            "attempt": "B1"
+            "attempt": "B1",
+            "in_new_workspace": true
           }
         },
         {
@@ -81,6 +82,11 @@
             "shows": [
               "RB1-${nonce}-42"
             ]
+          }
+        },
+        {
+          "smoke_workspaces": {
+            "new": 1
           }
         }
       ]
@@ -119,7 +125,8 @@
           "routing_marker": {
             "line": "RB2-${nonce}-42",
             "on": "new:b2",
-            "attempt": "B2"
+            "attempt": "B2",
+            "in_new_workspace": true
           }
         },
         {
@@ -130,6 +137,11 @@
             "shows": [
               "RB2-${nonce}-42"
             ]
+          }
+        },
+        {
+          "smoke_workspaces": {
+            "new": 2
           }
         }
       ]
@@ -168,7 +180,8 @@
           "routing_marker": {
             "line": "RB3-${nonce}-42",
             "on": "new:b3",
-            "attempt": "B3"
+            "attempt": "B3",
+            "in_new_workspace": true
           }
         },
         {
@@ -179,6 +192,11 @@
             "shows": [
               "RB3-${nonce}-42"
             ]
+          }
+        },
+        {
+          "smoke_workspaces": {
+            "new": 3
           }
         }
       ]
@@ -217,7 +235,8 @@
           "routing_marker": {
             "line": "RB4-${nonce}-42",
             "on": "new:b4",
-            "attempt": "B4"
+            "attempt": "B4",
+            "in_new_workspace": true
           }
         },
         {
@@ -228,6 +247,11 @@
             "shows": [
               "RB4-${nonce}-42"
             ]
+          }
+        },
+        {
+          "smoke_workspaces": {
+            "new": 4
           }
         }
       ]

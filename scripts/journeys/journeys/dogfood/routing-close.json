@@ -64,6 +64,9 @@
       "mark": "setup-d0"
     },
     {
+      "do": "outwait_hold"
+    },
+    {
       "do": "smoke_type",
       "text": "echo d0home-${nonce}",
       "enter": true
@@ -97,6 +100,9 @@
       "mark": "setup-d1"
     },
     {
+      "do": "outwait_hold"
+    },
+    {
       "do": "smoke_type",
       "text": "echo d1home-${nonce}",
       "enter": true
@@ -128,6 +134,9 @@
         "cmd"
       ],
       "mark": "setup-d2"
+    },
+    {
+      "do": "outwait_hold"
     },
     {
       "do": "smoke_type",

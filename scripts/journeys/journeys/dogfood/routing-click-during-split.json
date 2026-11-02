@@ -4,7 +4,7 @@
   "title": "Routing E: a click into a pane while a split animates, then a line at once: it runs in the clicked pane",
   "why": "#29262 (only the pane AppKit gives a press to takes the focus); the creation hold must not keep keys a click sent elsewhere",
   "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
-  "budget_seconds": 160,
+  "budget_seconds": 210,
   "options": {
     "key_path": "real"
   },
@@ -42,12 +42,12 @@
       "modifiers": [
         "cmd"
       ],
-      "mark": "setup-e0-ws"
+      "mark": "setup-e10-ws"
     },
     {
       "do": "expect",
-      "title": "set-up: Cmd-N makes the workspace of e0",
-      "since": "setup-e0-ws",
+      "title": "set-up: Cmd-N makes the workspace of e10",
+      "since": "setup-e10-ws",
       "timeout": 20,
       "all": [
         {
@@ -61,23 +61,26 @@
       "modifiers": [
         "control"
       ],
-      "mark": "setup-e0"
+      "mark": "setup-e10"
+    },
+    {
+      "do": "outwait_hold"
     },
     {
       "do": "smoke_type",
-      "text": "echo e0home-${nonce}",
+      "text": "echo e10home-${nonce}",
       "enter": true
     },
     {
       "do": "expect",
-      "title": "set-up: the terminal of e0 ran its line",
-      "since": "setup-e0",
+      "title": "set-up: the terminal of e10 ran its line",
+      "since": "setup-e10",
       "timeout": 30,
       "all": [
         {
           "smoke_daemon_lines": {
             "lines": [
-              "e0home-${nonce}"
+              "e10home-${nonce}"
             ]
           }
         }
@@ -85,8 +88,8 @@
     },
     {
       "do": "smoke_adopt_line",
-      "line": "e0home-${nonce}",
-      "as": "e0"
+      "line": "e10home-${nonce}",
+      "as": "e10"
     },
     {
       "do": "smoke_key",
@@ -98,7 +101,7 @@
     },
     {
       "do": "routing_click",
-      "pane": "e0",
+      "pane": "e10",
       "mark": "e1"
     },
     {
@@ -114,7 +117,7 @@
         {
           "routing_marker": {
             "line": "RE1-${nonce}-42",
-            "on": "e0",
+            "on": "e10",
             "attempt": "E1"
           }
         },
@@ -132,6 +135,61 @@
     },
     {
       "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "setup-e20-ws"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: Cmd-N makes the workspace of e20",
+      "since": "setup-e20-ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "setup-e20"
+    },
+    {
+      "do": "outwait_hold"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo e20home-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the terminal of e20 ran its line",
+      "since": "setup-e20",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "e20home-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "e20home-${nonce}",
+      "as": "e20"
+    },
+    {
+      "do": "smoke_key",
       "key": "d",
       "modifiers": [
         "cmd"
@@ -140,7 +198,7 @@
     },
     {
       "do": "routing_click",
-      "pane": "e0",
+      "pane": "e20",
       "mark": "e2"
     },
     {
@@ -156,7 +214,7 @@
         {
           "routing_marker": {
             "line": "RE2-${nonce}-42",
-            "on": "e0",
+            "on": "e20",
             "attempt": "E2"
           }
         },
@@ -174,6 +232,61 @@
     },
     {
       "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "setup-e30-ws"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: Cmd-N makes the workspace of e30",
+      "since": "setup-e30-ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "setup-e30"
+    },
+    {
+      "do": "outwait_hold"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo e30home-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the terminal of e30 ran its line",
+      "since": "setup-e30",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "e30home-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "e30home-${nonce}",
+      "as": "e30"
+    },
+    {
+      "do": "smoke_key",
       "key": "d",
       "modifiers": [
         "cmd"
@@ -182,7 +295,7 @@
     },
     {
       "do": "routing_click",
-      "pane": "e0",
+      "pane": "e30",
       "mark": "e3"
     },
     {
@@ -198,7 +311,7 @@
         {
           "routing_marker": {
             "line": "RE3-${nonce}-42",
-            "on": "e0",
+            "on": "e30",
             "attempt": "E3"
           }
         },
@@ -216,6 +329,61 @@
     },
     {
       "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "setup-e40-ws"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: Cmd-N makes the workspace of e40",
+      "since": "setup-e40-ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "setup-e40"
+    },
+    {
+      "do": "outwait_hold"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo e40home-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the terminal of e40 ran its line",
+      "since": "setup-e40",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "e40home-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "e40home-${nonce}",
+      "as": "e40"
+    },
+    {
+      "do": "smoke_key",
       "key": "d",
       "modifiers": [
         "cmd"
@@ -224,7 +392,7 @@
     },
     {
       "do": "routing_click",
-      "pane": "e0",
+      "pane": "e40",
       "mark": "e4"
     },
     {
@@ -240,7 +408,7 @@
         {
           "routing_marker": {
             "line": "RE4-${nonce}-42",
-            "on": "e0",
+            "on": "e40",
             "attempt": "E4"
           }
         },

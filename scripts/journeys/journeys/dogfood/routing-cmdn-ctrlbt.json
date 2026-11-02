@@ -55,6 +55,11 @@
       "timeout": 20,
       "all": [
         {
+          "smoke_workspaces": {
+            "new": 1
+          }
+        },
+        {
           "smoke_frame": {}
         }
       ]
@@ -81,7 +86,8 @@
           "routing_marker": {
             "line": "RA1-${nonce}-42",
             "on": "new:a1",
-            "attempt": "A1"
+            "attempt": "A1",
+            "in_new_workspace": true
           }
         },
         {
@@ -115,6 +121,11 @@
       "timeout": 20,
       "all": [
         {
+          "smoke_workspaces": {
+            "new": 2
+          }
+        },
+        {
           "smoke_frame": {}
         }
       ]
@@ -141,7 +152,8 @@
           "routing_marker": {
             "line": "RA2-${nonce}-42",
             "on": "new:a2",
-            "attempt": "A2"
+            "attempt": "A2",
+            "in_new_workspace": true
           }
         },
         {
@@ -175,6 +187,11 @@
       "timeout": 20,
       "all": [
         {
+          "smoke_workspaces": {
+            "new": 3
+          }
+        },
+        {
           "smoke_frame": {}
         }
       ]
@@ -201,7 +218,8 @@
           "routing_marker": {
             "line": "RA3-${nonce}-42",
             "on": "new:a3",
-            "attempt": "A3"
+            "attempt": "A3",
+            "in_new_workspace": true
           }
         },
         {
@@ -235,6 +253,11 @@
       "timeout": 20,
       "all": [
         {
+          "smoke_workspaces": {
+            "new": 4
+          }
+        },
+        {
           "smoke_frame": {}
         }
       ]
@@ -261,7 +284,8 @@
           "routing_marker": {
             "line": "RA4-${nonce}-42",
             "on": "new:a4",
-            "attempt": "A4"
+            "attempt": "A4",
+            "in_new_workspace": true
           }
         },
         {

@@ -4,7 +4,7 @@
   "title": "Routing F: Cmd-1..9 workspace switch, then a line at once: it runs in the shown workspace's terminal",
   "why": "wrong-pane typing after a switch (keys to the old workspace's terminal)",
   "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
-  "budget_seconds": 160,
+  "budget_seconds": 190,
   "options": {
     "key_path": "real"
   },
@@ -64,6 +64,9 @@
       "mark": "setup-f1"
     },
     {
+      "do": "outwait_hold"
+    },
+    {
       "do": "smoke_type",
       "text": "echo f1home-${nonce}",
       "enter": true
@@ -116,6 +119,9 @@
       "mark": "setup-f2"
     },
     {
+      "do": "outwait_hold"
+    },
+    {
       "do": "smoke_type",
       "text": "echo f2home-${nonce}",
       "enter": true
@@ -139,6 +145,13 @@
       "do": "smoke_adopt_line",
       "line": "f2home-${nonce}",
       "as": "f2"
+    },
+    {
+      "do": "routing_map_workspace_keys",
+      "names": [
+        "f1",
+        "f2"
+      ]
     },
     {
       "do": "routing_select_workspace",

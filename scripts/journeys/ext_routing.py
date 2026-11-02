@@ -10,9 +10,17 @@ the journey option key_path=real, smoke_type_now) and then asks where it landed.
 
 Steps (`do`):
   routing_click   {pane: NAME, settle?: 0, mark?}
-                  a real click (ext_realkey real_click, desktop scope) at the center of the pane named NAME
-                  (smoke_adopt_line), with no settle by default: the next step types at once, while an animation
-                  that the step before started still runs.
+                  a real click (ext_realkey real_click, desktop scope) in the pane named NAME (smoke_adopt_line) at a
+                  quarter of its width from its left edge and half its height: inside the pane before and after a
+                  split right of it, whichever layout debug.surfaces reports while the split animates. No settle by
+                  default: the next step types at once, while the animation still runs.
+  routing_map_workspace_keys {names: [NAME...]}
+                  set-up: presses Cmd-1 .. Cmd-8 (the journey's key path) and reads after each which workspace the
+                  journey's window shows (debug.windows `selected`), until each named pane's workspace has its digit.
+                  The app's own numbering (Home and other sidebar items may take digits first; sidebar.numbering).
+                  A name no digit reaches: not run.
+  routing_select_workspace {pane: NAME, mark?}
+                  Cmd-<digit> of the workspace of the pane named NAME, from routing_map_workspace_keys.
 
 Conditions (inside `expect.all`):
   routing_marker  {line, on, attempt?}
@@ -24,10 +32,13 @@ Conditions (inside `expect.all`):
                     "focused"     the selected terminal of the pane the app shows focused now.
                   The detail names the verdict of the attempt: `right` (on the expected terminal only), `wrong` (on
                   another terminal), `lost` (on no terminal), `split` (on more than one), and where it landed
-                  (workspace, pane, the name of the pane if it has one). The tally of a run is read from these
-                  details (routing-tally.py).
+                  (workspace, pane, the name of the pane if it has one); `unjudged` when the harness cannot name one
+                  expected terminal (never a product verdict). IN_NEW_WORKSPACE (with new:SNAP): the new terminal must
+                  also be in a workspace the snapshot did not have (Cmd-N made it). The tally of a run is read from
+                  these details (routing/tally.py).
 """
 import json
+import time
 
 D = None
 
@@ -89,21 +100,30 @@ def cond_routing_marker(j, want, cache):
     names = _names_by_term(j)
     landed = [{"terminal": t, "workspace": terms[t][0], "pane": terms[t][1], "selected": terms[t][2],
                "name": names.get(terms[t][3]) or names.get(t)} for t in holders]
-    if not holders:
+    if expect is None:
+        # The harness could not name one expected terminal (0 or 2+ new terminals, no selected terminal in the
+        # focused pane): no verdict about the product (review N2 at 2d05ea3072e).
+        verdict = "unjudged"
+    elif not holders:
         verdict = "lost"
     elif len(holders) > 1:
         verdict = "split"
-    elif expect is not None and holders[0] == expect:
+    elif holders[0] == expect:
         verdict = "right"
     else:
         verdict = "wrong"
     problems = []
     if expect is None:
         problems.append(f"no expected terminal: {why}")
-    if verdict != "right":
+    elif want.get("in_new_workspace") and str(want["on"]).startswith("new:"):
+        snap = (getattr(j, "smoke_snapshots", {}) or {}).get(str(want["on"])[4:]) or {}
+        if terms[expect][0] in set(snap.get("workspaces") or []):
+            problems.append(f"the new terminal is in workspace {terms[expect][0]}, which the snapshot had: Cmd-N made "
+                            "no new workspace for it")
+    if verdict not in ("right", "unjudged"):
         problems.append(f"{line} is {verdict}: on {len(holders)} terminals {[l['name'] or l['pane'] for l in landed]}, "
                         f"expected {why}")
-    else:
+    elif verdict == "right":
         want_pane = terms[expect][1]
         if want_pane not in shown:
             problems.append(f"the daemon has {line} on the expected terminal, but its pane {want_pane} does not show it "
@@ -119,26 +139,89 @@ def step_routing_click(j, step):
     named = (getattr(j, "smoke_named", {}) or {}).get(step["pane"])
     if not named:
         raise D.StepError(f"routing_click: no pane named {step['pane']!r} (smoke_adopt_line first)")
-    rec = _realkey().step_real_click(j, dict(step, pane=named["pane"], settle=float(step.get("settle", 0))))
-    return dict(rec, named=step["pane"])
+    rows = [p for w in (j.app.rpc("debug.surfaces") or {}).get("windows", []) for p in w.get("panes", [])
+            if isinstance(p, dict) and p.get("pane") == named["pane"]]
+    grid = (rows[0].get("grid") if rows else None) or {}
+    if not all(k in grid for k in ("frame_x", "frame_y", "frame_width", "frame_height")):
+        raise D.NotRun(f"routing_click: no frame for pane {step['pane']} ({named['pane']}) in debug.surfaces")
+    # A quarter of the width: inside the pane both before a split right of it (full width) and after (half width), so
+    # a read that comes before the split's layout still clicks the pane (review N4 at 2d05ea3072e).
+    point = [grid["frame_x"] + grid["frame_width"] / 4, grid["frame_y"] + grid["frame_height"] / 2]
+    rec = _realkey().step_real_click(j, dict(step, window_point=point, settle=float(step.get("settle", 0))))
+    return dict(rec, named=step["pane"], frame=[grid["frame_x"], grid["frame_y"], grid["frame_width"], grid["frame_height"]])
+
+
+def _shown_workspace(j):
+    """The workspace the journey's window shows (debug.windows `selected`): its key or id, or None."""
+    report = j.app.rpc("debug.windows") or {}
+    wins = [w for w in report.get("windows") or [] if isinstance(w, dict) and w.get("open")]
+    key = getattr(j, "key_window", None)
+    win = next((w for w in wins if w.get("id") == key), None) or next((w for w in wins if w.get("visible")), None)
+    if (win or {}).get("shown_page"):
+        return f"page:{win['shown_page']}"  # Home or another page over the workspace: not the workspace
+    return (win or {}).get("selected")
+
+
+def _workspace_aliases(j):
+    """{key or id: id} of every workspace of the topology (debug.windows names a workspace by its key or its id)."""
+    out = {}
+    for ws in j.topology().get("workspaces", []):
+        for k in (ws.get("key"), ws.get("id")):
+            if k:
+                out[k] = ws.get("id")
+    return out
+
+
+def step_routing_map_workspace_keys(j, step):
+    named = getattr(j, "smoke_named", {}) or {}
+    wanted = {}
+    for name in step["names"]:
+        if name not in named:
+            raise D.StepError(f"routing_map_workspace_keys: no pane named {name!r} (smoke_adopt_line first)")
+        wanted[name] = named[name]["workspace"]
+    sm = _smoke()
+    digits, seen, taken = {}, [], set()
+    # A digit counts only when the shown workspace CHANGED after it (a digit with no item, or the digit of the
+    # workspace already shown, changes nothing and proves nothing); a second pass, from another shown workspace,
+    # maps the digit of the workspace that was shown at its first press.
+    for digit in [d for _ in range(2) for d in range(1, 9)]:
+        if len(digits) == len(wanted):
+            break
+        if digit in taken:
+            continue
+        before = _shown_workspace(j)
+        sm.step_smoke_key(j, {"key": str(digit), "modifiers": ["cmd"]})
+        shown, stable_since, end = None, None, D.now() + 2.0
+        while D.now() < end:  # the shown workspace, once it holds still for 0.3 s
+            now_shown = _shown_workspace(j)
+            if now_shown != shown:
+                shown, stable_since = now_shown, D.now()
+            elif D.now() - stable_since >= 0.3:
+                break
+            time.sleep(0.05)
+        ws = _workspace_aliases(j).get(shown, shown)
+        seen.append({"digit": digit, "before": before, "shown": shown, "workspace": ws})
+        if shown == before:
+            continue
+        taken.add(digit)
+        for name, target in wanted.items():
+            if ws == target and name not in digits:
+                digits[name] = digit
+    missing = [n for n in wanted if n not in digits]
+    if missing:
+        raise D.NotRun(f"routing_map_workspace_keys: Cmd-1..8 reached no workspace of {missing} ({json.dumps(seen)[:400]})")
+    j.routing_digits = digits
+    return {"digits": digits, "seen": seen}
 
 
 def step_routing_select_workspace(j, step):
-    """Cmd-<number> of the workspace that holds the pane named PANE: its 1-based place in the topology's workspace
-    order (the sidebar's order), pressed on the journey's key path (smoke_key: real HID with key_path=real)."""
-    named = (getattr(j, "smoke_named", {}) or {}).get(step["pane"])
-    if not named:
-        raise D.StepError(f"routing_select_workspace: no pane named {step['pane']!r} (smoke_adopt_line first)")
-    order = [ws.get("id") for ws in j.topology().get("workspaces", [])]
-    if named["workspace"] not in order:
-        raise D.StepError(f"routing_select_workspace: workspace {named['workspace']} is not in the topology {order}")
-    number = order.index(named["workspace"]) + 1
-    if number > 8:
-        # Cmd-9 is the last workspace, not the ninth: the kit only presses 1..8.
-        raise D.NotRun(f"routing_select_workspace: workspace {step['pane']} is number {number}; Cmd-1..8 only")
-    rec = _smoke().step_smoke_key(j, {"key": str(number), "modifiers": ["cmd"], "mark": step.get("mark")})
-    return dict(rec, workspace=named["workspace"], number=number, order=order)
+    digit = (getattr(j, "routing_digits", {}) or {}).get(step["pane"])
+    if digit is None:
+        raise D.StepError(f"routing_select_workspace: no digit for {step['pane']!r} (routing_map_workspace_keys first)")
+    rec = _smoke().step_smoke_key(j, {"key": str(digit), "modifiers": ["cmd"], "mark": step.get("mark")})
+    return dict(rec, digit=digit, pane=step["pane"])
 
 
-STEPS = {"routing_click": step_routing_click, "routing_select_workspace": step_routing_select_workspace}
+STEPS = {"routing_click": step_routing_click, "routing_map_workspace_keys": step_routing_map_workspace_keys,
+         "routing_select_workspace": step_routing_select_workspace}
 CONDITIONS = {"routing_marker": ("daemon", cond_routing_marker)}

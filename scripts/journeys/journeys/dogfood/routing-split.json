@@ -64,6 +64,9 @@
       "mark": "setup-c0"
     },
     {
+      "do": "outwait_hold"
+    },
+    {
       "do": "smoke_type",
       "text": "echo c0home-${nonce}",
       "enter": true
