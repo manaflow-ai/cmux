@@ -233,6 +233,11 @@ final class FeedService {
             )
         }
         model.replaceReports(Array(reportRows.values))
+        // Only what the basket shows stays: a long-lived mailbox is read page by page from its start.
+        if reportRows.count > FeedModel.reportsLimit {
+            let kept = Set(model.reports.map(\.id))
+            reportRows = reportRows.filter { kept.contains($0.key) }
+        }
     }
 
     private func observe(_ event: FeedSourceEvent) {

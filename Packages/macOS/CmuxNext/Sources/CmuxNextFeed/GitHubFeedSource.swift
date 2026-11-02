@@ -42,6 +42,7 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
         reviewETag = nil
         checksETag = nil
         githubDetails.removeAll()
+        detailOrder.removeAll()
     }
 
     public func githubDetail(for item: FeedItem) -> GitHubFeedDetail? {
@@ -117,9 +118,22 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
     }
 
     private func post(_ item: FeedItem, detail: GitHubFeedDetail) {
-        githubDetails[item.dedupeKey ?? item.id] = detail
+        let key = item.dedupeKey ?? item.id
+        githubDetails[key] = detail
+        detailOrder.removeAll { $0 == key }
+        detailOrder.append(key)
         owner.post(item)
+        // One detail per item the owner can still hold; the oldest go first.
+        if detailOrder.count > Self.maxDetails {
+            for stale in detailOrder.prefix(detailOrder.count - Self.maxDetails) { githubDetails[stale] = nil }
+            detailOrder.removeFirst(detailOrder.count - Self.maxDetails)
+        }
     }
+
+    /// The most details kept: as many as the local feed owner keeps items.
+    public static let maxDetails = InMemoryFeedSource.maxItems
+    /// Detail keys, least recently posted first.
+    private var detailOrder: [String] = []
 
     private func makeItem(from notification: GitHubNotification) -> (FeedItem, GitHubFeedDetail) {
         let url = notificationURL(repository: notification.repository, subject: notification.subject)

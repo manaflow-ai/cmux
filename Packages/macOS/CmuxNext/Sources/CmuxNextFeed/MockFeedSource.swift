@@ -106,7 +106,32 @@ public final class InMemoryFeedSource: FeedPostingSource {
             stamped.append(item)
         }
         sink?(.event(FeedEvent(revision: revision, tx: tx, change: .items(stamped))))
+        prune()
     }
+
+    /// The most items the owner keeps, as the daemon's feed owner (`cmux-feed-core` `MAX_ITEMS`).
+    public static let maxItems = 500
+
+    /// Past `maxItems`, the oldest items go: read, archived or closed ones first, then
+    /// any other, never an open request waiting for an answer. A GitHub poll posts new
+    /// notifications for as long as the app runs, and nothing removed them.
+    private func prune() {
+        guard items.count > Self.maxItems else { return }
+        let settled: (FeedItem) -> Bool = { $0.readAt != nil || $0.archivedAt != nil || $0.state.isClosed }
+        let oldest = items.values.filter { !$0.isOpenRequest }.sorted { lhs, rhs in
+            let (left, right) = (settled(lhs), settled(rhs))
+            if left != right { return left }
+            return lhs.updatedAt != rhs.updatedAt ? lhs.updatedAt < rhs.updatedAt : lhs.id < rhs.id
+        }
+        let removed = oldest.prefix(items.count - Self.maxItems).map(\.id)
+        guard !removed.isEmpty else { return }
+        for id in removed { items[id] = nil }
+        revision += 1
+        sink?(.event(FeedEvent(revision: revision, tx: nil, change: .remove(removed))))
+    }
+
+    /// Ids the owner holds (tests).
+    public var itemIDs: Set<String> { Set(items.keys) }
 }
 
 /// Compatibility name for fixtures that use the feed demo owner.
