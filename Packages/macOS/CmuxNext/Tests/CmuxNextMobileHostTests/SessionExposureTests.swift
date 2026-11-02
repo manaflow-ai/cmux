@@ -105,15 +105,15 @@ struct SessionExposureTests {
     }
 
     private static func script(mode: String) throws -> URL {
-        let url = URL(fileURLWithPath: "/tmp/cmux-session-exposure-(UUID().uuidString).sh")
+        let url = URL(fileURLWithPath: "/tmp/cmux-session-exposure-\(UUID().uuidString).sh")
         let body = """
         #!/bin/sh
         while IFS= read -r line; do
           case "$line" in
             *session_exposure*)
-              if [ "(mode)" = "success" ]; then
+              if [ "\(mode)" = "success" ]; then
                 printf '%s\\n' '{"type":"session_exposure_state","available":true,"configured":true,"sessions":["chat-a"],"blocked_sessions":[]}'
-              elif [ "(mode)" = "error" ]; then
+              elif [ "\(mode)" = "error" ]; then
                 printf '%s\\n' '{"type":"session_exposure_error","session_id":"chat-a","allowed":false,"reason":"durable policy unavailable"}'
               fi
               ;;
