@@ -159,3 +159,26 @@ fn a_refused_network_listen_names_the_opt_in_where_a_person_sees_it() {
     assert!(err.contains("websocket.allowInsecureNetwork"), "{err}");
     let _ = std::fs::remove_dir_all(&h);
 }
+
+/// A home other than the shared one never keeps the fixed port 47811: `run` moves a saved
+/// `<network>:47811` to a free loopback port, so nothing listens on the network and no start is
+/// refused. `daemon status` and a start judge the address `run` would use, not the saved text.
+#[test]
+fn a_saved_fixed_port_on_another_home_is_moved_to_loopback_and_never_reported_refused() {
+    let h = home("fixed", Some(json!({"listen": "0.0.0.0:47811", "token": "t".repeat(32)})));
+    let out = daemon_env::acpmux(&h)
+        .args(["--json", "daemon", "status"])
+        .env("ACPMUX_HOME", &h)
+        .env("ACPMUX_SOCKET", h.join("s.sock"))
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let json: Value = serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("{e}: {}", String::from_utf8_lossy(&out.stdout)));
+    assert_eq!(json["running"], false, "{json}");
+    assert!(json.get("refused").is_none(), "a start would not be refused: {json}");
+    let ready = started(&h, &[]);
+    assert!(ready["listen"].as_str().is_some_and(|l| l.starts_with("127.0.0.1:")), "{ready}");
+    let _ = std::fs::remove_dir_all(&h);
+}
