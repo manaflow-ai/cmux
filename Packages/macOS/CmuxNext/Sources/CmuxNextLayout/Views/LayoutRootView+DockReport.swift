@@ -59,7 +59,7 @@ extension LayoutRootView {
             uncoveredInWindow: inWindow(screen.uncoveredRect), offset: screen.scroll.value, maxOffset: geometry.maxOffset,
             contentWidth: geometry.contentWidth, scrollbarMode: model.stripScrollbar, scrollbarShown: bar?.shown ?? false,
             thumbInWindow: bar?.thumb.map(inWindow), bandInWindow: bar.map { inWindow($0.band) },
-            paneOrder: screen.subviews.compactMap { ($0 as? PaneHostView)?.pane }
+            paneOrder: screen.subviews.compactMap { ($0 as? PaneHostView).flatMap { $0.isHidden ? nil : $0.pane } }
         )
     }
 }
