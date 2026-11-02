@@ -1,7 +1,7 @@
 //! Link services (PROTOCOL.md "Services"). Default deny: a service not
 //! listed here is closed with `unknown_service`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -33,6 +33,7 @@ pub struct Peer {
     /// inside the WireGuard tunnel), if the
     /// phone and this Mac negotiated one.
     pub video: Option<cmux_mobile_link::media::VideoOut>,
+    pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 }
 
 /// Serve one incoming channel to completion. With pairing on, only `auth`
@@ -79,7 +80,7 @@ pub async fn serve(
         "echo" => echo(&sender, receiver).await,
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "chief" => chief(&config, &peer, &sender, receiver).await,
-        "acpmux" => acpmux(&config, &peer.device_id, &sender, receiver).await,
+        "acpmux" => acpmux(&config, &peer, &sender, receiver).await,
         "cloud-directory" => cloud_directory(&sender, &args).await,
         "cloud-acpmux" => cloud_acpmux(&sender, receiver, &args).await,
         "file" => file(&config, &args, &sender, false).await,
@@ -981,11 +982,11 @@ async fn connect_acpmux_as(target: &AcpmuxTarget, credential: Option<&str>) -> R
 /// the refusal here stay as they were.
 async fn acpmux(
     config: &ServiceConfig,
-    phone: &str,
+    peer: &Peer,
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
-    let credential = control::phone_credential(phone);
+    let credential = control::phone_credential(&peer.device_id);
     let own = match credential.as_deref() {
         Some(credential) => connect_acpmux_as(&config.acpmux, Some(credential)).await.ok(),
         None => None,
@@ -997,13 +998,42 @@ async fn acpmux(
     };
     let (mut ws_sink, mut ws_source) = socket.split();
     let mut message = MessageAssembler::default();
+    let mut exposure = peer.session_exposure.clone();
+    let mut bound_sessions = HashSet::<String>::new();
+    let mut pending_new = HashSet::<String>::new();
     // A second connection of hostd's own, for `_acpmux/info` (the mode check).
     let mut side: Option<AcpmuxSocket> = None;
     loop {
         tokio::select! {
+            changed = async {
+                let Some(exposure) = exposure.as_mut() else { std::future::pending().await };
+                exposure.changed().await
+            }, if exposure.is_some() => {
+                if changed.is_err() { exposure = None; continue; }
+                let state = exposure.as_ref().expect("exposure receiver").borrow().clone();
+                if !state.available || bound_sessions.iter().any(|session| state.blocked.contains(session)) {
+                    break;
+                }
+            }
             event = receiver.recv() => match event {
                 Some(ChannelEvent::Data(bytes)) => {
                     let Some(text) = message.push(&bytes)? else { continue };
+                    let state = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+                    if let Some(answer) = crate::acpmux_policy::exposure_refusal(&text, &state, &bound_sessions) {
+                        if sender.send(Bytes::from(answer.into_bytes())).await.is_err() { break; }
+                        continue;
+                    }
+                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                        let requests = match &value { Value::Array(items) => items.iter().collect::<Vec<_>>(), other => vec![other] };
+                        for request in requests {
+                            if request.get("method").and_then(Value::as_str).is_some_and(|method| method == "session/new" || method == "acp.session.new") {
+                                if let Some(id) = request.get("id") { pending_new.insert(id.to_string()); }
+                            }
+                            if let Some(session) = crate::acpmux_policy::controlled_session(&request.to_string()).map(|(_, session)| session) {
+                                bound_sessions.insert(session);
+                            }
+                        }
+                    }
                     // An agent a phone drives stays in a mode that asks
                     // (`acpmux_policy`): a refused mode set is answered here.
                     let refused = match crate::acpmux_policy::refusal(&text) {
@@ -1038,11 +1068,18 @@ async fn acpmux(
             },
             message = ws_source.next() => match message {
                 Some(Ok(Message::Text(text))) => {
+                    let state = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+                    let id = serde_json::from_str::<Value>(&text).ok().and_then(|value| value.get("id").cloned()).map(|id| id.to_string());
+                    if let (Some(id), Some(session)) = (id, crate::acpmux_policy::returned_session_id(&text))
+                        && pending_new.remove(&id) { bound_sessions.insert(session); }
+                    let Some(text) = crate::acpmux_policy::filter_response(&text, &state, &bound_sessions) else { continue };
                     if sender.send(Bytes::copy_from_slice(text.as_bytes())).await.is_err() {
                         break;
                     }
                 }
                 Some(Ok(Message::Binary(bytes))) => {
+                    let state = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+                    if state.configured || !state.available { break; }
                     if sender.send(bytes).await.is_err() {
                         break;
                     }

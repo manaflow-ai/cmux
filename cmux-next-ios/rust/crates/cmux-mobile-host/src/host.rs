@@ -27,6 +27,7 @@ pub struct AnswerContext {
     pub exclude_cgnat: bool,
     /// Supervised: sealed replies the backend holds for this Mac (`mailbox.rs`).
     pub mailbox: Option<Arc<crate::mailbox::Mailbox>>,
+    pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 }
 
 #[derive(Clone)]
@@ -271,6 +272,7 @@ async fn connect_once(
         include_loopback: config.include_loopback,
         exclude_cgnat: config.exclude_cgnat,
         mailbox: mailbox.clone(),
+        session_exposure: config.session_exposure.clone(),
     };
     let refresher = if std::env::var_os("CMUX_MOBILE_BASELINE").is_some() { None } else { ice.keep_fresh() };
     if let Some(task) = refresher {
@@ -497,7 +499,8 @@ async fn answer_session(
     kind: TransportKind,
     context: AnswerContext,
 ) {
-    let mut peer = Peer { device_id: first.from.clone(), session_id: first.session_id.clone(), video: None };
+    let mut peer = Peer { device_id: first.from.clone(), session_id: first.session_id.clone(), video: None,
+        session_exposure: context.session_exposure.clone() };
     let session_id = first.session_id.clone();
     let timeline = Timeline::new();
     timeline.mark("offer_received");

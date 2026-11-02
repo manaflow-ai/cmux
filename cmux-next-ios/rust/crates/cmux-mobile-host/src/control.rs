@@ -30,7 +30,7 @@
 //! stdout carries one JSON event per line for the app (logs go to stderr);
 //! [`Event`] lists them. Tokens never appear in either stream.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -39,6 +39,62 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::{broadcast, oneshot, watch};
 use tokio::time::{Duration, timeout};
+
+/// Durable per-chat phone exposure. `configured=false` preserves the legacy
+/// Mac-wide master behavior until the person first uses a per-chat switch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionExposure {
+    /// Whether the file was successfully read and written. This is deliberately
+    /// fail closed: a corrupt or unavailable durable authority must not expose
+    /// an existing chat by accident.
+    #[serde(default = "default_available")]
+    pub available: bool,
+    pub configured: bool,
+    /// Explicitly enabled sessions (kept for forward/backward compatibility).
+    #[serde(default)]
+    pub allowed: HashSet<String>,
+    /// Explicitly disabled sessions. Missing sessions inherit the Mac-wide
+    /// setting, so turning one chat off does not turn every other chat off.
+    #[serde(default)]
+    pub blocked: HashSet<String>,
+}
+
+impl Default for SessionExposure {
+    fn default() -> Self {
+        Self { available: true, configured: false, allowed: HashSet::new(), blocked: HashSet::new() }
+    }
+}
+
+fn default_available() -> bool {
+    true
+}
+
+fn exposure_path() -> PathBuf {
+    crate::config::default_state_dir().join("remote-control-sessions.json")
+}
+
+fn load_session_exposure() -> SessionExposure {
+    let path = exposure_path();
+    match std::fs::read(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => SessionExposure::default(),
+        Ok(data) => serde_json::from_slice(&data).unwrap_or_else(|_| SessionExposure {
+            available: false,
+            configured: true,
+            ..SessionExposure::default()
+        }),
+        Err(_) => SessionExposure { available: false, configured: true, ..SessionExposure::default() },
+    }
+}
+
+fn persist_session_exposure(state: &SessionExposure) -> Result<(), String> {
+    let path = exposure_path();
+    let Some(parent) = path.parent() else { return Err("state path has no parent".into()) };
+    std::fs::create_dir_all(parent).map_err(|error| format!("creating state directory: {error}"))?;
+    let data = serde_json::to_vec(state).map_err(|error| format!("encoding session exposure: {error}"))?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, data).map_err(|error| format!("writing session exposure: {error}"))?;
+    std::fs::rename(&tmp, &path).map_err(|error| format!("committing session exposure: {error}"))
+}
 
 /// The acpmux WebSocket the app reported: URL and bearer token.
 pub type AcpmuxEndpoint = Option<(String, Option<String>)>;
@@ -225,6 +281,10 @@ pub enum Inbound {
     PhoneCredentials {
         credentials: std::collections::HashMap<String, Secret>,
     },
+    SessionExposure {
+        session_id: String,
+        allowed: bool,
+    },
     /// The app's Cloud links for `need_cloud_links` `request`. `paid` (absent from an
     /// older app: false) says the account pays for cmux Cloud; `desktops` (absent: false) that
     /// the person lets phones view their Cloud machine's screen (`phone.cloudDesktop`).
@@ -336,6 +396,16 @@ pub enum Event {
     NeedCloudLinks {
         request: u64,
     },
+    SessionExposureState {
+        configured: bool,
+        sessions: Vec<String>,
+        blocked_sessions: Vec<String>,
+    },
+    SessionExposureError {
+        session_id: String,
+        allowed: bool,
+        reason: String,
+    },
 }
 
 /// Writes `event` as one stdout line when supervised; otherwise nothing.
@@ -347,6 +417,14 @@ pub fn emit(event: &Event) {
     let mut stdout = std::io::stdout().lock();
     let _ = writeln!(stdout, "{line}");
     let _ = stdout.flush();
+}
+
+fn emit_exposure_state(state: &SessionExposure) {
+    let mut sessions = state.allowed.iter().cloned().collect::<Vec<_>>();
+    let mut blocked = state.blocked.iter().cloned().collect::<Vec<_>>();
+    sessions.sort_unstable();
+    blocked.sort_unstable();
+    emit(&Event::SessionExposureState { configured: state.configured, sessions, blocked_sessions: blocked });
 }
 
 /// What the app supplies over stdin, as it changes.
@@ -361,6 +439,7 @@ pub struct Supplied {
     pub browser: std::sync::Arc<crate::browser::BrowserBroker>,
     /// Simulator surface sources the app starts for the `surface` service.
     pub surface: std::sync::Arc<crate::browser::BrowserBroker>,
+    pub session_exposure: watch::Receiver<SessionExposure>,
 }
 
 /// Reads stdin until it ends, then exits the process (the app is gone).
@@ -369,6 +448,9 @@ pub fn spawn_stdin_reader() -> Supplied {
     let (acpmux_tx, acpmux) = watch::channel(None);
     let (devices_tx, devices) = watch::channel(None);
     let (identity_tx, identity) = watch::channel(None);
+    let (exposure_tx, session_exposure) = watch::channel(load_session_exposure());
+    let initial = exposure_tx.borrow().clone();
+    emit_exposure_state(&initial);
     let browser = std::sync::Arc::new(crate::browser::BrowserBroker::new(std::sync::Arc::new(emit)));
     let broker = std::sync::Arc::clone(&browser);
     let surface = std::sync::Arc::new(crate::browser::BrowserBroker::for_surfaces(std::sync::Arc::new(emit)));
@@ -396,6 +478,29 @@ pub fn spawn_stdin_reader() -> Supplied {
                     devices_tx.send_replace(Some(trust));
                 }
                 Some(Inbound::PhoneCredentials { credentials }) => set_phone_credentials(credentials),
+                Some(Inbound::SessionExposure { session_id, allowed }) => {
+                    let mut state = exposure_tx.borrow().clone();
+                    state.configured = true;
+                    state.available = true;
+                    if allowed {
+                        state.blocked.remove(&session_id);
+                        state.allowed.insert(session_id.clone());
+                    } else {
+                        state.allowed.remove(&session_id);
+                        state.blocked.insert(session_id.clone());
+                    }
+                    // Publish the new in-memory state before persistence so a
+                    // revocation takes effect even if the disk is unavailable.
+                    exposure_tx.send_replace(state.clone());
+                    match persist_session_exposure(&state) {
+                        Ok(()) => emit_exposure_state(&state),
+                        Err(reason) => {
+                            state.available = false;
+                            exposure_tx.send_replace(state.clone());
+                            emit(&Event::SessionExposureError { session_id, allowed, reason });
+                        }
+                    }
+                }
                 Some(Inbound::CloudLinks { request, paid, desktops, links }) => {
                     resolve_cloud_links(request, paid, desktops, links);
                 }
@@ -420,7 +525,7 @@ pub fn spawn_stdin_reader() -> Supplied {
         crate::size_release::stop_and_release(crate::size_release::EXIT_WAIT).await;
         std::process::exit(0);
     });
-    Supplied { token, acpmux, devices, identity, browser, surface }
+    Supplied { token, acpmux, devices, identity, browser, surface, session_exposure }
 }
 
 /// The wire name of a transport.
