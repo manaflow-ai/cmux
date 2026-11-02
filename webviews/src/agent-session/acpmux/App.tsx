@@ -9080,7 +9080,7 @@ function AcpmuxPane() {
   /// while it is not mounted (a handoff review) go in when it mounts.
   const composerHandle = useRef<ComposerHandle | null>(null);
   /// What the new chat shown leaves when its tab opens another chat (set below, cmux#32276).
-  const newChatLeftover = useRef<() => { leave: () => Promise<void> } | undefined>(() => undefined);
+  const newChatLeftover = useRef<() => { leave: () => void } | undefined>(() => undefined);
   /// The composer is in shell mode, whose ⌘Return answers no recap card (RecapCard.tsx `keyHint`).
   const [composerShell, setComposerShell] = useState(false);
   const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
@@ -9167,12 +9167,12 @@ function AcpmuxPane() {
     const text = [...newChatDraft.kept, ...held, typed].filter((part) => part.trim()).join("\n\n");
     if (!text) return undefined;
     return {
-      leave: async () => {
+      leave: () => {
         trustHeldNow.current.takeNewChat();
         newChatDraft.kept = [];
         newChatDraft.held = [];
         newChatDraft.typed = "";
-        await callNative("chat.leftover", { text }).catch(() => undefined);
+        void callNative("chat.leftover", { text }).catch(() => undefined);
       },
     };
   };
@@ -10934,7 +10934,8 @@ function AcpmuxPane() {
             const leaving = newChatLeftover.current();
             const selected = await client.adoptSession(String(sessionId));
             if (!selected || client.attachedSession() !== selected) return undefined;
-            await leaving?.leave();
+            // Posted before the pick's own, with no wait between: a later pick still persists last.
+            leaving?.leave();
             await persistSession(selected);
             return selected;
           },
@@ -10944,7 +10945,8 @@ function AcpmuxPane() {
             const leaving = newChatLeftover.current();
             const selected = await client.select(String(sessionId));
             if (!selected || client.attachedSession() !== selected) return undefined;
-            await leaving?.leave();
+            // Posted before the pick's own, with no wait between: a later pick still persists last.
+            leaving?.leave();
             await persistSession(selected);
             return selected;
           },
