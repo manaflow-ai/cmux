@@ -134,7 +134,8 @@ import Testing
         let h = try await make()
         defer { h.tearDown() }
         h.services.onboarding.browserImportOffer.answer(.never)
-        try await h.until { try h.storedBannerValue() == false }
+        // `setSetting` writes cmux.json and then reloads the snapshot (`reloadAfterWrite`): wait for both.
+        try await h.until { try h.storedBannerValue() == false && !h.settings.snapshot.browserImportCookieBanner }
         #expect(try h.storedBannerValue() == false, "the dismissal is kept in cmux.json, across launches")
         #expect(h.settings.snapshot.browserImportCookieBanner == false)
         #expect(!h.services.onboarding.browserImportOffer.isOffered, "a dismissed banner is not offered")
