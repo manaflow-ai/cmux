@@ -302,16 +302,15 @@ fn logical_writes(pid: u32) -> Option<u64> {
     }
 }
 
-/// Measurement, not a check (ignored; `scripts/measure/rust-test-bench.sh
-/// cmux-tui kill_all_heavy target=test:terminal_host_recovery ignored=yes`):
-/// the daemon's disk writes
+/// Measurement, not a check (ignored: `cargo test --test terminal_host_recovery
+/// kill_all_heavy -- --ignored --nocapture`): the daemon's disk writes
 /// under the HEAVY load of the reopen films, 12 panes of a full-screen TUI
 /// that repaints 40 rows with new content at about 60 Hz. Prints
 /// `kill-all-heavy: {...}` with the logical write bytes per pane per second
 /// and the state folder size. Run it at the base and at the fix for the
 /// before/after.
 #[test]
-#[ignore = "measurement: rust-test-bench.sh ignored=yes"]
+#[ignore = "measurement: run it with --ignored"]
 fn kill_all_heavy_load_disk_writes_per_pane() {
     const PANES: usize = 12;
     const WINDOW: Duration = Duration::from_secs(20);
