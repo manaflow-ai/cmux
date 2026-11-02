@@ -15,6 +15,9 @@ import {
 import { AcpmuxDirectClient, OrderedRows, type EventRecord } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { activity, assistant, tool } from "../src/gallery/fixtures/acpmux";
+import { translate } from "../src/agent-session/acpmux/i18n";
+import { NativeInfoActions } from "../src/agent-session/acpmux/session-info/native/model";
+import { sourcesSection } from "../src/agent-session/acpmux/session-info/native/sources";
 
 const shell = (command: string, output = "", exitCode = 0) =>
   tool(command, "execute", "completed", { command, output, exitCode });
@@ -479,8 +482,8 @@ test("Sources preserve issue, URL and shorthand reference meaning", () => {
     [issue, `${github}/issues/7`, "Scratch", "issue"],
     [[assistant(`See ${github}/issues/8`, 1)], `${github}/issues/8`, "acme/app #8", "issue"],
     [[assistant("Read https://example.com/guide", 1)], "https://example.com/guide", "example.com/guide", "url"],
-    [toolsRows(shell("echo acme/app#7")), `${github}/issues/7`, "acme/app#7", "url"],
-    [[assistant("See acme/app#7", 1)], `${github}/issues/7`, "acme/app#7", "url"],
+    [toolsRows(shell("echo acme/app#7")), `${github}/issues/7`, "acme/app #7", "issue"],
+    [[assistant("See acme/app#7", 1)], `${github}/issues/7`, "acme/app #7", "issue"],
     [[assistant(`See ${github}/pull/9`, 1)], `${github}/pull/9`, "acme/app #9", "pullRequest"],
     [pr, `${github}/pull/7`, "acme/app #7", "pullRequest"],
   ];
@@ -973,4 +976,31 @@ test("escaped whitespace keeps the whole title payload out of Sources", () => {
   );
   expect(transcriptPullRequests(rows).map((pr) => pr.number)).toEqual([41]);
   expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
+});
+
+// Leo, 2026-11-02, on Sources mixing link rows `owner/repo#N` with PR rows `owner/repo #N`:
+// one mark and one label per kind, whichever path recorded the reference.
+test("a GitHub reference Source draws one mark and one label whichever path found it", () => {
+  const github = "https://github.com/acme/app";
+  const paths: Rows[] = [
+    [assistant("See acme/app#7", 1)],
+    toolsRows(shell("echo acme/app#7")),
+    [assistant(`See ${github}/issues/7`, 1)],
+    [assistant(`See ${github}/pull/7`, 1)],
+    toolsRows(shell("gh pr view 7 -R acme/app")),
+  ];
+  const drawn = paths.map((rows) => {
+    const section = sourcesSection(
+      {
+        sources: sessionSummary(rows, "acme/app").sources,
+        expanded: false,
+        onExpandedChange: () => {},
+        open: true,
+      },
+      new NativeInfoActions(),
+      (key, values) => translate(key, values, "en"),
+    );
+    return section?.rows.map((row) => [row.symbol, row.title]);
+  });
+  for (const rows of drawn) expect(rows).toEqual([["arrow.triangle.pull", "acme/app #7"]]);
 });

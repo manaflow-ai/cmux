@@ -177,7 +177,7 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
         add(
           {
             url: pr ? (known?.url ?? canonical) : canonical,
-            label: pr || known?.kind === "issue" ? (known?.title ?? `${owner}/${repo} #${number}`) : label,
+            label: known?.title ?? `${owner}/${repo} #${number}`,
             kind: pr ? "pullRequest" : "issue",
           },
           order,
@@ -240,10 +240,12 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
       const ambiguous = pr.mentioned && !pr.kind;
       add(
         {
-          // GitHub redirects /issues/N to the PR when N is a PR; a bare number proves neither kind.
+          // GitHub redirects /issues/N to the PR when N is a PR; a bare number proves neither kind,
+          // so it reads as an issue-form link does: the same GitHub mark and `owner/repo #N` label
+          // every other PR or issue Source has, never a plain link's.
           url: ambiguous ? `https://github.com/${pr.repo}/issues/${pr.number}` : pr.url,
-          label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
-          kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
+          label: pr.title ?? `${pr.repo} #${pr.number}`,
+          kind: ambiguous ? "issue" : (pr.kind ?? "pullRequest"),
         },
         pr.firstTouched ?? pr.touched ?? Number.MAX_SAFE_INTEGER,
       );
