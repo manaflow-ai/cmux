@@ -191,12 +191,14 @@ impl Mux {
 
     /// True only for a remote stream admitted with a verified Cloud link
     /// token.  Poisoned state denies the stream.
+    #[cfg(unix)]
     pub(super) fn cloud_token_client(&self, client: u64) -> bool {
         lock_checked(&self.remote_relay().cloud_token_clients, RelayLock::Peers)
             .ok()
             .is_some_and(|clients| clients.contains(&client))
     }
 
+    #[cfg(unix)]
     pub(super) fn forget_cloud_token_client(&self, client: u64) {
         if let Ok(mut clients) = lock_checked(
             &self.remote_relay().cloud_token_clients,
@@ -206,9 +208,16 @@ impl Mux {
         }
     }
 
+    #[cfg(not(unix))]
+    pub(super) fn cloud_mobile_client(&self, _client: u64) -> bool {
+        // The agent-session carrier is unix only.
+        false
+    }
+
     /// The only remote client admitted to the native Cloud mobile surface:
     /// its capability was negotiated on a stream stamped by a verified link
     /// token.  Caller-supplied identity fields never participate.
+    #[cfg(unix)]
     pub(super) fn cloud_mobile_client(&self, client: u64) -> bool {
         if !self.is_remote_client(client)
             || !self.cloud_token_client(client)

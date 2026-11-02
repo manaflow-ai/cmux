@@ -156,6 +156,18 @@ pub(super) fn full_access_device(
 /// this daemon holds to the Web's rules says so, and the peer applies them.
 /// One from the app's pane says `via: app`, so the peer's folder-trust gate
 /// (`trust_gate.rs`) holds it as it holds its own pane's.
+/// A prompt the cmux-tui mobile relay or Cloud mobile carrier stamped as the phone's.
+pub(super) fn cloud_mobile(params: &Value) -> bool {
+    params.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("cloud-mobile")
+}
+
+/// A phone's prompt never goes on to a peer: the peer would read the forwarded
+/// `via` as `web` and lose the Cloud mobile floor (`check_dispatch`).
+pub(super) fn refuse_cloud_mobile_forward() -> RpcError {
+    RpcError::invalid_params("remote.cloud_mobile_peer: a Cloud mobile prompt runs only on this machine")
+        .with_data(serde_json::json!({"reason": "remote.cloud_mobile_peer"}))
+}
+
 pub(super) fn mark_forwarded(
     origin: super::Origin,
     auth: super::ConnAuth,

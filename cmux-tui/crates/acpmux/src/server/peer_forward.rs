@@ -247,6 +247,13 @@ async fn forward_inner(
     m: &str,
     params: &Value,
 ) -> Result<Option<Value>, RpcError> {
+    if super::remote_guard::cloud_mobile(params)
+        && let Ok(key) = session_key(params)
+        && hub.resolve(key).is_err()
+        && hub.resolve_remote(key).is_some()
+    {
+        return Err(super::remote_guard::refuse_cloud_mobile_forward());
+    }
     // Trust answers for a remote session belong to the daemon that owns it.
     if matches!(m, method::ACP_TRUST_GET | method::ACP_TRUST_SET)
         && let Ok(key) = session_key(params)
