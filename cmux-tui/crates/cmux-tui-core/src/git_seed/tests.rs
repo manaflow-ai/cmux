@@ -453,6 +453,52 @@ fn a_full_seed_adopts_a_pristine_same_origin_clone() {
 }
 
 #[test]
+fn a_full_seed_adopts_new_feature_branch_without_resetting_existing_main() {
+    let world = World::new("reseed-new-branch");
+    let folder = world.home.join("work/project");
+    std::fs::create_dir_all(folder.parent().unwrap()).unwrap();
+    git(&world.home.path, &["clone", "-q", world.remote.to_str().unwrap(), folder.to_str().unwrap()]);
+    git(&folder, &["remote", "set-url", "origin", URL]);
+    let main = git(&folder, &["rev-parse", "refs/heads/main"]);
+
+    git(&world.mac, &["checkout", "-q", "-b", "feature"]);
+    write(&world.mac.join("a"), "a\nfeature work\n");
+    git(&world.mac, &["commit", "-q", "-a", "-m", "new feature"]);
+    let planned = world.snapshot("seed", &[&world.base]);
+    let status = seed(&world, &world.start_params(&folder, &planned));
+    assert_eq!(status["state"], "done", "{status}");
+    assert_eq!(git(&folder, &["symbolic-ref", "HEAD"]), "refs/heads/feature");
+    assert_eq!(git(&folder, &["rev-parse", "refs/heads/main"]), main);
+    assert_eq!(state(&folder), state(&world.mac));
+}
+
+#[test]
+fn a_full_seed_refuses_to_overwrite_existing_unpublished_feature_branch() {
+    let world = World::new("reseed-branch-conflict");
+    let folder = world.home.join("work/project");
+    std::fs::create_dir_all(folder.parent().unwrap()).unwrap();
+    git(&world.home.path, &["clone", "-q", world.remote.to_str().unwrap(), folder.to_str().unwrap()]);
+    git(&folder, &["remote", "set-url", "origin", URL]);
+    git(&folder, &["checkout", "-q", "-b", "feature"]);
+    write(&folder.join("cloud-feature"), "Cloud unpublished commit\n");
+    git(&folder, &["add", "cloud-feature"]);
+    git(&folder, &["commit", "-q", "-m", "Cloud feature"]);
+    let cloud_feature = git(&folder, &["rev-parse", "HEAD"]);
+    git(&folder, &["checkout", "-q", "main"]);
+
+    git(&world.mac, &["checkout", "-q", "-b", "feature"]);
+    write(&world.mac.join("a"), "a\nMac feature work\n");
+    git(&world.mac, &["commit", "-q", "-a", "-m", "Mac feature"]);
+    let planned = world.snapshot("seed", &[&world.base]);
+    let before = state(&folder);
+    let status = seed(&world, &world.start_params(&folder, &planned));
+    assert_eq!(status["state"], "failed", "{status}");
+    assert_eq!(status["error_code"], "seed.machine_changed", "{status}");
+    assert_eq!(state(&folder), before);
+    assert_eq!(git(&folder, &["rev-parse", "refs/heads/feature"]), cloud_feature);
+}
+
+#[test]
 fn a_full_seed_refuses_unpublished_commits_in_an_existing_clean_clone() {
     let world = World::new("reseed-unpushed-clone");
     let folder = world.home.join("work/project");
