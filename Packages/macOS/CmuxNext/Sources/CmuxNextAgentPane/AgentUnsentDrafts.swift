@@ -28,6 +28,8 @@ public final class AgentUnsentDrafts {
     private var undelivered: [String: String]
     /// The file exists but could not be read: the first save that runs sets it aside first.
     private let unreadable: UnreadableFile
+    /// The window tab `key` shows in, for its new chat's leftover (``leave(_:inWindow:)``).
+    public var windowOfTab: (String) -> String? = { _ in nil }
 
     /// - Parameter files: The app's state files (`AppServices`), so the file has one writer.
     public init(file: URL?, files: AgentPaneStateFiles) {
@@ -70,12 +72,37 @@ public final class AgentUnsentDrafts {
     /// has a session. Call it after the tab's own `onSessionChange` is set.
     public func wire(_ model: AgentPaneModel, key: @escaping () -> String) {
         model.onUnsentDraft = { [weak self] text in self?.typed(text, for: key()) }
+        model.onNewChatLeftover = { [weak self] text in
+            guard let self, let window = windowOfTab(key()) else { return }
+            leave(text, inWindow: window)
+        }
         let started = model.onSessionChange
         model.onSessionChange = { [weak self] session in
             self?.set("", for: key())
             started?(session)
         }
     }
+
+    /// A new chat of `window` left `text` when its tab opened another chat (cmux#32276): kept in the
+    /// window's one slot, on disk with the tabs' drafts, after what an earlier one left (never
+    /// over it), for the window's next new chat (``takeLeftover(inWindow:)``). Nothing sends it.
+    public func leave(_ text: String, inWindow window: String) {
+        guard !Self.isBlank(text) else { return }
+        let slot = Self.leftoverKey(window)
+        set(drafts[slot].map { $0 + "\n\n" + text } ?? text, for: slot)
+    }
+
+    /// What new chats of `window` left, once: the window's next new chat takes it as its draft,
+    /// and the slot is empty after.
+    public func takeLeftover(inWindow window: String) -> String? {
+        let slot = Self.leftoverKey(window)
+        guard let text = drafts[slot] else { return nil }
+        set("", for: slot)
+        return text
+    }
+
+    /// A window's slot among the tabs' drafts: no tab id has this prefix.
+    static func leftoverKey(_ window: String) -> String { "left-in-new-chat:" + window }
 
     /// Whether tab `key` holds a new chat's typed text (its close earns an undo toast).
     public func hasDraft(_ key: String) -> Bool { drafts[key] != nil }

@@ -297,6 +297,16 @@ export function useTrustHeldPrompts({
       now.current = { ...now.current, held: editHeld(now.current.held, id, edit) };
       setHeld((list) => editHeld(list, id, edit));
     },
+    /// Takes every new chat's held prompt out, in order, for a tab that opens another chat: what
+    /// they say goes with the new chat's leftover (cmux#32276), and none is sent after.
+    takeNewChat: () => {
+      const taken = now.current.held.filter((entry) => entry.chat === undefined);
+      if (!taken.length) return taken;
+      const ids = new Set(taken.map((entry) => entry.id));
+      now.current = { ...now.current, held: now.current.held.filter((entry) => !ids.has(entry.id)) };
+      setHeld((list) => list.filter((entry) => !ids.has(entry.id)));
+      return taken;
+    },
     /// The held prompt `id`, for an edit that takes it back into the composer.
     get: (id: string) => now.current.held.find((entry) => entry.id === id),
   };

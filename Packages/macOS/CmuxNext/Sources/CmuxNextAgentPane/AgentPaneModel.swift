@@ -42,6 +42,7 @@ public final class AgentPaneModel {
     /// harness on the tab (cx-w4bbw). Only for the session the pane shows.
     @ObservationIgnored public var onSessionHarness: ((_ session: String) -> Void)?
     @ObservationIgnored public var onUnsentDraft: ((String) -> Void)? // a new chat's typed text, until it has a session
+    @ObservationIgnored public var onNewChatLeftover: ((String) -> Void)? // what a new chat leaves when its tab opens another chat
     @ObservationIgnored public var machineLink: AgentPaneMachineLink? // the chat's machine dot (``AgentPanePageHost/currentEvents(_:)``)
     /// Reports each settled scroll and returns the native display settings to the page.
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
@@ -394,6 +395,7 @@ public final class AgentPaneModel {
             missingChatLog.record(session: session, reason: reason, tabSession: sessionId, remote: remoteChat)
             return AgentPaneReply.success()
         case .unsentDraft(let text): if sessionId == nil { onUnsentDraft?(text) }; return AgentPaneReply.success()
+        case .newChatLeftover(let text): if sessionId == nil { onNewChatLeftover?(text) }; return AgentPaneReply.success()
         case .checkpointAvailability(let available):
             setCheckpointAvailable(available)
             return AgentPaneReply.success()

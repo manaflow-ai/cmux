@@ -33,6 +33,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
     /// keeps it with the tab, so a relaunch opens the chat with it.
     case unsentDraft(String)
+    /// What a new chat leaves when its tab opens another chat (`chat.leftover`, cmux#32276): its
+    /// typed text and prompts held for a trust answer, kept for its window's next new chat.
+    case newChatLeftover(String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
     /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])

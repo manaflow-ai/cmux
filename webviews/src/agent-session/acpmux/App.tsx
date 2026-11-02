@@ -9079,6 +9079,8 @@ function AcpmuxPane() {
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back
   /// while it is not mounted (a handoff review) go in when it mounts.
   const composerHandle = useRef<ComposerHandle | null>(null);
+  /// What the new chat shown leaves when its tab opens another chat (set below, cmux#32276).
+  const newChatLeftover = useRef<() => { leave: () => Promise<void> } | undefined>(() => undefined);
   /// The composer is in shell mode, whose ⌘Return answers no recap card (RecapCard.tsx `keyHint`).
   const [composerShell, setComposerShell] = useState(false);
   const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
@@ -9155,6 +9157,25 @@ function AcpmuxPane() {
     newChatDraft.held = held;
     void postNewChatDraft();
   }, [newChatHeldText]);
+  /// What the new chat shown leaves when its tab opens another chat (cmux#32276), read before the
+  /// switch: its kept, held and typed text, in that order. `leave` hands it to the host for the
+  /// window's next New Tab page and takes the held prompts out of the hold, so none is sent after.
+  newChatLeftover.current = () => {
+    if (snapshotRef.current?.sessionId) return undefined;
+    const typed = composerHandle.current?.draftText() ?? newChatDraft.typed;
+    const held = trustHeldNow.current.newChatTexts;
+    const text = [...newChatDraft.kept, ...held, typed].filter((part) => part.trim()).join("\n\n");
+    if (!text) return undefined;
+    return {
+      leave: async () => {
+        trustHeldNow.current.takeNewChat();
+        newChatDraft.kept = [];
+        newChatDraft.held = [];
+        newChatDraft.typed = "";
+        await callNative("chat.leftover", { text }).catch(() => undefined);
+      },
+    };
+  };
   // Held prompts given back while no composer of the new chat showed go into the next one's.
   useEffect(() => {
     const composer = composerHandle.current;
@@ -10910,16 +10931,20 @@ function AcpmuxPane() {
           "chat.adopt": async ({ sessionId }) => {
             newTabStartGeneration.current += 1;
             harnessSwitch.cancel();
+            const leaving = newChatLeftover.current();
             const selected = await client.adoptSession(String(sessionId));
             if (!selected || client.attachedSession() !== selected) return undefined;
+            await leaving?.leave();
             await persistSession(selected);
             return selected;
           },
           "chat.select": async ({ sessionId }) => {
             newTabStartGeneration.current += 1;
             harnessSwitch.cancel();
+            const leaving = newChatLeftover.current();
             const selected = await client.select(String(sessionId));
             if (!selected || client.attachedSession() !== selected) return undefined;
+            await leaving?.leave();
             await persistSession(selected);
             return selected;
           },
@@ -12374,7 +12399,9 @@ function AcpmuxPane() {
   };
   /// A page coming back after the chat view stood in for it: what that composer held, as its draft.
   const takeNewTabDraft = () => {
-    if (!composerStoodIn.current) return undefined;
+    // What a new chat of this window left (cmux#32276), handed with the page's context.
+    const left = newTabNow.current?.draft;
+    if (!composerStoodIn.current) return left ? { text: left, attachments: [] } : undefined;
     const waiting = composerHandle.current?.draft() ?? heldBack.current?.pop();
     if (heldBack.current?.length === 0) heldBack.current = undefined;
     return waiting;

@@ -153,6 +153,13 @@ extension AgentTabStore {
         }
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state, files: services.agentPaneStateFiles)
+        // A new chat's leftover goes to its tab's window (cmux#32276): the window's next New Tab page takes it.
+        tabs.unsentDrafts.windowOfTab = { [weak services, weak tabs] key in
+            guard let services, let tabs, let store = tabs.lookup(tabs.resolve(key))?.store,
+                  let tab = store.tab(id: tabs.resolve(key)), let pane = store.pane(containing: tab.surface),
+                  let workspace = store.workspace(containing: pane.handle) else { return nil }
+            return services.windows.windowID(ofWorkspace: workspace.id)
+        }
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
         tabs.cloudMachines.wire(services)

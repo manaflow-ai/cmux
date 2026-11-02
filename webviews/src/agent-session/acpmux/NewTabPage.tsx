@@ -111,6 +111,9 @@ export type NewTabHost = {
   cwd?: string;
   host?: string;
   location?: string;
+  /// What a new chat of this window left when its tab opened another chat (cmux#32276): the
+  /// field's draft, taken once; nothing sends it.
+  draft?: string;
   /// Project folders found by the host scan, before session-derived folders.
   projects?: string[];
   omnibar?: OmnibarContext;
@@ -182,6 +185,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(cwd ? { cwd } : {}),
     ...(typeof object.host === "string" ? { host: object.host } : {}),
     ...(typeof object.location === "string" && object.location ? { location: object.location } : {}),
+    ...(typeof object.draft === "string" && object.draft.trim() ? { draft: object.draft } : {}),
     ...(omnibar ? { omnibar } : {}),
     ...(openTabs?.length ? { openTabs } : {}),
     ...(Array.isArray(object.projects)
