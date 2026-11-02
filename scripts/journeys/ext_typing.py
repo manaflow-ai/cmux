@@ -6,7 +6,7 @@ only). It must not import driver.py: install() gets the driver module instead.
 The video (the HARNESS kit's debug.motion record_*, frames.json `t` in host seconds, CACurrentMediaTime's clock)
 shows when each typed character appears. This group types the characters as real HID keys (ext_realkey press: a
 CuaDriver desktop-scope key event through the window server) and records, for each key, the host time just before
-and just after the post, on the same clock (time.monotonic, mach_absolute_time on macOS). The judge
+and just after the post, on the same clock (CLOCK_UPTIME_RAW, mach_absolute_time). The judge
 (shortcut-frames/judge.py with --crop on the target's rect, or typing-judge.py) counts the display refreshes from
 `t_post` to the first frame that shows the character.
 
@@ -32,6 +32,11 @@ import random
 import time
 
 D = None
+
+
+def _host():
+    """CLOCK_UPTIME_RAW seconds: the recorder's frame clock (not time.monotonic: STATUS 4763)."""
+    return time.clock_gettime(time.CLOCK_UPTIME_RAW)
 
 
 def install(driver):
@@ -105,24 +110,24 @@ def step_typing_keys(j, step):
     if step.get("prime"):
         time.sleep(float(step.get("prime_pause_ms", 600)) / 1000.0)
     keys = []
-    next_at = D.now()
+    next_at = _host()
     for i in range(count):
         ch = rng.choice(charset)
-        left = next_at - D.now()
+        left = next_at - _host()
         if left > 0.004:
             time.sleep(left - 0.003)  # sleep most of the gap; spin the last 3 ms (sleep's wake-up jitter)
-        while D.now() < next_at:
+        while _host() < next_at:
             pass
-        t_post = D.now()
+        t_post = _host()
         rk.press_char(j, ch)
-        t_back = D.now()
+        t_back = _host()
         # t_post: just before CuaDriver's call; the key's HID event is made inside it (the call takes ~11 ms a key,
         # ext_realkey.press), so `call_ms` is kept beside it and the judge reports refreshes from both ends.
         keys.append({"i": i, "ch": ch, "t_post": round(t_post, 6), "t_back": round(t_back, 6),
                      "call_ms": round((t_back - t_post) * 1000, 2)})
         next_at = t_post + rng.uniform(lo, hi)
     return {"label": step.get("label"), "keys": keys, "rect": rect, "key_path": "real_hid",
-            "clock": "time.monotonic (mach_absolute_time, the clock of frames.json t)"}
+            "clock": "CLOCK_UPTIME_RAW seconds (the clock of frames.json t)"}
 
 
 def step_video_close_open(j, step):

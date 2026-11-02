@@ -14,8 +14,8 @@ above what it was at the start, or until the kernel's free-memory level (kern.me
 0-100) drops to --floor; below --floor it frees chunks until the level is back at --resume. It
 never holds more than --max-fraction of physical memory. It exits by itself at --deadline (and on
 SIGTERM, SIGINT or SIGHUP) and frees everything; the caller also ends it by its own pid.
-Each second it writes one JSON line: {"t", "t_mono", "held_mb", "swap_used_mb", "level"} (t_mono: time.monotonic, the
-clock of the journeys' key post times).
+Each second it writes one JSON line: {"t", "t_mono", "held_mb", "swap_used_mb", "level"} (t_mono: CLOCK_UPTIME_RAW
+seconds, the clock of the journeys' key post times and of the recorder's frames).
 """
 import argparse
 import json
@@ -91,7 +91,7 @@ def main():
         now = time.time()
         if now >= next_report:
             next_report = now + 1
-            line = {"t": round(now, 3), "t_mono": round(time.monotonic(), 3), "held_mb": len(chunks) * (CHUNK >> 20),
+            line = {"t": round(now, 3), "t_mono": round(time.clock_gettime(time.CLOCK_UPTIME_RAW), 3), "held_mb": len(chunks) * (CHUNK >> 20),
                     "swap_used_mb": swap_used_mb(), "level": free_level}
             if log:
                 log.write(json.dumps(line) + "\n")

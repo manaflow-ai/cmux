@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """ledger.py on a synthetic 2-part typing run: planned keys from each part's own result, the hog window in
-time.monotonic, keys_check on the echo log. No fleet, no app, no movie (source in-app).
+CLOCK_UPTIME_RAW, keys_check on the echo log. No fleet, no app, no movie (source in-app).
 
     python3 scripts/journeys/typing/test_ledger.py
 """

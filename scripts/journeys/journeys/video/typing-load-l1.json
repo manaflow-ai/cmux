@@ -130,7 +130,8 @@
       "do": "video_start",
       "name": "typing-load-l1-part1",
       "seconds": 75,
-      "codec": "prores"
+      "codec": "hevc",
+      "mbps": 120
     },
     {
       "do": "typist_play",
@@ -149,7 +150,8 @@
       "do": "video_start",
       "name": "typing-load-l1-part2",
       "seconds": 75,
-      "codec": "prores"
+      "codec": "hevc",
+      "mbps": 120
     },
     {
       "do": "typist_play",

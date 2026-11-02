@@ -21,7 +21,7 @@ Steps (`do`):
                    plays typing/typist.py's seeded plan with real HID keys (ext_realkey press: CuaDriver, desktop
                    scope) at the planned times: characters, Backspace, Left/Right, Ctrl-C, Return, and pastes
                    (the text goes to the pasteboard with pbcopy just before its Cmd-V). Each event's `t_post` and
-                   `t_back` (time.monotonic, the frame clock) are in the result for keys_check.py and the video
+                   `t_back` (CLOCK_UPTIME_RAW seconds, the frame clock: host_now) are in the result for keys_check.py and the video
                    judge. FROM/TO: only the plan's events with FROM <= t < TO (a 2-minute sample in two parts, one
                    movie each: the recorder records at most 120 s). Real keys only (key_path=real).
 """
@@ -33,6 +33,13 @@ import sys
 import time
 
 D = None
+
+
+def host_now():
+    """mach_absolute_time in seconds (CLOCK_UPTIME_RAW): the clock of NSEvent.timestamp, CACurrentMediaTime, the
+    recorder's frames.json `t` and the app's uptime_ns. NOT time.monotonic(): CPython on macOS counts that from each
+    process's first read (STATUS 4763)."""
+    return time.clock_gettime(time.CLOCK_UPTIME_RAW)
 
 
 def install(driver):
@@ -129,7 +136,7 @@ def step_load_start(j, step):
             stdout.write(chunk.decode(errors="replace"))
             stdout.flush()
     threading.Thread(target=pump, daemon=True).start()
-    return {"profile": profile, "ready": ready, "t_ready": round(D.now(), 4), "argv": argv[3:], "pid": proc.pid}
+    return {"profile": profile, "ready": ready, "t_ready": round(host_now(), 4), "argv": argv[3:], "pid": proc.pid}
 
 
 def step_load_stop(j, step):
@@ -172,23 +179,23 @@ def step_typist_play(j, step):
     rk = _realkey()
     rk.require_front(j)
     j.before_keys()
-    start = D.now() + 0.3 - lo
+    start = host_now() + 0.3 - lo
     played = []
     for e in events:
         if e["kind"] == "paste":
             subprocess.run(["/usr/bin/pbcopy"], input=e["text"], text=True, timeout=10)
         due = start + e["t"]
-        left = due - D.now()
+        left = due - host_now()
         if left > 0.004:
             time.sleep(left - 0.003)
-        while D.now() < due:
+        while host_now() < due:
             pass
-        t_post = D.now()
+        t_post = host_now()
         if e["kind"] == "char":
             rk.press_char(j, e["key"])
         else:
             rk.press(j, e["key"], e.get("mods") or [])
-        t_back = D.now()
+        t_back = host_now()
         played.append(dict(e, t_post=round(t_post, 6), t_back=round(t_back, 6), late_ms=round((t_post - due) * 1000, 2)))
     late = sorted(p["late_ms"] for p in played)
     calls = sorted(p["t_back"] - p["t_post"] for p in played)
@@ -196,7 +203,7 @@ def step_typist_play(j, step):
             "seed": int(step.get("seed", 7)), "seconds": float(step.get("seconds", 120)), "from": lo, "to": hi,
             "call_ms": {"p50": round(calls[len(calls) // 2] * 1000, 2), "max": round(calls[-1] * 1000, 2)}, "key_path": "real_hid", "start": round(start, 6),
             "post_late_ms": {"p50": late[len(late) // 2], "max": late[-1]},
-            "clock": "time.monotonic (mach_absolute_time, the clock of frames.json t and of echo.py)"}
+            "clock": "CLOCK_UPTIME_RAW seconds (mach_absolute_time: frames.json t, NSEvent.timestamp, echo.py t)"}
 
 
 def step_probe_relaunch(j, step):
@@ -226,7 +233,7 @@ def step_probe_mark(j, step):
     """Keeps debug.hangs (every main-thread turn over the watchdog threshold, with its stack) and debug.wakeups (each
     process's cumulative CPU: app, daemon, terminal hosts, CEF) as OUT/probe-<as>.json; `as` names the moment
     (before, after). A build without the methods: recorded as missing, never a failure."""
-    rec = {"t": round(D.now(), 6)}
+    rec = {"t": round(host_now(), 6)}
     for method, params in (("debug.hangs", {"limit": 500}), ("debug.wakeups", {})):
         try:
             rec[method] = j.app.rpc(method, params, timeout=20)

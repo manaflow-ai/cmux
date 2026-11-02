@@ -7,9 +7,9 @@ key reached the PTY's reader.
 
 Echo: a printable byte prints itself; Backspace (0x7f or 0x08) prints "\\b \\b"; Left and Right arrows move the
 cursor (ESC [ D / ESC [ C); Ctrl-C prints "^C" and a new line; Return prints a new line; a bracketed paste (ESC [ 200 ~
-... ESC [ 201 ~) prints its text. Ctrl-D (0x04) ends it. Each read() is one log line {"t": time.monotonic(),
-"bytes": hex, "n": count}: t is the moment the program got the bytes from the PTY (the same clock as the driver's
-key post times and the recorder's frames on macOS). Two keys in one read are kept together (the judge calls that a
+... ESC [ 201 ~) prints its text. Ctrl-D (0x04) ends it. Each read() is one log line {"t": time.clock_gettime(time.CLOCK_UPTIME_RAW),
+"bytes": hex, "n": count}: t is the moment the program got the bytes from the PTY, CLOCK_UPTIME_RAW seconds (the clock of
+the driver's key post times, NSEvent.timestamp and the recorder's frames; not time.monotonic, STATUS 4763). Two keys in one read are kept together (the judge calls that a
 merge when they were sent more than 2 refreshes apart). Python 3.9 standard library only.
 """
 import json
@@ -28,13 +28,13 @@ def main():
     out = sys.stdout.buffer
     out.write(b"\x1b[?2004h")  # bracketed paste on
     out.flush()
-    log.write(json.dumps({"t": time.monotonic(), "ready": True, "pid": os.getpid()}) + "\n")
+    log.write(json.dumps({"t": time.clock_gettime(time.CLOCK_UPTIME_RAW), "ready": True, "pid": os.getpid()}) + "\n")
     pending = b""
     pasting = False
     try:
         while True:
             data = os.read(fd, 4096)
-            now = time.monotonic()
+            now = time.clock_gettime(time.CLOCK_UPTIME_RAW)
             if not data:
                 break
             log.write(json.dumps({"t": now, "bytes": data.hex(), "n": len(data)}) + "\n")

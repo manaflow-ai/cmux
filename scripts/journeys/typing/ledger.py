@@ -56,8 +56,8 @@ def probe_starts(path):
 
 
 def hog_held_gb(run, t0, t1):
-    """The LEAST the hog held during the typing window [t0, t1] in time.monotonic seconds (smoke_hog.py's `t_mono`: the
-    hog runs on the same mini as the driver); 0 when its log has no sample in the window (review 4 at 71bef9a1695)."""
+    """The LEAST the hog held during the typing window [t0, t1] in CLOCK_UPTIME_RAW seconds (smoke_hog.py's `t_mono`, the
+    clock of the key posts); 0 when its log has no sample in the window (review 4 at 71bef9a1695)."""
     rows = []
     for h in Path(run).glob("hog-*.jsonl"):
         for l in h.read_text(errors="replace").splitlines():
@@ -101,7 +101,7 @@ def main():
             break
         planned += len(want)
     # Start of each key: the key's own NSEvent time from the in-app probe (event_uptime_ns, CLOCK_UPTIME_RAW ns, the
-    # clock of time.monotonic and of the recorder's frames), else t_post (before the CuaDriver call: an UPPER bound
+    # clock of the key posts (host_now) and of the recorder's frames), else t_post (before the CuaDriver call: an UPPER bound
     # of the latency; the gate counts such a row only when it passes: review should-fix 5 at 8802cbd6e87).
     starts = probe_starts(jdir / "probe.csv")
     start_clock = "nsevent" if starts else "t_post"
