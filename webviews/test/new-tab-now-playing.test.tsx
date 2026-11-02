@@ -115,7 +115,7 @@ test("the player shows what plays, and its controls reach the host", async () =>
     await act(async () =>
       root.render(
         <QueryClientProvider client={new QueryClient()}>
-          <NewTabScreen snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
+          <NewTabScreen template="default" snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
         </QueryClientProvider>,
       ),
     );
@@ -178,7 +178,7 @@ async function mount(calls: { method: string; params?: Record<string, unknown> }
   await act(async () =>
     root.render(
       <QueryClientProvider client={new QueryClient()}>
-        <NewTabScreen snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
+        <NewTabScreen template="default" snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
       </QueryClientProvider>,
     ),
   );

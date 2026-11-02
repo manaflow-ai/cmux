@@ -111,7 +111,7 @@ test("New Tab's create actions open a terminal, a browser tab and a chat", async
       await act(async () =>
         root.render(
           <QueryClientProvider client={new QueryClient()}>
-            <NewTabScreen snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
+            <NewTabScreen template="default" snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
           </QueryClientProvider>,
         ),
       );
@@ -161,7 +161,7 @@ test("New chat sends what the field holds, and a second click opens nothing more
     act(async () =>
       root.render(
         <QueryClientProvider client={new QueryClient()}>
-          <NewTabScreen snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
+          <NewTabScreen template="default" snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
         </QueryClientProvider>,
       ),
     );
