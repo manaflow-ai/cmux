@@ -52,6 +52,35 @@ struct TerminalDictationTests {
         #expect(!dictation.stopIfActive())
     }
 
+    /// A terminal closed while it was dictated into must not end dictation for the app: the next
+    /// terminal's session pastes its words and clears its preview (#31862 kept the cancelled
+    /// session, with no callbacks, so every later terminal dictation pasted nothing).
+    @Test func aTerminalClosedWhileDictatingLeavesTheNextTerminalWorking() async throws {
+        let engines = ScriptedTerminalEngines()
+        let dictation = TerminalDictation(claims: DictationMicrophoneClaims()) {
+            DictationSession(authorizer: GrantedTerminalAuthorizer(), makeTranscriber: { _ in engines.make() })
+        }
+        let first = TerminalHostView()
+        let pastedFirst = Pasted()
+        dictation.toggle(host: first) { pastedFirst.texts.append($0) }
+        try await waitFor { engines.made.count == 1 && engines.made[0].isStreaming }
+        first.onClose?()
+        try await waitFor { !dictation.isActive }
+
+        let second = TerminalHostView()
+        let pastedSecond = Pasted()
+        dictation.toggle(host: second) { pastedSecond.texts.append($0) }
+        try await waitFor { engines.made.count == 2 && engines.made[1].isStreaming }
+        engines.made[1].emit(.final("hello"))
+        try await waitFor { pastedSecond.texts == ["hello"] }
+        dictation.toggle(host: second) { _ in }
+        try await waitFor { !dictation.isActive && second.topOverlay == nil }
+        #expect(pastedFirst.texts.isEmpty)
+        #expect(pastedSecond.texts == ["hello"])
+        #expect(second.topOverlay == nil)
+        #expect(second.onClose == nil)
+    }
+
     private func waitFor(_ ready: () -> Bool, sourceLocation: SourceLocation = #_sourceLocation) async throws {
         for _ in 0..<300 where !ready() {
             try await Task.sleep(for: .milliseconds(10))
@@ -65,6 +94,17 @@ private nonisolated struct GrantedTerminalAuthorizer: DictationAuthorizing {
     func requestMicrophoneAuthorization() async -> Bool { true }
     func speechRecognitionAuthorization() async -> DictationAuthorizationStatus { .authorized }
     func requestSpeechRecognitionAuthorization() async -> Bool { true }
+}
+
+/// One fresh scripted engine per session start, in order.
+@MainActor private final class ScriptedTerminalEngines {
+    private(set) var made: [ScriptedTerminalTranscriber] = []
+
+    func make() -> ScriptedTerminalTranscriber {
+        let engine = ScriptedTerminalTranscriber()
+        made.append(engine)
+        return engine
+    }
 }
 
 private nonisolated final class ScriptedTerminalTranscriber: SpeechTranscribing, @unchecked Sendable {
