@@ -20,6 +20,7 @@
     "Native/OptChat/chief-kernel/src/prompt.rs": {"count": 6, "reason": "safe: prompt text telling the agent never to use pkill or killall (moved from optchat-chief/src/prompt.rs)"},
     "Native/OptChat/chief-kernel/tests/golden/cli-everything.txt": {"count": 3, "reason": "safe: golden rendered Chief prompt text telling the agent never to use pkill or killall"},
     "Native/OptChat/chief-kernel/tests/golden/cli-plain.txt": {"count": 3, "reason": "safe: golden rendered Chief prompt text telling the agent never to use pkill or killall"},
+    "Native/OptChat/chief-kernel/tests/golden/mcp-contact.txt": {"count": 3, "reason": "safe: golden rendered Chief prompt text telling the agent never to use pkill or killall"},
     "Native/OptChat/chief-kernel/tests/golden/mcp-everything.txt": {"count": 3, "reason": "safe: golden rendered Chief prompt text telling the agent never to use pkill or killall"},
     "Native/OptChat/chief-kernel/tests/golden/mcp-no-user.txt": {"count": 3, "reason": "safe: golden rendered Chief prompt text telling the agent never to use pkill or killall"},
     "Native/OptChat/chief-kernel/tests/golden/mcp-plain.txt": {"count": 3, "reason": "safe: golden rendered Chief prompt text telling the agent never to use pkill or killall"},

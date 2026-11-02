@@ -4,6 +4,7 @@ import type { Translate } from "../../i18n";
 import type { SummarySource, SummarySourceKind } from "../../summary/sessionSummary";
 import { SOURCES_SHOWN, scopedPath } from "../SourcesSection";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
+import { nativeExternalUrl, safeExternalUrl } from "./links";
 
 const SYMBOLS: Record<SummarySourceKind, string> = {
   file: "doc.text",
@@ -33,6 +34,7 @@ export function sourcesSection(
   t: Translate,
 ): NativeInfoSection | undefined {
   const { sources, cwd, onOpenFile, onOpenBeside, expanded, onExpandedChange } = input;
+  const openUrl = nativeExternalUrl(onOpenBeside);
   if (sources.length === 0) return undefined;
   const folds = sources.length > SOURCES_SHOWN;
   const shown = folds && !expanded ? sources.slice(0, SOURCES_SHOWN) : sources;
@@ -52,15 +54,11 @@ export function sourcesSection(
         action: actions.add(`sources.openFile:${path}`, () => onOpenFile(path)),
       };
     const url = source.url;
-    if (source.kind !== "file" && url)
+    if (source.kind !== "file" && url && safeExternalUrl(url))
       return {
         ...row,
         help: url,
-        ...(onOpenBeside
-          ? {
-              action: actions.add(`sources.open:${url}`, () => onOpenBeside(url)),
-            }
-          : {}),
+        action: actions.add(`sources.open:${url}`, () => openUrl(url)),
       };
     return row;
   });

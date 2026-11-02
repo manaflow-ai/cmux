@@ -266,7 +266,8 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                     // stored byte (not settled), and the tail takes the bytes.
                     let end =
                         log.state.lock().unwrap_or_else(PoisonError::into_inner).next_offset();
-                    let seen = Seen { digest: 0, settled: false, end, size: Some(size) };
+                    let seen =
+                        Seen { digest: 0, settled: false, end, size: Some(size), upload: false };
                     return Some((seen, size, Capture::Failed));
                 };
                 // A chunk the reader parsed but has not handed to the store
@@ -280,7 +281,8 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                     let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
                     (state.generation.clone(), state.next_offset(), state.note_size(size))
                 };
-                let seen = Seen { digest, settled, end, size: Some(size) };
+                let upload = terminal.kitty_upload_in_progress();
+                let seen = Seen { digest, settled, end, size: Some(size), upload };
                 if !plan.wants_snapshot(digest, size, size_settled, full, tail, quitting) {
                     return Some((seen, size, Capture::None));
                 }
@@ -416,6 +418,9 @@ struct Seen {
     end: u64,
     /// The terminal's size at the capture (`None`: not read).
     size: Option<(u16, u16)>,
+    /// A Kitty image upload was being assembled at the capture: its bytes
+    /// change nothing the digest sees, but they are content.
+    upload: bool,
 }
 
 /// Print a store write error once until the next success (a disk that keeps
@@ -598,10 +603,17 @@ fn flush_tail(
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
         let sync_due =
             state.tail_synced_at.is_none_or(|at| at.elapsed() >= super::TAIL_SYNC_INTERVAL);
-        if state.pending.is_empty() || (state.tail_digest == Some(seen.digest) && !quitting) {
+        // An unfinished Kitty upload's bytes change nothing the digest sees
+        // but are content: never held as redraws.
+        let redraw = state.tail_digest == Some(seen.digest) && !seen.upload;
+        if state.pending.is_empty() || (redraw && !quitting) {
             // Everything is stored and the capture saw exactly it: its
             // digest names the stored content, so the next redraw waits.
-            if state.pending.is_empty() && seen.settled && seen.end == state.pending_start {
+            if state.pending.is_empty()
+                && seen.settled
+                && !seen.upload
+                && seen.end == state.pending_start
+            {
                 state.tail_digest = Some(seen.digest);
             }
             // Held redraws past the idle cap (a snapshot would replace them,
@@ -681,7 +693,7 @@ fn flush_tail(
             // The digest names these bytes only when the capture saw exactly
             // them: a chunk in flight, or bytes that came after the capture,
             // must not be taken for redraws of stored content.
-            let exact = seen.settled && seen.end == state.pending_start;
+            let exact = seen.settled && !seen.upload && seen.end == state.pending_start;
             state.tail_digest = exact.then_some(seen.digest);
             let more = !state.pending.is_empty() || !exact;
             if sync {
@@ -728,7 +740,7 @@ fn snapshot_total_cap(policy: PersistencePolicy) -> u64 {
 /// Text, size, screen, history epoch and cursor position: what a cursor
 /// redrawn in place does not move.
 fn content_digest(terminal: &mut ghostty_vt::Terminal) -> Option<u64> {
-    let text = terminal.viewport_text().ok()?;
+    let text = terminal.active_text().ok()?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     terminal.cols().hash(&mut hasher);
     terminal.rows().hash(&mut hasher);

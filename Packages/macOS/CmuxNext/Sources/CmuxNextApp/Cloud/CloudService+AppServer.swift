@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAppCore
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextCompat
