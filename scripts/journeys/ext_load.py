@@ -193,7 +193,7 @@ def step_typist_play(j, step):
     late = sorted(p["late_ms"] for p in played)
     calls = sorted(p["t_back"] - p["t_post"] for p in played)
     return {"label": step.get("label"), "events": played, "planned": len(events), "columns": columns,
-            "wall_minus_mono": round(time.time() - time.monotonic(), 6),  # the hog log's clock is wall time
+            "seed": int(step.get("seed", 7)), "seconds": float(step.get("seconds", 120)), "from": lo, "to": hi,
             "call_ms": {"p50": round(calls[len(calls) // 2] * 1000, 2), "max": round(calls[-1] * 1000, 2)}, "key_path": "real_hid", "start": round(start, 6),
             "post_late_ms": {"p50": late[len(late) // 2], "max": late[-1]},
             "clock": "time.monotonic (mach_absolute_time, the clock of frames.json t and of echo.py)"}

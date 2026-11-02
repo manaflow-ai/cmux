@@ -59,14 +59,14 @@ def plan(seed=7, seconds=120.0, wpm=(60, 120), columns=80):
             add("ctrl_c", "c", ["control"], expect="^C", gap=rng.uniform(0.3, 0.6))
             next_ctrl_c = t + rng.uniform(20, 30)
             line_len = 0
-        elif t > next_paste:
-            text = " ".join(rng.choice(WORDS) for _ in range(rng.randint(2, 4)))
-            add("paste", "v", ["cmd"], text=text, expect=text, gap=rng.uniform(0.4, 0.8))
-            next_paste = t + rng.uniform(30, 40)
-            line_len += len(text)
         elif line_len > columns - 30:
             add("return", "return", expect="\n", gap=rng.uniform(0.3, 0.6))
             line_len = 0
+        elif t > next_paste and line_len + 30 <= columns - 14:
+            text = " ".join(rng.choice(WORDS) for _ in range(rng.randint(2, 4)))[:30]
+            add("paste", "v", ["cmd"], text=text, expect=text, gap=rng.uniform(0.4, 0.8))
+            next_paste = t + rng.uniform(30, 40)
+            line_len += len(text)
     return out
 
 

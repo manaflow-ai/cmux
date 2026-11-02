@@ -56,9 +56,8 @@ def probe_starts(path):
 
 
 def hog_held_gb(run, t0, t1):
-    """The LEAST the hog held during the typing window [t0, t1] in WALL seconds (smoke_hog.py logs `t` = time.time();
-    the caller adds typist_play's wall_minus_mono); 0 when its log has no sample in the window (review 4 at
-    71bef9a1695)."""
+    """The LEAST the hog held during the typing window [t0, t1] in time.monotonic seconds (smoke_hog.py's `t_mono`: the
+    hog runs on the same mini as the driver); 0 when its log has no sample in the window (review 4 at 71bef9a1695)."""
     rows = []
     for h in Path(run).glob("hog-*.jsonl"):
         for l in h.read_text(errors="replace").splitlines():
@@ -67,7 +66,7 @@ def hog_held_gb(run, t0, t1):
             except ValueError:
                 pass
     held = [float(r.get("held_mb") or 0) for r in rows if isinstance(r, dict)
-            and isinstance(r.get("t"), (int, float)) and t0 <= float(r["t"]) <= t1 and not r.get("released")]
+            and isinstance(r.get("t_mono"), (int, float)) and t0 <= float(r["t_mono"]) <= t1 and not r.get("released")]
     return round(min(held) / 1024, 2) if held else 0.0
 
 
@@ -91,11 +90,12 @@ def main():
     import typist
     planned = 0
     for p in plays:
-        st = next(x for x in res["steps"] if x is p)
-        args = {k: st.get(k) for k in ("seed", "seconds", "from", "to")}
-        want = [e for e in typist.plan(int(args["seed"] or 7), float(args["seconds"] or 120),
-                                       columns=int(p["result"].get("columns") or 80))
-                if float(args["from"] or 0) <= e["t"] < float(args["to"] if args["to"] is not None else 1e9)]
+        r = p["result"]  # the driver keeps only the step's result, so typist_play returns its own arguments
+        if any(r.get(k) is None for k in ("seed", "seconds", "from", "to", "columns")):
+            planned = None
+            break
+        want = [e for e in typist.plan(int(r["seed"]), float(r["seconds"]), columns=int(r["columns"]))
+                if float(r["from"]) <= e["t"] < float(r["to"])]
         if p["result"].get("planned") != len(want):
             planned = None
             break
@@ -148,9 +148,7 @@ def main():
         refresh_ms = meta.get("refresh_ms")
     loads = [s.get("result") or {} for s in res.get("steps", []) if s.get("do") == "load_stop" and s.get("result", {}).get("profile")]
     load_ok = bool(loads) and all(l.get("alive_at_stop") and l.get("focus_changed") is False for l in loads)
-    off = plays[0]["result"].get("wall_minus_mono")
-    hog = hog_held_gb(run, min(e["t_post"] for e in events) + off, max(e["t_back"] for e in events) + off) \
-        if off is not None else 0.0
+    hog = hog_held_gb(run, min(e["t_post"] for e in events), max(e["t_back"] for e in events))
     lag = max([p["result"].get("post_late_ms", {}).get("max") or 0 for p in plays] or [0])
     source = "video" if judged == len(plays) == 2 and (refreshes or missing) else "in-app"
     profile = a.journey.split("typing-load-")[1].split("-")[0].upper()
