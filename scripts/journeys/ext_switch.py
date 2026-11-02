@@ -231,8 +231,6 @@ def _wait(cond, timeout, what):
 def _shows(j, ws, name):
     """Waits until the window shows `ws`: debug.surfaces' workspace id is the topology's id, or (if the two ids
     differ in form) the focused pane is one of `ws`'s panes. Notes which held."""
-    pane_ids = {pid for pid, _ in _terminals_of(ws)}
-
     def held():
         panes = j.app.panes()
         focused = next((p for p in panes if p.get("focused")), None)
@@ -240,6 +238,8 @@ def _shows(j, ws, name):
             return None
         if focused.get("workspace") == ws.get("id"):
             return "id"
+        # The workspace's panes now (right after its creation the topology may list it with no pane yet).
+        pane_ids = {pid for pid, _ in _terminals_of(_ws_named(j, name) or ws)}
         return "pane" if focused.get("pane") in pane_ids else None
     try:
         how = _wait(held, 3, "workspace %s did not show" % name)
