@@ -36,17 +36,15 @@ if [ "$TARGET" = preview ]; then
 fi
 node scripts/wrangler-config.mjs "$TARGET" "$hyperdrive_id" $lane
 
-# CMUX_VM_SERVICE_KEYS_EXTRA, CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM and
-# CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM_STAGING (all optional) hold more service key entries, appended
-# to CMUX_VM_SERVICE_KEYS, so a key is added without reading back or rewriting a write-only secret
-# (each one is its own environment secret; CLOUD_PLATFORM holds cmux-platform development's Cloud
-# driver key, CLOUD_PLATFORM_STAGING cmux-platform staging's; scripts/mint-service-key.sh makes
-# one). Checked here, before anything deploys: each must be a JSON
+# CMUX_VM_SERVICE_KEYS_EXTRA and CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM (both optional) hold more
+# service key entries, appended to CMUX_VM_SERVICE_KEYS, so a key is added without reading back or
+# rewriting a write-only secret (each one is its own environment secret; CLOUD_PLATFORM holds
+# cmux-platform's Cloud driver key). Checked here, before anything deploys: each must be a JSON
 # array, ids and hashes unique across all of them (the Worker turns every service key off on a
 # duplicate). Values never reach the log.
 service_keys="${CMUX_VM_SERVICE_KEYS:-}"
 extras=()
-for name in CMUX_VM_SERVICE_KEYS_EXTRA CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM_STAGING; do
+for name in CMUX_VM_SERVICE_KEYS_EXTRA CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM; do
   if [ -n "${!name:-}" ]; then extras+=("$name"); fi
 done
 if [ "${#extras[@]}" -gt 0 ]; then
