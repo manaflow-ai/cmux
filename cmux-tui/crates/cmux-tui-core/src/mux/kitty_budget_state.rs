@@ -164,6 +164,17 @@ impl Drop for KittyImageSurfaceExpectation {
     }
 }
 
+/// The terminals a respawn wave will add (stub).
+pub(crate) struct KittyImageWaveExpectation {
+    pub(super) mux: Weak<Mux>,
+}
+
+impl Drop for KittyImageWaveExpectation {
+    fn drop(&mut self) {
+        drop(self.mux.upgrade());
+    }
+}
+
 pub(crate) struct RenderAttachmentPermit {
     pub(super) active: Arc<AtomicUsize>,
 }

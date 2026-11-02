@@ -21,6 +21,16 @@ impl Mux {
         KittyImageSurfaceExpectation { mux: Arc::downgrade(self), surface }
     }
 
+    /// Size the Kitty image budget for `count` terminals a respawn wave will
+    /// add (stub).
+    pub(crate) fn expect_kitty_image_wave(
+        self: &Arc<Self>,
+        count: usize,
+    ) -> KittyImageWaveExpectation {
+        drop(count);
+        KittyImageWaveExpectation { mux: Arc::downgrade(self) }
+    }
+
     pub(crate) fn reserve_kitty_image_surface(
         self: &Arc<Self>,
         surface: SurfaceId,

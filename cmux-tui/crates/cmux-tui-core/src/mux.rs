@@ -64,6 +64,7 @@ use kitty_budget_state::KittyImageBudgetEntry;
 pub(crate) use kitty_budget_state::KittyImageBudgetReservation;
 use kitty_budget_state::KittyImageBudgetState;
 pub(crate) use kitty_budget_state::KittyImageSurfaceExpectation;
+pub(crate) use kitty_budget_state::KittyImageWaveExpectation;
 use kitty_budget_state::PendingKittyImageBudgetOperation;
 pub(crate) use kitty_budget_state::RENDER_ATTACHMENT_LIMIT;
 pub(crate) use kitty_budget_state::RenderAttachmentPermit;

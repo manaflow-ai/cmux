@@ -177,3 +177,46 @@ fn a_dropped_kitty_expectation_gives_its_share_back() {
     drop(first);
     wait_for_kitty_image_budget(&mux);
 }
+
+/// The start sweep counts its lost terminals before it plans the first
+/// respawn; a respawn that fails before it is planned (so it never names its
+/// slot) is given back when the sweep ends: a new tab then gets the share of
+/// the terminals that started, not of the wave.
+#[test]
+fn a_start_wave_is_sized_before_its_first_respawn_and_gives_back_the_unplanned() {
+    const WAVE: usize = 12;
+    const PLANNED: usize = 3;
+    let mux = test_mux();
+    let wave = mux.expect_kitty_image_wave(WAVE);
+    let slots = (0..PLANNED).map(|_| mux.next_id()).collect::<Vec<_>>();
+    let mut reservations = Vec::new();
+    let mut expectations = Vec::new();
+    // Each planned respawn names its slot and reserves at once: the ones not
+    // planned yet are still counted.
+    for slot in &slots {
+        expectations.push(mux.expect_kitty_image_surface(*slot));
+        let started = Instant::now();
+        reservations.push(mux.reserve_kitty_image_surface(*slot).unwrap());
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "a wave respawn waited {:?} for a launch in flight",
+            started.elapsed()
+        );
+    }
+    assert!(
+        reservations.iter().all(|reservation| reservation.initial_limits()
+            == kitty_image_limits_for_capacity(WAVE.next_power_of_two())),
+        "the start wave did not size the budget before its first respawn"
+    );
+    drop(wave);
+    drop(expectations);
+    let new_tab = mux.reserve_kitty_image_surface(mux.next_id()).unwrap();
+    assert_eq!(
+        new_tab.initial_limits(),
+        kitty_image_limits_for_capacity((PLANNED + 1).next_power_of_two()),
+        "a new tab after the sweep got the share of respawns that never started"
+    );
+    reservations.push(new_tab);
+    drop(reservations);
+    wait_for_kitty_image_budget(&mux);
+}
