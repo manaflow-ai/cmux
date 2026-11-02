@@ -279,6 +279,13 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
 
+## Rename field on a whole pixel (2026-11-02)
+
+User 2026-10-31: "double click to rename workspaces must not have layout shift". Since #27598 a title can
+sit on a fractional y (centered on its capitals); the in-place rename field now snaps its top to a backing
+pixel after aligning to the title's pen, so AppKit's whole-pixel field editor no longer draws the text a
+point off the title. Regression: `SidebarRenameInPlaceTests`.
+
 ## Last workspace close keeps its group (2026-11-01)
 
 Leo: "also closing the last workspace in a group it's like the group isn't sure if it wants to close too or not but the animation gets weird. just leave it; we don't need to close the group automatically the last workspace in it gets closed too. just don't do a weird jitter indecisive animation"
