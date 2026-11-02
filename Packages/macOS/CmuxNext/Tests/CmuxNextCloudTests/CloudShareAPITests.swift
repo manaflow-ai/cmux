@@ -53,14 +53,14 @@ struct ShareInstallsTests {
         #expect(staging !== fallback && staging !== owner)
         #expect(await installs.identity(for: Self.staging) === staging)
         #expect(await installs.identity(for: URL(string: "http://cloud-api-staging.cmux.dev")) === fallback)
-        #expect(await installs.began(unbinding: false, except: owner).isEmpty)
-        let all = await installs.began(unbinding: true, except: owner)
-        #expect(all.count == 2 && all.contains { $0 === staging } && all.contains { $0 === fallback })
+        await installs.began(switched: true, except: owner)
+        #expect(await installs.identity(for: Self.staging) === staging, "a switch unbinds the install and keeps it")
         // After a sign-out listed them, a share racing it makes no install the sign-out missed.
-        #expect(await installs.ended(except: owner).count == 2)
+        let all = await installs.ended(except: owner)
+        #expect(all.count == 2 && all.contains { $0 === staging } && all.contains { $0 === fallback })
         #expect(await installs.identity(for: URL(string: "https://cmux-api-other.invalid")) === fallback)
         #expect(await installs.identity(for: Self.staging) === staging)
-        _ = await installs.began(unbinding: false, except: owner)
+        await installs.began(switched: false, except: owner)
         #expect(await installs.identity(for: URL(string: "https://cmux-api-other.invalid")) !== fallback)
 
         try FileManager.default.createDirectory(at: root.appendingPathComponent("install-share-cloud-api-staging.cmux.dev"),
@@ -75,6 +75,8 @@ struct ShareInstallsTests {
         let installs = Self.installs(root, owner: owner, fallback: fallback, release: true)
         #expect(await installs.identity(for: URL(string: "https://elsewhere.invalid")) === fallback)
         #expect(await installs.identity(for: Self.staging) !== fallback)
+        #expect(await installs.identity(for: URL(string: "https://cloud-api.cmux.dev:8443")) === fallback, "another origin of a cmux host")
+        #expect(await installs.identity(for: URL(string: "https://cloud-api-staging.cmux.dev/v1?x=1")) !== fallback, "an API is its origin")
         let debug = Self.installs(root, owner: owner, fallback: fallback)
         #expect(await debug.identity(for: URL(string: "https://elsewhere.invalid")) !== fallback)
     }

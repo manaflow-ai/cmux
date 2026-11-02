@@ -185,10 +185,12 @@ public struct CloudConfiguration: Sendable, Equatable {
 
     /// Whether a guest link's owner token may come from `api`, the API the daemon's share room names
     /// (`agent-session-share-room`, cmux#31372). A release build takes only a cmux API, so the owner's
-    /// credentials never reach another origin; a debug build takes any https origin.
+    /// credentials never reach another origin; a debug build takes any https origin. Only a bare origin (no
+    /// credentials, path, query or fragment; a port only in a debug build) is taken.
     public func acceptsShareAPI(_ api: URL) -> Bool {
-        guard api.scheme?.lowercased() == "https", let host = api.host?.lowercased(), api.user == nil, api.password == nil else { return false }
-        return isDebugBuild || Self.shareAPIHosts.contains(host)
+        guard api.scheme?.lowercased() == "https", let host = api.host?.lowercased(), !host.isEmpty, api.user == nil, api.password == nil,
+              api.path.isEmpty || api.path == "/", api.query == nil, api.fragment == nil else { return false }
+        return isDebugBuild || (api.port == nil && Self.shareAPIHosts.contains(host))
     }
 
     /// The cmux APIs a share room takes tokens from (cmux-tui `platform::share_owner_api`).

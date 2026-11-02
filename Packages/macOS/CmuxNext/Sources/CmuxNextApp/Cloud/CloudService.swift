@@ -347,7 +347,7 @@ final class CloudService {
                     // Another account's machines, connections and share installs end first (its next share binds this one).
                     let switched = await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID)
                     if switched { self.dropAllMachines() }
-                    for share in await self.shareInstalls.began(unbinding: switched, except: self.installIdentity) { await share.unbind() }
+                    await self.shareInstalls.began(switched: switched, except: self.installIdentity)
                     // The install first: the app server path's first list sends its token through the credential relay.
                     await self.installSignedIn()
                     self.hands.start()
@@ -923,15 +923,15 @@ final class CloudService {
         }
     }
 
-    /// A guest link's owner token from `api` (the daemon's room's, cmux#31372; nil: the build's default), registering
-    /// that install first when sign-in did not: a DEV build on the local backend never calls the Cloud API
-    /// (``mayCallCloud``), but its links' room is a Worker's. Nil signed out, or with Cloud off for the organization or its team missing.
+    /// A guest link's owner token from `api` (the daemon's room's, cmux#31372; nil: the build's default), registering that install first when
+    /// sign-in did not (a DEV build on the local backend never calls the Cloud API). Nil signed out, switched, or with Cloud off or no team.
     func shareOwnerToken(api: URL?) async -> String? {
         guard let stackUser = auth.user?.id, !policyDisabled, auth.managedTeamID == nil || auth.teamID != nil else { return nil }
         let auth = auth, share = await shareInstalls.identity(for: api)
         do {
             try await share.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })
-            return try await share.installToken()
+            let token = try await share.installToken()
+            return auth.user?.id == stackUser ? token : nil // an account switch meanwhile: not the old account's token
         } catch {
             logger.error("share owner token failed: \(String(describing: error), privacy: .public)")
             return nil

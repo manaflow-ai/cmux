@@ -49,9 +49,9 @@ public actor ShareInstalls {
     /// The install for an accepted https `api`, made now (also while ``closed``: the scan finds an earlier
     /// launch's to revoke it).
     private func made(for api: URL) -> MacInstallIdentity? {
-        guard let key = Self.origin(api), let host = api.host?.lowercased(), accepts(api) else { return nil }
+        guard let key = Self.origin(api), let host = api.host?.lowercased(), accepts(api), let origin = URL(string: key) else { return nil }
         if let found = byOrigin[key] { return found }
-        let made = make(api, Self.folderPrefix + host)
+        let made = make(origin, Self.folderPrefix + host)
         byOrigin[key] = made
         return made
     }
@@ -63,11 +63,14 @@ public actor ShareInstalls {
         return all(except: owner)
     }
 
-    /// A session began: installs are made again. On an account switch (`unbinding`) every one but `owner` is
-    /// returned to be unbound, so the next share binds the new account.
-    public func began(unbinding: Bool, except owner: MacInstallIdentity) -> [MacInstallIdentity] {
+    /// A session began: installs are made again. On an account switch every one but `owner` is unbound first,
+    /// while none is made, so the next share binds the new account.
+    public func began(switched: Bool, except owner: MacInstallIdentity) async {
+        if switched {
+            closed = true
+            for share in all(except: owner) { await share.unbind() }
+        }
         closed = false
-        return unbinding ? all(except: owner) : []
     }
 
     /// Every share install but `owner` (which signs in and out on its own), with the ones an earlier
