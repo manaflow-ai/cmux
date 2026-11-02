@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4141950554301",
+  "notes": "notes/4141950554301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32029,
+      "title": "base red: attach waits latch the open's \"connected\" snapshot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31930,
+      "title": "cmux NEXT: draw Session Info with native AppKit glass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32051,
+      "title": "fractional-anchor hosted scripts: keep full clones full",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32037,
+      "title": "ci(next): a carried SHIP looks up private members at its own head (#32027)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
