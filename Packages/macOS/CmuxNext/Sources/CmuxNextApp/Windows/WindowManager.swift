@@ -386,7 +386,9 @@ final class WindowManager {
             frame = placed
             placedWindows += 1
         }
+        DebugTimings.markLaunch("win.make")
         let controller = WindowController(state: state, services: services, frame: frame)
+        DebugTimings.markLaunch("win.controller")
         controller.window?.animationBehavior = Motion.panes.windowOpenBehavior(restoring: registry.isLaunching || !restored) // REOPEN-F2: a restore shows in place, never AppKit's zoom
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
@@ -395,7 +397,9 @@ final class WindowManager {
         // Its content goes in before it is ordered in (the launch snapshot's workspace, else the
         // connecting state), so its first frame on screen draws it, never the backdrop alone; the
         // controller's own observer would install it a main-actor hop later.
+        DebugTimings.markLaunch("win.chrome")
         controller.showWorkspace(requested: state.workspaceID)
+        DebugTimings.markLaunch("win.workspace")
         // A window none of whose workspaces is mirrored yet stays off screen
         // until `contentDidAppear` (never an empty frame). The launch window
         // (no workspaces) shows the connecting state at once.
@@ -404,6 +408,7 @@ final class WindowManager {
         } else {
             awaitingContent[window.id] = false
         }
+        DebugTimings.markLaunch("win.presented")
         if controllers.count == 1 { onFirstWindow?(controller) }
         return controller
     }
