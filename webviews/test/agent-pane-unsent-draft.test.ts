@@ -200,7 +200,8 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
       const line = page.locator(".acpmux-composer-trust-note");
       await line.waitFor();
       expect(await line.count()).toBe(1);
-      expect(await line.innerText()).toContain("Log In");
+      // A route that needs its sign-in again reads Sign in again, as the picker does (#31689).
+      expect(await line.innerText()).toContain("Sign in again");
       await expectBlockedDraft(page, "route draft");
       await page.close();
     });
