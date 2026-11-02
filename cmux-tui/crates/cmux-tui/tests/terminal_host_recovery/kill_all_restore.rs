@@ -712,9 +712,7 @@ fn a_workspace_selected_during_the_respawn_waves_respawns_without_waiting_a_wave
         &harness.socket,
         serde_json::json!({"id": 302, "cmd": "select-workspace", "index": target_index}),
     );
-    let selected_ms =
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
-            as u64;
+    let selected_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
 
     let log = harness.host_root().parent().unwrap().join("terminal-losses.jsonl");
     let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
@@ -803,9 +801,7 @@ fn a_shown_terminal_lost_behind_a_respawn_backlog_respawns_without_waiting_for_i
         assert!(Instant::now() < deadline, "the target was not adopted: {resolved}");
         std::thread::sleep(Duration::from_millis(25));
     }
-    let killed_ms =
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
-            as u64;
+    let killed_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
     kill_shell_then_host(&target_path, &target_host);
 
     let log = harness.host_root().parent().unwrap().join("terminal-losses.jsonl");
