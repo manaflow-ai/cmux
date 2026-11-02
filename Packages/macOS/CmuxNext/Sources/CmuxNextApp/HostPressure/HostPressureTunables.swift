@@ -40,17 +40,12 @@ enum HostPressureIndicatorStyle: String, Sendable, CaseIterable, TunableChoice {
 enum HostPressureTunables {
     static let section = TunableSection(id: "hostPressure", title: "Host Pressure", symbol: "gauge.with.dots.needle.67percent", order: 50)
 
-    /// The developer's local override of the feature `hostPressure`
-    /// (`schemas/features/features.d/hostPressure.json`, which `replaces` this key, off on every
-    /// channel, cmux#22662: a new dev surface ships off). Nothing reads it here: the launch's
-    /// feature ladder takes it from the Debug Settings file as step 3 (`FeatureLaunchLocalOverrides`;
-    /// DEV and NIGHTLY, under managed policy and `CMUX_DISABLE_FEATURES`/`CMUX_ENABLE_FEATURES`), so a
-    /// change applies at the next launch. Off: no indicator, no service, no timer and no sampling.
-    /// On: each visible window's indicator subscribes, and the app's one monitor reads the host
-    /// every 15 s while at least one window can be seen.
+    /// The local override of the feature `hostPressure` (off on every channel; Lawrence 2026-11-02: "get rid of
+    /// host-pressure warning by default, can be enabled in cmd shift p tho"): step 3 at launch, and read live by each
+    /// indicator, so Show / Hide Host Pressure Warning apply at once. Off: no service, no timer, no sampling.
     static let enabled = Tunable<Bool>.toggle(
         "hostPressure.enabled", section, "Show the host pressure indicator",
-        help: "Overrides the feature hostPressure (off by default) at the next launch. On: a still gauge after the toolbar band when this Mac is busy or overloaded, with a popover of the load, acpmux's reasons and its busiest sessions. It reads the host every 15 seconds only while a window can be seen. Off: no indicator, no timer and no reads.",
+        help: "Overrides the feature hostPressure (off by default); the palette's Show Host Pressure Warning turns it on. On: a still gauge after the toolbar band when this Mac is busy or overloaded, with a popover of the load, acpmux's reasons and its busiest sessions. It reads the host every 15 seconds only while a window can be seen. Off: no indicator, no timer and no reads.",
         default: false, code: "HostPressureTunables.enabled")
 
     static let force = Tunable<HostPressureForce>.choice(

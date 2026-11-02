@@ -32,6 +32,7 @@ struct FeatureFlagsPage {
             Feature.agentChromium.name: {
                 features.effectiveLocalOverride(.agentChromium, localOverride: AgentPaneTunables.chromium.override(in: tunables))
             },
+            Feature.hostPressure.name: { [hostToggle = HostPressureTunables.enabled] in features.effectiveLocalOverride(.hostPressure, localOverride: hostToggle.override(in: tunables)) },
         ]
         #if DEBUG || CMUX_BENCH_HOOKS
         let hostSwitch = AppControl.chromiumHostSwitch(in: features, tunables: tunables)
