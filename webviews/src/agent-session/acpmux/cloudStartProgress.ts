@@ -66,6 +66,10 @@ export type CloudStartupOperation = {
   phase?: string;
   /// A seed that copied the folder instead: the reason's code (`not_git`, `seed.needs_github`, ...).
   fallback?: string;
+  /// Verified at seed completion by the guest's git rev-parse; absent on copies and cached retries.
+  checkoutState?: "guest_verified";
+  checkoutRepository?: string;
+  checkoutCommit?: string;
   /// The cmux GitHub App's install page, when the machine could not read a private repository.
   installUrl?: string;
   progress?: {
@@ -267,6 +271,13 @@ function operation(value: unknown): CloudStartupOperation | undefined {
     : undefined;
   const fallback = line(record.fallback, 80);
   const installUrl = httpsUrl(record.installUrl ?? record.install_url);
+  const checkoutRepo = line(record.checkoutRepository ?? record.checkout_repository, 140);
+  const checkoutCommit = line(record.checkoutCommit ?? record.checkout_commit, 64);
+  const guestVerified =
+    record.checkout_state === "guest_verified" &&
+    checkoutRepo !== undefined && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(checkoutRepo) &&
+    checkoutCommit !== undefined && /^[a-f0-9]{40}$/.test(checkoutCommit) &&
+    state === "done";
   return {
     state,
     ...(startedAt !== undefined && { startedAt }),
@@ -275,6 +286,11 @@ function operation(value: unknown): CloudStartupOperation | undefined {
     ...(phase && { phase }),
     ...(fallback && { fallback }),
     ...(installUrl && { installUrl }),
+    ...(guestVerified && {
+      checkoutState: "guest_verified" as const,
+      checkoutRepository: checkoutRepo,
+      checkoutCommit,
+    }),
     ...(progress && Object.keys(progress).length > 0 && { progress }),
   };
 }
