@@ -499,6 +499,30 @@ fn a_full_seed_retry_refuses_excluded_untracked_secrets_before_git_clean() {
 }
 
 #[test]
+fn a_full_seed_retry_refuses_to_replace_an_ignored_cloud_file() {
+    let world = World::new("reseed-ignored");
+    let original = world.snapshot("first", &[&world.base]);
+    let folder = world.home.join("work/project");
+    assert_eq!(seed(&world, &world.start_params(&folder, &original))["state"], "done");
+
+    // WORK deliberately excludes the ignored path. The new Mac seed adds
+    // that exact path as tracked, so a forced checkout would replace it.
+    write(&folder.join("ignored/user.txt"), "valuable ignored Cloud file\n");
+    write(&world.mac.join("ignored/user.txt"), "new tracked Mac file\n");
+    git(&world.mac, &["add", "-f", "ignored/user.txt"]);
+    let newer = world.snapshot("second", &[&world.base]);
+    let before = state(&folder);
+    let result = seed(&world, &world.start_params(&folder, &newer));
+    assert_eq!(result["state"], "failed", "{result}");
+    assert_eq!(result["error_code"], "seed.machine_changed", "{result}");
+    assert_eq!(state(&folder), before);
+    assert_eq!(
+        std::fs::read_to_string(folder.join("ignored/user.txt")).unwrap(),
+        "valuable ignored Cloud file\n",
+    );
+}
+
+#[test]
 fn a_full_seed_retry_refuses_cloud_stash_or_assume_unchanged_edits() {
     let world = World::new("reseed-hidden");
     let original = world.snapshot("first", &[&world.base]);
@@ -531,11 +555,15 @@ fn an_unchanged_cloud_checkout_accepts_a_new_full_seed_after_daemon_relaunch() {
     assert_eq!(seed(&world, &world.start_params(&folder, &original))["state"], "done");
 
     // A new GitSeedService instance has lost the first job's in-memory id.
-    // A clean existing checkout may still accept the updated seed.
+    // A clean existing checkout may still accept the updated seed, and an
+    // ignored cache with no path collision stays in place.
+    write(&folder.join("ignored/cache.txt"), "warm build cache\n");
     write(&world.mac.join("a"), "a\nnew edit to bring to Cloud\n");
     let newer = world.snapshot("second", &[&world.base]);
     let status = seed(&world, &world.start_params(&folder, &newer));
     assert_eq!(status["state"], "done", "{status}");
+    // The ignored cache remains after git clean -fd, as before the fix.
+    assert_eq!(std::fs::read_to_string(folder.join("ignored/cache.txt")).unwrap(), "warm build cache\n");
     assert_eq!(state(&folder), state(&world.mac));
 }
 
