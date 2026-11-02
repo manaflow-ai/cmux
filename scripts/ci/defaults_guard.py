@@ -48,8 +48,14 @@ the head: a comment or review whose first line is
 `Review (<reviewer>): SHIP at <full head sha>` from a member (OWNER, MEMBER or
 COLLABORATOR, a user, not a bot), not a self-review, the grammar
 scripts/ci/risk_tier.py reads. The newest verdict naming the head decides, so
-a later BLOCK beats an earlier SHIP, and a push needs a new receipt. An
-approving review of the head from a call owner in
+a later BLOCK beats an earlier SHIP, and a push needs a new receipt, except a
+merge of the base: a SHIP at an earlier head is carried when only merges came
+after it and they leave the pull request's default changes as reviewed
+(carried_ship). The
+workflow's token cannot see a private org membership (GitHub reports such a
+member as CONTRIBUTOR to it), so a receipt's author who reads as untrusted is
+looked up once: write, maintain or admin access to the repository trusts them
+too. An approving review of the head from a call owner in
 .github/defaults-call-owners.json other than the author still passes too. The
 `needs a call` label alone never passes. The workflow (pull_request_target
 only) runs this script and reads the owners file from the base branch, so a
@@ -65,6 +71,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -93,8 +100,6 @@ REGENERATE = "python3 scripts/ci/defaults_guard.py snapshot"
 GUARD_FILES = (
     "scripts/ci/defaults_guard.py",
     OWNERS,
-    ".github/workflows/cmux-next-defaults-guard.yml",
-    ".github/workflows/cmux-next-defaults-guard-review.yml",
 )
 
 # AppKit's function-key characters, as the catalog export writes them.
@@ -118,6 +123,14 @@ TUNABLE_RE = re.compile(r'\bTunable<[\w.?]+>\s*\.(choice|toggle|number|color|spr
 RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
                      re.I)
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
+# Repository roles that trust a receipt's author whose association reads as untrusted: a member who
+# keeps the org membership private is CONTRIBUTOR to the workflow's token (#26153).
+WRITER_ROLES = ("admin", "maintain", "write")
+# GitHub returns the App slug as `cmux-bot` in some GraphQL connections and the
+# REST-normalized `cmux-bot[bot]` form in others. Both are the same actor only
+# when paired with this immutable node id; a name alone is never sufficient.
+CMUX_BOT_LOGINS = frozenset(("cmux-bot", "cmux-bot[bot]"))
+CMUX_BOT_NODE_ID = "BOT_kgDOFMYsLQ"
 # Default values that read as "off": a new setting with one of them changes nothing for anyone.
 OFF_WORDS = ("off", "never", "none", "disabled", "")
 
@@ -627,19 +640,41 @@ class Approval:
         return bool(self.approvers) or self.shipped is not None
 
 
-def receipt_verdict(pull: Mapping[str, object], head: str) -> tuple[str, str] | None:
-    """("ship" or "block", reviewer) of the newest receipt naming the full head sha on the first line
-    of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie."""
-    found = []
+def receipt_items(pull: Mapping[str, object]) -> list[tuple[Mapping[str, object], object]]:
     items = [(c, c.get("createdAt")) for c in (pull.get("comments") or {}).get("nodes") or []]
-    items += [(r, r.get("submittedAt")) for r in (pull.get("reviews") or {}).get("nodes") or []]
-    for item, at in items:
+    return items + [(r, r.get("submittedAt")) for r in (pull.get("reviews") or {}).get("nodes") or []]
+
+
+def receipt_line(item: Mapping[str, object], head: str) -> re.Match[str] | None:
+    """The receipt on the item's first line when it names the full head and is not a self-review."""
+    first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
+    line = RECEIPT.match(first)
+    return line if head and line and "self" not in line.group(1).lower() and head in first else None
+
+
+def receipt_verdict(pull: Mapping[str, object], head: str,
+                    writers: Iterable[str] = ()) -> tuple[str, str] | None:
+    """("ship" or "block", reviewer) of the newest receipt naming the full head sha on the first line
+    of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie. The
+    cmux-bot App is trusted only when GitHub reports its exact Bot login and immutable node id.
+    A user whose association reads as untrusted is trusted when listed in `writers` (repository
+    write access, looked up by `repo_writers`)."""
+    writers = {w.lower() for w in writers}
+    found = []
+    for item, at in receipt_items(pull):
         author = item.get("author") or {}
-        if author.get("__typename") != "User" or item.get("authorAssociation") not in TRUSTED:
+        if author.get("__typename") == "Bot":
+            trusted = (str(author.get("login") or "") in CMUX_BOT_LOGINS
+                       and str(author.get("id") or "") == CMUX_BOT_NODE_ID)
+        elif author.get("__typename") == "User":
+            trusted = (item.get("authorAssociation") in TRUSTED
+                       or str(author.get("login") or "").lower() in writers)
+        else:
+            trusted = False
+        if not trusted:
             continue
-        first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
-        line = RECEIPT.match(first)
-        if head and line and "self" not in line.group(1).lower() and head in first:
+        line = receipt_line(item, head)
+        if line:
             verdict = "ship" if line.group(2).lower() == "ship" else "block"
             found.append((str(at or ""), verdict == "block", verdict, f"review ({line.group(1).strip()})"))
     if not found:
@@ -654,7 +689,31 @@ def owners_for(text: str | None) -> list[str]:
     return [str(o) for o in json.loads(text).get(APP, [])]
 
 
-def approval(owners: list[str], pull: Mapping[str, object]) -> Approval:
+def repo_writers(repo: str, pull: Mapping[str, object], head: str) -> list[str]:
+    """The authors of receipts on the head whose association reads as untrusted but who have write,
+    maintain or admin access to the repository. GitHub hides a private org membership from the
+    workflow's token, so such a member reads as CONTRIBUTOR here (#26153). One lookup per author;
+    a lookup that fails (404: not a collaborator) trusts nobody."""
+    logins: dict[str, str] = {}
+    for item, _ in receipt_items(pull):
+        author = item.get("author") or {}
+        login = str(author.get("login") or "")
+        if (login and author.get("__typename") == "User" and item.get("authorAssociation") not in TRUSTED
+                and receipt_line(item, head)):
+            logins.setdefault(login.lower(), login)
+    writers = []
+    for login in logins.values():
+        result = subprocess.run(["gh", "api", f"repos/{repo}/collaborators/{login}/permission", "--jq", ".role_name"],
+                                capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip() in WRITER_ROLES:
+            writers.append(login)
+        elif result.returncode != 0 and "404" not in result.stderr:
+            print(f"::warning title=Defaults reviewer lookup failed::{command_text(login)}: "
+                  f"{command_text(result.stderr.strip()[:200])}")
+    return writers
+
+
+def approval(owners: list[str], pull: Mapping[str, object], writers: Iterable[str] = ()) -> Approval:
     """Who approved the head: each reviewer's latest decisive review counts."""
     author = str((pull.get("author") or {}).get("login") or "")
     head = str(pull.get("headRefOid") or "")
@@ -672,7 +731,7 @@ def approval(owners: list[str], pull: Mapping[str, object]) -> Approval:
             result.approvers.append(owner)
         else:
             result.stale.append(owner)
-    receipt = receipt_verdict(pull, head)
+    receipt = receipt_verdict(pull, head, writers)
     if receipt:
         if receipt[0] == "ship":
             result.shipped = receipt[1]
@@ -681,13 +740,106 @@ def approval(owners: list[str], pull: Mapping[str, object]) -> Approval:
     return result
 
 
+SHIP_AT = re.compile(r"\bSHIP at ([0-9a-f]{40})\b", re.I)
+CARRY_MAX = 5  # earlier SHIP heads looked at, newest first (ancestry and merges only: cheap git reads)
+CARRY_PATHS = (ACTION_SURFACES, SETTINGS_SCHEMA, SWIFT_SOURCES, *GUARD_FILES)
+
+
+def git(root: Path, *args: str) -> str:
+    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args[:2])}: {result.stderr.strip()[-200:]}")
+    return result.stdout.strip()
+
+
+def has_commits(root: Path, shas: Iterable[str]) -> bool:
+    """`shas` and their history are in `root` (a full clone: the tests' repository, a local run)."""
+    if git(root, "rev-parse", "--is-shallow-repository") == "true":
+        return False
+    return all(subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{sha}^{{commit}}"],
+                              capture_output=True).returncode == 0 for sha in shas)
+
+
+def sparse_tree(repo: str, sha: str, into: Path) -> Tree:
+    """A checkout of only the defaults' inputs at `sha` (what the workflow's own checkouts hold), as a Tree."""
+    into.mkdir(parents=True)
+    git(into, "init", "-q")
+    git(into, "fetch", "-q", "--no-tags", "--depth=1", "--filter=blob:none", f"https://github.com/{repo}", sha)
+    git(into, "sparse-checkout", "set", "--no-cone", *CARRY_PATHS)
+    git(into, "checkout", "-q", "FETCH_HEAD")
+    return Tree(None, into.resolve())
+
+
+def carried_ship(pull: Mapping[str, object], head: str, writers: Iterable[str], found: list[Change],
+                 repo: str | None, scratch: Path | None = None) -> tuple[str, str] | None:
+    """(reviewer, earlier head) of a SHIP receipt that still covers `head`'s default changes, or None.
+
+    Autoland, update-branch and lanes merge feat-cmux-next into a reviewed pull request; each merge is a new head,
+    and an exact-head SHIP then no longer names it (2026-11-02: #30961, #31798, #27745 and others red on
+    "N default(s) changed; needs ... SHIP at <head>" with a SHIP one base merge back). A SHIP at an earlier head H
+    is carried when every commit after H is a merge (two parents) and the default changes H made against its
+    merge base with the base are exactly the ones `head` makes now: the merges brought nothing to the pull
+    request's own defaults. A BLOCK at H, or anything unreadable, carries nothing. The trusted checkout this runs
+    from is the base tip; its history is read with git, fetched treeless when it is shallow (as the workflow's
+    merge-base step does), and H's inputs are sparse checkouts."""
+    wanted = [(c.id, c.old, c.new) for c in found]
+    seen: list[str] = []
+    for item, at in sorted(receipt_items(pull), key=lambda pair: str(pair[1] or ""), reverse=True):
+        first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
+        match = SHIP_AT.search(first)
+        if match and match.group(1) != head and match.group(1) not in seen:
+            seen.append(match.group(1))
+    tip = git(ROOT, "rev-parse", "HEAD")
+    history = ROOT
+    for earlier in seen[:CARRY_MAX]:
+        try:
+            if history == ROOT and not has_commits(ROOT, (earlier, head)):
+                if not repo or scratch is None:
+                    continue
+                history = scratch / "history.git"
+                if not history.exists():
+                    git(scratch, "init", "-q", "--bare", str(history))
+                    git(history, "fetch", "-q", "--filter=tree:0", "--no-tags", f"https://github.com/{repo}",
+                        tip, head)
+            if subprocess.run(["git", "-C", str(history), "merge-base", "--is-ancestor", earlier, head],
+                              capture_output=True).returncode != 0:
+                continue  # not an ancestor of the head: a force-push replaced it
+            after = [line.split()
+                     for line in git(history, "rev-list", "--first-parent", "--parents", f"{earlier}..{head}").splitlines()]
+            if not after or any(len(line) != 3 for line in after):
+                continue  # not only merges after it: a commit of the pull request's own came after the review
+            # A private org member reads as untrusted; their receipts at this earlier head are looked up like the
+            # head's, so their SHIP counts and their BLOCK still wins (#32027).
+            verdict = receipt_verdict(pull, earlier, [*writers, *(repo_writers(repo, pull, earlier) if repo else [])])
+            if not verdict or verdict[0] != "ship":
+                continue
+            base = git(history, "merge-base", tip, earlier)
+            if history == ROOT:
+                before_tree, head_tree = Tree(base), Tree(earlier)
+            else:
+                before_tree = sparse_tree(repo, base, scratch / f"base-{earlier[:12]}")
+                head_tree = sparse_tree(repo, earlier, scratch / f"head-{earlier[:12]}")
+            old, new = defaults(before_tree), defaults(head_tree)
+            then = changes(old, new) + guard_changes(before_tree, head_tree)
+        except (RuntimeError, SystemExit, OSError, ValueError, KeyError) as error:
+            print(f"::warning title=Defaults SHIP not carried::{earlier[:12]}: {str(error)[-200:]}")
+            continue
+        if [(c.id, c.old, c.new) for c in then] == wanted:
+            return verdict[1], earlier
+        print(f"SHIP at {earlier[:12]} not carried: its default changes differ from the head's")
+        # One defaults comparison a run: it doubles the judging time (about 40 s in CI), and the job has 5 minutes.
+        # The newest SHIP on the head's merge-only chain is the one that can cover it; an older one reviewed less.
+        return None
+    return None
+
+
 PULL_QUERY = """
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       author { login } headRefOid merged mergeCommit { oid }
-      reviews(last: 100) { nodes { author { login __typename } authorAssociation state body submittedAt commit { oid } } }
-      comments(last: 100) { nodes { databaseId body createdAt authorAssociation author { login __typename } } }
+      reviews(last: 100) { nodes { author { login __typename ... on Bot { id } } authorAssociation state body submittedAt commit { oid } } }
+      comments(last: 100) { nodes { databaseId body createdAt authorAssociation author { login __typename ... on Bot { id } } } }
     }
   }
 }
@@ -767,16 +919,18 @@ def summary(text: str) -> None:
 
 
 def post_comment(repo: str, number: int, pull: Mapping[str, object], body: str, found: list[Change]) -> None:
-    existing = None
-    for comment in (pull.get("comments") or {}).get("nodes") or []:
-        if MARKER in str(comment.get("body") or "") and str((comment.get("author") or {}).get("login") or "") == "github-actions":
-            existing = comment.get("databaseId")
-    if existing is None and not found:
-        return  # nothing changed and nothing said before: no comment
-    if existing is None:
-        gh(["api", f"repos/{repo}/issues/{number}/comments", "-f", f"body={body}"])
-    else:
-        gh(["api", "-X", "PATCH", f"repos/{repo}/issues/comments/{existing}", "-f", f"body={body}"])
+    # Snapshot/check-fresh also run from small fixture checkouts without the writer.
+    import pr_status
+
+    if not found:
+        # Do not create a clean-defaults section unless this PR previously had one.
+        # Read the full comment list, not fetch_pull's last-100 receipt window.
+        comments = pr_status.list_comments(pr_status.http_api, repo, number)
+        previous = pr_status.bot_comments(comments, MARKER)
+        status = pr_status.bot_comments(comments, pr_status.MARKER)
+        if not previous and not any("defaults" in pr_status.parse(c["body"]) for c in status):
+            return
+    pr_status.upsert(repo, number, "defaults", body.removeprefix(MARKER).strip(), legacy=MARKER)
 
 
 # MARK: Commands
@@ -853,7 +1007,14 @@ def command_check(args: argparse.Namespace) -> int:
                 break
             time.sleep(5)
             pull = fetch_pull(args.repo, args.pr)
-    verdict = approval(owners, pull) if pull is not None else None
+    writers = repo_writers(args.repo, pull, head_sha) if pull is not None and args.repo else []
+    verdict = approval(owners, pull, writers) if pull is not None else None
+    needed = [c for c in found if c not in free]
+    if pull is not None and verdict is not None and needed and not verdict.approved and not verdict.blocked:
+        with tempfile.TemporaryDirectory(prefix="defaults-carry-") as scratch:
+            carried = carried_ship(pull, head_sha, writers, found, args.repo, Path(scratch))
+        if carried:
+            verdict.shipped = f"{carried[0]}, carried from {carried[1][:12]} across base merges"
     if pull is not None and verdict is not None and verdict.head != head_sha:
         problems.append(f"DEFAULTS head: the pull request's head is {verdict.head[:12]}, not {head_sha[:12]}; re-run on the new head")
     merged = str((pull.get("mergeCommit") or {}).get("oid") or "") if pull and pull.get("merged") else None
@@ -867,11 +1028,12 @@ def command_check(args: argparse.Namespace) -> int:
     if args.comment and pull is not None:
         try:
             post_comment(args.repo, args.pr, pull, body, found)
-        except SystemExit as error:  # a fork's review event has a read-only token: the verdict stands
+        # comment failures never change the verdict; a checkout without the writer (main's
+        # pull_request_target sparse list may lag the guard) is one of them
+        except (SystemExit, RuntimeError, OSError, ImportError) as error:
             print(f"::warning title=Defaults comment not posted::{error}")
     if problems:
         return 1
-    needed = [c for c in found if c not in free]
     if needed and not (verdict and verdict.approved):
         who = " or ".join(verdict.eligible) if verdict else "a call owner"
         print(f"::error title=Default changes need a review::{len(needed)} default(s) changed; needs a comment or review "

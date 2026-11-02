@@ -21,4 +21,20 @@ import Testing
         #expect(!FeedPlainText("Title\n===").isInline)
         #expect(!FeedPlainText("above\n---\nbelow").isInline)
     }
+
+    @Test(arguments: [
+        #"The backoff follows $d_n = \min(d_{\max}, d_0 2^n)$ with jitter. The fifth retry waits about $4\,\text{s}$."#,
+        #"The answer is \(x^2\)."#,
+        "$$\nx^2\n$$",
+        #"\[x^2\]"#,
+    ])
+    func mathKeepsTheSharedRenderer(markdown: String) {
+        #expect(!FeedPlainText(markdown).isInline)
+    }
+
+    @Test func pricesAndEscapedDollarsStayNative() {
+        #expect(FeedPlainText("It costs $5 and $6.").isInline)
+        #expect(FeedPlainText(#"The price is \$5."#).isInline)
+        #expect(FeedPlainText("Run `echo $$`.").isInline)
+    }
 }

@@ -14,6 +14,7 @@ use super::{Target, not_found, target};
 use crate::Mux;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
+use cmux_json::JsonSet as _;
 
 /// Ignored paths listed beside the candidates; the rest are only counted.
 const MAX_IGNORED_LISTED: usize = 200;
@@ -87,8 +88,8 @@ pub(super) fn list(
     });
     if request.fields.get("include_candidates").and_then(Value::as_bool) == Some(true) {
         let (candidates, ignored_total) = candidates(&target, limits)?;
-        value["candidates"] = candidates;
-        value["ignored_total"] = json!(ignored_total);
+        value.set("candidates", candidates);
+        value.set("ignored_total", json!(ignored_total));
     }
     Ok(value)
 }
@@ -127,8 +128,8 @@ fn candidates(target: &Target, limits: Limits) -> Result<(Value, u32), ResourceE
                 "eligible": true,
             });
             if let Some(code) = candidate.ineligible(limits.max_untracked_file_bytes) {
-                value["eligible"] = json!(false);
-                value["reason"] = json!(code);
+                value.set("eligible", json!(false));
+                value.set("reason", json!(code));
             }
             (candidate.path.clone(), value)
         })

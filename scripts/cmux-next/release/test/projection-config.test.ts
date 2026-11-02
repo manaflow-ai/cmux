@@ -38,6 +38,13 @@ describe("projection switches in wrangler.jsonc", () => {
     })
   }
 
+  // The hourly full read-only verify (projection-compare-full-cron.ts): staging only. Production adds the
+  // trigger in its own config PR when the cutover runbook asks (cmuxterm-hq#4767 step 5).
+  it("the hourly full projection verify runs on staging and not yet in production", () => {
+    expect(doc.env.staging!.triggers?.crons ?? []).toContain("7 * * * *")
+    expect(doc.env.production!.triggers?.crons ?? []).not.toContain("7 * * * *")
+  })
+
   it("a MySQL switch without the PlanetScale bindings is refused", () => {
     expect(neededBindings({})).toEqual(["HYPERDRIVE", "HYPERDRIVE_RO"])
     expect(neededBindings({ PROJECTION_SHADOW: "mysql", PROJECTION_READS: "shadow" })).toEqual(["HYPERDRIVE", "HYPERDRIVE_RO", "PS_MYSQL", "PS_MYSQL_RO"])

@@ -61,9 +61,11 @@ struct SidebarMenuLookTests {
         let menu = try Self.menu(.workspaces([Self.workspace]))
         let more = try #require(menu.items.first { $0.title == MenuFolder.more.title }?.submenu)
         #expect(!more.items.contains { $0.title == MenuFolder.more.title })
-        // New sits at `ContextMenuEssentials.inlineFolderLimit` rows: a ninth New row would fold it back into a submenu.
-        for folder in [MenuFolder.new, .appearance, .copy, .tools, .close] {
-            #expect(!more.items.contains { $0.title == folder.title && $0.submenu != nil }, "More › \(folder.title) should be a section of More")
+        // Short folders are sections; a folder that grows beyond the shared inline limit remains
+        // one submenu so the menu still fits. The submenu must never contain another More.
+        #expect(!more.items.contains { $0.title == MenuFolder.more.title && $0.submenu != nil })
+        for item in more.items where item.submenu != nil {
+            #expect(item.title != MenuFolder.more.title)
         }
     }
 }

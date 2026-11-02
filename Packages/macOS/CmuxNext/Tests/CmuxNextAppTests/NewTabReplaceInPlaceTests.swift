@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,6 +12,7 @@ import Testing
 /// tab slid back from the end into the page's slot once its move landed: three motions for one
 /// replace, one of them from an unrelated place. The new tab now takes the page's cell from its
 /// first frame, and the page's tab leaves with it.
+@Suite(.closesItsWindows)
 @MainActor struct NewTabReplaceInPlaceTests {
     private static func tree(_ surfaces: [UInt64]) -> DaemonTree {
         let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: surfaces.map { TabSnapshot(surface: SurfaceID(rawValue: $0), title: "~") })
@@ -61,7 +63,7 @@ import Testing
         let pageFrame = try #require(strip.cells[TabID(page.id)]?.layer.frame, "the page's tab is not in the strip")
 
         // The page opens a terminal (NewTabPage.replace): it reads the page's slot first...
-        let placed = NewTabSlot.placing(replacing: page.id, services: services, then: nil)
+        let placed = NewTabSlot.placing(replacing: page.id, onMachine: MachineRegistry.localID, services: services, then: nil)
         // ...the daemon makes the terminal at the end of the pane, and the app selects it.
         store.apply(snapshot: Self.tree([1, 2, 3, 4]))
         let made = SurfaceID(rawValue: 4)

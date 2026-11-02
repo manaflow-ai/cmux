@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022. */
+/* cmux-tui mux protocol 12, IR ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022" as const;
+export const SDK_IR_SHA256 = "ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -650,6 +650,16 @@ export const COMMAND_METADATA = {
       "Trusted local connections only. Ends this connection's interest; the socket closes 60 s after the last subscriber. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
+  "cloud-environment": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-environments-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified native app only; platform_origin comes from its existing platform resolver and access_token is its cmux install JWT. Neither is a page parameter or the Home lease. action list/get/update/derive maps to GET /v1/cloud-environments, GET or PATCH /v1/cloud-environments/{id}, or POST /v1/environments/derive. Params are the documented per-action object; no arbitrary path or headers. Secrets are write-only and never returned; diagnostics must redact access_token and params. See spec/commands.md."
+    ]
+  },
   "cloud-host-replica-clear": {
     "authority": "local-admin",
     "since": 12,
@@ -687,7 +697,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only. limit is 1-200. Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+      "Trusted local connections only. limit is 1-200. One page from cursor (the next_cursor of the page before), with the owner's next_cursor (null on the last page). Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
   "cloud-inbox-op": {
@@ -984,10 +994,15 @@ export const COMMAND_METADATA = {
     "authority": "local-admin",
     "since": 12,
     "capability": "conversation-runs-v1",
-    "fields": {},
+    "fields": {
+      "answers": {
+        "since": null,
+        "capability": "conversation-run-answers-v1"
+      }
+    },
     "stream": null,
     "constraints": [
-      "Trusted local connections only. turns (at most 200 reply keys) selects runs by their reply; else the newest runs started before before_started_at, limit 1-200 (default 50). See spec/commands.md."
+      "Trusted local connections only. turns (at most 200 reply keys) selects runs by their reply; answers (at most 200 message keys), when conversation-run-answers-v1 is advertised, selects runs answering those messages; otherwise the newest runs started before before_started_at, limit 1-200 (default 50). See spec/commands.md."
     ]
   },
   "conversation-search": {
@@ -2055,6 +2070,10 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "terminal-shell-args-v1"
       },
+      "side": {
+        "since": 12,
+        "capability": "column-left-v1"
+      },
       "tab_id": {
         "since": 12,
         "capability": "split-client-keys-v1"
@@ -2691,7 +2710,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, locks, hook_queue); unknown names are ignored."
     ]
   },
   "set-cell-pixels": {
@@ -5429,6 +5448,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
+  },
+  "ColumnSide": {
+    "kind": "enum",
+    "values": [
+      "left",
+      "right"
+    ]
   },
   "ConversationChange": {
     "additional_properties": true,
@@ -10172,6 +10198,41 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsHookQueue": {
+    "additional_properties": false,
+    "constraints": [
+      "queued_events counts the hook event lines in this session's queues (hook-spool/ beside the socket): events no daemon answered yet, and answered ones a sender has not removed yet.",
+      "reset_dropped_events counts hook events that cmux session NAME reset-state dropped with a session's saved state, for every session whose socket shares this one's directory.",
+      "undeliverable_events counts hook events a live daemon took several times in a row and never answered (it closed on them, or did not reply within its own longest journal wait), so their senders gave them up, for every session whose socket shares this one's directory."
+    ],
+    "fields": {
+      "queued_events": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "reset_dropped_events": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "undeliverable_events": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsJournalWriter": {
     "additional_properties": false,
     "constraints": [
@@ -10286,6 +10347,95 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsLockDetail": {
+    "additional_properties": false,
+    "constraints": [
+      "contended_acquisitions counts waits of at least 1 ms; stalls counts waits of at least 100 ms.",
+      "sites counts the distinct acquiring source locations since daemon start.",
+      "by_hold_total is ordered by hold_total_us descending and by_hold_p99 by hold_p99_us descending; each holds at most twenty entries."
+    ],
+    "fields": {
+      "by_hold_p99": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsLockSiteDetail"
+          },
+          "kind": "array"
+        }
+      },
+      "by_hold_total": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsLockSiteDetail"
+          },
+          "kind": "array"
+        }
+      },
+      "contended_acquisitions": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hold_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      },
+      "holder": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockHolder"
+        }
+      },
+      "last_stall": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockStall"
+        }
+      },
+      "sites": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "stalls": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "wait_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsLockHolder": {
     "additional_properties": false,
     "constraints": [
@@ -10350,6 +10500,79 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsLockSiteDetail": {
+    "additional_properties": false,
+    "constraints": [
+      "hold_p99_us and wait_p99_us are power-of-two bucket bounds: at most twice the true value and never above the matching maximum."
+    ],
+    "fields": {
+      "acquisitions": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hold_max_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hold_p99_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hold_total_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "site": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "wait_max_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "wait_p99_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "wait_total_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsLockStall": {
     "additional_properties": false,
     "constraints": [
@@ -10378,6 +10601,31 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsLocks": {
+    "additional_properties": false,
+    "constraints": [
+      "registry is the workspace registry lock and state the mux state lock; sites are the source locations that acquired them."
+    ],
+    "fields": {
+      "registry": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockDetail"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockDetail"
         }
       }
     },
@@ -10607,7 +10855,9 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "journal_writer is null for ephemeral sessions without a durable journal.",
       "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
       "resource_projection is present only when the request names it in include.",
-      "write_path is present only when the request names it in include."
+      "write_path is present only when the request names it in include.",
+      "locks is present only when the request names it in include.",
+      "hook_queue is present only when the request names it in include and the session serves a socket."
     ],
     "fields": {
       "connections": {
@@ -10618,12 +10868,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "ServerStatsConnections"
         }
       },
+      "hook_queue": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHookQueue"
+        }
+      },
       "journal_writer": {
         "nullable": true,
         "presence": "required",
         "type": {
           "kind": "ref",
           "name": "ServerStatsJournalWriter"
+        }
+      },
+      "locks": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLocks"
         }
       },
       "registry_lock": {
@@ -16136,6 +16402,50 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "cloud-environment": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "access_token": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "action": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "params": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "platform_origin": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "cloud-host-replica-clear": {
     "request": {
       "additional_properties": false,
@@ -16224,6 +16534,14 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "cursor": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "include_archived": {
           "default": false,
           "nullable": false,
@@ -17770,6 +18088,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "answers": {
+          "capability": "conversation-run-answers-v1",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
         "before_started_at": {
           "nullable": true,
           "presence": "optional",
@@ -22142,6 +22472,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "string"
             },
             "kind": "array"
+          }
+        },
+        "side": {
+          "capability": "column-left-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "ColumnSide"
           }
         },
         "tab_id": {

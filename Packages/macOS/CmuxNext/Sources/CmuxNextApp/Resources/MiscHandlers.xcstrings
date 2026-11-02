@@ -3146,6 +3146,268 @@
         }
       }
     },
+    "handlers.misc.failed.paneNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This pane is still opening; try again in a moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインはまだ開いています。少し待ってからもう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يزال هذا الجزء قيد الفتح؛ حاول مرة أخرى بعد لحظة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo okno se još otvara; pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne rude åbner stadig; prøv igen om et øjeblik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Bereich wird noch geöffnet; versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este panel aún se está abriendo; inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce volet est encore en cours d’ouverture ; réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo riquadro si sta ancora aprendo; riprova tra un momento."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងនេះកំពុងបើកនៅឡើយ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 창은 아직 여는 중입니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne ruten åpnes fortsatt; prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten panel jeszcze się otwiera; spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este painel ainda está abrindo; tente novamente em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта панель ещё открывается; повторите попытку через мгновение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บานหน้าต่างนี้ยังเปิดอยู่ ลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu bölme hâlâ açılıyor; birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця панель ще відкривається; спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ngăn này vẫn đang mở; hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此窗格仍在打开，请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此窗格仍在開啟，請稍後再試。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.pendingPaneNotCreated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The pane it was for was not created."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象のペインは作成されませんでした。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يتم إنشاء الجزء المقصود."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okno za koje je bilo namijenjeno nije napravljeno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruden, det var til, blev ikke oprettet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Bereich, für den es gedacht war, wurde nicht erstellt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se creó el panel al que estaba destinado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le volet auquel il était destiné n’a pas été créé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il riquadro a cui era destinato non è stato creato."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងដែលវាសម្រាប់មិនត្រូវបានបង្កើតទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대상 창이 생성되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruten den var ment for, ble ikke opprettet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panel, dla którego było przeznaczone, nie został utworzony."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O painel ao qual se destinava não foi criado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панель, для которой это предназначалось, не была создана."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้สร้างบานหน้าต่างที่ตั้งใจไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hedeflenen bölme oluşturulmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панель, для якої це призначалося, не створено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ngăn dành cho nó chưa được tạo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "目标窗格未创建。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "目標窗格未建立。"
+          }
+        }
+      }
+    },
     "handlers.misc.failed.checkpointNeedsFocus": {
       "extractionState": "manual",
       "localizations": {
@@ -5949,530 +6211,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "「切換模型…」會開啟選單，因此需要焦點。"
-          }
-        }
-      }
-    },
-    "handlers.agentChats.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "محادثات الوكيل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Razgovori agenta"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agentchats"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent-Chats"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent Chats"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chats del agente"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Discussions d’agent"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat dell’agente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントチャット"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការជជែករបស់ភ្នាក់ងារ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트 채팅"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agentchatter"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Czaty agenta"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chats do agente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Чаты агента"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แชทของเอเจนต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ajan sohbetleri"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Чати агента"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cuộc trò chuyện của tác tử"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "智能体聊天"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "代理聊天"
-          }
-        }
-      }
-    },
-    "handlers.agentChats.placeholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ابحث في المحادثات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pretraži razgovore"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søg i chats"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chats durchsuchen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search chats"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Buscar chats"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rechercher des discussions"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cerca chat"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チャットを検索"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ស្វែងរកការជជែក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "채팅 검색"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søk i chatter"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Szukaj czatów"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Buscar chats"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Поиск чатов"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ค้นหาแชท"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sohbetlerde ara"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Пошук чатів"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tìm cuộc trò chuyện"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜索聊天"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜尋聊天"
-          }
-        }
-      }
-    },
-    "handlers.agentChats.open": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "فتح المحادثة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otvori razgovor"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Åbn chat"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat öffnen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Chat"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir chat"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ouvrir la discussion"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Apri chat"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チャットを開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បើកការជជែក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "채팅 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Åpne chat"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otwórz czat"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir chat"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Открыть чат"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เปิดแชท"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sohbeti aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Відкрити чат"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mở cuộc trò chuyện"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "打开聊天"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "開啟聊天"
-          }
-        }
-      }
-    },
-    "handlers.agentChats.untitled": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "محادثة جديدة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Novi razgovor"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ny chat"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Neuer Chat"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New chat"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat nuevo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nouvelle discussion"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nuova chat"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいチャット"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការជជែកថ្មី"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "새 채팅"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ny chat"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nowy czat"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Novo chat"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Новый чат"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แชทใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeni sohbet"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Новий чат"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cuộc trò chuyện mới"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "新聊天"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "新聊天"
           }
         }
       }
@@ -12722,137 +12460,6 @@
         }
       }
     },
-    "handlers.screenshot.browserNeedsREPL": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A browser page's screenshot for automation comes from the browser REPL, which hides the secrets on the page: browser_repl_eval with page.screenshot()"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لقطة شاشة صفحة المتصفح للأتمتة تأتي من REPL المتصفح، الذي يخفي الأسرار في الصفحة: browser_repl_eval مع page.screenshot()"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Snimak ekrana stranice preglednika za automatizaciju dolazi iz REPL-a preglednika, koji skriva tajne na stranici: browser_repl_eval sa page.screenshot()"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Et skærmbillede af en browserside til automatisering kommer fra browserens REPL, som skjuler hemmelighederne på siden: browser_repl_eval med page.screenshot()"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein Bildschirmfoto einer Browserseite für die Automatisierung kommt aus der Browser-REPL, die die Geheimnisse auf der Seite verbirgt: browser_repl_eval mit page.screenshot()"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La captura de una página del navegador para la automatización viene del REPL del navegador, que oculta los secretos de la página: browser_repl_eval con page.screenshot()"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Une capture d’une page du navigateur pour l’automatisation vient du REPL du navigateur, qui masque les secrets de la page : browser_repl_eval avec page.screenshot()"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lo screenshot di una pagina del browser per l’automazione arriva dal REPL del browser, che nasconde i segreti della pagina: browser_repl_eval con page.screenshot()"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自動化でのブラウザページのスクリーンショットは、ページ上の秘密情報を隠すブラウザ REPL から取得します: browser_repl_eval で page.screenshot()"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "រូបថតអេក្រង់នៃទំព័រកម្មវិធីរុករកសម្រាប់ស្វ័យប្រវត្តិកម្ម មកពី REPL របស់កម្មវិធីរុករក ដែលលាក់អាថ៌កំបាំងនៅលើទំព័រ៖ browser_repl_eval ជាមួយ page.screenshot()"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "자동화용 브라우저 페이지 스크린샷은 페이지의 비밀 정보를 가리는 브라우저 REPL에서 가져옵니다: browser_repl_eval에서 page.screenshot()"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Et skjermbilde av en nettleserside for automatisering kommer fra nettleserens REPL, som skjuler hemmelighetene på siden: browser_repl_eval med page.screenshot()"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zrzut ekranu strony przeglądarki dla automatyzacji pochodzi z REPL przeglądarki, który ukrywa sekrety na stronie: browser_repl_eval z page.screenshot()"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A captura de uma página do navegador para automação vem do REPL do navegador, que oculta os segredos da página: browser_repl_eval com page.screenshot()"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Снимок экрана страницы браузера для автоматизации делает REPL браузера, который скрывает секреты на странице: browser_repl_eval с page.screenshot()"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ภาพหน้าจอของหน้าเบราว์เซอร์สำหรับระบบอัตโนมัติมาจาก REPL ของเบราว์เซอร์ ซึ่งซ่อนข้อมูลลับบนหน้า: browser_repl_eval กับ page.screenshot()"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otomasyon için bir tarayıcı sayfasının ekran görüntüsü, sayfadaki gizli bilgileri saklayan tarayıcı REPL'inden gelir: page.screenshot() ile browser_repl_eval"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Знімок екрана сторінки браузера для автоматизації робить REPL браузера, який приховує секрети на сторінці: browser_repl_eval з page.screenshot()"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ảnh chụp màn hình trang trình duyệt cho tự động hóa lấy từ REPL của trình duyệt, nơi ẩn các bí mật trên trang: browser_repl_eval với page.screenshot()"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自动化获取浏览器页面截图须通过浏览器 REPL，它会隐藏页面上的机密信息：在 browser_repl_eval 中使用 page.screenshot()"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自動化取得瀏覽器頁面截圖須透過瀏覽器 REPL，它會隱藏頁面上的機密資訊：在 browser_repl_eval 中使用 page.screenshot()"
-          }
-        }
-      }
-    },
     "handlers.layoutTemplate.delete": {
       "extractionState": "manual",
       "localizations": {
@@ -16928,127 +16535,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ركّز على دردشة وكيل، أو طرفية تشغّل Claude Code أو Codex، لتفريعها."
+            "value": "ركّز على محادثة وكيل، أو على طرفية يعمل فيها وكيل، لتفريعها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fokusirajte chat agenta ili terminal u kojem radi Claude Code ili Codex da ga račvate."
+            "value": "Fokusirajte chat agenta ili terminal u kojem radi agent da ga račvate."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fokuser på en agentchat eller en terminal, der kører Claude Code eller Codex, for at forgrene den."
+            "value": "Fokuser på en agentchat eller en terminal, der kører en agent, for at forgrene den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fokussiere einen Agent-Chat oder ein Terminal mit Claude Code oder Codex, um es abzuzweigen."
+            "value": "Fokussiere einen Agent-Chat oder ein Terminal mit einem Agenten, um ihn zu forken."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Focus an agent chat, or a terminal running Claude Code or Codex, to fork it."
+            "value": "Focus an agent chat, or a terminal running an agent, to fork it."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enfoca un chat de agente, o una terminal que ejecute Claude Code o Codex, para bifurcarlo."
+            "value": "Enfoca un chat de agente, o una terminal que ejecute un agente, para bifurcarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sélectionnez un chat d’agent, ou un terminal exécutant Claude Code ou Codex, pour le dupliquer."
+            "value": "Placez le focus sur un chat d’agent, ou un terminal qui exécute un agent, pour le dupliquer."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seleziona una chat dell’agente, o un terminale con Claude Code o Codex, per biforcarlo."
+            "value": "Metti a fuoco una chat dell’agente, o un terminale che esegue un agente, per biforcarla."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォークするには、エージェントのチャットか、Claude Code または Codex が動いているターミナルにフォーカスしてください。"
+            "value": "フォークするには、エージェントのチャット、またはエージェントを実行中のターミナルにフォーカスしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សូមផ្ដោតលើការជជែករបស់ភ្នាក់ងារ ឬតែមីណាល់ដែលកំពុងដំណើរការ Claude Code ឬ Codex ដើម្បីបំបែកវា។"
+            "value": "ផ្តោតលើការជជែកភ្នាក់ងារ ឬទែមីណាល់ដែលកំពុងដំណើរការភ្នាក់ងារ ដើម្បីបំបែកវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "포크하려면 에이전트 채팅이나 Claude Code 또는 Codex가 실행 중인 터미널에 포커스하세요."
+            "value": "포크하려면 에이전트 채팅이나 에이전트를 실행 중인 터미널에 포커스를 두세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fokuser på en agentchat, eller en terminal som kjører Claude Code eller Codex, for å forgreine den."
+            "value": "Fokuser på en agentchat eller en terminal som kjører en agent, for å forgrene den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ustaw fokus na czacie agenta lub terminalu z Claude Code albo Codex, aby go rozgałęzić."
+            "value": "Ustaw fokus na czacie agenta lub terminalu z działającym agentem, aby go rozwidlić."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Foque um chat de agente, ou um terminal executando Claude Code ou Codex, para bifurcá-lo."
+            "value": "Foque um chat de agente, ou um terminal executando um agente, para bifurcá-lo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Чтобы ответвить, перейдите в чат агента или в терминал, где запущен Claude Code или Codex."
+            "value": "Чтобы ответвить, выберите чат агента или терминал, в котором работает агент."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "โฟกัสแชทของเอเจนต์ หรือเทอร์มินัลที่รัน Claude Code หรือ Codex เพื่อแยกสาขา"
+            "value": "โฟกัสแชตเอเจนต์ หรือเทอร์มินัลที่กำลังเรียกใช้เอเจนต์ เพื่อแยก"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Çatallamak için bir ajan sohbetine veya Claude Code ya da Codex çalıştıran bir terminale odaklanın."
+            "value": "Çatallamak için bir ajan sohbetine veya ajan çalıştıran bir terminale odaklanın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Щоб відгалузити, перейдіть у чат агента або термінал, де працює Claude Code чи Codex."
+            "value": "Щоб відгалузити, виберіть чат агента або термінал, у якому працює агент."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hãy chọn một cuộc trò chuyện tác tử, hoặc một terminal đang chạy Claude Code hay Codex, để phân nhánh."
+            "value": "Hãy chọn một cuộc trò chuyện với tác tử, hoặc một terminal đang chạy tác tử, để phân nhánh."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请聚焦一个代理聊天，或运行 Claude Code 或 Codex 的终端，再进行分叉。"
+            "value": "请聚焦代理聊天或正在运行代理的终端以进行分叉。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請聚焦一個代理聊天，或執行 Claude Code 或 Codex 的終端機，再進行分叉。"
+            "value": "請聚焦代理聊天或正在執行代理的終端機以進行分岔。"
           }
         }
       }
@@ -17060,127 +16667,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يمكن تفريع وكيل الطرفية إلا مع Claude Code أو Codex. افتحه كدردشة لتفريعه."
+            "value": "لا يمكن تفريع وكيل هذه الطرفية. افتحه كمحادثة لتفريعه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent u terminalu se može račvati samo uz Claude Code ili Codex. Otvorite ga kao chat da ga račvate."
+            "value": "Agent ovog terminala ne može se račvati. Otvorite ga kao chat da ga račvate."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En terminalagent kan kun forgrenes med Claude Code eller Codex. Åbn den som chat for at forgrene den."
+            "value": "Agenten i denne terminal kan ikke forgrenes. Åbn den som en chat for at forgrene den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Terminal-Agent lässt sich nur mit Claude Code oder Codex abzweigen. Öffne ihn als Chat, um ihn abzuzweigen."
+            "value": "Der Agent dieses Terminals kann nicht geforkt werden. Öffne ihn als Chat, um ihn zu forken."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A terminal agent forks with Claude Code or Codex only. Open it as a chat to fork it."
+            "value": "This terminal's agent cannot fork. Open it as a chat to fork it."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agente de terminal solo se bifurca con Claude Code o Codex. Ábrelo como chat para bifurcarlo."
+            "value": "El agente de esta terminal no se puede bifurcar. Ábrelo como chat para bifurcarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agent de terminal ne se duplique qu’avec Claude Code ou Codex. Ouvrez-le comme chat pour le dupliquer."
+            "value": "L’agent de ce terminal ne peut pas être dupliqué. Ouvrez-le comme chat pour le dupliquer."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agente da terminale si biforca solo con Claude Code o Codex. Aprilo come chat per biforcarlo."
+            "value": "L’agente di questo terminale non può essere biforcato. Aprilo come chat per biforcarlo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルのエージェントをフォークできるのは Claude Code と Codex だけです。フォークするにはチャットとして開いてください。"
+            "value": "このターミナルのエージェントはフォークできません。フォークするにはチャットとして開いてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្នាក់ងារក្នុងតែមីណាល់អាចបំបែកបានតែជាមួយ Claude Code ឬ Codex ប៉ុណ្ណោះ។ សូមបើកវាជាការជជែកដើម្បីបំបែក។"
+            "value": "ភ្នាក់ងារនៃទែមីណាល់នេះមិនអាចបំបែកបានទេ។ បើកវាជាការជជែក ដើម្បីបំបែកវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널 에이전트는 Claude Code나 Codex만 포크할 수 있습니다. 포크하려면 채팅으로 여세요."
+            "value": "이 터미널의 에이전트는 포크할 수 없습니다. 포크하려면 채팅으로 여세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En terminalagent kan bare forgreines med Claude Code eller Codex. Åpne den som chat for å forgreine den."
+            "value": "Agenten i denne terminalen kan ikke forgrenes. Åpne den som en chat for å forgrene den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agenta w terminalu można rozgałęzić tylko w Claude Code lub Codex. Otwórz go jako czat, aby go rozgałęzić."
+            "value": "Agenta w tym terminalu nie można rozwidlić. Otwórz go jako czat, aby go rozwidlić."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um agente de terminal só pode ser bifurcado com Claude Code ou Codex. Abra-o como chat para bifurcá-lo."
+            "value": "O agente deste terminal não pode ser bifurcado. Abra-o como chat para bifurcá-lo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агента в терминале можно ответвить только в Claude Code или Codex. Откройте его как чат, чтобы ответвить."
+            "value": "Агента этого терминала нельзя ответвить. Откройте его как чат, чтобы ответвить."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แยกสาขาเอเจนต์ในเทอร์มินัลได้เฉพาะ Claude Code หรือ Codex เปิดเป็นแชทเพื่อแยกสาขา"
+            "value": "ไม่สามารถแยกเอเจนต์ของเทอร์มินัลนี้ได้ เปิดเป็นแชตเพื่อแยก"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal ajanı yalnızca Claude Code veya Codex ile çatallanabilir. Çatallamak için sohbet olarak açın."
+            "value": "Bu terminalin ajanı çatallanamaz. Çatallamak için sohbet olarak açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агента в терміналі можна відгалузити лише в Claude Code або Codex. Відкрийте його як чат, щоб відгалузити."
+            "value": "Агента цього термінала не можна відгалузити. Відкрийте його як чат, щоб відгалузити."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chỉ có thể phân nhánh tác tử trong terminal với Claude Code hoặc Codex. Hãy mở nó dưới dạng trò chuyện để phân nhánh."
+            "value": "Không thể phân nhánh tác tử của terminal này. Hãy mở nó dưới dạng trò chuyện để phân nhánh."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "终端中的代理只能在 Claude Code 或 Codex 中分叉。请将其作为聊天打开后再分叉。"
+            "value": "无法分叉此终端的代理。请将其作为聊天打开以分叉。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "終端機中的代理只能在 Claude Code 或 Codex 中分叉。請將其以聊天開啟後再分叉。"
+            "value": "無法分岔此終端機的代理。請將其作為聊天開啟以分岔。"
           }
         }
       }
@@ -18626,6 +18233,399 @@
         }
       }
     },
+    "handlers.screenshot.maskFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The window's browser pages and chats could not be masked, so the capture was refused"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إخفاء صفحات المتصفح والمحادثات في النافذة، لذا رُفض الالتقاط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stranice preglednika i chatovi u prozoru nisu se mogli maskirati, pa je snimak odbijen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduets browsersider og chats kunne ikke maskeres, så optagelsen blev afvist"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Browserseiten und Chats des Fensters konnten nicht maskiert werden, daher wurde die Aufnahme abgelehnt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron ocultar las páginas del navegador ni los chats de la ventana, así que se rechazó la captura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les pages de navigateur et les discussions de la fenêtre n’ont pas pu être masquées, la capture a donc été refusée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato possibile mascherare le pagine del browser e le chat della finestra, quindi l’acquisizione è stata rifiutata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィンドウのブラウザページとチャットをマスクできなかったため、キャプチャを拒否しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចបិទបាំងទំព័រកម្មវិធីរុករក និងការជជែកក្នុងបង្អួចបានទេ ដូច្នេះការថតត្រូវបានបដិសេធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창의 브라우저 페이지와 채팅을 가릴 수 없어 캡처를 거부했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nettleserfanene og chattene i vinduet kunne ikke maskeres, så opptaket ble avvist"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się zamaskować stron przeglądarki i czatów w oknie, więc zrzut został odrzucony"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível mascarar as páginas do navegador e os chats da janela, então a captura foi recusada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось скрыть страницы браузера и чаты в окне, поэтому снимок отклонён"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถปิดบังหน้าเบราว์เซอร์และแชทในหน้าต่างได้ จึงปฏิเสธการจับภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Penceredeki tarayıcı sayfaları ve sohbetler maskelenemedi, bu yüzden yakalama reddedildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося приховати сторінки браузера й чати у вікні, тому знімок відхилено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể che các trang trình duyệt và cuộc trò chuyện trong cửa sổ, nên ảnh chụp đã bị từ chối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法遮盖窗口中的浏览器页面和聊天，因此已拒绝截取"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法遮蔽視窗中的瀏覽器頁面和聊天，因此已拒絕擷取"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.pageNeedsGuardedCapture": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The browser tab is not on screen. Capture its page with `cmux browser page screenshot`, which hides secrets, or show the tab and retry"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة تبويب المتصفح ليست على الشاشة. التقط صفحتها باستخدام `cmux browser page screenshot` الذي يخفي الأسرار، أو اعرض علامة التبويب وأعد المحاولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartica preglednika nije na ekranu. Snimite njenu stranicu pomoću `cmux browser page screenshot`, koji skriva tajne, ili prikažite karticu i pokušajte ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browserfanen er ikke på skærmen. Tag dens side med `cmux browser page screenshot`, som skjuler hemmeligheder, eller vis fanen og prøv igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Browser-Tab ist nicht auf dem Bildschirm. Nimm seine Seite mit `cmux browser page screenshot` auf, das Geheimnisse verbirgt, oder zeige den Tab und versuche es erneut"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pestaña del navegador no está en pantalla. Captura su página con `cmux browser page screenshot`, que oculta los secretos, o muestra la pestaña y vuelve a intentarlo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’onglet du navigateur n’est pas à l’écran. Capturez sa page avec `cmux browser page screenshot`, qui masque les secrets, ou affichez l’onglet et réessayez"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La scheda del browser non è sullo schermo. Acquisisci la pagina con `cmux browser page screenshot`, che nasconde i segreti, oppure mostra la scheda e riprova"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザタブが画面に表示されていません。シークレットを隠す `cmux browser page screenshot` でページをキャプチャするか、タブを表示してから再試行してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងកម្មវិធីរុករកមិននៅលើអេក្រង់ទេ។ ថតទំព័ររបស់វាដោយប្រើ `cmux browser page screenshot` ដែលលាក់ការសម្ងាត់ ឬបង្ហាញផ្ទាំង ហើយព្យាយាមម្ដងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 탭이 화면에 없습니다. 비밀을 숨겨 주는 `cmux browser page screenshot`으로 페이지를 캡처하거나, 탭을 표시한 뒤 다시 시도하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nettleserfanen er ikke på skjermen. Ta bilde av siden med `cmux browser page screenshot`, som skjuler hemmeligheter, eller vis fanen og prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karta przeglądarki nie jest na ekranie. Zrób zrzut jej strony poleceniem `cmux browser page screenshot`, które ukrywa sekrety, albo pokaż kartę i spróbuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A aba do navegador não está na tela. Capture a página com `cmux browser page screenshot`, que oculta segredos, ou mostre a aba e tente de novo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладка браузера не на экране. Снимите её страницу командой `cmux browser page screenshot`, которая скрывает секреты, или покажите вкладку и повторите"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บเบราว์เซอร์ไม่ได้อยู่บนหน้าจอ จับภาพหน้าของแท็บด้วย `cmux browser page screenshot` ซึ่งซ่อนข้อมูลลับ หรือแสดงแท็บแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcı sekmesi ekranda değil. Sayfasını sırları gizleyen `cmux browser page screenshot` ile yakalayın ya da sekmeyi gösterip yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки браузера немає на екрані. Зробіть знімок її сторінки командою `cmux browser page screenshot`, яка приховує секрети, або покажіть вкладку й повторіть"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ trình duyệt không hiển thị trên màn hình. Chụp trang của thẻ bằng `cmux browser page screenshot`, lệnh này ẩn các bí mật, hoặc hiển thị thẻ rồi thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器标签页不在屏幕上。请用会隐藏机密的 `cmux browser page screenshot` 截取其页面，或显示该标签页后重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器分頁不在螢幕上。請用會隱藏機密的 `cmux browser page screenshot` 擷取其頁面，或顯示該分頁後重試"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.windowChanging": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The window kept animating or resizing, so its browser pages and chats could not be masked. Retry when it is still"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استمرت النافذة في الحركة أو تغيير الحجم، لذا تعذّر إخفاء صفحات المتصفح والمحادثات فيها. أعد المحاولة عندما تستقر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozor se stalno animirao ili mijenjao veličinu, pa se njegove stranice preglednika i chatovi nisu mogli maskirati. Pokušajte ponovo kad se smiri"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduet blev ved med at animere eller ændre størrelse, så dets browsersider og chats kunne ikke maskeres. Prøv igen, når det står stille"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Fenster wurde ständig animiert oder in der Größe geändert, daher konnten seine Browserseiten und Chats nicht maskiert werden. Versuche es erneut, wenn es ruht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ventana no dejó de animarse o cambiar de tamaño, así que no se pudieron ocultar sus páginas del navegador ni sus chats. Vuelve a intentarlo cuando esté quieta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La fenêtre n’a pas cessé de s’animer ou de changer de taille, ses pages de navigateur et ses discussions n’ont donc pas pu être masquées. Réessayez quand elle est immobile"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La finestra ha continuato ad animarsi o a ridimensionarsi, quindi non è stato possibile mascherarne le pagine del browser e le chat. Riprova quando è ferma"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィンドウのアニメーションやサイズ変更が続いたため、ブラウザページとチャットをマスクできませんでした。ウィンドウが静止してから再試行してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្អួចបន្តមានចលនា ឬប្ដូរទំហំ ដូច្នេះមិនអាចបិទបាំងទំព័រកម្មវិធីរុករក និងការជជែករបស់វាបានទេ។ ព្យាយាមម្ដងទៀតពេលវានៅស្ងៀម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창이 계속 애니메이션되거나 크기가 바뀌어 브라우저 페이지와 채팅을 가릴 수 없었습니다. 창이 멈춘 뒤 다시 시도하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduet fortsatte å animeres eller endre størrelse, så nettlesersidene og chattene kunne ikke maskeres. Prøv igjen når det står stille"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okno wciąż się animowało lub zmieniało rozmiar, więc nie udało się zamaskować jego stron przeglądarki i czatów. Spróbuj ponownie, gdy się zatrzyma"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A janela continuou animando ou mudando de tamanho, então não foi possível mascarar as páginas do navegador e os chats. Tente de novo quando ela estiver parada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Окно продолжало анимироваться или менять размер, поэтому скрыть его страницы браузера и чаты не удалось. Повторите, когда оно замрёт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าต่างยังคงเคลื่อนไหวหรือเปลี่ยนขนาด จึงไม่สามารถปิดบังหน้าเบราว์เซอร์และแชทได้ ลองอีกครั้งเมื่อหน้าต่างหยุดนิ่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencere animasyonla değişmeye ya da yeniden boyutlanmaya devam etti, bu yüzden tarayıcı sayfaları ve sohbetleri maskelenemedi. Durduğunda yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вікно постійно анімувалося або змінювало розмір, тому приховати його сторінки браузера й чати не вдалося. Повторіть, коли воно зупиниться"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cửa sổ liên tục chuyển động hoặc đổi kích thước, nên không thể che các trang trình duyệt và cuộc trò chuyện. Hãy thử lại khi cửa sổ đứng yên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口一直在播放动画或调整大小，因此无法遮盖其浏览器页面和聊天。请在窗口静止时重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視窗持續在動畫或調整大小，因此無法遮蔽其瀏覽器頁面和聊天。請在視窗靜止時重試"
+          }
+        }
+      }
+    },
     "handlers.misc.failed.noPeerSession": {
       "extractionState": "manual",
       "localizations": {
@@ -18884,6 +18884,399 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ 有多個名為 %2$@ 的聊天。請用工作階段 ID 指定。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.sideQuestionNeedsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask a Side Question… opens the chat's composer, so it needs focus."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يفتح «اطرح سؤالًا جانبيًا…» محرّر الدردشة، لذا يحتاج إلى التركيز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi sporedno pitanje… otvara polje za pisanje u razgovoru, pa mu treba fokus."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stil et sidespørgsmål… åbner chattens skrivefelt, så det kræver fokus."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nebenfrage stellen… öffnet das Eingabefeld des Chats und braucht daher den Fokus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hacer una pregunta aparte… abre el editor del chat, así que necesita el foco."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poser une question annexe… ouvre la zone de saisie de la conversation : elle a besoin du focus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fai una domanda a parte… apre il campo di scrittura della chat, quindi richiede il focus."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドで質問… はチャットの入力欄を開くため、フォーカスが必要です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សួរសំណួរចំហៀង… បើកប្រអប់សរសេររបស់ការជជែក ដូច្នេះវាត្រូវការការផ្ដោត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "곁가지 질문하기…는 채팅 입력창을 열기 때문에 포커스가 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Still et sidespørsmål… åpner chattens skrivefelt, så det trenger fokus."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadaj pytanie poboczne… otwiera pole wiadomości czatu, więc wymaga fokusu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fazer uma pergunta paralela… abre o campo de mensagem do chat, então precisa de foco."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задать побочный вопрос… открывает поле ввода чата, поэтому нужен фокус."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถามคำถามข้างเคียง… จะเปิดช่องพิมพ์ของแชต จึงต้องมีโฟกัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yan soru sor… sohbetin yazma alanını açar, bu yüzden odak gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поставити побічне запитання… відкриває поле введення чату, тому потрібен фокус."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hỏi câu hỏi bên lề… mở ô soạn tin của cuộc trò chuyện nên cần tiêu điểm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提出旁支问题… 会打开聊天输入框，因此需要焦点。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提出旁支問題… 會開啟聊天輸入框，因此需要焦點。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.sideQuestionNeedsAgentChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask a Side Question… works in agent chats. Focus one first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل «اطرح سؤالًا جانبيًا…» في دردشات الوكلاء. ركّز على إحداها أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi sporedno pitanje… radi u razgovorima s agentom. Prvo fokusirajte jedan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stil et sidespørgsmål… virker i agentchats. Fokusér en først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nebenfrage stellen… funktioniert in Agent-Chats. Fokussiere zuerst einen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hacer una pregunta aparte… funciona en los chats de agentes. Enfoca uno primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poser une question annexe… fonctionne dans les conversations d'agent. Placez d'abord le focus sur l'une d'elles."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fai una domanda a parte… funziona nelle chat con gli agenti. Metti prima a fuoco una chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドで質問… はエージェントチャットで使えます。先にチャットにフォーカスしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សួរសំណួរចំហៀង… ដំណើរការក្នុងការជជែកជាមួយភ្នាក់ងារ។ សូមផ្ដោតលើមួយជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "곁가지 질문하기…는 에이전트 채팅에서 작동합니다. 먼저 채팅에 포커스를 두세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Still et sidespørsmål… virker i agentchatter. Fokuser en først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadaj pytanie poboczne… działa w czatach z agentem. Najpierw ustaw fokus na jednym z nich."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fazer uma pergunta paralela… funciona em chats com agentes. Foque um primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задать побочный вопрос… работает в чатах с агентами. Сначала переведите фокус на чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถามคำถามข้างเคียง… ใช้ได้ในแชตกับเอเจนต์ โปรดโฟกัสแชตก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yan soru sor… ajan sohbetlerinde çalışır. Önce birine odaklanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поставити побічне запитання… працює в чатах з агентами. Спершу перейдіть до одного з них."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hỏi câu hỏi bên lề… hoạt động trong cuộc trò chuyện với tác tử. Hãy chọn một cuộc trò chuyện trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提出旁支问题… 适用于代理聊天。请先聚焦一个聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提出旁支問題… 適用於代理程式聊天。請先聚焦一個聊天。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.nothingReadAloud": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing is being read aloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み上げ中のものはありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا شيء تتم قراءته بصوت عالٍ."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ništa se ne čita naglas."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet bliver læst op."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Es wird gerade nichts vorgelesen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se está leyendo nada en voz alta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rien n’est lu à voix haute."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non viene letto nulla ad alta voce."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានអ្វីកំពុងត្រូវបានអានឮៗទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "소리 내어 읽고 있는 항목이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingenting blir lest opp."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nic nie jest czytane na głos."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nada está sendo lido em voz alta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сейчас ничего не читается вслух."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีสิ่งใดกำลังอ่านออกเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sesli okunan bir şey yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зараз нічого не читається вголос."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có nội dung nào đang được đọc to."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "当前没有正在朗读的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "目前沒有正在朗讀的內容。"
           }
         }
       }

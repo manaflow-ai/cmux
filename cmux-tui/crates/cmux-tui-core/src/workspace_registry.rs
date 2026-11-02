@@ -41,16 +41,22 @@ mod effect_store;
 pub(crate) mod feed_local_store;
 pub use compact::{RegistryCompactError, RegistryCompaction, compact_registry};
 mod browser_profile_proxy;
+pub(crate) mod history_check;
 mod idle_policy_store;
 mod journal_extensions;
 mod mutation_ledger;
 pub(crate) mod mutation_ledger_retention;
 mod open_guard;
+pub(crate) mod output_cleanup;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
 mod personal_session_icon;
 pub(crate) mod personal_store;
+mod projection_size;
+use projection_size::{
+    MAX_PROJECTION_BYTES, MAX_RESOURCE_API_PROJECTION_BYTES, note_projection_size,
+};
 mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
@@ -58,6 +64,7 @@ mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;
 mod root_identity;
+pub(crate) mod terminal_end_prefetch;
 pub(crate) mod wal_durability;
 pub(crate) use registry_connection::RegistryConnection;
 mod registry_intent;
@@ -82,6 +89,7 @@ mod terminal_keep_store;
 mod terminal_resource_close_store;
 pub(crate) mod terminal_respawn_store;
 pub(crate) mod terminal_resume_store;
+mod terminal_unplaced_store;
 mod topology_close_store;
 
 pub use crate::state::kept_tab_store::KeptTabRecord;
@@ -114,9 +122,10 @@ pub use personal_mutations::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdat
 pub use personal_store::{DEFAULT_PROFILE_ID, PersonalSnapshot};
 pub use presentation_store::{
     FrontendBrowserRecord, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember,
-    TabGroupRecord, TabGroupState, WorkspaceGroupRecord, WorkspacePresentationUpdate,
-    new_saved_tab_group_id, new_tab_group_id, new_workspace_group_id, validate_presentation_color,
-    validate_tab_group_color, validate_tab_group_name, validate_workspace_group_id,
+    TAB_GROUP_NO_COLOR, TabGroupRecord, TabGroupState, WorkspaceGroupRecord,
+    WorkspacePresentationUpdate, new_saved_tab_group_id, new_tab_group_id, new_workspace_group_id,
+    validate_presentation_color, validate_tab_group_color, validate_tab_group_name,
+    validate_workspace_group_id,
 };
 pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;
@@ -186,7 +195,6 @@ const REGISTRY_FULLFSYNC_PRAGMA: &str = "PRAGMA fullfsync=OFF;";
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
-const MAX_PROJECTION_BYTES: usize = 1024 * 1024;
 const MAX_LAUNCH_SPEC_BYTES: usize = 1024 * 1024;
 #[cfg(not(test))]
 const MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES: usize = 100_000;
@@ -796,6 +804,9 @@ pub struct WorkspaceRegistry {
     /// Behind its own lock; lock order rules: see `registry_connection`.
     pub(crate) connection: std::sync::Arc<RegistryConnection>,
     database_path: Option<PathBuf>,
+    /// How long each step of this registry's open took (the owner's
+    /// `startup-timings.jsonl`); taken once by the owner's start.
+    open_timings: crate::startup_timings::StartupTimings,
     registry_id: String,
     generation: String,
     session_name: String,
@@ -810,6 +821,8 @@ pub struct WorkspaceRegistry {
     resource_patch_failures_remaining: Cell<u64>,
     pub(crate) lease: Option<SessionLease>,
     pub(crate) session_guard: Option<SessionLease>,
+    /// This open swapped in a registry without stored output.
+    output_cleanup_swapped: bool,
 }
 
 fn persistent_session_state_dir(root: &Path, session_name: &str) -> PathBuf {
@@ -2453,13 +2466,22 @@ impl WorkspaceRegistry {
             session_name.to_string(),
             MachinePublicId::random()?,
             ResourceEffectPepper::random()?,
+            &mut None,
+            &mut None,
             None,
-            None,
-            None,
+            crate::startup_timings::StartupTimings::start(),
         )
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
+        Self::open_inner(root, session_name, false)
+    }
+
+    /// `roll_back_first`: an owner build on a registry swapped in by output
+    /// cleanup failed before any full start on it; the previous registry is
+    /// put back under this open's locks before the open.
+    fn open_inner(root: &Path, session_name: &str, roll_back_first: bool) -> anyhow::Result<Self> {
+        let mut timings = crate::startup_timings::StartupTimings::start();
         let root = platform::normalize_filesystem_path(root.to_path_buf());
         // Keep short roots in their existing spelling while giving all
         // root-level files the same long-path handling as their descendants.
@@ -2490,30 +2512,155 @@ impl WorkspaceRegistry {
         let session_lock =
             platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
         let lease = SessionLease::acquire(&session_lock)?;
-        open_guard::refuse_orphaned_journal(&db_path)?;
-        let connection = open_registry_database(&db_path)
-            .with_context(|| format!("open workspace registry {}", db_path.display()))?;
-        let connection = open_guard::quarantine_if_unreadable(&db_path, connection)?;
-        platform::restrict_file(&db_path)?;
-        Self::initialize(
-            connection,
-            session_name.to_string(),
-            machine_id,
-            resource_effect_pepper,
-            Some(session_guard),
-            Some(lease),
-            Some(db_path),
-        )
+        // A rollback an earlier start could not finish goes first.
+        output_cleanup::finish_pending_rollback(&db_path)?;
+        if roll_back_first && output_cleanup::rollback_possible(&db_path) {
+            output_cleanup::roll_back_swap(
+                &db_path,
+                &anyhow::anyhow!("the owner did not start on the new registry"),
+            )?;
+        }
+        // Before the orphan check: an interrupted swap is put back first.
+        // The swap opens the new file through `initialize` and reads its
+        // layout before the rename, so a file that cannot serve never
+        // replaces the registry.
+        let swapped = output_cleanup::swap_at_open(&db_path, &|staged: &Path| {
+            let connection = open_registry_database(staged)?;
+            let registry = Self::initialize(
+                connection,
+                session_name.to_string(),
+                load_or_create_machine_id(&root)?,
+                load_or_create_resource_effect_pepper(&root)?,
+                &mut None,
+                &mut None,
+                None,
+                crate::startup_timings::StartupTimings::start(),
+            )?;
+            registry.snapshot()?;
+            Ok(())
+        });
+        // A swap that failed after it moved the registry aside left only
+        // the backup: put it back before anything opens db_path. If that
+        // fails, refuse: an open now would create an empty registry beside
+        // the only copy of the session.
+        output_cleanup::restore_interrupted_swap(&db_path);
+        output_cleanup::refuse_open_beside_backup(&db_path)?;
+        // The locks stay held across a failed open and its rollback: no
+        // other owner can open either file in between.
+        let mut session_guard = Some(session_guard);
+        let mut lease = Some(lease);
+        let mut machine_id = Some(machine_id);
+        let mut resource_effect_pepper = Some(resource_effect_pepper);
+        let mut open_once = |session_guard: &mut Option<SessionLease>,
+                             lease: &mut Option<SessionLease>|
+         -> anyhow::Result<Self> {
+            open_guard::refuse_orphaned_journal(&db_path)?;
+            let connection = open_registry_database(&db_path)
+                .with_context(|| format!("open workspace registry {}", db_path.display()))?;
+            let connection = open_guard::quarantine_if_unreadable(&db_path, connection)?;
+            platform::restrict_file(&db_path)?;
+            // A second try (after a rollback) records its own laps.
+            let mut timings = std::mem::take(&mut timings);
+            timings.lap("registry.lock_and_connect");
+            Self::initialize(
+                connection,
+                session_name.to_string(),
+                match machine_id.take() {
+                    Some(id) => id,
+                    None => load_or_create_machine_id(&root)?,
+                },
+                match resource_effect_pepper.take() {
+                    Some(pepper) => pepper,
+                    None => load_or_create_resource_effect_pepper(&root)?,
+                },
+                session_guard,
+                lease,
+                Some(db_path.clone()),
+                timings,
+            )
+        };
+        #[cfg(debug_assertions)]
+        let first =
+            if swapped && std::env::var_os("CMUX_TUI_TEST_OUTPUT_CLEANUP_FAIL_OPEN").is_some() {
+                Err(anyhow::anyhow!("test: the swapped registry did not open"))
+            } else {
+                open_once(&mut session_guard, &mut lease)
+            };
+        #[cfg(not(debug_assertions))]
+        let first = open_once(&mut session_guard, &mut lease);
+        match first {
+            Ok(mut registry) => {
+                // Also true on a later start when the swap start never got
+                // through a full start (killed during restore).
+                registry.output_cleanup_swapped =
+                    swapped || output_cleanup::rollback_possible(&db_path);
+                if !registry.output_cleanup_swapped {
+                    output_cleanup::remove_previous_registry_when_started(&db_path);
+                }
+                Ok(registry)
+            }
+            Err(error) if swapped => {
+                // A rollback that cannot put the file back refuses this start.
+                output_cleanup::roll_back_swap(&db_path, &error)?;
+                open_once(&mut session_guard, &mut lease)
+            }
+            Err(error) => Err(error),
+        }
     }
 
+    /// Opens the registry and builds the owner from it with `load`. When this
+    /// start swapped in a cleaned registry (output cleanup) and `load` fails,
+    /// the previous registry is put back under the session locks and `load`
+    /// runs once more on it. A full start after a swap is recorded, so the
+    /// next start removes the previous file.
+    pub(crate) fn open_with<T>(
+        root: &Path,
+        session_name: &str,
+        mut load: impl FnMut(Self) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        let registry = Self::open(root, session_name)?;
+        let swapped = registry.output_cleanup_swapped;
+        let db_path = registry.database_path.clone();
+        #[cfg(debug_assertions)]
+        let loaded =
+            if swapped && std::env::var_os("CMUX_TUI_TEST_OUTPUT_CLEANUP_FAIL_LOAD").is_some() {
+                drop(registry);
+                Err(anyhow::anyhow!("test: the owner build failed after the swap"))
+            } else {
+                load(registry)
+            };
+        #[cfg(not(debug_assertions))]
+        let loaded = load(registry);
+        match loaded {
+            Ok(loaded) => {
+                if let Some(db_path) = db_path.as_deref() {
+                    output_cleanup::note_full_start(db_path)?;
+                }
+                Ok(loaded)
+            }
+            Err(error) if swapped && db_path.is_some() => {
+                eprintln!(
+                    "cmux-tui: output cleanup: the owner did not start on the new registry: {error:#}"
+                );
+                // The failed build released its locks with the registry. One
+                // open takes them again and holds them through the rollback
+                // and the open of the restored registry.
+                load(Self::open_inner(root, session_name, true)?)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn initialize(
         connection: Connection,
         session_name: String,
         machine_id: MachinePublicId,
         resource_effect_pepper: ResourceEffectPepper,
-        session_guard: Option<SessionLease>,
-        lease: Option<SessionLease>,
+        session_guard: &mut Option<SessionLease>,
+        lease: &mut Option<SessionLease>,
         database_path: Option<PathBuf>,
+        mut timings: crate::startup_timings::StartupTimings,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         // Before the first write, so every commit of this connection uses it.
@@ -2785,6 +2932,7 @@ impl WorkspaceRegistry {
             migrate_resource_tabs_to_multiview(&tx)?;
             tx.commit()?;
         }
+        timings.lap("registry.schema");
         {
             let tx = connection.unchecked_transaction()?;
             resource_store::migrate_tab_name_authority(&tx)?;
@@ -2814,23 +2962,7 @@ impl WorkspaceRegistry {
         }
         if migrate_existing_registry {
             connection.execute_batch("PRAGMA foreign_keys=ON;")?;
-            let violation = connection
-                .query_row(
-                    "SELECT \"table\", rowid, parent, fkid
-                     FROM pragma_foreign_key_check
-                     LIMIT 1",
-                    [],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, Option<i64>>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, i64>(3)?,
-                        ))
-                    },
-                )
-                .optional()?;
-            if violation.is_some() {
+            if first_state_foreign_key_violation(&connection)?.is_some() {
                 anyhow::bail!(
                     "saved session data could not be loaded; start a new session or restore this session from a backup"
                 );
@@ -2868,7 +3000,10 @@ impl WorkspaceRegistry {
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
             repair_resources_at_open(&tx)?;
+            public_projection_store::prune_stale_notification_reads_at_open(&tx)?;
             terminal_keep_store::classify_legacy_terminals(&tx)?;
+            // Additive: also on a registry a build before the table wrote.
+            terminal_unplaced_store::create_terminal_unplaced_schema(&tx)?;
             tx.commit()?;
         }
         if scrubbed {
@@ -2894,18 +3029,23 @@ impl WorkspaceRegistry {
         if let Err(error) = crate::state::sidebar_doc_store::migrate_at_open(&connection) {
             eprintln!("cmux-tui: sidebar document migration skipped ({error:#})");
         }
+        timings.lap("registry.migrations");
         check_registry_integrity(&connection)?;
+        timings.lap("registry.integrity_check");
         {
             let tx = connection.unchecked_transaction()?;
             initialize_compatibility_active_workspace(&tx)?;
             validate_resource_invariants(&tx)?;
             tx.commit()?;
         }
+        timings.lap("registry.resource_invariants");
+        let generation = try_new_uuid_v4()?;
         Ok(Self {
             connection: RegistryConnection::new(connection, database_path.as_deref()),
             database_path,
+            open_timings: timings,
             registry_id,
-            generation: try_new_uuid_v4()?,
+            generation,
             session_name,
             machine_id,
             session_id,
@@ -2914,13 +3054,19 @@ impl WorkspaceRegistry {
             resource_projection_stats: std::sync::Arc::default(),
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
-            session_guard,
-            lease,
+            session_guard: session_guard.take(),
+            lease: lease.take(),
+            output_cleanup_swapped: false,
         })
     }
 
     pub(crate) fn session_journal_database_path(&self) -> Option<PathBuf> {
         self.database_path.clone()
+    }
+
+    /// This registry's open steps, once (later calls get none).
+    pub(crate) fn take_open_timings(&mut self) -> crate::startup_timings::StartupTimings {
+        std::mem::take(&mut self.open_timings)
     }
 
     pub(crate) fn resource_input_receipt_hmac(
@@ -3488,7 +3634,10 @@ impl WorkspaceRegistry {
         validate_identifier("projection subject", subject_key)?;
         let payload = canonical_json(projection)?;
         if payload.len() > MAX_PROJECTION_BYTES {
-            anyhow::bail!("frontend projection exceeds {MAX_PROJECTION_BYTES} bytes");
+            anyhow::bail!(
+                "frontend projection {frontend}/{scope}/{subject_key} is {} bytes, over {MAX_PROJECTION_BYTES}",
+                payload.len()
+            );
         }
         let fingerprint = canonical_json(&serde_json::json!({
             "frontend": frontend,
@@ -3499,6 +3648,10 @@ impl WorkspaceRegistry {
         }))?;
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
+        // The ledger keeps a digest of the request and its result without the body: a replay is
+        // proven to carry the same body (the digest matches), so the body is not stored twice more
+        // per save (`projection_size`). Rows written before hold the full text and body.
+        let fingerprint_digest = projection_size::fingerprint_digest(&fingerprint);
         if let Some((stored_fingerprint, result_json)) = tx
             .query_row(
                 "SELECT fingerprint, result_json FROM projection_mutations
@@ -3508,25 +3661,27 @@ impl WorkspaceRegistry {
             )
             .optional()?
         {
-            if stored_fingerprint != fingerprint {
+            if stored_fingerprint != fingerprint_digest && stored_fingerprint != fingerprint {
                 anyhow::bail!(
                     "mutation {} from {} was retried with a different payload",
                     mutation.id,
                     mutation.origin
                 );
             }
-            let stored: FrontendProjection = serde_json::from_str(&result_json)?;
+            let mut stored: FrontendProjection = serde_json::from_str(&result_json)?;
+            stored.projection = projection.clone();
             return Ok(ProjectionCommit { projection: stored, replayed: true });
         }
-        let current = tx
+        let stored_now = tx
             .query_row(
-                "SELECT projection_revision FROM frontend_projections
+                "SELECT projection_revision, octet_length(payload) FROM frontend_projections
                  WHERE frontend = ?1 AND scope = ?2 AND subject_key = ?3",
                 params![frontend, scope, subject_key],
-                |row| row.get::<_, i64>(0),
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
             )
-            .optional()?
-            .map(u64::try_from)
+            .optional()?;
+        let current = stored_now
+            .map(|(revision, _)| u64::try_from(revision))
             .transpose()
             .context("projection revision is negative")?
             .unwrap_or(0);
@@ -3535,6 +3690,8 @@ impl WorkspaceRegistry {
         {
             anyhow::bail!("projection revision conflict: expected {expected}, current {current}");
         }
+        let previous_bytes = stored_now.and_then(|(_, bytes)| usize::try_from(bytes).ok());
+        note_projection_size(frontend, scope, subject_key, previous_bytes, payload.len());
         let projection_revision = current
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("projection revision exhausted"))?;
@@ -3570,8 +3727,11 @@ impl WorkspaceRegistry {
             params![
                 mutation.origin,
                 mutation.id,
-                fingerprint,
-                canonical_json(&serde_json::to_value(&stored)?)?,
+                fingerprint_digest,
+                canonical_json(&serde_json::to_value(FrontendProjection {
+                    projection: Value::Null,
+                    ..stored.clone()
+                })?)?,
                 mutation.actor.wire(),
             ],
         )?;
@@ -3779,8 +3939,8 @@ fn migrate_resource_api_frontend_projection_envelopes(
         });
         let payload = canonical_json(&envelope)?;
         anyhow::ensure!(
-            payload.len() <= MAX_PROJECTION_BYTES,
-            "migrated resource API frontend projection exceeds {MAX_PROJECTION_BYTES} bytes"
+            payload.len() <= MAX_RESOURCE_API_PROJECTION_BYTES,
+            "migrated resource API frontend projection exceeds {MAX_RESOURCE_API_PROJECTION_BYTES} bytes"
         );
         transaction.execute(
             "UPDATE frontend_projections
@@ -3821,6 +3981,59 @@ const JOURNAL_HISTORY_TABLES: [&str; 7] = [
 const MUTATION_LEDGER_TABLES: [&str; 3] =
     ["mutations", "projection_mutations", "terminal_mutations"];
 
+/// Journal receipt ledgers: one row per accepted ingress append, read only
+/// by its `(producer, origin, idempotency key)` for a retry. A long-lived
+/// machine holds hundreds of thousands (588k, about 5.5 s of a cold
+/// quick_check on a 41 GB nightly registry), so the open-time checks skip
+/// them like the mutation ledgers.
+const RECEIPT_LEDGER_TABLES: [&str; 1] = ["journal_ingress_receipts"];
+
+/// Tables the open-time checks leave alone: journal history, idempotency
+/// ledgers and quarantined ledgers grow with use and are validated when read.
+fn skipped_by_open_check(table: &str) -> bool {
+    JOURNAL_HISTORY_TABLES.contains(&table)
+        || MUTATION_LEDGER_TABLES.contains(&table)
+        || RECEIPT_LEDGER_TABLES.contains(&table)
+        || mutation_ledger_retention::is_quarantined_ledger(table)
+}
+
+/// One `PRAGMA foreign_key_check` row: `(table, rowid, parent, foreign key index)`.
+pub(crate) type ForeignKeyViolation = (String, i64, Option<String>, i64);
+
+/// The first row of a registry state table whose foreign key names a missing
+/// parent: `(table, rowid, parent, foreign key index)`. The open migrates
+/// state tables with foreign keys off and validates the resource topology, so
+/// both check them; an unscoped `PRAGMA foreign_key_check` also walked every
+/// receipt ledger (about 4 s cold on a 41 GB registry) while the daemon's
+/// socket waited.
+pub(crate) fn first_state_foreign_key_violation(
+    connection: &Connection,
+) -> anyhow::Result<Option<ForeignKeyViolation>> {
+    let tables = {
+        let mut statement = connection.prepare(
+            "SELECT DISTINCT m.name FROM sqlite_master AS m, pragma_foreign_key_list(m.name)
+             WHERE m.type = 'table' ORDER BY m.name",
+        )?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    for table in tables.iter().filter(|table| !skipped_by_open_check(table.as_str())) {
+        let query = format!(
+            "SELECT \"table\", rowid, parent, fkid FROM pragma_foreign_key_check('{}') LIMIT 1",
+            table.replace('\'', "''")
+        );
+        let violation = connection
+            .query_row(&query, [], |row| {
+                let rowid = row.get::<_, Option<i64>>(1)?.unwrap_or_default();
+                Ok((row.get(0)?, rowid, row.get(2)?, row.get(3)?))
+            })
+            .optional()?;
+        if violation.is_some() {
+            return Ok(violation);
+        }
+    }
+    Ok(None)
+}
+
 /// Structural check of the registry state on open. An unscoped quick_check
 /// reads every page of the file, so its cost tracked total journal history;
 /// checking each state table and its indexes keeps startup proportional to
@@ -3834,17 +4047,27 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         )?;
         statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
-    let skipped = |table: &str| {
-        JOURNAL_HISTORY_TABLES.contains(&table)
-            || MUTATION_LEDGER_TABLES.contains(&table)
-            || mutation_ledger_retention::is_quarantined_ledger(table)
-    };
-    for table in tables.iter().filter(|table| !skipped(table.as_str())) {
+    // The tables that grow with use are checked in full by the maintenance
+    // worker after the daemon serves, unless it found one damaged
+    // (`history_check`).
+    let full = history_check::full_open_check_required(connection)?;
+    for table in tables.iter().filter(|table| {
+        !skipped_by_open_check(table.as_str())
+            && (full || !history_check::is_background_checked(table.as_str()))
+    }) {
         let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
         let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
         if result != "ok" {
             anyhow::bail!("workspace registry integrity check failed: {result}");
         }
+    }
+    if full {
+        connection.execute(
+            "DELETE FROM meta WHERE key = ?1",
+            [history_check::FULL_OPEN_CHECK_META_KEY],
+        )?;
+    } else {
+        history_check::touch_background_checked_tails(connection, &tables)?;
     }
     // History is validated incrementally when replayed. Touch only each
     // table's newest indexed row during open so a corrupt tail page is caught
@@ -3855,7 +4078,10 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         ("journal_event_index", "sequence"),
         ("journal_segments", "end_sequence"),
         ("journal_checkpoints", "source_sequence"),
-        ("journal_content_blobs", "created_at_ms"),
+        // created_at_ms has no index: ordering by it scanned and sorted every
+        // blob through its overflow pages (0.67 s cold on a 41.6 GB registry).
+        // Blobs are append-only, so the newest rowid is the newest blob.
+        ("journal_content_blobs", "rowid"),
     ] {
         let query = format!("SELECT 1 FROM {table} ORDER BY {order} DESC LIMIT 1");
         let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
@@ -3865,6 +4091,16 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
             continue;
         }
         for order in ["rowid DESC", "origin DESC, mutation_id DESC"] {
+            let query = format!("SELECT 1 FROM {table} ORDER BY {order} LIMIT 1");
+            let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
+        }
+    }
+    // The receipt ledgers likewise: their newest row and newest key.
+    for table in RECEIPT_LEDGER_TABLES {
+        if !tables.iter().any(|name| name.as_str() == table) {
+            continue;
+        }
+        for order in ["rowid DESC", "producer_id DESC, origin DESC, idempotency_key DESC"] {
             let query = format!("SELECT 1 FROM {table} ORDER BY {order} LIMIT 1");
             let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
         }
@@ -4001,6 +4237,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     )?;
     idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
     terminal_keep_store::create_terminal_keep_schema(transaction)?;
+    terminal_unplaced_store::create_terminal_unplaced_schema(transaction)?;
     terminal_resume_store::create_terminal_resume_schema(transaction)?;
     relaunch_store::create_schema(transaction)?;
     Ok(())
@@ -4862,7 +5099,7 @@ fn transaction_revision(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
     value.parse().context("workspace registry revision is invalid")
 }
 
-fn current_terminal_revision(connection: &Connection) -> anyhow::Result<u64> {
+pub(crate) fn current_terminal_revision(connection: &Connection) -> anyhow::Result<u64> {
     required_meta(connection, "terminal_revision")?
         .parse()
         .context("terminal registry revision is invalid")
@@ -5842,6 +6079,9 @@ mod tests;
 mod receipt_env_tests;
 
 #[cfg(test)]
+mod open_cost_tests;
+
+#[cfg(test)]
 mod personal_tests;
 
 #[cfg(test)]
@@ -5849,3 +6089,6 @@ mod actor_migration_tests;
 
 #[cfg(test)]
 mod workspace_name_tests;
+
+#[cfg(test)]
+mod projection_size_tests;

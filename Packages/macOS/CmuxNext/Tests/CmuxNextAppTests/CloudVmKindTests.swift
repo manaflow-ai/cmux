@@ -50,4 +50,26 @@ struct CloudVmKindTests {
         #expect(params(false, false)["vm_kind"] == nil)
         #expect(DaemonCapability.agentSessionStartVMKind.rawValue == "agent-session-start-vm-kind-v1")
     }
+
+    @Test func aStartSendsTheModelOnlyToARecentDaemon() {
+        let old = AgentSessionAttachClient.startParams(cwd: "/w", harness: "codex",
+                                                       homeConfirmed: false, personKey: nil,
+                                                       servesKeyedReason: false, callerOwnsVM: false,
+                                                       servesVMKind: false, model: "m", servesModel: false)
+        let recent = AgentSessionAttachClient.startParams(cwd: "/w", harness: "codex",
+                                                          homeConfirmed: false, personKey: nil,
+                                                          servesKeyedReason: false, callerOwnsVM: false,
+                                                          servesVMKind: false, model: "m", servesModel: true)
+        #expect(old["model"] == nil)
+        #expect(recent["model"] as? String == "m")
+        #expect(DaemonCapability.agentSessionStartModel.rawValue == "agent-session-start-model-v1")
+    }
+
+    @Test func aNoFolderStartOmitsCwdOnlyAsAnAbsentParameter() {
+        let params = AgentSessionAttachClient.startParams(cwd: nil, harness: nil, homeConfirmed: false, personKey: nil,
+                                                           servesKeyedReason: false, callerOwnsVM: true, servesVMKind: true)
+        #expect(params["cwd"] == nil)
+        #expect(params["vm_kind"] as? String == "owner")
+        #expect(DaemonCapability.agentSessionStartNoCwd.rawValue == "agent-session-start-no-cwd-v1")
+    }
 }

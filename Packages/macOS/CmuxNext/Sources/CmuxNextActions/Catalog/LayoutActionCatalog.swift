@@ -29,6 +29,9 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
             row("tab.moveToWorkspace", String(localized: "action.tab.moveToWorkspace", defaultValue: "Move Tab to Workspace…", table: "LayoutActions", bundle: .module),
                 .tab, "arrow.right.circle", cli: "tab move-to-workspace", keywords: ["tab", "workspace"],
                 targets: [.tab], arguments: [CatalogArgument.workspaceWorkspace]),
+            row("tab.moveToSpace", String(localized: "action.tab.moveToSpace", defaultValue: "Move Tab to Space…", table: "LayoutActions", bundle: .module),
+                .tab, "arrow.right.circle", cli: "tab move-to-space", keywords: ["tab", "space"],
+                targets: [.tab], arguments: [CatalogArgument.roomRoom]),
             row("tab.moveToNewWindow", String(localized: "action.tab.moveToNewWindow", defaultValue: "Move Tab to New Window", table: "LayoutActions", bundle: .module),
                 .tab, "macwindow.badge.plus", cli: "tab move-to-new-window", keywords: ["tab", "window", "detach"], targets: [.tab]),
             row("tabGroup.moveLeft", String(localized: "action.tabGroup.moveLeft", defaultValue: "Move Tab Group Left", table: "LayoutActions", bundle: .module),
@@ -75,9 +78,10 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
         let targets: [ActionTargetKind] = [.column, .pane]
         return [
             row("column.focusLeft", String(localized: "action.column.focusLeft", defaultValue: "Focus Column Left", table: "LayoutActions", bundle: .module),
-                .pane, "arrow.left.to.line", cli: "column focus-left", keywords: ["column", "navigate"], targets: targets),
+                // "move", "go", "switch": a search for Move Column Left also lists Focus Column Left.
+                .pane, "arrow.left.to.line", cli: "column focus-left", keywords: ["column", "navigate", "move", "go", "switch"], targets: targets),
             row("column.focusRight", String(localized: "action.column.focusRight", defaultValue: "Focus Column Right", table: "LayoutActions", bundle: .module),
-                .pane, "arrow.right.to.line", cli: "column focus-right", keywords: ["column", "navigate"], targets: targets),
+                .pane, "arrow.right.to.line", cli: "column focus-right", keywords: ["column", "navigate", "move", "go", "switch"], targets: targets),
             row("column.moveLeft", String(localized: "action.column.moveLeft", defaultValue: "Move Column Left", table: "LayoutActions", bundle: .module),
                 .pane, "arrow.left.square", cli: "column move-left", keywords: ["column", "reorder"], targets: targets),
             row("column.moveRight", String(localized: "action.column.moveRight", defaultValue: "Move Column Right", table: "LayoutActions", bundle: .module),

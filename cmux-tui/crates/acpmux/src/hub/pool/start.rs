@@ -84,6 +84,12 @@ impl Hub {
         } else {
             (None, None)
         };
+        // A delivery may have changed the machine's secrets since the last
+        // login read: a prewarmed agent never starts on stale or revoked values.
+        anyhow::ensure!(
+            draft.remote_origin || crate::login_env::machine_env_fresh_before_spawn().await,
+            "machine environment changed; login env refresh failed"
+        );
         let cmd = crate::agent::harness_command(
             &draft.harness,
             profile,
@@ -94,15 +100,21 @@ impl Hub {
         let preview = crate::agent::pinned_preview_format(&cmd);
         let std_cmd = cmd.as_std();
         let dir = pool_dir();
-        let host_spec = agent_host::SpawnSpec {
+        let env = if draft.remote_origin {
+            crate::agent::command_env_cleared(&cmd)
+        } else {
+            crate::agent::command_env(&cmd)
+        };
+        // The class it runs at once a chat's start took it, from the harness's own env: its
+        // profile's value as resolved (`cpu_class.rs`). Until then it stays at normal class.
+        let run_class = crate::cpu_class::CpuClass::for_session(
+            env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+        );
+        let mut host_spec = agent_host::SpawnSpec {
             session_id: session_id.clone(),
             program: std_cmd.get_program().to_string_lossy().into_owned(),
             args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
-            env: if draft.remote_origin {
-                crate::agent::command_env_cleared(&cmd)
-            } else {
-                crate::agent::command_env(&cmd)
-            },
+            env,
             cwd: draft.cwd.clone(),
             codex_bridge: !claude && crate::codex_app_server::is_profile_launch(&profile.argv),
             translator,
@@ -112,6 +124,7 @@ impl Hub {
             router_owner_fifo: crate::daemon::router_owner_path(),
             // Never a sub-session's checked folder: a sub-session start takes no pooled harness.
             cwd_pin: None,
+            orphan_exit: None,
         };
         // No host starts once `stop_pool` began: it could not end it.
         if self.pool.stopping.load(Ordering::SeqCst) {
@@ -125,15 +138,32 @@ impl Hub {
             &host_spec.env,
             &host_spec.cwd,
         );
-        let servers =
-            crate::hub::LaunchServers::read(&launch, spec.draft.family.clone().unwrap_or_default())
-                .await;
-        let record = agent_host::program_wait::spawn(&launcher, &host_spec).await?;
+        let servers = crate::hub::LaunchServers::read(
+            &launch,
+            spec.draft.family.clone().unwrap_or_default(),
+            spec.spawn.kind,
+        )
+        .await;
+        host_spec.orphan_exit = servers.orphan_exit(self.orphan_exit());
+        // The start itself has no time budget (`link::spawn`); the pool is its caller and gives
+        // up after its own `START_BUDGET`, as for its later stages. Giving up ends the host.
+        let record = tokio::time::timeout(
+            START_BUDGET,
+            agent_host::program_wait::spawn(&launcher, &host_spec),
+        )
+        .await
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("no pooled agent host within {START_BUDGET:?}")))?;
+        // Not at a background class another process set (`cpu_class.rs`, item 1). Its host reaps
+        // it: a harness that already ended leaves the pid to a process of this user at most.
+        if let Some(pid) = record.harness_pid {
+            crate::cpu_class::clear_running(pid);
+        }
         lock(&self.pool.starting).insert(session_id.clone(), record.clone());
         let started =
             self.start_pooled(session_id.clone(), name, record.clone(), spec, claude, off).await;
         let started = started.map(|p| {
             p.child.record_launch(servers);
+            p.child.set_run_class(run_class);
             Pooled { preview, ..p }
         });
         if started.is_err() {
@@ -217,8 +247,15 @@ impl Hub {
                 }
             }
         })
-        .await
-        .unwrap_or_else(|_| Err(anyhow::anyhow!("no harness session within {START_BUDGET:?}")));
+        .await;
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            // What its harness was doing, read before it is ended (`cpu_class.rs`).
+            Err(_) => Err(anyhow::anyhow!(
+                "no harness session within {START_BUDGET:?}{}",
+                child.harness_seen().await.detail()
+            )),
+        };
         let (init, new_result) = match outcome {
             Ok(v) => v,
             Err(e) => {

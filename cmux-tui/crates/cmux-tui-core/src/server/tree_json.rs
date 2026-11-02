@@ -220,7 +220,7 @@ pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) ->
     })
 }
 
-fn tree_short_ids(state: &State) -> HashMap<u64, String> {
+pub(super) fn tree_short_ids(state: &State) -> HashMap<u64, String> {
     let ids = state
         .workspaces
         .iter()

@@ -43,6 +43,15 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 keywords: ["close", "windows", "other", "others"], category: .window, symbol: "xmark.rectangle.portrait",
                 surfaces: [.palette, .menu], cliName: "app close-other-windows", mainMenu: .file
             ),
+            // Merge All Windows (Leo 2026-10-29, as in Safari and Finder): every other normal window's
+            // workspaces move into this one, each keeping its space, and those windows close.
+            // Incognito windows stay apart (spaces-overhaul-DESIGN.md rule 2).
+            ActionDescriptor(
+                id: "window.mergeAll",
+                title: String(localized: "action.window.mergeAll", defaultValue: "Merge All Windows", bundle: .module),
+                keywords: ["merge", "windows", "combine", "gather", "join", "spaces"], category: .window, symbol: "rectangle.stack",
+                surfaces: [.palette, .menu], cliName: "app merge-all-windows", mainMenu: .window
+            ),
             // Ghostty's close_all_windows, toggle_maximize and goto_window
             // route here (GHOSTTY-CONFIG item (c), coordinator A1, B1, E1).
             ActionDescriptor(
@@ -75,11 +84,9 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 keywords: ["dock", "hide", "miniaturize"], category: .window, symbol: "minus.rectangle",
                 surfaces: [.palette], cliName: "app minimize-window"
             ),
-            // A PNG of the window as on screen, never focusing or raising it
-            // (agents read the app without Screen Recording; ScreenshotHandlers). An
-            // automation run's image has every web page the app does not own painted
-            // over (ScreenshotPrivacyMask): the browser host's guarded capture is the
-            // only way automation sees a page's pixels.
+            // A PNG of the window as on screen, never focusing or raising it (a person copies
+            // it without Screen Recording; ScreenshotHandlers). An agent's or a script's
+            // capture comes back with every browser page and agent chat masked.
             ActionDescriptor(
                 id: "window.screenshot",
                 title: String(localized: "action.window.screenshot", defaultValue: "Screenshot Window", bundle: .module),

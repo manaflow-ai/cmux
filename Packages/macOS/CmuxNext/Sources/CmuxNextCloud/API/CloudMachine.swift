@@ -5,13 +5,57 @@ public import Foundation
 public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     public enum Status: String, Sendable, Hashable, Decodable {
         case provisioning, running, failed, paused, destroyed, unknown
+        /// A Pause Machine (or the idle auto-pause) the server accepted; the
+        /// provider call has not landed yet, so the machine is not paused.
+        case pausing
+        /// A Resume Machine the server accepted; the VM is starting again.
+        case starting
+        /// A Kill Machine the server accepted; the VM is not gone yet.
+        case deleting
 
         public init(from decoder: any Decoder) throws {
             self = Status(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
         }
 
         /// A machine whose daemon can be reached (or soon will be).
-        public var isLive: Bool { self == .running || self == .provisioning }
+        public var isLive: Bool { self == .running || self == .provisioning || self == .starting }
+
+        /// A pause, resume or delete is on its way.
+        public var isChanging: Bool { self == .pausing || self == .starting || self == .deleting }
+
+        /// Power actions wait until the current transition reaches its terminal state.
+        public func blocks(_ action: PowerAction) -> Bool { isChanging }
+    }
+
+    /// Pause, Resume and Kill Machine.
+    public enum PowerAction: Sendable, Hashable { case pause, resume, kill }
+
+    /// Why the machine's last pause, resume or resize failed (the cmux-next
+    /// backend's `error`): the server answers those calls at once and runs the
+    /// provider call after, so a failure only shows on the record.
+    public struct ChangeFailure: Sendable, Hashable, Decodable {
+        public var code: String
+        public var message: String
+        /// When it failed; nil when the server did not say.
+        public var at: Date?
+
+        /// What to show: the message, else the code.
+        public var text: String { message.isEmpty ? code : message }
+
+        public init(code: String, message: String, at: Date? = nil) {
+            self.code = code
+            self.message = message
+            self.at = at
+        }
+
+        private enum CodingKeys: String, CodingKey { case code, message, at }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            code = try c.decode(String.self, forKey: .code)
+            message = try c.decodeIfPresent(String.self, forKey: .message) ?? ""
+            at = ((try? c.decodeIfPresent(Double.self, forKey: .at)) ?? nil).map { Date(timeIntervalSince1970: $0 / 1000) }
+        }
     }
 
     /// Why a paused machine is paused: the idle auto-pause (`idle`) or a
@@ -34,6 +78,51 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         public var cpu: Int?
         public var memoryMb: Int?
         public var storageMb: Int?
+    }
+
+    /// Diagnostics from the idle auto-pause cron. Timestamps are epoch
+    /// milliseconds, matching the server's provider metadata values.
+    public struct IdlePauseDiagnostics: Sendable, Hashable, Decodable {
+        public struct Run: Sendable, Hashable, Decodable {
+            public var checked: Int
+            public var elapsedMs: Int
+
+            public init(checked: Int, elapsedMs: Int) {
+                self.checked = checked
+                self.elapsedMs = elapsedMs
+            }
+        }
+
+        public struct LastDecision: Sendable, Hashable, Decodable {
+            public var at: Int
+            public var outcome: String
+            public var reason: String
+            public var run: Run
+
+            public init(at: Int, outcome: String, reason: String, run: Run) {
+                self.at = at
+                self.outcome = outcome
+                self.reason = reason
+                self.run = run
+            }
+        }
+
+        public var minutes: Int
+        public var lastCheckedAt: Int?
+        public var idleSince: Int?
+        public var lastApiActivityAt: Int?
+        public var privateAddressKnown: Bool
+        public var lastDecision: LastDecision?
+
+        public init(minutes: Int, lastCheckedAt: Int?, idleSince: Int?, lastApiActivityAt: Int?,
+                    privateAddressKnown: Bool, lastDecision: LastDecision?) {
+            self.minutes = minutes
+            self.lastCheckedAt = lastCheckedAt
+            self.idleSince = idleSince
+            self.lastApiActivityAt = lastApiActivityAt
+            self.privateAddressKnown = privateAddressKnown
+            self.lastDecision = lastDecision
+        }
     }
 
     /// Provider operations and session transports advertised for this machine.
@@ -140,6 +229,8 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     public var image: String?
     public var imageVersion: String?
     public var createdAt: Date?
+    /// Person who created the machine, when the team API supplies it.
+    public var createdBy: String?
     public var address: Address?
     public var size: Size?
     /// Server-declared provider operations and attach transports; `nil`
@@ -153,14 +244,37 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     /// `nil` when the server did not say (an older server, or a backend
     /// machine).
     public var idlePauseMinutes: Int?
+    /// Last idle-pause check and decision, when the server exposes diagnostics.
+    public var idlePause: IdlePauseDiagnostics?
     /// What one hour of this machine's size costs, in US dollars
     /// (`hourlyRateUsd`, from the server's rate table; the app keeps none).
     /// Nil when the server has no rate for it (a size not measured yet, an
     /// older server).
     public var hourlyRateUsd: Double?
+    /// The server's row revision. Status records with a newer value supersede an older
+    /// local mutation; stale responses retain the optimistic overlay.
+    public var updatedAt: Date?
+    /// App-server row revision, kept as decimal text to avoid fixed-width overflow.
+    public var serverRevision: String?
     /// When the machine last started running (`runningSince`, epoch ms).
     /// Nil while it is paused, so a paused machine shows no running cost.
     public var runningSince: Date?
+    /// The auto-size pick a create with `autosize` answered (``CloudSizePick``); nil on a list
+    /// record, on a create that sent its own size, and on an older server.
+    public var sizePick: CloudSizePick?
+    /// Why the last pause, resume or resize failed; nil when it did not (or
+    /// the server does not say). The next change clears it on the server.
+    public var lastChangeFailure: ChangeFailure?
+    /// The newest unresolved Pause, Resume or Kill (`pausing`, `starting` or `deleting`).
+    /// Never decoded: CloudMachineChanges reapplies the local overlay to incoming records.
+    public var pendingChange: Status?
+    /// Local mutation identity; never decoded from a server record.
+    public var pendingMutationID: UUID?
+    /// Local rollback settled by this record; never decoded or inferred from displayed error changes.
+    public var failedMutationID: UUID?
+
+    /// The status the app shows: a change sent from here, else the record's.
+    public var shownStatus: Status { pendingChange ?? status }
 
     /// The declared capabilities, or the conservative empty set when the
     /// record declared none. Gate actions with ``allows(_:)``, not this.
@@ -175,34 +289,62 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     }
 
     /// Whether New Cloud Workspace with no machine named may open on this machine instead
-    /// of starting (and billing) a new VM: it runs or starts, or the idle timer paused it
-    /// (opening resumes it). A failed machine, a destroyed one or one a person paused is
-    /// never picked (Lawrence msg 1334: Cloud workspaces sit in their machine's one group).
+    /// of starting (and billing) a new VM: it runs, or the idle timer paused it
+    /// (opening resumes it). A changing, failed, destroyed or person-paused machine is
+    /// never picked until its terminal record arrives (Lawrence msg 1334: Cloud workspaces
+    /// sit in their machine's one group).
     public var takesUnnamedWorkspaces: Bool {
-        status.isLive || (status == .paused && pauseReason == .idle)
+        !shownStatus.isChanging && (status.isLive || (status == .paused && pauseReason == .idle))
     }
 
-    /// Sidebar and menu title: the user's name, else the slug, else the id.
-    public var title: String { displayName?.nonEmpty ?? slug?.nonEmpty ?? id }
+    /// The machine's name wherever cmux shows one (the sidebar, menus, the Cloud page): the
+    /// user's name, else the generated slug (`kind-aqua-sandpiper`); nil when it has neither.
+    public var shownName: String? { displayName?.nonEmpty ?? slug?.nonEmpty }
+
+    /// Sidebar and menu title: ``shownName``, else the id.
+    public var title: String { shownName ?? id }
 
     enum CodingKeys: String, CodingKey {
-        case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, address, size, capabilities
-        case pauseReason, idlePauseMinutes
-        case hourlyRateUsd, runningSince
+        case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, createdByUserId, address, size, capabilities
+        case pauseReason, idlePauseMinutes, idlePause
+        case hourlyRateUsd, updatedAt, runningSince, sizePick
+        case lastChangeFailure = "error"
     }
 
     public init(id: String, provider: String = "freestyle", status: Status = .running, displayName: String? = nil,
                 slug: String? = nil, address: Address? = nil, capabilities: Capabilities? = nil,
-                pauseReason: PauseReason? = nil, idlePauseMinutes: Int? = nil) {
+                pauseReason: PauseReason? = nil, idlePauseMinutes: Int? = nil,
+                idlePause: IdlePauseDiagnostics? = nil, updatedAt: Date? = nil, lastChangeFailure: ChangeFailure? = nil) {
         self.id = id
         self.provider = provider
         self.status = status
         self.displayName = displayName
+        self.createdBy = nil
         self.slug = slug
         self.address = address
         self.declaredCapabilities = capabilities
         self.pauseReason = pauseReason
         self.idlePauseMinutes = idlePauseMinutes
+        self.idlePause = idlePause
+        self.updatedAt = updatedAt
+        self.lastChangeFailure = lastChangeFailure
+    }
+
+    /// Classic list, detail and create routes publish `{userId, displayName}`.
+    /// Accept the earlier string form too, without hiding malformed machine fields.
+    private struct CreatorReference: Decodable {
+        let userId: String
+        private enum CodingKeys: String, CodingKey { case userId }
+
+        init(from decoder: any Decoder) throws {
+            let scalar = try decoder.singleValueContainer()
+            do {
+                userId = try scalar.decode(String.self)
+            } catch DecodingError.typeMismatch {
+                let object = try decoder.container(keyedBy: CodingKeys.self)
+                userId = try object.decode(String.self, forKey: .userId)
+            }
+        }
     }
 
     public init(from decoder: any Decoder) throws {
@@ -217,14 +359,22 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         image = try c.decodeIfPresent(String.self, forKey: .image)
         imageVersion = try c.decodeIfPresent(String.self, forKey: .imageVersion)
         createdAt = try c.decodeIfPresent(Double.self, forKey: .createdAt).map { Date(timeIntervalSince1970: $0 / 1000) }
+        createdBy = try c.decodeIfPresent(String.self, forKey: .createdByUserId)
+            ?? c.decodeIfPresent(CreatorReference.self, forKey: .createdBy)?.userId
         address = try c.decodeIfPresent(Address.self, forKey: .address)
         size = try c.decodeIfPresent(Size.self, forKey: .size)
         declaredCapabilities = try c.decodeIfPresent(Capabilities.self, forKey: .capabilities)
         pauseReason = (try? c.decodeIfPresent(String.self, forKey: .pauseReason)).flatMap(PauseReason.init(rawValue:))
         idlePauseMinutes = try? c.decodeIfPresent(Int.self, forKey: .idlePauseMinutes)
+        // Diagnostics are best effort: older or partially deployed servers
+        // may omit the object (or send a shape this client does not know).
+        idlePause = try? c.decodeIfPresent(IdlePauseDiagnostics.self, forKey: .idlePause)
+        updatedAt = ((try? c.decodeIfPresent(Double.self, forKey: .updatedAt)) ?? nil).map { Date(timeIntervalSince1970: $0 / 1000) }
         // Display facts: a malformed value drops the cost line, never the machine.
         hourlyRateUsd = (try? c.decodeIfPresent(Double.self, forKey: .hourlyRateUsd)) ?? nil
         runningSince = ((try? c.decodeIfPresent(Double.self, forKey: .runningSince)) ?? nil).map { Date(timeIntervalSince1970: $0 / 1000) }
+        sizePick = (try? c.decodeIfPresent(CloudSizePick.self, forKey: .sizePick)) ?? nil
+        lastChangeFailure = (try? c.decodeIfPresent(ChangeFailure.self, forKey: .lastChangeFailure)) ?? nil
     }
 }
 
@@ -248,6 +398,9 @@ public struct CloudAttachEndpoint: Sendable, Hashable, Decodable {
     /// boundary (acpmux `hub/vm_boundary.rs`). Missing, null or any other string keeps them
     /// sandboxed; a value of another type fails the attach.
     public var callerOwnsVM: Bool { vmKind == "owner" }
+    /// Only the exact `"team"`: the Cloud API says the machine is a teammate's, so its owner starts
+    /// chats there. Grants nothing; it only names the refusal (``CloudMachineLink/callerIsTeammate``).
+    public var callerIsTeammate: Bool { vmKind == "team" }
 }
 
 public struct CloudEnrollmentApproval: Sendable, Hashable, Decodable {

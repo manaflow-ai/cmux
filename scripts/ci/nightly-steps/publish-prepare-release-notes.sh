@@ -2,6 +2,14 @@
 # nightly.yml publish-nightly: "Prepare nightly release notes and appcast summaries".
 # Moved out of the workflow verbatim to keep nightly.yml under GitHub's
 # workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# The notes take seconds. Bounded here, a slow notes run fails before
+# any asset upload instead of using up the job's time and being
+# cancelled mid-upload (run 37611677848 left partial assets that way).
+# 60 of these minutes are the most its gh calls may wait for a rate-limit
+# reset (gh_budget_wait.sh); the job's timeout leaves 20 after them.
+# nightly-next runs are pushes to nightly-next; their PRs merge into feat-cmux-next.
 set -euo pipefail
 read -ra feeds <<< "$NIGHTLY_FEEDS"
 download="https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}"

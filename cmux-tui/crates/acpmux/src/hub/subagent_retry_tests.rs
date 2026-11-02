@@ -528,14 +528,18 @@ async fn a_sub_session_retry_is_busy_while_its_parents_run_slots_are_full() {
 /// A queue entry as `enqueue` makes it, with `provenance`, that no task waits on.
 fn queued_prompt(prompt_id: &str, provenance: Option<Value>) -> crate::hub::queue::QueuedPrompt {
     let run = crate::hub::queue::PromptRun {
+        size: Default::default(),
         blocks: vec![json!({"type": "text", "text": "waits"})],
         display_parts: None,
         control: crate::hub::Control::Local,
         trust_gate: false,
         provenance,
         agent: None,
+        class: None,
         supersede: None,
         full_access_device: None,
+        message_id: None,
+        message_sender: None,
     };
     crate::hub::queue::QueuedPrompt {
         prompt_id: prompt_id.into(),
@@ -549,6 +553,9 @@ fn queued_prompt(prompt_id: &str, provenance: Option<Value>) -> crate::hub::queu
         resume: false,
         steer: false,
         held: false,
+        awaiting_owner: false,
+        revision: 0,
+        declined: Default::default(),
         sent_now: false,
         joined: Arc::new(std::sync::Mutex::new(None)),
         requeued: false,
@@ -747,14 +754,16 @@ async fn a_restart_settles_an_attempt_left_in_flight() {
         assert_eq!(entry["agentId"], format!("agent-{sub}"), "{entry}");
     }
     assert!(!retry_open(&session));
-    // Its queue came back with the retry prompt, which is refused at its start, never run.
+    // Its queue came back without the retry prompt (`drop_unsent_subagent_retries`), never run.
     hub.resume_queues();
     let refused = || {
         let records = hub.events(&session.id, 0, 10_000).unwrap();
         let id = |e: &crate::store::EventRecord| e.msg["promptId"] == "subagent-retry-t2-1-1";
         let ran = records.iter().any(|e| e.kind == "user_message" && id(e));
         assert!(!ran, "the retry prompt ran after the restart");
-        records.iter().any(|e| (e.kind == "prompt_refused" || e.kind == "turn_result") && id(e))
+        records.iter().any(|e| {
+            matches!(e.kind.as_str(), "prompt_refused" | "turn_result" | "queue_removed") && id(e)
+        })
     };
     for _ in 0..100 {
         if refused() {
@@ -803,6 +812,7 @@ async fn an_import_settles_an_attempt_left_in_flight() {
 
     let here = hub_at(&dirs[1]);
     let imported = here.import(&bundle, Some("imported".into())).await.unwrap();
+    assert!(imported.meta().name_given, "a name the import gives is someone's (`acpmux ls`)");
     let entry = last_entry(&here, &imported, "s/t1").unwrap();
     assert!(none_in_flight(&entry) && entry["retry"].is_null(), "{entry}");
     assert_eq!((&entry["state"], &entry["retryable"]), (&json!("failed"), &json!(false)));
@@ -810,4 +820,76 @@ async fn an_import_settles_an_attempt_left_in_flight() {
     for dir in &dirs {
         let _ = std::fs::remove_dir_all(dir);
     }
+}
+
+/// A chat whose queue a failed turn paused (a 503) holds a subagent retry prompt when the
+/// daemon restarts. That retry was the old daemon's: the restored queue loses the prompt at
+/// once, logged as removed so a later load does not bring it back, and keeps the person's own
+/// prompt held behind it. Before, the paused queue never reached it, so it sat there for good.
+#[tokio::test]
+async fn a_restored_paused_queue_loses_an_unsent_subagent_retry_prompt() {
+    let dir = std::env::temp_dir().join(format!("acpmux-stale-retry-{}", uuid::Uuid::now_v7()));
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Local;
+    cfg.auto_resume_delays_ms = Some(vec![60_000]);
+    let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &dir).unwrap());
+    let (session, conn) = another_chat(&hub).await;
+    let id = session.id.clone();
+    let retry_id = "subagent-retry-t9-1-1";
+    let queued = |prompt_id: &str, turn_id: &str, provenance: Option<Value>| {
+        let mut msg = json!({"text": "waits", "client": "acpmux", "position": 1,
+            "promptId": prompt_id, "turnId": turn_id, "control": "local",
+            "prompt": [{"type": "text", "text": "waits"}]});
+        if let Some(p) = provenance {
+            msg["_meta"] = json!({"provenance": p});
+        }
+        msg
+    };
+    let provenance = json!({"kind": PROVENANCE_KIND, "subagentId": "s/t9",
+        "agentId": "agent-s/t9", "attempt": 1});
+    hub.append(&session, "mux", "queued", queued(retry_id, "t-retry", Some(provenance)));
+    hub.append(&session, "mux", "queued", queued("p-own", "t-own", None));
+    // The turn ahead of them failed: both held until the person resumes the queue.
+    hub.append(
+        &session,
+        "mux",
+        "queue_paused",
+        json!({"turnId": "t-failed", "held": [retry_id, "p-own"]}),
+    );
+    hub.shutdown_all().await;
+    drop((hub, session, conn));
+
+    let reopen = || Hub::new(cfg.clone(), crate::store::open(&cfg.store, &dir).unwrap());
+    let hub = reopen();
+    let session = hub.resolve(&id).unwrap();
+    hub.load_session_log(&session);
+    let left: Vec<(String, bool)> =
+        session.queue().into_iter().map(|q| (q.prompt_id, q.held)).collect();
+    assert_eq!(left, [("p-own".to_owned(), true)], "the stale retry prompt is still queued");
+    let removed: Vec<Value> = hub
+        .events(&session.id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "queue_removed" && e.msg["promptId"] == retry_id)
+        .map(|e| e.msg)
+        .collect();
+    assert_eq!(removed.len(), 1, "{removed:?}");
+    assert_eq!(removed[0]["reason"], PROVENANCE_KIND, "{removed:?}");
+    hub.shutdown_all().await;
+    drop((hub, session));
+
+    // The next load restores the person's prompt only.
+    let hub = reopen();
+    let session = hub.resolve(&id).unwrap();
+    hub.load_session_log(&session);
+    let left: Vec<String> = session.queue().into_iter().map(|q| q.prompt_id).collect();
+    assert_eq!(left, ["p-own"]);
+    hub.shutdown_all().await;
+    drop((hub, session));
+    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -43,6 +43,11 @@ GITHUB_HOSTED = re.compile(r"(?:ubuntu|macos|windows)(?:-.*)?")
 # What scripts/ci/cloud_overflow_switch.py points LINUX_RUNNER at while Blacksmith is down (HOSTED_LINUX).
 OVERFLOW_HOSTED_LINUX = "ubuntu-24.04"
 
+# The GCP fleet's Linux label. tree-preflight's linux-placement step (scripts/ci/portable_job_placement.py
+# with REQUIRE_LIVE_CAPACITY) emits it only when the runner census shows an idle Linux member, else ''.
+GCP_FLEET_LINUX = "cmux-fleet-linux-x64"
+FLEET_LINUX_OUTPUTS = ("needs.tree-preflight.outputs.linux_runner",)
+
 TOKEN = re.compile(
     r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|<=|>=|[!(),<>])"
     r"|(?P<num>-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?)|(?P<ident>[A-Za-z_][A-Za-z0-9_.*-]*))"
@@ -222,10 +227,12 @@ def _call(name: str, args: list[set]) -> set:
 
 
 class _Evaluator:
-    def __init__(self, owner: str, variables: Mapping[str, str]):
+    def __init__(self, owner: str, variables: Mapping[str, str], silent: tuple[str, ...] = ()):
         # One value per described variable: a variable reads the same everywhere in one evaluation.
         self.owner = owner
         self.variables = {f"vars.{name}": {value} for name, value in variables.items()}
+        # Context roots (needs, inputs, ...) read as '' only: every picker answered nothing.
+        self.silent = silent
 
     def __call__(self, node) -> set:
         kind = node[0]
@@ -236,6 +243,8 @@ class _Evaluator:
                 return {self.owner}
             if node[1] in self.variables:
                 return set(self.variables[node[1]])
+            if node[1].split(".", 1)[0] in self.silent:
+                return {EMPTY}
             return {EMPTY, NULL, False, 0.0, Unknown(node[1])}
         if kind == "not":
             return {not _truthy(value) for value in self(node[1])}
@@ -260,17 +269,20 @@ class _Evaluator:
         raise ValueError(f"unknown node {node!r}")
 
 
-def resolve_labels(runs_on, owner: str = OWNER, variables: Mapping[str, Iterable[str]] | None = None) -> set:
+def resolve_labels(runs_on, owner: str = OWNER, variables: Mapping[str, Iterable[str]] | None = None,
+                   silent: Iterable[str] = ()) -> set:
     """Every label `runs_on` (a string, an expression or a list of them) can select for `owner`.
 
     `variables` gives the values a repository variable can hold (it may also be unset, '');
-    any other variable is unknown.
+    any other variable is unknown. A context whose root is in `silent` (`needs`, `inputs`, ...)
+    reads as '' only: the labels a job gets when every picker before it answered nothing.
     """
     variables = variables or {}
+    silent = tuple(silent)
     if isinstance(runs_on, list):
         out = set()
         for item in runs_on:
-            out |= resolve_labels(item, owner, variables)
+            out |= resolve_labels(item, owner, variables, silent)
         return out
     if isinstance(runs_on, dict):
         raise ValueError(f"runs-on group/labels mappings are not modelled: {runs_on!r}")
@@ -285,7 +297,7 @@ def resolve_labels(runs_on, owner: str = OWNER, variables: Mapping[str, Iterable
     choices = [sorted({EMPTY, *variables[name]}) for name in names]
     out = set()
     for values in itertools.product(*choices):
-        out |= _Evaluator(owner, dict(zip(names, values)))(tree)
+        out |= _Evaluator(owner, dict(zip(names, values)), silent)(tree)
     return out
 
 
@@ -313,10 +325,15 @@ def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = N
                       root: Path = ROOT) -> dict[str, str]:
     """label -> why it may not run this job; empty when every label is Blacksmith or declared fleet Linux.
 
+    A FLEET_LINUX_OUTPUTS step output reads as the GCP fleet Linux label it can only hold.
+
     GitHub-hosted labels and the personal workstation are refused first, even if a fleet declares them.
     """
-    fleet_linux = declared_fleet_linux_labels(root)
+    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX}
     personal = personal_machine_names()
+    if isinstance(runs_on, str):
+        for output in FLEET_LINUX_OUTPUTS:
+            runs_on = runs_on.replace(output, f"'{GCP_FLEET_LINUX}'")
     labels = resolve_labels(runs_on, variables=variables)
     if not labels:
         return {"[]": "no label at all: an empty runs-on never schedules"}

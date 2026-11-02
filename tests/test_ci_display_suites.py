@@ -78,6 +78,20 @@ class DerivationTest(unittest.TestCase):
                   "struct After {\n    @Test func b() {}\n}\n")
         self.assertEqual(display_suites.suites_in(source), {"Outer"})
 
+    def test_a_condition_that_reads_the_screen_counts_with_no_comment(self):
+        """P0 display run 20b78078: TitlebarDoubleClickTests' `.enabled(if: NSScreen.main != nil)` gave no reason, so
+        it was not listed and its --display step went to a worker with no screen. NSScreen in a comment or a string
+        is no condition."""
+        source = ("@MainActor struct TitlebarDoubleClickTests {\n"
+                  "    @Test(.enabled(if: NSScreen.main != nil)) func zooms() throws {}\n"
+                  "}\n"
+                  "struct Words {\n"
+                  '    @Test(.enabled(if: flag, "reads NSScreen later")) func a() {}\n'
+                  "    // @Test(.enabled(if: NSScreen.main != nil))\n"
+                  "    @Test func b() { _ = NSScreen.main }\n"
+                  "}\n")
+        self.assertEqual(display_suites.suites_in(source), {"TitlebarDoubleClickTests"})
+
     def test_other_skips_and_comments_are_no_display(self):
         source = ('@Suite(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))\n'
                   "struct Daemon {\n"

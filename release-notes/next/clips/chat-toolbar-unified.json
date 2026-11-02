@@ -7,7 +7,7 @@
     {"title": "Open a main workspace", "cmux": ["action", "run", "newTab", "--name", "Header capture", "--focus", "--cwd", "/tmp"]},
     {"title": "Open a chat", "cmux": ["agent", "new-chat", "--cwd", "/tmp"]},
     {"title": "Wait for the chat page", "rpc": {"method": "debug.agent_pane", "params": {"action": "chat_state"}}, "record": true},
-    {"title": "Toggle Session Info", "rpc": {"method": "debug.agent_pane", "params": {"action": "click", "selector": ".acpmux-chat-inspector-toggle"}}, "clip": true},
+    {"title": "Toggle Session Info", "rpc": {"method": "debug.agent_pane", "params": {"action": "click", "selector": ".acpmux-session-info-toggle"}}, "clip": true},
     {"title": "Show the chat menu", "rpc": {"method": "debug.agent_pane", "params": {"action": "click", "selector": ".acpmux-header-tools [aria-haspopup=menu]"}}, "clip": true},
     {"title": "Close the menu", "rpc": {"method": "debug.agent_pane", "params": {"action": "close_menus"}}, "clip": true}
   ],

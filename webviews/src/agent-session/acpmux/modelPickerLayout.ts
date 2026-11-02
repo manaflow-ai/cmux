@@ -3,6 +3,7 @@ import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./ComposerPickers";
 import type { QuickMenuExtras } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
+import type { SessionAuth } from "./sessionAuth";
 
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
@@ -13,6 +14,10 @@ export type ModelPickerProps = {
   model?: string;
   /// The chip's text: the current model's name, or its id when the catalog doesn't list it.
   label: string;
+  /// The current chat or New Tab target's auth, never host-wide cached health.
+  sessionAuth?: SessionAuth;
+  onSessionLogin?(): void;
+  onSessionAuthRefresh?(): void;
   /// What the composer's controls row draws in the chip (composerRowFit.ts): the name without its
   /// vendor ("Opus 5.5") and its family ("Opus") for a narrow row; `title` names the model in the
   /// tooltip of the row's mark-only chip. Away from the row the chip shows `label`.
@@ -68,10 +73,10 @@ export type ModelPickerProps = {
   /// yet leaves it unset and keeps the whole rail.
   harnessFixed?: boolean;
   /// With `harnessFixed`, the started chat can fork to another harness (Leo 2026-10-22: "need to be
-  /// able to switch to different harnesses, can expose as fork"): the compact menu keeps the whole
-  /// rail, and another harness's tab, or another account of the chat's own, offers Fork to it.
+  /// able to switch to different harnesses, can expose as fork"): the compact menu keeps the chat's
+  /// own models and offers Fork to for the eligible profile IDs in `targets` (continueTargets).
   /// `to` gets the acpmux profile id; `ready` false (a turn running, a queued prompt) disables it.
-  fork?: { to(harness: string): void; ready: boolean };
+  fork?: { to(harness: string): void; ready: boolean; targets: ReadonlySet<string> };
   /// The installed acpmux profiles each catalog entry stands for, by its id (pickerProfiles.ts): the
   /// launch configurations shown as named harness entries. An entry with none listed is its own profile.
   profiles?: Readonly<Record<string, readonly PickerProfile[]>>;

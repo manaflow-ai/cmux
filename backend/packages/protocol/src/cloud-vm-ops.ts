@@ -1,6 +1,8 @@
 import { Schema } from "effect"
 import { CloudMachine, MachineId } from "./cloud-machine-ops.ts"
 import { def, mutationErrors } from "./op-def.ts"
+import { CloudVmNetworkPolicyView } from "./cloud-vm-network-policy.ts"
+import { CloudVmReceiverLifecycle } from "./cloud-vm-receiver-ops.ts"
 
 /**
  * The VM daemon's own-machine ops (VM install at bind; coordinator and a9, 2026-10-05). Only a kind
@@ -31,6 +33,8 @@ const vmDef = <P extends Schema.Top, R extends Schema.Top>(name: string, cls: "r
   })
 
 export const CloudVmSelfGet = vmDef("cloud.vm.self.get", "read", Schema.Struct({ machine: MachineId }), Schema.Struct({ machine: CloudMachine }), "The VM's own machine record (the public machine view).")
+export const CloudVmNetworkPolicy = vmDef("cloud.vm.network_policy", "read", Schema.Struct({ machine: MachineId }), CloudVmNetworkPolicyView,
+  "Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 30 seconds and never outlives an included grant. This hidden VM-only read does not activate a listener or mint a dial credential.")
 
 /** At most one report is applied per 10 s per machine; a newer one in that window replaces the pending one (latest wins). */
 export const VM_STATUS_MIN_INTERVAL_MS = 10_000
@@ -82,4 +86,4 @@ export const CloudVmEventEmit = vmDef(
   "Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install."
 )
 
-export const cloudVmOps = [CloudVmSelfGet, CloudVmStatusReport, CloudVmEventEmit] as const
+export const cloudVmOps = [CloudVmSelfGet, CloudVmNetworkPolicy, CloudVmReceiverLifecycle, CloudVmStatusReport, CloudVmEventEmit] as const

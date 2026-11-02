@@ -40,6 +40,8 @@ public final class ControlIdempotencyCache: Sendable {
         case run(ControlActionRequest)
         /// One `action.batch` request: its ops in order.
         case batch([ControlActionRequest])
+        /// A browser-page tab request before topology determines its action target.
+        case page(method: String, params: [String: JSONValue], callerApp: String?)
     }
 
     private struct Entry {

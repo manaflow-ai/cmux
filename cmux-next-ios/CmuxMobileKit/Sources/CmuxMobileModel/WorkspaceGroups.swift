@@ -14,9 +14,12 @@ public struct MacWorkspaceGroup: Identifiable, Hashable, Sendable, Codable {
     public var topIndex: Int?
     /// The room the group belongs to (`profile`).
     public var room: String?
+    /// A pinned (saved) group stays, folded, when its workspaces close (`pinned`); nil from an
+    /// older Mac or an older cache.
+    public var isPinned: Bool?
 
     public init(id: String, name: String, color: String? = nil, isCollapsed: Bool = false, index: Int = 0,
-                topIndex: Int? = nil, room: String? = nil) {
+                topIndex: Int? = nil, room: String? = nil, isPinned: Bool? = nil) {
         self.id = id
         self.name = name
         self.color = color
@@ -24,6 +27,7 @@ public struct MacWorkspaceGroup: Identifiable, Hashable, Sendable, Codable {
         self.index = index
         self.topIndex = topIndex
         self.room = room
+        self.isPinned = isPinned
     }
 
     /// The name, else "Unnamed Group" (the Mac's `unnamedGroup`).
@@ -82,7 +86,8 @@ extension SidebarArrangement {
             guard let id = group["id"] as? String else { return nil }
             return MacWorkspaceGroup(id: id, name: group["name"] as? String ?? "", color: group["color"] as? String,
                                      isCollapsed: group["collapsed"] as? Bool ?? false, index: group["index"] as? Int ?? 0,
-                                     topIndex: group["top_index"] as? Int, room: group["profile"] as? String)
+                                     topIndex: group["top_index"] as? Int, room: group["profile"] as? String,
+                                     isPinned: group["pinned"] as? Bool)
         }
     }
 
@@ -281,7 +286,7 @@ public protocol WorkspaceGroupBackend: AnyObject {
 }
 
 extension WorkspaceCreator {
-    private var grouper: (any WorkspaceGroupBackend)? { backend as? any WorkspaceGroupBackend }
+    var grouper: (any WorkspaceGroupBackend)? { backend as? any WorkspaceGroupBackend }
 
     /// The Mac's groups the workspace can move into (not its own group).
     public func groupChoices(for workspace: Workspace) -> [MacWorkspaceGroup] {
@@ -356,6 +361,65 @@ extension WorkspaceCreator {
         updateGroup(group, on: macID, failure: "Couldn't delete \(group.displayName)", { _ in }, removes: true) { grouper in
             try await grouper.deleteGroup(group, on: macID)
         }
+    }
+
+    /// The groups one Mac's rows show on this phone, in the order their first rows show.
+    public func shownGroups(on macID: String) -> [MacWorkspaceGroup] {
+        var seen = Set<String>()
+        return store.workspaces.filter { $0.macID == macID }
+            .enumerated()
+            .sorted { ($0.element.sidebarIndex ?? Int.max, $0.offset) < ($1.element.sidebarIndex ?? Int.max, $1.offset) }
+            .compactMap { $0.element.group }
+            .filter { seen.insert($0.id).inserted }
+    }
+
+    /// Collapse All Groups (true) / Expand All Groups (false) on one Mac.
+    public func setAllGroupsCollapsed(on macID: String, _ collapsed: Bool) {
+        for group in shownGroups(on: macID) { setGroupCollapsed(group, on: macID, collapsed) }
+    }
+
+    /// Collapse Other Groups: every other group of the Mac folds and this one opens (the
+    /// Mac's `groupsToggledByCollapsingOthers`).
+    public func collapseOtherGroups(keeping group: MacWorkspaceGroup, on macID: String) {
+        for other in shownGroups(on: macID) { setGroupCollapsed(other, on: macID, other.id != group.id) }
+    }
+
+    /// Whether Collapse Other Groups would change anything for `group`.
+    public func canCollapseOthers(keeping group: MacWorkspaceGroup, on macID: String) -> Bool {
+        shownGroups(on: macID).contains { $0.id == group.id ? $0.isCollapsed : !$0.isCollapsed }
+    }
+
+    /// The open workspaces of `groups` on one Mac (Close Workspaces in Group, Close Other Groups).
+    public func members(of groups: [MacWorkspaceGroup], on macID: String) -> [Workspace] {
+        let ids = Set(groups.map(\.id))
+        return store.workspaces.filter { $0.macID == macID && !$0.isHome && ($0.group.map { ids.contains($0.id) } ?? false) }
+    }
+
+    /// Close Workspaces in Group / Close Other Groups, as the Mac's `closeGroup`: a pinned
+    /// group stays, folded and empty; any other group goes; then each workspace closes as Close
+    /// Workspace does (the person already said yes).
+    public func closeGroups(_ groups: [MacWorkspaceGroup], on macID: String) {
+        let members = members(of: groups, on: macID)
+        guard let grouper, let first = members.first, members.allSatisfy({ canArrange($0) }) else { return }
+        let previous = groupRequestTail[macID]
+        let task = track(first.id) { [weak self] in
+            await previous?.value
+            for group in groups {
+                do {
+                    if group.isPinned == true {
+                        try await grouper.updateGroup(group, on: macID, name: nil, color: nil, collapsed: true)
+                    } else {
+                        try await grouper.deleteGroup(group, on: macID)
+                    }
+                } catch {
+                    // The group stays: its workspaces stay with it, never an empty group left behind.
+                    self?.onManageFailure?(first, "Couldn't close \(group.displayName)", Self.message(error))
+                    continue
+                }
+                self?.close(members.filter { $0.group?.id == group.id })
+            }
+        }
+        groupRequestTail[macID] = task
     }
 
     private func updateGroup(_ group: MacWorkspaceGroup, on macID: String, failure: String, _ change: (inout MacWorkspaceGroup) -> Void,

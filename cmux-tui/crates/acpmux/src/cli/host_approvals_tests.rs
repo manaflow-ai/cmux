@@ -125,9 +125,8 @@ fn no_app_key_skips_and_an_old_remote_warns_with_the_update() {
 
 #[test]
 fn a_change_rewrites_the_file_whole_and_keeps_each_mac_once() {
-    let dir = std::env::temp_dir().join(format!("hap-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    let path = dir.join(mac_approvers::FILE);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(mac_approvers::FILE);
     let entry = |id: &str| {
         crate::hub::approvers::parse_approvers(&[json!({"id": id, "publicKey": KEY, "name": id})])
             .unwrap()
@@ -158,7 +157,6 @@ fn a_change_rewrites_the_file_whole_and_keeps_each_mac_once() {
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
     }
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// `rm` (and `add`) hold the file's lock until the daemon's reload returns, so
@@ -167,9 +165,8 @@ fn a_change_rewrites_the_file_whole_and_keeps_each_mac_once() {
 #[test]
 fn a_change_holds_its_lock_until_the_reload_returns() {
     use std::time::Duration;
-    let dir = std::env::temp_dir().join(format!("hap-lock-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    let path = dir.join(mac_approvers::FILE);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(mac_approvers::FILE);
     let held = change(&path, |_| Ok(())).unwrap();
     let (tx, rx) = std::sync::mpsc::channel();
     let other = path.clone();
@@ -192,7 +189,6 @@ fn a_change_holds_its_lock_until_the_reload_returns() {
     assert_eq!(rx.recv_timeout(Duration::from_secs(10)), Ok(Ok(())));
     let ids: Vec<String> = mac_approvers::read(&path).unwrap().into_iter().map(|m| m.id).collect();
     assert_eq!(ids, ["mac-2"]);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 struct FakeDaemon(bool);
@@ -215,21 +211,23 @@ fn a_daemon_that_does_not_reload_fails_the_change() {
 /// A daemon that holds its lock but whose socket does not answer (or does not
 /// finish `initialize`) still runs with the old file: the change fails. No
 /// daemon at all: nothing to reload, it reads the file when it starts.
+///
+/// The lock nobody holds is checked before the test takes it, not after it
+/// drops it: a child another test spawns in parallel holds a copy of this
+/// process's open files between its fork and its exec, the lock's included,
+/// so a dropped `flock` can stay held for that moment and read as a daemon.
 #[test]
 fn a_running_daemon_whose_socket_does_not_answer_fails_the_change() {
-    let dir = std::env::temp_dir().join(format!("hap-run-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let lock = dir.join("daemon.lock");
+    let dir = tempfile::tempdir().unwrap();
+    let lock = dir.path().join("daemon.lock");
     let refused = anyhow!("connection refused");
     let none: Result<&FakeDaemon, &anyhow::Error> = Err(&refused);
     assert!(!block(reload_on(none, &lock)).unwrap(), "no lock file: no daemon");
     let held = std::fs::File::create(&lock).unwrap();
+    assert!(!block(reload_on(none, &lock)).unwrap(), "a lock nobody holds: no daemon");
     held.lock().unwrap();
     let e = block(reload_on(none, &lock)).unwrap_err().to_string();
     assert!(e.contains("did not answer") && e.contains("connection refused"), "{e}");
-    drop(held);
-    assert!(!block(reload_on(none, &lock)).unwrap(), "a lock nobody holds: no daemon");
     assert!(block(reload_on(Ok(&FakeDaemon(true)), &lock)).unwrap());
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(held);
 }

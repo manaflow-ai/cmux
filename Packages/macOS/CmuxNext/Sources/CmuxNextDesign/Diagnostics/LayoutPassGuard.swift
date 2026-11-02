@@ -67,7 +67,10 @@ public final class LayoutPassGuard {
     /// `-[NSView layout]` calls and window layout passes that laid out a view
     /// (outermost `layoutIfNeeded` only), since launch, all windows: plain
     /// counters a probe reads as deltas (`debug.frames` per frame). Counted in
-    /// DEBUG builds only; a release build always reads 0.
+    /// every build the guard is installed in: the bench and recording builds are
+    /// not DEBUG, and a DEBUG-only count read 0 there, so a frame trace said
+    /// "no layout" for frames that laid out every resized pane (RESIZE VIDEOS F1).
+    /// One integer add per layout call, beside the class count every build keeps.
     public private(set) var viewLayoutCalls = 0
     public private(set) var windowLayoutPasses = 0
 
@@ -155,25 +158,19 @@ public final class LayoutPassGuard {
     fileprivate func windowLayoutWillBegin(_ window: NSWindow) {
         let id = ObjectIdentifier(window)
         windowLayouts[id, default: WindowLayout()].depth += 1
-        #if DEBUG
         if windowLayouts[id]?.depth == 1 { windowLayouts[id]?.viewCallsAtStart = viewLayoutCalls }
-        #endif
     }
 
     fileprivate func windowLayoutDidEnd(_ window: NSWindow) {
         let id = ObjectIdentifier(window)
         guard var layout = windowLayouts[id] else { return }
         layout.depth -= 1
-        #if DEBUG
         if layout.depth == 0, viewLayoutCalls != layout.viewCallsAtStart { windowLayoutPasses &+= 1 }
-        #endif
         windowLayouts[id] = layout.depth > 0 ? layout : nil
     }
 
     fileprivate func record(_ view: NSView) {
-        #if DEBUG
         viewLayoutCalls &+= 1
-        #endif
         let type: AnyClass = Swift.type(of: view)
         let typeID = ObjectIdentifier(type)
         if let entry = classCounts[typeID] {

@@ -11,23 +11,31 @@ name: Cloud VM image promote
 # (the next development deploy ships it). delete_snapshot deletes one spare
 # image snapshot by exact id, refused when any channel file or wrangler.jsonc
 # references the id or its name (images/cmux-vm/cleanup.ts --snapshot).
+# channel production promotes the production copy (names.production, written by a
+# cloud-vm-image-bake.yml prod-copy run, given as bake_run) in environment
+# cmux-next-vm-image-prod: the production account's key and the cmux-old compat
+# gate's test profile. Its diff also carries channels/production.json, and the
+# production deploy after the channel PR lands ships it. The prod-gate job refuses
+# before anything runs while that environment is missing or not limited to
+# feat-cmux-next, so production stays inert until it exists. delete_snapshot is dev only.
 on:
   workflow_dispatch:
     inputs:
       channel:
-        description: Channel to promote to (dev only for now)
+        description: Channel to promote to (production needs environment cmux-next-vm-image-prod and a prod-copy bake_run)
         required: true
         default: dev
         type: choice
         options:
           - dev
+          - production
       snapshot:
         description: Snapshot id to promote (sh-...); empty to only delete
         required: false
         default: ""
         type: string
       bake_run:
-        description: The cloud-vm-image-bake.yml run (keep_snapshot) whose channel-dev.json records the snapshot
+        description: "The cloud-vm-image-bake.yml run whose candidate records the snapshot (dev: keep_snapshot, channel-dev.json; production: mode prod-copy of the snapshot, channel-production.json)"
         required: false
         default: ""
         type: string
@@ -47,11 +55,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  promote:
+  # production only, before any job names the production environment (a job that names a missing
+  # environment creates it, unprotected): it must exist and allow feat-cmux-next only.
+  prod-gate:
+    if: inputs.channel == 'production'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    # The cmux-next dev Freestyle account only (D-A7), the bake's environment and key.
-    # The environment allows only feat-cmux-next.
-    environment: cmux-next-vm-image-dev
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PROD_ENV: cmux-next-vm-image-prod
+    steps:
+      - name: Check the production environment
+        run: |
+          set -euo pipefail
+          refuse() { echo "::error title=Production environment::$1"; exit 1; }
+          [ "$GITHUB_REF" = refs/heads/feat-cmux-next ] || refuse "dispatch from feat-cmux-next, not $GITHUB_REF"
+          inert="production stays off until $PROD_ENV exists, allows branch feat-cmux-next only, and holds FREESTYLE_API_KEY (production account) plus the team-owned production Stack test profile (CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD); a trusted production snapshot must already be recorded in channel data for the account check; nothing ran"
+          gh api "repos/$GITHUB_REPOSITORY/environments/$PROD_ENV" > "$RUNNER_TEMP/prod-env.json" 2> /dev/null || refuse "$PROD_ENV does not exist or cannot be read: $inert"
+          [ "$(jq -r '.deployment_branch_policy | "\(.custom_branch_policies // false) \(.protected_branches // false)"' "$RUNNER_TEMP/prod-env.json")" = "true false" ] || refuse "$PROD_ENV has no custom branch policy (or also allows protected branches): $inert"
+          gh api "repos/$GITHUB_REPOSITORY/environments/$PROD_ENV/deployment-branch-policies" --jq '[.branch_policies[] | "\(.type // "branch"):\(.name)"] | sort | join(",")' > "$RUNNER_TEMP/prod-env-branches.txt" || refuse "cannot read the branch policies of $PROD_ENV: $inert"
+          [ "$(cat "$RUNNER_TEMP/prod-env-branches.txt")" = "branch:feat-cmux-next" ] || refuse "$PROD_ENV allows $(cat "$RUNNER_TEMP/prod-env-branches.txt"), not branch feat-cmux-next only: $inert"
+          echo "$PROD_ENV exists and allows branch feat-cmux-next only"
+
+  promote:
+    needs: prod-gate
+    # dev skips prod-gate and runs as before; production runs only after it passed.
+    if: ${{ !cancelled() && (needs.prod-gate.result == 'success' || (inputs.channel == 'dev' && needs.prod-gate.result == 'skipped')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # dev: the cmux-next dev Freestyle account only (D-A7), the bake's environment and key.
+    # production: the production account's key and the compat gate's test profile, nothing else.
+    # Both environments allow only feat-cmux-next.
+    environment: ${{ inputs.channel == 'production' && 'cmux-next-vm-image-prod' || 'cmux-next-vm-image-dev' }}
     timeout-minutes: 45
     defaults:
       run:
@@ -66,10 +100,15 @@ jobs:
       - name: Check the inputs
         id: inputs
         working-directory: .
+        env:
+          # Whether each production secret is set, never its value.
+          HAS_KEY: ${{ secrets.FREESTYLE_API_KEY != '' && 'yes' || '' }}
+          HAS_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL != '' && 'yes' || '' }}
+          HAS_PASSWORD: ${{ secrets.CMUX_UITEST_STACK_PASSWORD != '' && 'yes' || '' }}
         run: |
           set -euo pipefail
           refuse() { echo "::error title=Promote inputs::$1"; exit 1; }
-          [ "$CHANNEL" = dev ] || refuse "channel $CHANNEL: only dev is promoted from CI"
+          case "$CHANNEL" in dev | production) ;; *) refuse "channel $CHANNEL: only dev and production are promoted from CI" ;; esac
           [ "$GITHUB_REF" = refs/heads/feat-cmux-next ] || refuse "dispatch from feat-cmux-next, not $GITHUB_REF"
           [ -n "$SNAPSHOT$DELETE_SNAPSHOT" ] || refuse "nothing to do: set snapshot (with bake_run) or delete_snapshot"
           if [ -n "$SNAPSHOT" ]; then
@@ -81,6 +120,11 @@ jobs:
           if [ -n "$DELETE_SNAPSHOT" ]; then
             [[ "$DELETE_SNAPSHOT" =~ ^sh-[0-9a-f]{32}$ ]] || refuse "delete_snapshot is not a snapshot id"
             [ "$DELETE_SNAPSHOT" != "$SNAPSHOT" ] || refuse "delete_snapshot is the snapshot being promoted"
+            [ "$CHANNEL" = dev ] || refuse "delete_snapshot deletes dev account images only; dispatch it with channel dev"
+          fi
+          if [ "$CHANNEL" = production ]; then
+            [ -n "$SNAPSHOT" ] || refuse "channel production needs snapshot and bake_run"
+            [ -n "$HAS_KEY" ] && [ -n "$HAS_EMAIL" ] && [ -n "$HAS_PASSWORD" ] || refuse "cmux-next-vm-image-prod needs FREESTYLE_API_KEY (production account), CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD; nothing ran"
           fi
           echo "promote=$([ -n "$SNAPSHOT" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "delete=$([ -n "$DELETE_SNAPSHOT" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
@@ -120,32 +164,18 @@ jobs:
         if: steps.inputs.outputs.promote == 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-vm-image-bake-${{ inputs.bake_run }}
+          name: cmux-vm-image-${{ inputs.channel == 'production' && 'prod-copy' || 'bake' }}-${{ inputs.bake_run }}
           run-id: ${{ inputs.bake_run }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/bake
 
-      - name: Record the candidate in channels/dev.json history
-        if: steps.inputs.outputs.promote == 'true'
-        id: record
-        run: |
-          set -euo pipefail
-          bun scripts/cmux-vm-image/promote-record.ts --candidate "$RUNNER_TEMP/bake/channel-dev.json" --snapshot "$SNAPSHOT" --run "$BAKE_RUN" | tee "$RUNNER_TEMP/record.out"
-          var="$(awk '/^VAR /{print $2}' "$RUNNER_TEMP/record.out")"
-          [[ "$var" =~ ^(CLOUD_FREESTYLE_SNAPSHOT|TEAM_VM_SNAPSHOT)$ ]]
-          echo "var=$var" >> "$GITHUB_OUTPUT"
-
-      # The key reaches promote.ts only as a 0600 file in RUNNER_TEMP (FREESTYLE_API_KEY_FILE),
-      # never on a command line or in a child's environment, and is deleted when the step ends.
-      - name: Promote (fresh-clone smoke on the dev account)
-        if: steps.inputs.outputs.promote == 'true'
+      # Check only repository records: the downloaded candidate must not vouch for its own account.
+      - name: Verify production account before recording the candidate
+        if: steps.inputs.outputs.promote == 'true' && inputs.channel == 'production'
         env:
           FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
-          SNAPSHOT_VAR: ${{ steps.record.outputs.var }}
-          CMUX_RELEASE_RECEIPTS_DIR: ${{ runner.temp }}/receipts
         run: |
           set -euo pipefail
-          # First: the key moves to an unexported shell variable, so no child process inherits it.
           key="$FREESTYLE_KEY_SECRET"
           unset FREESTYLE_KEY_SECRET
           umask 077
@@ -154,8 +184,61 @@ jobs:
           printf '%s' "$key" > "$key_file"
           unset key
           chmod 600 "$key_file"
+          FREESTYLE_API_KEY_FILE="$key_file" bun scripts/cmux-vm-image/prod-copy.ts account-check
+
+      # production: the prod-copy run's channel-production.json becomes names.production of that dev entry.
+      - name: Record the candidate in channels/dev.json history
+        if: steps.inputs.outputs.promote == 'true'
+        id: record
+        run: |
+          set -euo pipefail
+          if [ "$CHANNEL" = production ]; then
+            bun scripts/cmux-vm-image/promote-record.ts --production-copy --candidate "$RUNNER_TEMP/bake/channel-production.json" --snapshot "$SNAPSHOT" --run "$BAKE_RUN" | tee "$RUNNER_TEMP/record.out"
+          else
+            bun scripts/cmux-vm-image/promote-record.ts --candidate "$RUNNER_TEMP/bake/channel-dev.json" --snapshot "$SNAPSHOT" --run "$BAKE_RUN" | tee "$RUNNER_TEMP/record.out"
+          fi
+          var="$(awk '/^VAR /{print $2}' "$RUNNER_TEMP/record.out")"
+          [[ "$var" =~ ^(CLOUD_FREESTYLE_SNAPSHOT|TEAM_VM_SNAPSHOT)$ ]]
+          echo "var=$var" >> "$GITHUB_OUTPUT"
+
+      # The key reaches promote.ts only as a 0600 file in RUNNER_TEMP (FREESTYLE_API_KEY_FILE),
+      # never on a command line or in a child's environment, and is deleted when the step ends.
+      # production first refuses a key that is not the production account's (prod-copy.ts account-check:
+      # never the dev key, and it must resolve a trusted recorded production
+      # snapshot to its id); promote.ts then runs the cmux-old compat gate as the test
+      # profile (empty on dev) and smokes on that account.
+      - name: Promote (fresh-clone smoke on the channel's account)
+        if: steps.inputs.outputs.promote == 'true'
+        env:
+          FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
+          SNAPSHOT_VAR: ${{ steps.record.outputs.var }}
+          CMUX_RELEASE_RECEIPTS_DIR: ${{ runner.temp }}/receipts
+          CMUX_UITEST_STACK_EMAIL: ${{ inputs.channel == 'production' && secrets.CMUX_UITEST_STACK_EMAIL || '' }}
+          CMUX_UITEST_STACK_PASSWORD: ${{ inputs.channel == 'production' && secrets.CMUX_UITEST_STACK_PASSWORD || '' }}
+          # compat.ts reads the newest release with gh (read-only).
+          GH_TOKEN: ${{ inputs.channel == 'production' && github.token || '' }}
+        run: |
+          set -euo pipefail
+          # First: the key moves to an unexported shell variable, so no child process inherits it.
+          key="$FREESTYLE_KEY_SECRET"
+          unset FREESTYLE_KEY_SECRET
+          # The test profile and token move to unexported shell variables too, before any command runs: only promote.ts gets them.
+          stack_email="${CMUX_UITEST_STACK_EMAIL-}" stack_password="${CMUX_UITEST_STACK_PASSWORD-}" gh_token="${GH_TOKEN-}"
+          unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD GH_TOKEN
+          umask 077
+          key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$key" > "$key_file"
+          unset key
+          chmod 600 "$key_file"
           mkdir -p "$OUT_DIR"
-          FREESTYLE_API_KEY_FILE="$key_file" bun ../images/cmux-vm/promote.ts --channel "$CHANNEL" --snapshot "$SNAPSHOT" --var "$SNAPSHOT_VAR" 2>&1 | tee "$OUT_DIR/promote.log"
+          if [ "$CHANNEL" = production ]; then
+            FREESTYLE_API_KEY_FILE="$key_file" bun scripts/cmux-vm-image/prod-copy.ts account-check 2>&1 | tee "$OUT_DIR/account-check.log"
+          else
+            stack_email="" stack_password="" gh_token=""
+          fi
+          CMUX_UITEST_STACK_EMAIL="$stack_email" CMUX_UITEST_STACK_PASSWORD="$stack_password" GH_TOKEN="$gh_token" \
+            FREESTYLE_API_KEY_FILE="$key_file" bun ../images/cmux-vm/promote.ts --channel "$CHANNEL" --snapshot "$SNAPSHOT" --var "$SNAPSHOT_VAR" 2>&1 | tee "$OUT_DIR/promote.log"
 
       - name: Diff for the channel PR
         if: steps.inputs.outputs.promote == 'true'
@@ -167,7 +250,14 @@ jobs:
           key="$FREESTYLE_KEY_SECRET"
           unset FREESTYLE_KEY_SECRET
           diff_file="$OUT_DIR/promote-$CHANNEL-$SNAPSHOT.diff"
-          git -C .. diff -- images/cmux-vm/channels/dev.json backend/apps/api/wrangler.jsonc > "$diff_file"
+          paths=(images/cmux-vm/channels/dev.json backend/apps/api/wrangler.jsonc)
+          if [ "$CHANNEL" != dev ]; then
+            # promote.ts writes channels/<channel>.json; the first promotion creates it.
+            channel_file="images/cmux-vm/channels/$CHANNEL.json"
+            paths+=("$channel_file")
+            if [ -e "../$channel_file" ]; then git -C .. add --intent-to-add -- "$channel_file"; fi
+          fi
+          git -C .. diff -- "${paths[@]}" > "$diff_file"
           # The artifact is not masked like the log: refuse to upload one that holds the key
           # (grep reads the pattern from a pipe the builtin printf writes, never from argv or env).
           if [ -n "$key" ] && grep -qF -f <(printf '%s\n' "$key") "$diff_file"; then
@@ -205,7 +295,9 @@ jobs:
             grep -E '^(bd-summary|rollback|backend/apps/api/wrangler.jsonc): ' "$OUT_DIR/promote.log" | sed 's/^/    /' || true
             echo
             if [ -s "$DIFF_FILE" ]; then
-              echo "Nothing is live yet. Download the artifact \`$(basename "$DIFF_FILE")\`, \`git apply\` it on a branch from feat-cmux-next, and open the channel PR; the development deploy after it lands ships the image."
+              deploy="the development deploy after it lands ships the image."
+              [ "$CHANNEL" = dev ] || deploy="the production deploy after it lands ships the image."
+              echo "Nothing is live yet. Download the artifact \`$(basename "$DIFF_FILE")\`, \`git apply\` it on a branch from feat-cmux-next, and open the channel PR; $deploy"
               echo
               echo '```diff'
               cat "$DIFF_FILE"
