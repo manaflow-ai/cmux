@@ -2,7 +2,12 @@
 // stable ids through reconnect and no sends after revoke. The fake clock has zero wall-clock sleeps.
 import { expect, test } from "bun:test";
 import { GuestPrompts } from "../src/agent-session/guest/guestPrompts";
-import { GUEST_PROMPT_GAP_MS, GUEST_PROMPT_RETRY_MS, GuestSendQueue, type GuestSendTimers } from "../src/agent-session/guest/guestSendQueue";
+import {
+  GUEST_PROMPT_GAP_MS,
+  GUEST_PROMPT_RETRY_MS,
+  GuestSendQueue,
+  type GuestSendTimers,
+} from "../src/agent-session/guest/guestSendQueue";
 import { memoryStorage } from "../src/agent-session/guest/fixtures/liveChat";
 
 function fakeClock() {

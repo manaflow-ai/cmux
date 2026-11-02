@@ -152,7 +152,11 @@ export function LiveChat({
   const [expanded, setExpanded] = useState(() => new Set<string>());
   const socket = useRef<ShareSocket | undefined>(undefined);
   const sendQueue = useMemo(
-    () => new GuestSendQueue(prompts, (prompt) => socket.current?.send({ t: "prompt", client_id: prompt.clientId, text: prompt.text }) ?? false),
+    () =>
+      new GuestSendQueue(
+        prompts,
+        (prompt) => socket.current?.send({ t: "prompt", client_id: prompt.clientId, text: prompt.text }) ?? false,
+      ),
     [prompts],
   );
   const pageArrived = useRef<(() => void) | undefined>(undefined);
@@ -186,7 +190,10 @@ export function LiveChat({
         },
         presence: setPeople,
         promptState: (state) => sendQueue.status(state),
-        connection: (state) => { setConnection(state); if (state !== "live") sendQueue.disconnected(); },
+        connection: (state) => {
+          setConnection(state);
+          if (state !== "live") sendQueue.disconnected();
+        },
         ended: (reason) => {
           sendQueue.stop();
           client.dispose();
