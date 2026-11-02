@@ -1,6 +1,6 @@
 /// Identity and set reconciliation for needs-you requests, independent of the system notifier.
 public struct AttentionBannerLifecycle {
-    private init() {}
+    public init() {}
     /// What changed in the marked tabs since the last list: the banners to post (a new mark, or a
     /// new request on a marked tab) and the banner ids to withdraw (a mark that cleared or was
     /// replaced). `previous == nil` is the first list of this launch: marks made before it post
