@@ -1,13 +1,28 @@
 package import AppKit
 
+/// A page window's clip shape in window coordinates (``WindowImageLayer/page(_:_:holes:clip:)``).
+/// A `CGPath` is immutable, so it crosses to the off-main redraw as it is.
+package nonisolated struct WindowImageClip: @unchecked Sendable {
+    package let path: CGPath
+
+    /// Nil for no clip (the page shows as a plain rectangle).
+    package init?(_ path: CGPath?) {
+        guard let path else { return nil }
+        self.path = path
+    }
+}
+
 /// What ``composite(base:window:layers:)`` paints over a window's base image,
 /// bottom first: the page images and child-window images the window server
 /// leaves out of a window capture (`debug.window_snapshot`,
 /// `cmux window|pane|tab screenshot`).
 package nonisolated enum WindowImageLayer: Sendable {
     /// A page image filling a rectangle in window coordinates, except
-    /// `holes` (window coordinates), where the page window is cut out.
-    case page(CGImage, NSRect, holes: [NSRect] = [])
+    /// `holes` (window coordinates), where the page window is cut out, and
+    /// only inside `clip` (window coordinates) when there is one: the page
+    /// window's mask (a pane's rounded clip, or the part of a pane a docked
+    /// column leaves uncovered).
+    case page(CGImage, NSRect, holes: [NSRect] = [], clip: WindowImageClip? = nil)
     /// A window server image of child windows, the size of the window.
     case window(CGImage)
     /// An opaque ``maskColor`` fill over a rectangle in window coordinates, widened to whole
@@ -49,7 +64,7 @@ package nonisolated enum WindowImageLayer: Sendable {
         context.interpolationQuality = .high
         for layer in layers {
             switch layer {
-            case .page(let image, let rect, let holes):
+            case .page(let image, let rect, let holes, let clip):
                 // Window coordinates and the bitmap both have a bottom-left origin.
                 func pixels(_ rect: NSRect) -> CGRect {
                     CGRect(x: rect.minX * scaleX, y: rect.minY * scaleY, width: rect.width * scaleX, height: rect.height * scaleY)
@@ -57,11 +72,20 @@ package nonisolated enum WindowImageLayer: Sendable {
                 let area = pixels(rect)
                 guard area.width > 0, area.height > 0 else { continue }
                 context.saveGState()
+                if let clip {
+                    var toPixels = CGAffineTransform(scaleX: scaleX, y: scaleY)
+                    guard let shape = clip.path.copy(using: &toPixels), !shape.boundingBoxOfPath.isEmpty else {
+                        context.restoreGState()
+                        continue
+                    }
+                    context.addPath(shape)
+                    context.clip()
+                }
                 if !holes.isEmpty {
-                    let clip = CGMutablePath()
-                    clip.addRect(area)
-                    for hole in holes { clip.addRect(pixels(hole)) }
-                    context.addPath(clip)
+                    let holed = CGMutablePath()
+                    holed.addRect(area)
+                    for hole in holes { holed.addRect(pixels(hole)) }
+                    context.addPath(holed)
                     context.clip(using: .evenOdd)
                 }
                 context.draw(image, in: area)
