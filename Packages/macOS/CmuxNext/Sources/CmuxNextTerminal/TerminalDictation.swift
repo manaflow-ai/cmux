@@ -44,11 +44,13 @@ public final class TerminalDictation {
         return true
     }
 
-    /// The owner (the action registry) is discarded with the app services.
+    /// Ends the session and drops it (its pinned host closed). The next toggle makes a fresh
+    /// session with its callbacks, so a terminal closed mid-dictation never ends dictation for the app.
     func close() {
         session?.cancel()
         session?.onUpdate = nil
         session?.onFinalText = nil
+        session = nil
         claims.release(self)
         clearTarget()
     }
