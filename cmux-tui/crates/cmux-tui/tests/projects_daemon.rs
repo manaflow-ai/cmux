@@ -772,11 +772,16 @@ fn projects_daemon_project_chats_imports_the_acpmux_chat_index_itself() {
     let acpmux = FakeAcpmux::listen(
         &acpmux_socket,
         answer(vec![
-            row("claude-code", "app/", 10),
+            // The same folder through the data volume's firmlink: the store
+            // normalizes it to the one path (rule 7).
+            json!({"harness": "claude-code", "lastUsedMs": 10,
+                "path": format!("/System/Volumes/Data{root}/app")}),
             row("codex", "app", 20),
             row("codex", "lib", 5),
-            // acpmux reports every absolute chat folder; the store refuses this one.
+            // acpmux reports every absolute chat folder; the store refuses these,
+            // as it refused them from the relay's `project.observe`.
             json!({"harness": "codex", "path": "/", "lastUsedMs": 5}),
+            row("codex", "lib/", 5),
         ]),
     );
     let daemon = Daemon::start_in(dir, Some(&acpmux_socket));
@@ -795,7 +800,7 @@ fn projects_daemon_project_chats_imports_the_acpmux_chat_index_itself() {
     let lib = format!("{root}/lib");
 
     // With no app connected, the daemon reads the grouped index and imports
-    // each harness: one row per folder however a harness spelled it.
+    // each harness: one row per folder, whichever harness reported it.
     let projects = wait_for("the chat folders are imported", &|projects| {
         projects.iter().any(|project| project["path"] == lib.as_str())
     });
