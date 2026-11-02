@@ -836,7 +836,7 @@ def step_reopen_video(j, step):
     how = step.get("how", "quit-keep-hid")
     count = int(step.get("count", 5))
     screen = _jxa_json(SCREEN_JXA, {})
-    rows = []
+    rows, records = [], []
     for index in range(1, count + 1):
         record = {"cycle": index, "how": how, "screen": screen, "old_pid": j.app.pid, "can_post_events": can_post_events()}
         env = j.app.launch_env()
@@ -940,9 +940,12 @@ def step_reopen_video(j, step):
             record["movie_dir"] = sorted(p.name for p in movie_dir.iterdir())[:20]
         shutil.rmtree(movie_dir, ignore_errors=True)
         (Path(j.out) / f"reopen-{index}.json").write_text(json.dumps(record, indent=1, default=str) + "\n")
+        records.append({"cycle": index, "markers": [{k: m.get(k) for k in ("pane", "focused_before", "received", "key_sent_wall")}
+                                                    for m in record.get("markers") or []], "main_wall": record.get("main_wall")})
         rows.append({"cycle": index, "movie": record["movie"], "differences": record["differences"],
                      "settled": settled, "app_marks_ms": record["app_marks_ms"],
                      "end_to_gone_ms": record.get("end_to_gone_ms")})
+    j.reopen_records = getattr(j, "reopen_records", []) + records
     return {"how": how, "cycles": rows, "screen": screen}
 
 
@@ -1061,5 +1064,28 @@ def cond_ended_line_after(j, want, cache):
     return True, detail
 
 
+def cond_reopen_keys_received(j, want, cache):
+    """REOPEN-F4: every marker key typed after a reopen (the first one as soon as the reopened window is listed,
+    about the first window frame) reached its terminal exactly once, in every cycle of the reopen_video steps
+    before. A lost key (received 0) or a key in the wrong pane fails."""
+    records = getattr(j, "reopen_records", None)
+    if not records:
+        return False, {"why": "no reopen_video step with marker keys ran before this check"}
+    bad = []
+    for rec in records:
+        for m in rec["markers"]:
+            if m.get("received") != 1:
+                sent = m.get("key_sent_wall")
+                main = rec.get("main_wall")
+                bad.append({"cycle": rec["cycle"], "pane": str(m.get("pane"))[-8:], "focused_before": m.get("focused_before"),
+                            "received": m.get("received"),
+                            "key_sent_ms_from_main": round((sent - main) * 1000, 1) if sent and main else None})
+    keys = sum(len(r["markers"]) for r in records)
+    detail = {"cycles": len(records), "keys": keys, "not_received_once": bad[:10], "bad": len(bad)}
+    if not keys:
+        return False, dict(detail, why="no marker key was typed")
+    return not bad, detail
+
+
 STEPS = {"reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
-CONDITIONS = {"cwd_string": ("daemon", cond_cwd_string), "ended_line_after": ("daemon", cond_ended_line_after)}
+CONDITIONS = {"reopen_keys_received": ("app", cond_reopen_keys_received), "cwd_string": ("daemon", cond_cwd_string), "ended_line_after": ("daemon", cond_ended_line_after)}

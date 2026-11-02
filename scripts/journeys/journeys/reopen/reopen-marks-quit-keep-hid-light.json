@@ -84,6 +84,16 @@
    "film": false
   },
   {
+   "do": "expect",
+   "title": "REOPEN-F4: every marker key typed after each reopen (the first as soon as the window is listed) reached its terminal exactly once",
+   "timeout": 2,
+   "all": [
+    {
+     "reopen_keys_received": {}
+    }
+   ]
+  },
+  {
    "do": "require_drawable",
    "title": "the window is on screen (frame checks)"
   },
