@@ -208,6 +208,7 @@ jobs:
         id: pick
         if: ${{ steps.decide.outputs.wanted == 'true' }}
         env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           PR_XCODE_APP: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
