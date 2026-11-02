@@ -488,6 +488,16 @@ def cmd_build(a):
         return 2
     rec.data["app"] = {"socket": app.app_sock, "daemon_socket": app.daemon_sock, "cli": app.cli,
                        "app_path": app.app_path, "identity": app.identity}
+    if a.build_bins and not tuikit.rust_bin("tk-gradient"):
+        done = subprocess.run([plan["python"], plan["kit"], "build-bins"], capture_output=True, text=True, timeout=1200)
+        rec.data["build_bins"] = {"exit": done.returncode, "out": (done.stdout + done.stderr).strip()[-400:]}
+    engine = "rust" if tuikit.rust_bin("tk-gradient") else "python"
+    rec.data["gradient_engine"] = engine
+    if engine != "rust":
+        # The Python gradient cannot hold 120 fps on a mini (pace_probe): its runs end NOT RUN.
+        rec.data.setdefault("notes", []).append(
+            "tk-gradient is not built: the gradients run the Python engine, which ends NOT RUN below 114 fps; "
+            "run `tuikit.py build-bins` once on this Mac (or pass --build-bins)")
     rec.save()
     base = start_page_server(plan, rec) if plan["pages"] else None
     started = time.monotonic()
@@ -583,6 +593,8 @@ def shape(p):
     p.add_argument("--kit", help="tuikit.py on the Mac that runs the app (default beside this file)")
     p.add_argument("--python", default="/usr/bin/python3")
     p.add_argument("--out", help="manifest, logs and pages (default $TMPDIR/tk-heavy-SEED)")
+    p.add_argument("--build-bins", action="store_true",
+                   help="build the compiled programs first when they are missing (cargo on this Mac)")
     p.add_argument("--no-focus", action="store_true",
                    help="do not focus the shown workspace at the end (a background load under typing)")
 
