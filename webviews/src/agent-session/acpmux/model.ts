@@ -1098,6 +1098,8 @@ const TOOL_RUN_TOP = 0;
 /// The running turn's live run line (conversation/turns.ts ACTIVITY_LINE), by value: turns.ts imports
 /// this module.
 const ACTIVITY_LINE_KIND = "activityLine";
+/// A step row: a tool run, the live run line, or a one-line row (transcriptGrid.ts MARK_STEP).
+const isStepRow = (row: AcpmuxRow) => row.kind === "activity" || row.kind === ACTIVITY_LINE_KIND || isLineRow(row);
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
 const TOOL_ROW_PT = 22;
@@ -2110,8 +2112,7 @@ export function layoutConversation(
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
     // A step row (a tool run or a one-line row) joins the step row before it flush (transcriptGap).
-    marks[index] =
-      row.kind === "activity" || row.kind === ACTIVITY_LINE_KIND || isLineRow(row) ? MARK_STEP : rowMark(row);
+    marks[index] = isStepRow(row) ? MARK_STEP : rowMark(row);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
