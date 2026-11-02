@@ -766,8 +766,10 @@ pub(super) fn wrap(
 /// `Bash(rm:*)`), is still refused.
 fn refused_arg(argv: &[String]) -> Option<&String> {
     let refused = |a: &str| REFUSED_ARGS.iter().any(|r| a == *r || a.starts_with(&format!("{r}=")));
+    // A name, never a flag: `--disallowedTools --settings` must not hide the --settings after it.
     let tool_name = |n: &str| {
-        !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        n.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_')
+            && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     };
     let mut words = argv.iter();
     while let Some(word) = words.next() {
