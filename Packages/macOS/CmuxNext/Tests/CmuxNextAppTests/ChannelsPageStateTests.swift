@@ -13,8 +13,7 @@ struct ChannelsPageStateTests {
         ]
         let tracks = ChannelTrack.tracks(index: index, verdicts: ["200": "pass"], pulled: [], installedBuild: "200",
                                          keptBuilds: [], followed: .nightly)
-        let installed = tracks.lazy.compactMap(\.installed).first
-        return UpdaterService.channelsPage(tracks: tracks, installed: installed, prs: ["300": [42]],
+        return UpdaterService.channelsPage(tracks: tracks, prs: ["300": [42]],
                                            installedVersion: "1.0.0-nightly.200")
     }
 
@@ -59,14 +58,14 @@ struct ChannelsPageStateTests {
         ]
         let tracks = ChannelTrack.tracks(index: index, verdicts: [:], pulled: [PulledBuild(build: "250", reason: "crashes")],
                                          installedBuild: "200", keptBuilds: [], followed: .dev)
-        let switching = UpdaterService.channelsPage(tracks: tracks, installed: nil, prs: [:], installedVersion: "1.0.0-nightly.200",
+        let switching = UpdaterService.channelsPage(tracks: tracks, prs: [:], installedVersion: "1.0.0-nightly.200",
                                                     switches: true)
         let offered = Self.builds(switching, ring: "dev").filter { $0["switch"] as? Bool == true }.compactMap { $0["build"] as? String }
         // Newer and older alike.
         #expect(offered == ["300", "100"])
         #expect((switching["labels"] as? [String: Any])?["switch"] as? String == "Switch")
         // A local DEV build follows no feed: nothing offers Switch.
-        let local = UpdaterService.channelsPage(tracks: tracks, installed: nil, prs: [:], installedVersion: "1.0.0-nightly.200")
+        let local = UpdaterService.channelsPage(tracks: tracks, prs: [:], installedVersion: "1.0.0-nightly.200")
         #expect(Self.builds(local, ring: "dev").allSatisfy { $0["switch"] as? Bool == false })
     }
 

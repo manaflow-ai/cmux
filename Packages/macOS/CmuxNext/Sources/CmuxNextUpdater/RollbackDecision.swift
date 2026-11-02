@@ -37,27 +37,65 @@ nonisolated public enum RollbackRefusal: Error, Equatable, Sendable {
     case storesUnknown
 }
 
-/// Picks the rollback target or refuses (pure).
+/// Picks the rollback target or refuses, with the update rules (cmux-updater-core
+/// `updater_rollback_decide`).
 nonisolated public struct RollbackDecision {
     public init() {}
     /// - Parameters:
     ///   - kept: kept versions, newest first.
     ///   - build: the build asked for, or nil for the newest kept one.
-    ///   - stored: the daemon's stored version of every store it has.
+    ///   - stored: the daemon's stored version of every store it has; nil when it could not say.
     ///   - teamID: this app's signing team.
-    public static func decide(kept: [KeptVersion], build: String?, stored: [String: Int], teamID: String?) -> Result<KeptVersion, RollbackRefusal> {
-        guard let target = build.map({ wanted in kept.first { $0.build == wanted } }) ?? kept.first else {
-            return .failure(.nothingKept)
+    public static func decide(kept: [KeptVersion], build: String?, stored: [String: Int]?, teamID: String?) -> Result<KeptVersion, RollbackRefusal> {
+        let request = RollbackRequest(kept: kept.map { RollbackRequest.Kept(build: $0.build, storeSchemas: $0.storeSchemas, teamId: $0.teamID) },
+                                      build: build, stored: stored, teamId: teamID)
+        guard let answer: RollbackAnswer = UpdaterRules().call("updater_rollback_decide", json: request) else {
+            return .failure(.storesUnknown)
         }
-        guard let teamID, target.teamID == teamID else { return .failure(.signature(target)) }
-        guard let readable = target.storeSchemas else { return .failure(.predatesRollback(target)) }
-        // Sorted, so the message names the same store every time.
-        for (store, version) in stored.sorted(by: { $0.key < $1.key }) {
-            guard let reads = readable[store] else { return .failure(.unknownStore(store: store, kept: target)) }
-            if version > reads { return .failure(.storeTooNew(store: store, stored: version, readable: reads, kept: target)) }
+        let target = { (index: Int?) -> KeptVersion? in index.flatMap { kept.indices.contains($0) ? kept[$0] : nil } }
+        if let index = answer.target, let version = target(index) { return .success(version) }
+        guard let refusal = answer.refusal else { return .failure(.storesUnknown) }
+        let named = target(refusal.kept)
+        switch refusal.kind {
+        case "nothingKept": return .failure(.nothingKept)
+        case "signature": if let named { return .failure(.signature(named)) }
+        case "predatesRollback": if let named { return .failure(.predatesRollback(named)) }
+        case "unknownStore":
+            if let named, let store = refusal.store { return .failure(.unknownStore(store: store, kept: named)) }
+        case "storeTooNew":
+            if let named, let store = refusal.store, let stored = refusal.stored, let readable = refusal.readable {
+                return .failure(.storeTooNew(store: store, stored: stored, readable: readable, kept: named))
+            }
+        default: break
         }
-        return .success(target)
+        return .failure(.storesUnknown)
     }
+}
+
+nonisolated private struct RollbackRequest: Encodable {
+    nonisolated struct Kept: Encodable {
+        var build: String
+        var storeSchemas: [String: Int]?
+        var teamId: String?
+    }
+
+    var kept: [Kept]
+    var build: String?
+    var stored: [String: Int]?
+    var teamId: String?
+}
+
+nonisolated private struct RollbackAnswer: Decodable {
+    nonisolated struct Refusal: Decodable {
+        var kind: String
+        var kept: Int?
+        var store: String?
+        var stored: Int?
+        var readable: Int?
+    }
+
+    var target: Int?
+    var refusal: Refusal?
 }
 
 extension RollbackRefusal {

@@ -5,7 +5,7 @@ public import Foundation
 /// how it fared, and whether this Mac runs it or kept it for an instant rollback.
 nonisolated public struct ChannelBuild: Equatable, Sendable {
     /// How the build fared after it was published.
-    public enum Health: String, Equatable, Sendable {
+    public enum Health: String, Equatable, Sendable, Decodable {
         /// Its canary verdict passed: it was promoted.
         case promoted
         /// Its canary verdict failed: it is held where it is.
@@ -29,9 +29,15 @@ nonisolated public struct ChannelBuild: Equatable, Sendable {
     public var isInstalled: Bool
     /// This Mac kept a copy, so installing it is an instant rollback.
     public var isKept: Bool
+    /// The GitHub commit page the build was cut from; only a hex commit id becomes a link.
+    public var commitURL: URL?
+    /// GitHub's compare page from the track's installed build to this one: what changes on
+    /// installing it. Nil for the installed build itself or when either commit is unknown.
+    public var compareURL: URL?
 
     public init(build: String, shortVersion: String, date: String, commit: String? = nil, health: Health = .pending,
-                pulledReason: String? = nil, isInstalled: Bool = false, isKept: Bool = false) {
+                pulledReason: String? = nil, isInstalled: Bool = false, isKept: Bool = false,
+                commitURL: URL? = nil, compareURL: URL? = nil) {
         self.build = build
         self.shortVersion = shortVersion
         self.date = date
@@ -40,26 +46,11 @@ nonisolated public struct ChannelBuild: Equatable, Sendable {
         self.pulledReason = pulledReason
         self.isInstalled = isInstalled
         self.isKept = isKept
-    }
-
-    /// The GitHub commit page the build was cut from.
-    public var commitURL: URL? {
-        commit.flatMap { Self.isCommit($0) ? URL(string: "\(Self.repository)/commit/\($0)") : nil }
-    }
-
-    /// GitHub's compare page from `installed` to this build: what changes on installing it.
-    /// Nil for the installed build itself or when either commit is unknown.
-    public func compareURL(from installed: ChannelBuild?) -> URL? {
-        guard let from = installed?.commit, let to = commit, from != to, Self.isCommit(from), Self.isCommit(to) else { return nil }
-        return URL(string: "\(Self.repository)/compare/\(from)...\(to)")
+        self.commitURL = commitURL
+        self.compareURL = compareURL
     }
 
     static let repository = "https://github.com/manaflow-ai/cmux"
-
-    /// A hex commit id, so a feed value never becomes another URL path.
-    static func isCommit(_ value: String) -> Bool {
-        (7...40).contains(value.count) && value.allSatisfy(\.isHexDigit)
-    }
 }
 
 /// One release channel's recent builds, newest first.
@@ -81,10 +72,11 @@ nonisolated public struct ChannelTrack: Equatable, Sendable {
     /// The build this Mac runs, when it is on this track.
     public var installed: ChannelBuild? { builds.first(where: \.isInstalled) }
 
-    /// The tracks shown today, one per ring, slowest first (Stable, Nightly, Canary, Dev).
-    /// The Nightly track is the feed's build index, each build with its canary verdict. Dev takes
-    /// every build CI publishes (`cmux-next-dev` first, then `cmux-next` once promoted), so its
-    /// track is the same index; Stable and Canary have no builds until CI publishes them.
+    /// The tracks shown today, one per ring, slowest first, from the update rules
+    /// (cmux-updater-core `updater_channel_tracks`): the Nightly track is the feed's build index
+    /// with each build's canary verdict or pull; Dev takes every build CI publishes (the index
+    /// and this app's own feed, newest first); Stable and Canary have no builds until CI
+    /// publishes them.
     /// - Parameters:
     ///   - index: `notes/index.json`, newest first.
     ///   - verdicts: each build's canary verdict (`verdicts/<build>.json`: pass, fail, skipped).
@@ -93,41 +85,83 @@ nonisolated public struct ChannelTrack: Equatable, Sendable {
     ///   - keptBuilds: the builds this Mac kept for rollback.
     ///   - followed: the ring `updates.channel` picks.
     ///   - limit: how many recent builds a track shows.
-    ///   - feedItems: this app's own feed. The Dev track also lists its builds the index lacks: the
-    ///     published DEV app's tip feed has no notes index, so its builds come only from there.
+    ///   - feedItems: this app's own feed (the published DEV app's tip feed has no notes index).
     public static func tracks(index: [ReleaseNotesIndexEntry], verdicts: [String: String], pulled: [PulledBuild],
                               installedBuild: String, keptBuilds: Set<String>, followed: UpdateRing,
                               limit: Int = 10, feedItems: [AppcastItem] = []) -> [ChannelTrack] {
-        let pulledByBuild = Dictionary(pulled.map { ($0.build, $0) }, uniquingKeysWith: { first, _ in first })
-        let nightly = index.prefix(max(0, limit)).map { entry in
-            ChannelBuild(build: entry.build, shortVersion: entry.shortVersion, date: entry.date, commit: entry.head,
-                         health: pulledByBuild[entry.build] != nil ? .pulled : health(verdict: verdicts[entry.build]),
-                         pulledReason: pulledByBuild[entry.build]?.reason,
-                         isInstalled: entry.build == installedBuild, isKept: keptBuilds.contains(entry.build))
-        }
-        let indexed = Set(index.map(\.build))
-        let fromFeed = feedItems.filter { !indexed.contains($0.version) && pulledByBuild[$0.version] == nil }.map { item in
-            ChannelBuild(build: item.version, shortVersion: item.displayVersion, date: item.date.map(day) ?? "",
-                         isInstalled: item.version == installedBuild, isKept: keptBuilds.contains(item.version))
-        }
-        let dev = (nightly + fromFeed).sorted { KeptVersionStore.isNewer($0.build, than: $1.build) }.prefix(max(0, limit))
-        return UpdateRing.allCases.map { ring in
-            ChannelTrack(ring: ring, builds: ring == .nightly ? Array(nightly) : ring == .dev ? Array(dev) : [],
-                         isFollowed: ring == followed,
-                         releaseURL: ring == .nightly ? URL(string: "\(ChannelBuild.repository)/releases/tag/nightly-next") : nil)
+        let request = TracksRequest(
+            index: index.map { TracksRequest.Entry(build: $0.build, shortVersion: $0.shortVersion, date: $0.date, head: $0.head) },
+            verdicts: verdicts,
+            pulled: pulled.map { TracksRequest.Pulled(build: $0.build, reason: $0.reason) },
+            installedBuild: installedBuild, keptBuilds: keptBuilds.sorted(), followed: followed.rawValue, limit: limit,
+            feedItems: feedItems.map { TracksRequest.Feed(version: $0.version, displayVersion: $0.displayVersion,
+                                                          date: $0.date?.timeIntervalSince1970) })
+        guard let answer: TracksAnswer = UpdaterRules().call("updater_channel_tracks", json: request) else { return [] }
+        return answer.tracks.compactMap { track in
+            guard let ring = UpdateRing(rawValue: track.ring) else { return nil }
+            return ChannelTrack(ring: ring, builds: track.builds.map(\.channelBuild), isFollowed: track.isFollowed,
+                                releaseURL: track.releaseUrl.flatMap(URL.init(string:)))
         }
     }
+}
 
-    /// `YYYY-MM-DD` in UTC, as `notes/index.json` writes a build's day.
-    static func day(_ date: Date) -> String {
-        date.formatted(Date.ISO8601FormatStyle(timeZone: .gmt).year().month().day())
+nonisolated private struct TracksRequest: Encodable {
+    nonisolated struct Entry: Encodable {
+        var build: String
+        var shortVersion: String
+        var date: String
+        var head: String?
     }
 
-    static func health(verdict: String?) -> ChannelBuild.Health {
-        switch verdict {
-        case "pass": .promoted
-        case "fail": .held
-        default: .pending
-        }
+    nonisolated struct Pulled: Encodable {
+        var build: String
+        var reason: String
+    }
+
+    nonisolated struct Feed: Encodable {
+        var version: String
+        var displayVersion: String
+        var date: Double?
+    }
+
+    var index: [Entry]
+    var verdicts: [String: String]
+    var pulled: [Pulled]
+    var installedBuild: String
+    var keptBuilds: [String]
+    var followed: String
+    var limit: Int
+    var feedItems: [Feed]
+}
+
+nonisolated private struct TracksAnswer: Decodable {
+    nonisolated struct Build: Decodable {
+        var build: String
+        var shortVersion: String
+        var date: String
+        var commit: String?
+        var health: ChannelBuild.Health
+        var pulledReason: String?
+        var isInstalled: Bool
+        var isKept: Bool
+        var commitUrl: String?
+        var compareUrl: String?
+    }
+
+    nonisolated struct Track: Decodable {
+        var ring: String
+        var builds: [Build]
+        var isFollowed: Bool
+        var releaseUrl: String?
+    }
+
+    var tracks: [Track]
+}
+
+extension TracksAnswer.Build {
+    nonisolated var channelBuild: ChannelBuild {
+        ChannelBuild(build: build, shortVersion: shortVersion, date: date, commit: commit, health: health,
+                     pulledReason: pulledReason, isInstalled: isInstalled, isKept: isKept,
+                     commitURL: commitUrl.flatMap(URL.init(string:)), compareURL: compareUrl.flatMap(URL.init(string:)))
     }
 }

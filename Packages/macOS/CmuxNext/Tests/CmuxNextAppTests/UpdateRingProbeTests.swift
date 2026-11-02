@@ -60,12 +60,15 @@ import Testing
         #expect(item.version == "400")
     }
 
-    @Test func untaggedItemsAreOfferedOnEveryRing() {
-        let item = AppcastItem(version: "1")
+    @Test func untaggedItemsAreOfferedOnEveryRing() throws {
+        let feed = """
+        <rss><channel><item><sparkle:version>1</sparkle:version></item>
+        <item><sparkle:version>2</sparkle:version><sparkle:channel>cmux-next-dev</sparkle:channel></item></channel></rss>
+        """
         for ring in UpdateRing.allCases {
-            #expect(item.isOffered(allowing: ring.acceptedSparkleChannels))
+            let items = try AppcastParser.parse(Data(feed.utf8), allowing: ring.acceptedSparkleChannels)
+            #expect(items.map(\.version) == (ring == .dev ? ["1", "2"] : ["1"]), "\(ring)")
         }
-        #expect(!AppcastItem(version: "1", sparkleChannel: "cmux-next-dev").isOffered(allowing: UpdateRing.canary.acceptedSparkleChannels))
     }
 
     /// `updates.channel` defaults to Nightly (unchanged behavior) and its values name the rings.

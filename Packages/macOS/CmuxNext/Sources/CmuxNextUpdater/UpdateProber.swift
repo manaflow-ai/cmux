@@ -61,7 +61,7 @@ nonisolated public struct UpdateProber: Sendable {
     public func offered(_ identity: UpdateBuildIdentity, allowedChannels: Set<String>) async throws -> [AppcastItem] {
         let feed = identity.feed(architecture: architecture)
         guard let url = URL(string: feed.url) else { throw AppcastParseError(message: "invalid feed URL \(feed.url)") }
-        return try AppcastParser.parse(try await fetcher.fetch(url)).filter { $0.isOffered(allowing: allowedChannels) }
+        return try AppcastParser.parse(try await fetcher.fetch(url), allowing: allowedChannels)
     }
 
     /// Off the main actor: network and XML parsing. Items whose `sparkle:channel` is not in
@@ -73,7 +73,7 @@ nonisolated public struct UpdateProber: Sendable {
         let feed = identity.feed(architecture: architecture)
         guard let url = URL(string: feed.url) else { throw AppcastParseError(message: "invalid feed URL \(feed.url)") }
         let allowed = allowedChannels ?? feed.channel.allowedSparkleChannels
-        let items = try AppcastParser.parse(try await fetcher.fetch(url)).filter { $0.isOffered(allowing: allowed) }
+        let items = try AppcastParser.parse(try await fetcher.fetch(url), allowing: allowed)
         return UpdateProbeResult(
             track: identity.track,
             feedURL: feed.url,

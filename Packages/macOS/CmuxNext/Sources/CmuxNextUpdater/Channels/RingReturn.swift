@@ -4,7 +4,7 @@ public import Foundation
 /// offers a lower build, so when the running build is not on the ring and the ring has nothing
 /// newer, the way back is the newest build of that ring this Mac kept (a rollback swap: one
 /// restart, the same settings and sessions); with none kept, the running build stays until the
-/// ring reaches a newer one.
+/// ring reaches a newer one. The update rules decide it (cmux-updater-core `updater_ring_return`).
 nonisolated public enum RingReturn: Equatable, Sendable {
     /// The running build is on the ring, or the ring offers a newer one: the normal update path.
     case none
@@ -22,11 +22,30 @@ nonisolated public enum RingReturn: Equatable, Sendable {
     ///   - kept: kept versions, newest first.
     public static func decide(installedBuild: String, offered: [AppcastItem], promoted: Set<String>,
                               pulled: Set<String> = [], kept: [KeptVersion]) -> RingReturn {
-        let onRing = Set(offered.map(\.version)).union(promoted).subtracting(pulled)
-        if onRing.contains(installedBuild) { return .none }
-        if offered.contains(where: { AppcastSelector.isOlder(installedBuild, than: $0.version) }) { return .none }
-        guard let target = kept.first(where: { onRing.contains($0.build) && AppcastSelector.isOlder($0.build, than: installedBuild) })
-        else { return .waits }
-        return .goBack(target)
+        let request = RingReturnRequest(installedBuild: installedBuild, offered: offered.map(\.version),
+                                        promoted: promoted.sorted(), pulled: pulled.sorted(), kept: kept.map(\.build))
+        guard let answer: RingReturnAnswer = UpdaterRules().call("updater_ring_return", json: request) else { return .none }
+        switch answer.way {
+        case "goBack":
+            guard let index = answer.kept, kept.indices.contains(index) else { return .none }
+            return .goBack(kept[index])
+        case "waits":
+            return .waits
+        default:
+            return .none
+        }
     }
+}
+
+nonisolated private struct RingReturnRequest: Encodable {
+    var installedBuild: String
+    var offered: [String]
+    var promoted: [String]
+    var pulled: [String]
+    var kept: [String]
+}
+
+nonisolated private struct RingReturnAnswer: Decodable {
+    var way: String
+    var kept: Int?
 }

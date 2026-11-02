@@ -13,7 +13,7 @@ extension UpdaterService {
     /// Uses `url` (nil clears) for every check until relaunch, or until
     /// cleared when `pinned`.
     public func useTestFeed(_ url: String?, pinned: Bool) throws {
-        guard identity.track.allowsTestFeed else {
+        guard identity.allowsTestFeed else {
             throw UpdaterUnavailable.testFeedRefused
         }
         guard let url else {
@@ -56,7 +56,7 @@ extension UpdaterService {
 
     /// Restores a pinned test feed at launch (DEV and NIGHTLY only).
     func restorePinnedTestFeed() {
-        guard identity.track.allowsTestFeed,
+        guard identity.allowsTestFeed,
               let pinned = defaults.string(forKey: Self.pinnedTestFeedKey), Self.acceptsTestFeed(pinned) else { return }
         testFeedURL = pinned
         controller?.feedOverride = pinned

@@ -11,7 +11,6 @@ extension UpdaterService {
         let shown = ring ?? self.ring
         async let way = ringReturn(to: shown)
         let tracks = await channelTracks(limit: limit)
-        let installed = tracks.lazy.compactMap(\.installed).first
         let builds = tracks.flatMap(\.builds).map(\.build)
         var prs: [String: [Int]] = [:]
         if let store = changelogNotes {
@@ -24,13 +23,13 @@ extension UpdaterService {
                 return result
             }
         }
-        return Self.channelsPage(tracks: tracks, installed: installed, prs: prs, installedVersion: identity.shortVersion,
+        return Self.channelsPage(tracks: tracks, prs: prs, installedVersion: identity.shortVersion,
                                  ring: shown, way: await way, switches: switchesBuilds)
     }
 
     /// - Parameter switches: this app can switch builds (``switchesBuilds``): every build but the
     ///   installed and pulled ones gets the Switch button.
-    nonisolated static func channelsPage(tracks: [ChannelTrack], installed: ChannelBuild?, prs: [String: [Int]],
+    nonisolated static func channelsPage(tracks: [ChannelTrack], prs: [String: [Int]],
                                          installedVersion: String, ring: UpdateRing = .nightly,
                                          way: RingReturn = .none, switches: Bool = false) -> [String: Any] {
         [
@@ -53,7 +52,7 @@ extension UpdaterService {
                             "build": build.build, "version": build.shortVersion, "date": build.date,
                             "commit": build.commit.map { String($0.prefix(8)) } ?? NSNull(),
                             "commit_url": build.commitURL?.absoluteString ?? NSNull(),
-                            "compare_url": build.compareURL(from: installed)?.absoluteString ?? NSNull(),
+                            "compare_url": build.compareURL?.absoluteString ?? NSNull(),
                             "health": build.health.rawValue, "health_title": healthTitle(build.health) ?? NSNull(),
                             "pulled_reason": build.pulledReason ?? NSNull(),
                             "installed": build.isInstalled, "kept": build.isKept,

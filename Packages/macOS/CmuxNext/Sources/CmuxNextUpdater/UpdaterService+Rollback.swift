@@ -99,9 +99,8 @@ extension UpdaterService {
 
     /// Whether a rollback to `build` (nil: the newest kept) would run.
     public func rollbackDecision(to build: String?, inputs: RollbackInputs) -> Result<KeptVersion, RollbackRefusal> {
-        guard let stored = inputs.stored else { return .failure(.storesUnknown) }
-        return RollbackDecision.decide(kept: inputs.kept, build: build, stored: stored,
-                                       teamID: UpdateDropBack.signingTeam(of: Bundle.main.bundleURL))
+        RollbackDecision.decide(kept: inputs.kept, build: build, stored: inputs.stored,
+                                teamID: UpdateDropBack.signingTeam(of: Bundle.main.bundleURL))
     }
 }
 

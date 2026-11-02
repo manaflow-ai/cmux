@@ -40,7 +40,7 @@ nonisolated public struct KeptVersionStore: Sendable {
     public func list() -> [KeptVersion] {
         let files = FileManager.default
         guard let builds = try? files.contentsOfDirectory(atPath: root.path) else { return [] }
-        return builds.compactMap { build -> KeptVersion? in
+        let kept = builds.compactMap { build -> KeptVersion? in
             let folder = root.appending(path: build, directoryHint: .isDirectory)
             guard let app = (try? files.contentsOfDirectory(atPath: folder.path))?.first(where: { $0.hasSuffix(".app") }) else { return nil }
             let bundle = folder.appending(path: app, directoryHint: .isDirectory)
@@ -50,7 +50,7 @@ nonisolated public struct KeptVersionStore: Sendable {
                                shortVersion: info["CFBundleShortVersionString"] as? String ?? build,
                                bundle: bundle, storeSchemas: schemas, teamID: teamID(bundle))
         }
-        .sorted { Self.isNewer($0.build, than: $1.build) }
+        return Self.newestFirst(kept)
     }
 
     private func prune(limit: Int) {
@@ -59,8 +59,20 @@ nonisolated public struct KeptVersionStore: Sendable {
         }
     }
 
-    /// Numeric build order (CFBundleVersion is monotonic, R78).
-    static func isNewer(_ a: String, than b: String) -> Bool {
-        a.compare(b, options: .numeric) == .orderedDescending
+    /// `kept`, newest build first: numeric build order (CFBundleVersion is monotonic, R78), from
+    /// the update rules (cmux-updater-core `updater_builds_newest_first`; equal builds keep their order).
+    static func newestFirst(_ kept: [KeptVersion]) -> [KeptVersion] {
+        let answer: KeptOrderAnswer? = UpdaterRules().call("updater_builds_newest_first",
+                                                           json: KeptOrderRequest(builds: kept.map(\.build)))
+        guard let order = answer?.order, order.count == kept.count, order.allSatisfy({ kept.indices.contains($0) }) else { return kept }
+        return order.map { kept[$0] }
     }
+}
+
+nonisolated private struct KeptOrderRequest: Encodable {
+    var builds: [String]
+}
+
+nonisolated private struct KeptOrderAnswer: Decodable {
+    var order: [Int]
 }

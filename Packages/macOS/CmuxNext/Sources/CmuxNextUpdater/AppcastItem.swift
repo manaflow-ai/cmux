@@ -1,7 +1,8 @@
 public import Foundation
 
-/// One `<item>` of a Sparkle appcast: the fields that decide whether this
-/// Mac is offered the update.
+/// One `<item>` of a Sparkle appcast: the fields that decide whether this Mac is offered the
+/// update. ``AppcastParser`` reads them and ``AppcastSelector`` decides with the update rules
+/// (cmux-updater-core).
 nonisolated public struct AppcastItem: Sendable, Equatable {
     /// `sparkle:version` (the bundle's `CFBundleVersion`).
     public var version: String
@@ -41,17 +42,42 @@ nonisolated public struct AppcastItem: Sendable, Equatable {
         self.downloadURL = downloadURL
     }
 
-    /// Whether an updater that allows the `sparkle:channel` tags `channels` sees this item:
-    /// untagged items always, tagged ones only when allowed.
-    public func isOffered(allowing channels: Set<String>) -> Bool {
-        sparkleChannel.map(channels.contains) ?? true
-    }
+    /// The item as the update rules read and write it: URLs as text, the date in seconds since 1970.
+    nonisolated struct Wire: Codable, Sendable {
+        var version: String
+        var displayVersion: String
+        var title: String?
+        var minimumSystemVersion: SystemVersion?
+        var maximumSystemVersion: SystemVersion?
+        var releaseNotesUrl: String?
+        var downloadUrl: String?
+        var itemDescription: String?
+        var date: Double?
+        var sparkleChannel: String?
+        var listsDeltas: Bool
 
-    /// Whether Sparkle would offer this item on `system`.
-    public func supports(_ system: SystemVersion) -> Bool {
-        if let minimumSystemVersion, system < minimumSystemVersion { return false }
-        if let maximumSystemVersion, system > maximumSystemVersion { return false }
-        return true
+        init(_ item: AppcastItem) {
+            version = item.version
+            displayVersion = item.displayVersion
+            title = item.title
+            minimumSystemVersion = item.minimumSystemVersion
+            maximumSystemVersion = item.maximumSystemVersion
+            releaseNotesUrl = item.releaseNotesURL?.absoluteString
+            downloadUrl = item.downloadURL?.absoluteString
+            itemDescription = item.itemDescription
+            date = item.date?.timeIntervalSince1970
+            sparkleChannel = item.sparkleChannel
+            listsDeltas = item.listsDeltas
+        }
+
+        var item: AppcastItem {
+            AppcastItem(version: version, displayVersion: displayVersion, title: title,
+                        minimumSystemVersion: minimumSystemVersion, maximumSystemVersion: maximumSystemVersion,
+                        releaseNotesURL: releaseNotesUrl.flatMap(URL.init(string:)),
+                        downloadURL: downloadUrl.flatMap(URL.init(string:)), itemDescription: itemDescription,
+                        date: date.map(Date.init(timeIntervalSince1970:)), sparkleChannel: sparkleChannel,
+                        listsDeltas: listsDeltas)
+        }
     }
 }
 

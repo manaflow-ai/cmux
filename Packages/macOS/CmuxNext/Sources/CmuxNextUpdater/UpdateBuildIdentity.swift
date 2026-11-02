@@ -29,17 +29,21 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
         self.hasPublicKey = hasPublicKey
     }
 
+    /// The identity `Info.plist` describes, read by the update rules (cmux-updater-core
+    /// `updater_build_info`): missing versions read as "0", an unsubstituted
+    /// `$(SPARKLE_PUBLIC_KEY)` is not a key. When the rules do not answer, the identity has no
+    /// key, so Sparkle never runs on it.
     public init(infoDictionary info: [String: Any]) {
-        let key = (info["SUPublicEDKey"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
-        self.init(
-            bundleIdentifier: info["CFBundleIdentifier"] as? String,
-            shortVersion: info["CFBundleShortVersionString"] as? String ?? "0",
-            build: info["CFBundleVersion"] as? String ?? "0",
-            minimumSystemVersion: (info["LSMinimumSystemVersion"] as? String).flatMap(SystemVersion.init),
-            infoFeedURL: info["SUFeedURL"] as? String,
-            // An unsubstituted `$(SPARKLE_PUBLIC_KEY)` is not a key.
-            hasPublicKey: !key.isEmpty && !key.hasPrefix("$(")
-        )
+        let request = BuildInfoRequest(bundleIdentifier: info["CFBundleIdentifier"] as? String,
+                                       shortVersion: info["CFBundleShortVersionString"] as? String,
+                                       build: info["CFBundleVersion"] as? String,
+                                       minimumSystemVersion: info["LSMinimumSystemVersion"] as? String,
+                                       feedUrl: info["SUFeedURL"] as? String,
+                                       publicKey: info["SUPublicEDKey"] as? String)
+        let answer: BuildInfoAnswer? = UpdaterRules().call("updater_build_info", json: request)
+        self.init(bundleIdentifier: request.bundleIdentifier, shortVersion: answer?.shortVersion ?? "",
+                  build: answer?.build ?? "", minimumSystemVersion: answer?.minimumSystemVersion,
+                  infoFeedURL: request.feedUrl, hasPublicKey: answer?.hasPublicKey ?? false)
     }
 
     /// The running app.
@@ -49,25 +53,30 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
 
     /// cmux NEXT DEV's bundle id (the Release compile of feat-cmux-next, docs/cmux-next/dev-daily.md).
     public static let tipBundleIdentifier = AppChannelSwitchTarget.devBundleIdentifier
-    /// The feed main's DEV publisher stamps into that bundle. Its path holds `/nightly-next/`, so
-    /// it resolves like cmux NEXT's nightly feed: per architecture, with rings.
-    public static let tipFeedPrefix = "https://files.cmux.com/nightly-next/tip/"
 
     /// The tip app: cmux NEXT DEV as published, which follows the tip feed and runs Sparkle.
     /// Both the exact bundle id and the stamped feed are required, so a local `reload.sh --tag next`
     /// build (same id, the default feed) and any other DEV or staging build stay development.
-    public var isTipBuild: Bool {
-        bundleIdentifier == Self.tipBundleIdentifier && infoFeedURL?.hasPrefix(Self.tipFeedPrefix) == true
-    }
+    public var isTipBuild: Bool { rules()?.isTipBuild ?? false }
 
-    public var track: UpdateTrack {
-        if UpdateTrack.isDevelopmentBundle(bundleIdentifier), !isTipBuild { return .development }
-        switch UpdateFeedResolver().resolve(infoFeedURL: infoFeedURL).channel {
-        case .stable: return .stable
-        case .nightly: return .nightly
-        case .nightlyNext: return .nightlyNext
-        case .rc: return .rc
-        }
+    /// The release line (development when the rules do not answer: Sparkle never runs then).
+    public var track: UpdateTrack { rules()?.track ?? .development }
+
+    /// Whether a test appcast may replace the baked feed: DEV and both nightly rings, never
+    /// stable or RC.
+    public var allowsTestFeed: Bool { rules()?.allowsTestFeed ?? false }
+
+    /// `updates.downloadAutomatically` for an install that never set it: off on every channel
+    /// (Leo 2026-10-27, claude-sr2 2026-10-26); turning it on is the opt-in.
+    public var downloadsAutomaticallyByDefault: Bool { rules()?.downloadsAutomaticallyByDefault ?? false }
+
+    /// The release-line rules of this identity (cmux-updater-core `updater_build_rules`). The
+    /// feed's channel comes from ``UpdateFeedResolver``, which Sparkle's delegate also reads.
+    func rules(managedPolicyDisablesUpdates: Bool = false) -> BuildRules? {
+        let request = BuildRulesRequest(bundleIdentifier: bundleIdentifier, infoFeedUrl: infoFeedURL, hasPublicKey: hasPublicKey,
+                                        feedChannel: UpdateFeedResolver().resolve(infoFeedURL: infoFeedURL).channel.rawValue,
+                                        managedPolicyDisablesUpdates: managedPolicyDisablesUpdates)
+        return UpdaterRules().call("updater_build_rules", json: request)
     }
 
     /// The feed Sparkle (and the probe) read for this machine: nightly and RC
@@ -76,12 +85,10 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
         UpdateFeedResolver(hostArchitecture: architecture).resolve(infoFeedURL: infoFeedURL)
     }
 
-    /// Why Sparkle must not run, or nil when it may.
+    /// Why Sparkle must not run, or nil when it may (development when the rules do not answer).
     public func sparkleDisabledReason(managedPolicyDisablesUpdates: Bool) -> UpdateDisabledReason? {
-        if track == .development { return .developmentBuild }
-        if !hasPublicKey { return .missingPublicKey }
-        if managedPolicyDisablesUpdates { return .managedPolicy }
-        return nil
+        guard let rules = rules(managedPolicyDisablesUpdates: managedPolicyDisablesUpdates) else { return .developmentBuild }
+        return rules.disabledReason
     }
 
     /// The other release app this one can switch to, by bundle id: stable <-> NIGHTLY, and
@@ -91,7 +98,42 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
     /// NEXT build signed as cmux NIGHTLY (`com.cmuxterm.app.nightly`) keeps NIGHTLY's stable
     /// counterpart (`UpdateTrackMatrixTests` pins each).
     public var channelSwitchTarget: AppChannelSwitchTarget? {
-        if bundleIdentifier == Self.tipBundleIdentifier, !isTipBuild { return nil }
+        guard rules()?.offersChannelSwitch == true else { return nil }
         return AppChannelSwitchTarget.counterpart(ofBundleIdentifier: bundleIdentifier)
     }
+
+    /// The answer of `updater_build_rules`.
+    nonisolated struct BuildRules: Decodable, Sendable {
+        var isTipBuild: Bool
+        var developmentBundle: Bool
+        var track: UpdateTrack
+        var allowsTestFeed: Bool
+        var downloadsAutomaticallyByDefault: Bool
+        var disabledReason: UpdateDisabledReason?
+        var offersChannelSwitch: Bool
+    }
+}
+
+nonisolated private struct BuildInfoRequest: Encodable {
+    var bundleIdentifier: String?
+    var shortVersion: String?
+    var build: String?
+    var minimumSystemVersion: String?
+    var feedUrl: String?
+    var publicKey: String?
+}
+
+nonisolated private struct BuildInfoAnswer: Decodable {
+    var shortVersion: String
+    var build: String
+    var minimumSystemVersion: SystemVersion?
+    var hasPublicKey: Bool
+}
+
+nonisolated private struct BuildRulesRequest: Encodable {
+    var bundleIdentifier: String?
+    var infoFeedUrl: String?
+    var hasPublicKey: Bool
+    var feedChannel: String
+    var managedPolicyDisablesUpdates: Bool
 }

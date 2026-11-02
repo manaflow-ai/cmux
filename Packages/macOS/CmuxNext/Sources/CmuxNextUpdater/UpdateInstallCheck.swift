@@ -24,8 +24,6 @@ public nonisolated struct UpdateInstallCheck: Codable, Equatable, Sendable {
 
     /// The defaults key of the record (the app's own domain, so each build channel keeps its own).
     public static let key = "cmux.next.updates.installCheck"
-    /// A record older than this judges nothing: the launch it was written for is long past.
-    public static let maxAge: TimeInterval = 24 * 60 * 60
 
     /// What this launch says about the install the record was written for.
     public enum Outcome: Equatable, Sendable {
@@ -37,12 +35,17 @@ public nonisolated struct UpdateInstallCheck: Codable, Equatable, Sendable {
 
     /// The outcome for a launch of `build`, or nil when the record says nothing about it: stale,
     /// written in the future, a no-op install, or a third build (one installed by hand).
+    /// The update rules decide it (cmux-updater-core `updater_install_check`).
     public func outcome(runningBuild build: String, now: Date) -> Outcome? {
-        let age = now.timeIntervalSince(recordedAt)
-        guard age >= -60, age <= Self.maxAge, fromBuild != targetBuild else { return nil }
-        if build == targetBuild { return .installed }
-        if build == fromBuild { return .failed }
-        return nil
+        let request = InstallCheckRequest(fromBuild: fromBuild, targetBuild: targetBuild,
+                                          recordedAt: recordedAt.timeIntervalSince1970, runningBuild: build,
+                                          now: now.timeIntervalSince1970)
+        let answer: InstallCheckAnswer? = UpdaterRules().call("updater_install_check", json: request)
+        switch answer?.outcome {
+        case "installed": return .installed
+        case "failed": return .failed
+        default: return nil
+        }
     }
 
     /// Writes `record`, or removes any record (nil: Sparkle did not name the build it installs).
@@ -79,6 +82,18 @@ public nonisolated struct UpdateInstallCheck: Codable, Equatable, Sendable {
               let outcome = record.outcome(runningBuild: build, now: now) else { return nil }
         return (record, outcome)
     }
+}
+
+nonisolated private struct InstallCheckRequest: Encodable {
+    var fromBuild: String
+    var targetBuild: String
+    var recordedAt: Double
+    var runningBuild: String
+    var now: Double
+}
+
+nonisolated private struct InstallCheckAnswer: Decodable {
+    var outcome: String?
 }
 
 /// Why an install left the old build running, read from the file system at the launch after it.

@@ -27,7 +27,7 @@ import Testing
         #expect(record.outcome(runningBuild: "200", now: soon) == .installed)
         #expect(record.outcome(runningBuild: "100", now: soon) == .failed)
         #expect(record.outcome(runningBuild: "300", now: soon) == nil, "a third build was installed by hand")
-        #expect(record.outcome(runningBuild: "100", now: Self.start.addingTimeInterval(UpdateInstallCheck.maxAge + 1)) == nil, "stale")
+        #expect(record.outcome(runningBuild: "100", now: Self.start.addingTimeInterval(24 * 60 * 60 + 1)) == nil, "stale: older than a day")
         #expect(record.outcome(runningBuild: "100", now: Self.start.addingTimeInterval(-3600)) == nil, "written in the future")
         let same = UpdateInstallCheck(fromBuild: "100", targetBuild: "100", recordedAt: Self.start)
         #expect(same.outcome(runningBuild: "100", now: soon) == nil, "a reinstall of the running build judges nothing")

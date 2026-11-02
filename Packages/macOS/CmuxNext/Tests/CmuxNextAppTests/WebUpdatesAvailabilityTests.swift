@@ -19,7 +19,7 @@ struct WebUpdatesAvailabilityTests {
     }
 
     @Test func theTipAppTakesWebUpdates() {
-        let tipFeed = UpdateBuildIdentity.tipFeedPrefix + "appcast-arm64.xml"
+        let tipFeed = "https://files.cmux.com/nightly-next/tip/appcast-arm64.xml"
         #expect(WebUpdater.takesUpdates(Self.identity(UpdateBuildIdentity.tipBundleIdentifier, feed: tipFeed)))
         // The same id without the tip feed is a developer's own `reload.sh --tag next` build.
         #expect(!WebUpdater.takesUpdates(Self.identity(UpdateBuildIdentity.tipBundleIdentifier)))

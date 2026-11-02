@@ -19,39 +19,12 @@ nonisolated public enum UpdateTrack: String, Sendable, CaseIterable, Codable {
     /// build signed as cmux NIGHTLY and the tip app all read one.
     case nightlyNext = "nightly-next"
 
-    /// Whether a test appcast may replace the baked feed (`updates.test_feed`,
-    /// `debug.updater`, a pinned test feed): DEV and both nightly rings, never
-    /// stable or RC.
-    public var allowsTestFeed: Bool {
-        switch self {
-        case .nightly, .nightlyNext, .development: true
-        case .stable, .rc: false
-        }
-    }
-
-    /// Whether `bundleIdentifier` is a DEV (`com.cmuxterm.app.debug[.<tag>]`)
-    /// or staging (`com.cmuxterm.app.staging[.<tag>]`) build.
+    /// Whether `bundleIdentifier` is a DEV (`com.cmuxterm.app.debug[.<tag>]`) or staging
+    /// (`com.cmuxterm.app.staging[.<tag>]`) build (cmux-updater-core `updater_build_rules`).
+    /// When the rules do not answer, no build counts as one: it stays guarded and runs no harness.
     public static func isDevelopmentBundle(_ bundleIdentifier: String?) -> Bool {
-        guard let bundleIdentifier else { return false }
-        for base in ["com.cmuxterm.app.debug", "com.cmuxterm.app.staging"] {
-            if bundleIdentifier == base || bundleIdentifier.hasPrefix(base + ".") { return true }
-        }
-        return false
-    }
-
-    /// `updates.downloadAutomatically` for an install that never set it: off on every channel, so
-    /// NIGHTLY, the tip app and DEV ask as stable does (Leo 2026-10-27: "and the whole check for
-    /// updates thing, we can do it more properly to ask before the download + install step, and
-    /// likewise for the reboot... to make it more like how it'd be in prod"). A found update waits
-    /// on the Update Available step; its Update downloads it, and the staged update waits on the
-    /// Update Ready card for Restart to Update. Turning the setting on is the opt-in to automatic
-    /// download; the relaunch still waits for Restart to Update (the nightly restart policy, which
-    /// keeps the idle install off). Stable and RC were
-    /// already off (claude-sr2 2026-10-26, relaying Leo: "maybe better as an opt in for normal users").
-    public var downloadsAutomaticallyByDefault: Bool {
-        switch self {
-        case .stable, .rc, .nightly, .nightlyNext, .development: false
-        }
+        UpdateBuildIdentity(bundleIdentifier: bundleIdentifier, shortVersion: "", build: "", minimumSystemVersion: nil,
+                            infoFeedURL: nil, hasPublicKey: false).rules()?.developmentBundle ?? false
     }
 }
 

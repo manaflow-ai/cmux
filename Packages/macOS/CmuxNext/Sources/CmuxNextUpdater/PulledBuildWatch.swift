@@ -18,14 +18,11 @@ nonisolated public struct PulledBuild: Equatable, Sendable, Decodable {
         self.serve = serve
     }
 
-    /// The entries of a `pulled.json` body; an unreadable body or entry is skipped, never fatal.
+    /// The entries of a `pulled.json` body; an unreadable body or entry is skipped, never fatal
+    /// (cmux-updater-core `updater_pulled_decode`).
     public static func decode(_ data: Data) -> [PulledBuild] {
-        guard let items = try? JSONSerialization.jsonObject(with: data) as? [Any] else { return [] }
-        return items.compactMap { item in
-            guard let entry = item as? [String: Any], let build = entry["build"] as? String else { return nil }
-            return PulledBuild(build: build, reason: entry["reason"] as? String ?? "",
-                               pulledAt: entry["pulledAt"] as? String, serve: entry["serve"] as? String)
-        }
+        let answer: PulledAnswer? = UpdaterRules().call("updater_pulled_decode", bytes: data)
+        return answer?.builds ?? []
     }
 
     /// Where the pulled list for `feedURL` lives: next to the appcast. The legacy NIGHTLY feed
@@ -41,6 +38,10 @@ nonisolated public struct PulledBuild: Equatable, Sendable, Decodable {
         }
         return urls
     }
+}
+
+nonisolated private struct PulledAnswer: Decodable {
+    var builds: [PulledBuild]
 }
 
 /// The feed's pulled list (nightly train, section 2), read at launch and after every Sparkle update

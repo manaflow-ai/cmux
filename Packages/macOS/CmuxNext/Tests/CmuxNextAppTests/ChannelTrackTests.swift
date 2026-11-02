@@ -60,20 +60,23 @@ struct ChannelTrackTests {
 
     @Test func compareGoesFromTheInstalledBuildsCommit() throws {
         let nightly = try #require(Self.tracks().first { $0.ring == .nightly })
-        let installed = nightly.installed
-        #expect(nightly.builds[0].compareURL(from: installed)?.absoluteString
+        #expect(nightly.builds[0].compareURL?.absoluteString
             == "https://github.com/manaflow-ai/cmux/compare/bbbbbbbb...cccccccc")
-        #expect(nightly.builds[1].compareURL(from: installed) == nil)
+        #expect(nightly.builds[1].compareURL == nil)
         // No commit in the index: no compare and no commit link.
-        #expect(nightly.builds[2].compareURL(from: installed) == nil)
+        #expect(nightly.builds[2].compareURL == nil)
         #expect(nightly.builds[2].commitURL == nil)
         #expect(nightly.builds[0].commitURL?.absoluteString == "https://github.com/manaflow-ai/cmux/commit/cccccccc")
     }
 
-    @Test func aFeedValueThatIsNotACommitNeverBecomesALink() {
-        let odd = ChannelBuild(build: "1", shortVersion: "1", date: "", commit: "../../evil")
-        #expect(odd.commitURL == nil)
-        #expect(odd.compareURL(from: ChannelBuild(build: "0", shortVersion: "0", date: "", commit: "abcdef12")) == nil)
+    /// A feed value that is not a hex commit never becomes a link (the rule and its cases:
+    /// cmux-updater-core `channel_track::is_commit`, tests/channel_track.rs).
+    @Test func aFeedValueThatIsNotACommitNeverBecomesALink() throws {
+        let tracks = ChannelTrack.tracks(index: [ReleaseNotesIndexEntry(build: "1", shortVersion: "1", date: "", highlights: 0, head: "../../evil")],
+                                         verdicts: [:], pulled: [], installedBuild: "0", keptBuilds: [], followed: .nightly)
+        let build = try #require(tracks.first { $0.ring == .nightly }?.builds.first)
+        #expect(build.commit == "../../evil")
+        #expect(build.commitURL == nil)
     }
 
     @Test func verdictsAreReadPerBuildAndUnsafeNamesAreSkipped() async {

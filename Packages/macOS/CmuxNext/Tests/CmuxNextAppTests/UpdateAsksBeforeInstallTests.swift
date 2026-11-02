@@ -41,16 +41,13 @@ import Testing
         updater.cancelStaged = { effects.cancels += 1; return true }
         updater.preflightOverride = { nil }
         updater.configure(checkAutomatically: true, checkInterval: 3600,
-                          downloadAutomatically: optIn ?? identity.track.downloadsAutomaticallyByDefault)
+                          downloadAutomatically: optIn ?? identity.downloadsAutomaticallyByDefault)
         updater.applyDownloadPolicy() // the driver's configure runs it; this updater has no driver
         // Not started: no fast check timer and no release push socket (their own tests cover them).
         return (updater, effects)
     }
 
     @Test func everyChannelAsksByDefault() {
-        for track in UpdateTrack.allCases {
-            #expect(!track.downloadsAutomaticallyByDefault, "\(track) downloads and installs by itself by default")
-        }
         for identity in Self.channels {
             let (updater, _) = Self.make(identity)
             #expect(!updater.automaticUpdates && !updater.downloadsFoundUpdates,
