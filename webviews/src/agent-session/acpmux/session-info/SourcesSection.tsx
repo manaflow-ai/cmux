@@ -21,13 +21,18 @@ export async function openSourceFile(
   try {
     return await native("file.open", { path, where: "tab" });
   } catch (error) {
-    if (!(error instanceof NativeError) || error.code !== "transport.path_invalid") throw error;
+    if (
+      !(error instanceof NativeError) ||
+      error.code !== "transport.path_invalid"
+    )
+      throw error;
     return native("file.open", { path, where: "editor" });
   }
 }
 
-function scopedPath(path: string, cwd?: string): string | undefined {
-  if (!cwd?.startsWith("/") || path.startsWith("~") || path.includes("\0")) return;
+export function scopedPath(path: string, cwd?: string): string | undefined {
+  if (!cwd?.startsWith("/") || path.startsWith("~") || path.includes("\0"))
+    return;
   const normalize = (value: string) => {
     const parts: string[] = [];
     for (const part of value.split("/"))
@@ -37,7 +42,9 @@ function scopedPath(path: string, cwd?: string): string | undefined {
   };
   const root = normalize(cwd),
     resolved = normalize(path.startsWith("/") ? path : `${root}/${path}`);
-  return resolved.startsWith(root === "/" ? root : `${root}/`) ? resolved : undefined;
+  return resolved.startsWith(root === "/" ? root : `${root}/`)
+    ? resolved
+    : undefined;
 }
 
 export function SourcesSection({
@@ -57,7 +64,11 @@ export function SourcesSection({
     <>
       <ul className="acpmux-session-info-list" data-section="sources">
         {shown.map((source) => (
-          <SourceRow key={`${source.kind}:${source.url ?? source.label}`} source={source} {...navigation} />
+          <SourceRow
+            key={`${source.kind}:${source.url ?? source.label}`}
+            source={source}
+            {...navigation}
+          />
         ))}
       </ul>
       {folds && (
@@ -67,7 +78,9 @@ export function SourcesSection({
           aria-expanded={expanded}
           onClick={() => onExpandedChange(!expanded)}
         >
-          {expanded ? t("summary.showFewer") : t("summary.viewAll", { n: sources.length })}
+          {expanded
+            ? t("summary.showFewer")
+            : t("summary.viewAll", { n: sources.length })}
         </button>
       )}
     </>
@@ -95,7 +108,8 @@ function SourceRow({ source, onOpenBeside, onOpenFile, cwd }: RowProps) {
       <span className="acpmux-session-info-source__label">{source.label}</span>
     </>
   );
-  const path = source.kind === "file" ? scopedPath(source.label, cwd) : undefined;
+  const path =
+    source.kind === "file" ? scopedPath(source.label, cwd) : undefined;
   let target = content;
   if (path && onOpenFile)
     target = (
@@ -106,7 +120,13 @@ function SourceRow({ source, onOpenBeside, onOpenFile, cwd }: RowProps) {
           setFailure(undefined);
           Promise.resolve()
             .then(() => onOpenFile(path))
-            .catch((error: unknown) => setFailure(error instanceof Error ? error.message : t("changes.openFailed")));
+            .catch((error: unknown) =>
+              setFailure(
+                error instanceof Error
+                  ? error.message
+                  : t("changes.openFailed"),
+              ),
+            );
         }}
       >
         {content}
@@ -118,7 +138,8 @@ function SourceRow({ source, onOpenBeside, onOpenFile, cwd }: RowProps) {
         className="acpmux-session-info-source__link"
         href={source.url}
         onClick={(event) => {
-          if (!onOpenBeside || event.metaKey || event.ctrlKey || event.shiftKey) return;
+          if (!onOpenBeside || event.metaKey || event.ctrlKey || event.shiftKey)
+            return;
           event.preventDefault();
           onOpenBeside(source.url!);
         }}
@@ -126,5 +147,9 @@ function SourceRow({ source, onOpenBeside, onOpenFile, cwd }: RowProps) {
         {content}
       </a>
     );
-  return <li className="acpmux-session-info-source">{failure ? <span role="alert">{failure}</span> : target}</li>;
+  return (
+    <li className="acpmux-session-info-source">
+      {failure ? <span role="alert">{failure}</span> : target}
+    </li>
+  );
 }
