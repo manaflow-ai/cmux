@@ -19,23 +19,28 @@ checkout): the scope, the comment and string blanking and the declaration patter
 Scope: every tracked Swift file under the Sources of CmuxNext and its local `.package(path:)` closure at SHA
 (arch_counts.read_paths); a file's module is the directory after `Sources/` (arch_counts.package_of).
 
-Unit: each top-level declaration (class, struct, enum, actor, protocol, extension, and file-scope func, var, let,
-typealias) of the blanked code (comments and strings blanked, so a declaration in a comment or a string is none) and
-its line span: from its first attribute line to the line of its closing brace (a type, a func), or to the end of its
-statement (a file-scope let/var/typealias: past brackets, braces and multi-line strings, to the `;` or the newline that
-no operator carries on). Lines outside every declaration (imports, header comments, `#if` lines, top-level statements
-of a main.swift) never count. A declaration inside `#if` counts like any other.
+Unit: each top-level declaration (class, struct, enum, actor, protocol, extension, also of a shorthand type such as
+`extension [UInt8]`, and file-scope func, var, let, typealias) of the blanked code (comments and strings blanked, so a
+declaration in a comment or a string is none) and its line span: from its first attribute line to the line of its
+closing brace (a type), or to the end of its statement (a func: its signature and body, or only its signature when it
+has none; a file-scope let/var/typealias: past brackets, braces and multi-line strings, to the `;` or the newline that
+no operator carries on). A line counts once: a declaration that starts on a line another one already spans starts on
+the next line (`let a = 1; let b = 2`: a 1 line, b 0). Lines outside every declaration (imports, header comments, `#if`
+lines, top-level statements of a main.swift) never count. A declaration inside `#if` counts like any other. Known
+limit: an `#if` whose branches open and close braces unevenly makes the brace before it run to the end of the file
+(arch_counts.Braces); the lines are put under the wrong declaration, none is hidden.
 
 Table: plans/cmux-next/swift-logic-classes.tsv at SHA, tab-separated, first line exactly
-`module kind name ordinal class logic_share mirror_share path reason` (--table FILE reads another copy). Its key is (module, kind, name, ordinal): the
-ordinal is the 0-based index among the module's top-level declarations with the same kind and name, in (repo-relative
-path, line) order. So a file moved or renamed inside its module keeps its rows, and a declaration moved to another
-Swift module or renamed loses its row and counts as an unlisted one (moving logic to another Swift package never lowers
-a count; only a move into Rust does). An extension's name is as written (`extension Notification.Name`), without
-generic arguments. Class and shares: LOGIC 100/0, MIRROR 0/100, PLATFORM and GENERATED 0/0, MIXED any two integer
-percents whose sum is at most 100 (the reader's fixed split; only a code change moves a count, never an estimate).
-A row with another shape is ignored (its declaration counts as unlisted) and counted in `table_rows_invalid`; for two
-rows with one key, the one with the higher logic + mirror sum counts.
+`module kind name ordinal class logic_share mirror_share path reason` (--table FILE reads another copy). Its key is
+(module, kind, name, ordinal): the ordinal is the 0-based index among the module's top-level declarations with the
+same kind and name, in (repo-relative path, line) order. So a file moved or renamed inside its module keeps its rows,
+and a declaration moved to another Swift module or renamed loses its row and counts as an unlisted one (moving logic
+to another Swift package never lowers a count; only a move into Rust does). An extension's name is as written
+(`extension Notification.Name`, `extension [String:Int]` without spaces), without generic arguments. Class and
+shares: LOGIC 100/0, MIRROR 0/100, PLATFORM and GENERATED 0/0, MIXED any two integer percents whose sum is at most 100
+(the reader's fixed split; only a code change moves a count, never an estimate). A row with another shape is ignored
+(its declaration counts as unlisted) and counted in `table_rows_invalid`; for two rows with one key, the larger
+logic share and the larger mirror share count (a duplicate never lowers a row).
 
 Count of a listed declaration: swift_logic_lines += floor(span * logic_share / 100 + 0.5), mirror_lines +=
 floor(span * mirror_share / 100 + 0.5), its span read now (a declaration that grows counts its new lines).
@@ -45,16 +50,18 @@ NSView, NSViewRepresentable, NSViewControllerRepresentable, NSViewController, NS
 NSResponder, CALayer, ViewModifier, ShapeStyle, Shape, ButtonStyle, LabelStyle, ToggleStyle or PreviewProvider (a
 module prefix such as `SwiftUI.View` is read through), or it is an extension of one of them (`extension View`); then 0.
 Only the header is read: `extension BadgeView` of a view declared elsewhere counts in full unless the table lists it.
-An unlisted declaration of a generated file counts 0 too: a file named `*.generated.swift` or `*+Generated.swift`, or
-one whose leading comment block (the comment lines before its first code line) has a line that opens with `Generated
-by`, `Generated from`, `This file was generated from`, `@generated` or `Code generated`, as the repo's generators write it (codegen output moves when its generator does).
+An unlisted declaration of a reviewed generator's output counts 0 too: its path matches a GENERATORS glob and its
+leading comment block (the comment lines before its first code line) has a line that opens with `Generated by`,
+`Generated from`, `This file was generated from`, `@generated` or `Code generated` and names that generator. A header
+alone or a generated-looking file name hides nothing; a new generator output is a reviewed change of GENERATORS.
 
 JSON (--json): {"method": "swift-logic-lines", "method_version", "sha", "rows": {"swift_logic_lines": n,
 "mirror_lines": n}, "packages": {module: {row: n}} (rows that are not 0), "unlisted": {"lines": the swift_logic_lines
-lines of unlisted declarations, "declarations": unlisted declarations, "view_shaped": unlisted view-shaped ones, "generated": unlisted ones of generated files,
-"in_table_modules" and "other_modules": those lines in the modules the table has rows for (an unclassified declaration
-there) and in the others (closure packages that only the default rule counts yet), "packages": {module: lines}}, "table_rows": valid rows, "table_rows_missing": valid rows that no declaration at SHA
-matches, "table_rows_invalid": n}.
+lines of unlisted declarations, "declarations": unlisted declarations, "view_shaped": unlisted view-shaped ones,
+"generated" and "generated_lines": unlisted ones of generator output and their lines (they count 0),
+"in_table_modules" and "other_modules": the lines in the modules the table has rows for (an unclassified declaration
+there) and in the others (closure packages that only the default rule counts yet), "packages": {module: lines}},
+"table_rows": valid rows, "table_rows_missing": valid rows that no declaration at SHA matches, "table_rows_invalid": n}.
 
 Each file's declarations are kept by (blob id, path) in arch_counts' facts cache under this script's fingerprint, so
 a second count reads only the files that changed. Tests: scripts/cmux-next/tests/test_swift_logic_lines.py (run them
@@ -66,6 +73,7 @@ from __future__ import annotations
 import argparse
 import collections
 import dataclasses
+import fnmatch
 import hashlib
 import importlib.util
 import json
@@ -93,14 +101,50 @@ VIEW_TYPES = frozenset({
 _TYPE_KINDS = frozenset({"class", "struct", "enum", "actor", "protocol", "extension"})
 # A file-scope let/var/typealias statement goes on past a newline when its line ends in an operator, or when the next
 # code line starts with one (`.map {`, `?? x`, the `{` of a computed body).
-_CONTINUES_AFTER = re.compile(r"(?:[=,(\[+\-*/%&|.:]|->|\?\?)[ \t]*$")
-_CONTINUES_BEFORE = re.compile(r"[ \t]*(?:\.(?!\.)|&&|\|\||\?\?|\?|:|[+*/%&|{=]|->|where\b)")
-# Codegen output: a file named so, or whose leading comment block (before its first code line) says so, as the repo's
-# generators write it (`// GENERATED by scripts/cmux-next/gen-settings-sources.py from ...`).
-GENERATED_NAME = re.compile(r"(?i)[.+]generated\.swift$")
-# The claim opens the comment line: prose that mentions generated values (`// The defaults are generated from ...`) is none.
-GENERATED_HEADER = re.compile(r"(?i)^[ \t]*//[ \t]*(?:@generated\b|(?:this file (?:was|is) )?(?:auto-?)?generated (?:by|from)\b|"
-                              r"code generated\b)")
+_CONTINUES_AFTER = re.compile(r"(?:[=,(\[+\-*/%&|.:<]|->|\?\?)[ \t]*$")
+_CONTINUES_BEFORE = re.compile(r"[ \t]*(?:\.(?!\.)|&&|\|\||\?\?|\?|:|[+*/%&|{=]|-(?!>)|->|where\b)")
+# Codegen output that counts 0 when the table does not list it: a file whose path matches a glob here AND whose leading
+# comment block names that generator on a line that opens with GENERATED_HEADER. A header alone, or a generated-looking
+# name, hides nothing: a new generator (or a new output path) is a reviewed change of this list.
+GENERATORS = (
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+*.generated.swift",
+     "scripts/cmux-next/gen-settings-sources.py"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ProtectedFolderEntry.generated.swift",
+     "scripts/cmux-next/gen-protected-folders.py"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Tree/ProtectedFolderEntry.generated.swift",
+     "scripts/cmux-next/gen-protected-folders.py"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/System/ProtectedFolderEntry.generated.swift",
+     "scripts/cmux-next/gen-protected-folders.py"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextPalette/FolderPicker/ProtectedFolderEntry.generated.swift",
+     "scripts/cmux-next/gen-protected-folders.py"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/ChromeStyleActionCatalog.swift",
+     "scripts/cmux-next/gen-chrome-styles.py"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/ChromeStyle.swift",
+     "scripts/cmux-next/gen-chrome-styles.py"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ChromeStyleSetting+Choices.swift",
+     "scripts/cmux-next/gen-chrome-styles.py"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift",
+     "scripts/cmux-next/art/generate_backdrop_art.py"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift",
+     "scripts/cmux-next/art/generate_backdrop_art.py"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StaticStatusGlyph.generated.swift",
+     "scripts/cmux-next/gen-status-glyphs.py"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TypeScale.generated.swift", "scripts/cmux-next/gen-type-scale.py"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionScale.generated.swift",
+     "scripts/cmux-next/gen-motion-scale.py"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconName+Catalog.swift", "scripts/icons/build_pack.py"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconName+Members.swift", "scripts/icons/build_pack.py"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy+Fields.generated.swift",
+     "scripts/cmux-next/gen-phone-lane-fields.py"),
+    ("Packages/Shared/CmuxAgentBrands/Sources/CmuxAgentBrands/AgentBrandCatalog+Generated.swift",
+     "scripts/agent-icons/generate.py"),
+    ("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/CtlWireModels.swift", "quicktype"),
+    ("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/V2WireModels.swift", "quicktype"),
+)
+# The claim opens the comment line: prose that mentions generated values (`// The defaults are generated from`) is
+# none.
+GENERATED_HEADER = re.compile(r"(?i)^[ \t]*//[ \t]*(?:@generated\b|(?:this file (?:was|is) )?(?:auto-?)?generated "
+                              r"(?:by|from)\b|code generated\b)")
 FINGERPRINT = hashlib.sha1(Path(__file__).read_bytes()).hexdigest()[:16]
 
 
@@ -117,6 +161,9 @@ def load_counts():
 
 
 AC = load_counts()
+# An extension of a shorthand type (`extension [UInt8] {`, `extension [String: Int] {`): TYPE_DECL needs a name.
+_SHORTHAND_EXTENSION = re.compile(
+    rf"^[ \t]*(?:{AC.ATTR}\s+)*(?:{AC.MODS}\s+)*extension[ \t]+(\[[^\]\n{{]*\]|\([^)\n{{]*\))", re.M)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -212,19 +259,19 @@ def _statement_end(code: str, pos: int, braces) -> int:
 
 
 def generated(path: str, raw: str) -> bool:
-    """Whether the Swift file PATH with text RAW is codegen output: its name ends `.generated.swift` or
-    `+Generated.swift`, or a line of its leading comment block (the comment and blank lines before its first code
-    line) opens a line with `Generated by`, `Generated from`, `This file was generated from`, `@generated` or `Code
-    generated` (GENERATED_HEADER; a mention later in a line is none)."""
-    if GENERATED_NAME.search(path):
-        return True
+    """Whether the Swift file PATH with text RAW is a reviewed generator's output: PATH matches a GENERATORS glob and a
+    line of its leading comment block (the comment and blank lines before its first code line) opens with
+    GENERATED_HEADER and names that generator."""
+    marks = [mark for glob, mark in GENERATORS if fnmatch.fnmatchcase(path, glob)]
+    if not marks:
+        return False
     for line in raw.split("\n"):
         text = line.strip()
         if not text:
             continue
         if not text.startswith(("//", "/*", "*")):
             return False
-        if GENERATED_HEADER.match(line if text.startswith("//") else "// " + text):
+        if GENERATED_HEADER.match(line if text.startswith("//") else "// " + text) and any(m in text for m in marks):
             return True
     return False
 
@@ -247,13 +294,21 @@ def units(raw: str, path: str = "") -> list[Unit]:
         kind, name = m.group(1), m.group(2)
         found.append((m.start(), braces.close.get(brace, n - 1) + 1, kind, name,
                       view_shaped(kind, name, code[m.end():brace])))
+    for m in _SHORTHAND_EXTENSION.finditer(code):
+        if braces.enclosing(m.start()):
+            continue
+        brace = code.find("{", m.end())
+        if brace < 0 or ";" in code[m.end():brace]:
+            continue
+        name = re.sub(r"\s+", "", m.group(1))
+        found.append((m.start(), braces.close.get(brace, n - 1) + 1, "extension", name, False))
     for m in AC.FUNC_DECL.finditer(code):
         if braces.enclosing(m.start()):
             continue
-        paren = AC._closing(code, m.end() - 1)
-        brace = code.find("{", paren)
-        end = braces.close.get(brace, n - 1) + 1 if brace >= 0 else min(n, paren + 1)
-        found.append((m.start(), end, "func", m.group(2), False))
+        # Its signature statement: the body brace, on the line or the next, is part of it; a func with no body
+        # (`@_silgen_name`) ends at its signature.
+        found.append((m.start(), _statement_end(code, AC._closing(code, m.end() - 1) + 1, braces), "func", m.group(2),
+                      False))
     for m in AC.STATIC.finditer(code):
         if braces.enclosing(m.start()) or re.search(r"\bstatic\b", m.group(1) or ""):
             continue
@@ -265,12 +320,15 @@ def units(raw: str, path: str = "") -> list[Unit]:
             continue
         found.append((m.start(), _statement_end(code, m.end(1), braces), "typealias", m.group(1), False))
     out = []
+    counted = 0  # the last line a unit already spans: a line counts once (`let a = 1; let b = 2`: a 1, b 0)
     for start, end, kind, name, view in sorted(found):
         # The patterns start at the line start of the first attribute line (`^[ \t]*`); a match after a `;` or a
         # `{` starts on its own line.
         first = AC._line_of(code, start + (1 if code.startswith("\n", start) else 0), starts)
         last = AC._line_of(code, max(start, end - 1), starts)
-        out.append(Unit(kind, name, first, last - first + 1, view, made))
+        first = max(first, counted + 1)
+        out.append(Unit(kind, name, first, max(0, last - first + 1), view, made))
+        counted = max(counted, last)
     return out
 
 
@@ -300,10 +358,10 @@ def parse_table(text: str | None) -> tuple[dict[tuple[str, str, str, int], Entry
         key = (module, kind, name, int(ordinal))
         entry = Entry(cls, shares[0], shares[1], fields[7] if len(fields) > 7 else "",
                       fields[8] if len(fields) > 8 else "")
-        if key in table:
-            invalid += 1  # the duplicate row: the one with the higher sum counts
-            if sum(shares) <= table[key].logic + table[key].mirror:
-                continue
+        if key in table:  # a duplicate row: the larger of each share counts, so a duplicate never lowers a row
+            invalid += 1
+            was = table[key]
+            entry = dataclasses.replace(was, logic=max(was.logic, entry.logic), mirror=max(was.mirror, entry.mirror))
         table[key] = entry
     return table, invalid
 
@@ -322,6 +380,7 @@ class Count:
     unlisted_declarations: int
     view_shaped: int
     generated: int  # unlisted declarations of generated files (they count 0)
+    generated_lines: int
     sites: dict[str, list[tuple[str, int, str]]]  # row or "unlisted" -> [(path, line, text)]
     table_rows: int
     missing: list[tuple[tuple[str, str, str, int], Entry]]
@@ -342,6 +401,7 @@ class Count:
             "packages": dict(sorted(packages.items())),
             "unlisted": {"lines": sum(self.unlisted.values()), "declarations": self.unlisted_declarations,
                          "view_shaped": self.view_shaped, "generated": self.generated,
+                         "generated_lines": self.generated_lines,
                          "in_table_modules": sum(n for m, n in self.unlisted.items() if m in self.table_modules),
                          "other_modules": sum(n for m, n in self.unlisted.items() if m not in self.table_modules),
                          "packages": {m: n for m, n in sorted(self.unlisted.items()) if n}},
@@ -359,7 +419,7 @@ def count_units(files: dict[str, list[Unit]], table_text: str | None, sha: str =
     sites: dict[str, list[tuple[str, int, str]]] = {row: [] for row in ROWS + ("unlisted",)}
     seen: collections.Counter = collections.Counter()
     used: set = set()
-    declarations = views = made = 0
+    declarations = views = made = made_lines = 0
     for path in sorted(files):
         module = AC.package_of(path)
         for u in files[path]:
@@ -379,6 +439,7 @@ def count_units(files: dict[str, list[Unit]], table_text: str | None, sha: str =
             declarations += 1
             if u.generated:
                 made += 1
+                made_lines += u.span
                 sites["unlisted"].append((path, u.line, f"{label}: 0 of {u.span} lines (unlisted, generated file)"))
                 continue
             if u.view:
@@ -390,7 +451,7 @@ def count_units(files: dict[str, list[Unit]], table_text: str | None, sha: str =
             sites[LOGIC].append((path, u.line, f"{label}: {u.span} of {u.span} lines (unlisted)"))
             sites["unlisted"].append((path, u.line, f"{label}: {u.span} of {u.span} lines (unlisted)"))
     missing = [(key, entry) for key, entry in sorted(table.items()) if key not in used]
-    return Count(sha, rows, unlisted, declarations, views, made, sites, len(table), missing, invalid,
+    return Count(sha, rows, unlisted, declarations, views, made, made_lines, sites, len(table), missing, invalid,
                  frozenset(key[0] for key in table))
 
 
@@ -438,8 +499,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="read the table from FILE instead of the revision's (a baseline before the table landed)")
     parser.add_argument("--no-cache", action="store_true")
     args = parser.parse_args(argv)
+    top = ["git", "rev-parse", "--show-toplevel"]
     repo = Path(args.repo).resolve() if args.repo else Path(
-        subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip())
+        subprocess.run(top, capture_output=True, text=True, check=True).stdout.strip())
     table_text = Path(args.table).read_text() if args.table else None
     found = count(repo, args.rev, cache=not args.no_cache, table_text=table_text)
     if args.sites:
@@ -458,7 +520,9 @@ def main(argv: list[str] | None = None) -> int:
     for row in ROWS:
         print(f"  {row:18} {data['rows'][row]}")
     u = data["unlisted"]
-    print(f"  unlisted           {u['lines']} lines in {u['declarations']} declarations ({u['view_shaped']} view-shaped)")
+    print(f"  unlisted           {u['lines']} lines in {u['declarations']} declarations "
+          f"({u['view_shaped']} view-shaped, "
+          f"{u['generated']} in generated files ({u['generated_lines']} lines))")
     print(f"  table              {data['table_rows']} rows, {data['table_rows_missing']} missing, "
           f"{data['table_rows_invalid']} invalid")
     return 0

@@ -6,7 +6,8 @@ its logic and mirror shares of its current span (rounded half up); lines outside
 moved to another Swift module or renamed counts again, a file moved inside its module does not; the ordinal tells two
 `extension Foo` of one module apart and shifts with a new one; the count reads git objects at the revision, not the
 working tree; an unlisted declaration of a reviewed generator's output (GENERATORS: its path and its header) counts 0,
-a spoofed header or a generated-looking name does not; an extension of `[T]` is a declaration; a line never counts twice;
+a spoofed header or a generated-looking name does not; an extension of `[T]` is a declaration; a line never counts
+twice;
 the table's invalid and missing rows are reported.
 
 Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the script:
@@ -153,7 +154,7 @@ class LogicLinesTests(Repo):
         schema = f"{SRC}/CmuxNextSettings/Schema"
         # Listed in GENERATORS (path and generator) with its generator's header: 0.
         self.write(f"{schema}/SettingsSchema+Retry.generated.swift", header + rules)
-        # A reviewed path without its generator's header, a header elsewhere, a spoofed header, a generated name: all count.
+        # A reviewed path without its header, a header elsewhere, a spoofed header, a generated name: all count.
         self.write(f"{schema}/SettingsSchema+Hand.generated.swift", rules.replace("Rules", "Hand"))  # 3
         self.write(f"{SRC}/CmuxNextSettings/Catalog.swift", header + rules.replace("Rules", "Catalog"))  # 3
         self.write(f"{SRC}/CmuxNextDomain/Rules.swift",
@@ -266,7 +267,8 @@ class LogicLinesTests(Repo):
         self.write(f"{SRC}/CmuxNextCore/Core.swift", "struct Core {\n}\nstruct Unclassified {\n    let n = 1\n}\n")
         self.commit()
         data = self.count()
-        self.assertEqual(data["packages"], {"Kit": {"swift_logic_lines": 2}, "CmuxNextCore": {"swift_logic_lines": 2 + 3}})
+        self.assertEqual(data["packages"],
+                         {"Kit": {"swift_logic_lines": 2}, "CmuxNextCore": {"swift_logic_lines": 2 + 3}})
         self.assertEqual((data["unlisted"]["in_table_modules"], data["unlisted"]["other_modules"]), (3, 2))
 
     def test_invalid_and_duplicate_table_rows_never_lower_the_count(self):
