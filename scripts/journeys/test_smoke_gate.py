@@ -124,6 +124,16 @@ open(os.path.join(out, "env.json"), "w").write(json.dumps({k: os.environ.get(k) 
 '''
 
 
+def write_spec(tmp, rounds, taken=0, name=None):
+    """A scheduler spec (tmp/specs/<name>.json) that offers ROUNDS GOs, TAKEN of them already counted."""
+    os.makedirs(os.path.join(tmp, "specs"), exist_ok=True)
+    for spec in ([name] if name else ["spec-x", "g", "s"]):
+        json.dump({"kind": "lease-round", "rounds": rounds}, open(os.path.join(tmp, "specs", f"{spec}.json"), "w"))
+    if taken:
+        json.dump({"specs": {spec: {"rounds_taken": taken} for spec in ([name] if name else ["spec-x", "g", "s"])}},
+                  open(os.path.join(tmp, "state.json"), "w"))
+
+
 def gate(plan, tmp, extra=(), env_extra=None, rounds=None):
     runner = os.path.join(tmp, "fake_run.py")
     with open(runner, "w") as f:
@@ -834,6 +844,7 @@ class GoldenRun(unittest.TestCase):
             open(os.path.join(tmp, "video-goldens.txt"), "w").write("update-restart-nf\n")
             rounds_dir = os.path.join(tmp, "rounds")
             os.makedirs(rounds_dir)
+            write_spec(tmp, 1)  # the GOs this run needs (one per round and per golden case)
             now = time.time()
             stamp = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))  # noqa: E731
             json.dump({"host": "cmux98", "go": stamp(now - 5), "until": stamp(now + 300)},
@@ -854,6 +865,7 @@ class GoldenRun(unittest.TestCase):
             open(os.path.join(tmp, "video-goldens.txt"), "w").write("update-restart-nf\nupdate-restart-nf\nmwv-x-nf\n")
             rounds_dir = os.path.join(tmp, "rounds")
             os.makedirs(rounds_dir)
+            write_spec(tmp, 2)  # the GOs this run needs (one per round and per golden case)
             stamp = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))  # noqa: E731
             json.dump({"host": "cmux98", "go": stamp(time.time() - 5), "until": stamp(time.time() + 300)},
                       open(os.path.join(rounds_dir, "g.go"), "w"))
@@ -889,6 +901,77 @@ class GoldenRun(unittest.TestCase):
             self.assertEqual(code, 75)
             self.assertIn("no whole host", summary["video_goldens"]["run"][0]["reason"])
             self.assertFalse(os.path.exists(os.path.join(tmp, "out", "golden-calls.txt")))
+
+
+class GoBudget(unittest.TestCase):
+    """--go-spec: the run never waits hours for GOs the spec will not give (lead 15:2xZ)."""
+
+    def run_gate(self, tmp, rounds, extra, taken=0):
+        rounds_dir = os.path.join(tmp, "rounds")
+        os.makedirs(rounds_dir, exist_ok=True)
+        if rounds is not None:
+            write_spec(tmp, rounds, taken=taken, name="g")
+        ci = os.path.join(tmp, "fake-ci")
+        open(ci, "w").write("#!/bin/sh\necho '{\"state\": \"done\"}'\n")
+        os.chmod(ci, 0o755)
+        runner = os.path.join(tmp, "fake_run.py")
+        open(runner, "w").write(FAKE)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("CAPTURE_HOST_")}
+        env.update({"SMOKE_GATE_SCHED_ROUNDS": rounds_dir, "SMOKE_GATE_CMUX_CI": ci,
+                    "SMOKE_GATE_VIDEO_GOLDENS": os.path.join(tmp, "video-goldens.txt"),
+                    "SMOKE_GATE_GOLDEN_LEDGER": os.path.join(tmp, "golden-ledger"),
+                    "SMOKE_GATE_OPEN_P0": os.path.join(tmp, "open-p0.txt"), "JOURNEYS_P0_LEDGER": os.path.join(tmp, "l"),
+                    "SMOKE_PLAN": json.dumps(["pass"]),
+                    "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json")})
+        return subprocess.run([sys.executable, str(GATE), "--build", "job123", "--runner", runner, "--go-spec", "g",
+                               "--hosts", "cmux99", "--out", os.path.join(tmp, "out"),
+                               "--handoff", os.path.join(tmp, "handoff"), *extra],
+                              capture_output=True, text=True, env=env, timeout=60)
+
+    def test_a_spec_with_fewer_gos_than_rounds_plus_cases_is_refused_at_once_naming_the_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write("a-nf\nb-nf\nb-nf\n")
+            t = time.time()
+            done = self.run_gate(tmp, 10, ("--rounds", "10"), taken=1)  # 9 left; 10 rounds + 2 cases needed
+            self.assertEqual(done.returncode, 2)
+            self.assertLess(time.time() - t, 30)
+            self.assertIn("gives 9 more GO(s)", done.stderr)
+            self.assertIn("needs 12 (10 round(s) + 2 golden case(s))", done.stderr)
+            self.assertIn('"rounds" to at least 13', done.stderr)
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write("a-nf\nb-nf\n")
+            done = self.run_gate(tmp, 1, ("--goldens", "only"))
+            self.assertEqual(done.returncode, 2)
+            self.assertIn("needs 2 (0 round(s) + 2 golden case(s))", done.stderr)
+        with tempfile.TemporaryDirectory() as tmp:  # no spec file: no GO will come
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write("a-nf\n")
+            done = self.run_gate(tmp, None, ("--goldens", "only"))
+            self.assertEqual(done.returncode, 2)
+            self.assertIn("cannot be read", done.stderr)
+        with tempfile.TemporaryDirectory() as tmp:  # --goldens skip needs only the rounds' GOs
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write("a-nf\nb-nf\n")
+            done = self.run_gate(tmp, 1, ("--rounds", "3", "--goldens", "skip", "--go-wait-hours", "0.0003"))
+            self.assertIn("gives 1 more GO(s)", done.stderr)
+            done = self.run_gate(tmp, 3, ("--rounds", "3", "--goldens", "skip", "--go-wait-hours", "0.0003"))
+            self.assertNotIn("more GO(s)", done.stderr)
+
+    def test_a_wait_stops_at_once_when_the_spec_has_no_go_left(self):
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "rounds"))
+            mod.SCHED_ROUNDS = Path(tmp) / "rounds"
+            mod.GO_NONE_LEFT_GRACE = 0.3
+            write_spec(tmp, 2, taken=2, name="g")
+            t = time.time()
+            go, why = mod.await_go("g", ["cmux99"], set(), time.time() + 3600, poll=0.1)
+            self.assertIsNone(go)
+            self.assertLess(time.time() - t, 10)
+            self.assertIn("no GO of g left", why)
+            write_spec(tmp, 3, taken=2, name="g")  # one GO left: the wait goes on until its deadline
+            go, why = mod.await_go("g", ["cmux99"], set(), time.time() + 1.0, poll=0.1)
+            self.assertIn("within the wait", why)
+            write_spec(tmp, 0, name="g")  # no round limit
+            self.assertEqual(mod.go_budget("g")[0], None)
 
 
 class OpenP0(unittest.TestCase):
@@ -972,6 +1055,7 @@ class GoSpec(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             rounds_dir = os.path.join(tmp, "rounds")
             os.makedirs(rounds_dir)
+            write_spec(tmp, 1)  # the GOs this run needs (one per round and per golden case)
             now = time.time()
             with open(os.path.join(rounds_dir, "spec-x.go"), "w") as f:
                 json.dump({"spec": "spec-x", "host": "cmux99", "go": self.stamp(now - 5), "until": self.stamp(now + 300)}, f)

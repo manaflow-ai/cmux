@@ -361,9 +361,37 @@ def go_done(spec, go, cell, status=None):
     return True
 
 
+def go_budget(spec):
+    """(left, taken, why): how many more GOs the scheduler will give SPEC (its "rounds" minus the rounds it counted taken;
+    an open GO is not counted until its hold ends, so it is part of LEFT), None for a spec with no round limit, or
+    (0, 0, why) when the spec cannot be read (no GO will come). TAKEN: the rounds the scheduler counted."""
+    queue = SCHED_ROUNDS.parent
+    try:
+        sp = json.loads((queue / "specs" / f"{spec}.json").read_text())
+    except (OSError, ValueError) as error:
+        return 0, 0, f"the scheduler spec {queue / 'specs' / (spec + '.json')} cannot be read ({error.__class__.__name__})"
+    if not isinstance(sp, dict):
+        return 0, 0, f"the scheduler spec {spec} is not an object"
+    limit = int(sp.get("rounds") or (1 if sp.get("recur") == "once" else 0)) or None
+    if limit is None:
+        return None, 0, "no round limit"
+    try:
+        taken = int((json.loads((queue / "state.json").read_text()).get("specs") or {}).get(spec, {}).get("rounds_taken") or 0)
+    except (OSError, ValueError, AttributeError, TypeError):
+        taken = 0  # no scheduler state yet: nothing taken
+    return max(0, limit - taken), taken, f"spec {spec} has \"rounds\": {limit}, {taken} already counted taken"
+
+
+# A spec with no GO left must look so for this long before a wait gives up: the scheduler gives a round back (a
+# "not run" .done) a moment after the .done is written.
+GO_NONE_LEFT_GRACE = float(os.environ.get("SMOKE_GATE_GO_NONE_LEFT_GRACE", "120"))
+
+
 def await_go(spec, hosts, used, deadline, poll=5.0):
     """(GO, "") of the next usable GO of SPEC on one of HOSTS that this run has not used yet (USED: their "go" times),
-    or (None, why) after DEADLINE. A GO outside HOSTS or with too little window left is given back unused."""
+    or (None, why) after DEADLINE, or at once (after GO_NONE_LEFT_GRACE) when the spec has no GO left to give: a run
+    never waits hours for GOs that will not come. A GO outside HOSTS or with too little window left is given back."""
+    none_left_since = None
     while True:
         go = read_go(spec)
         if go and go["go"] not in used:
@@ -377,6 +405,13 @@ def await_go(spec, hosts, used, deadline, poll=5.0):
             used.add(go["go"])
         if time.time() > deadline:
             return None, f"the scheduler gave no GO of {spec} within the wait"
+        left, _, why = go_budget(spec)
+        if left == 0 and not (go and go["go"] not in used):
+            none_left_since = none_left_since or time.time()
+            if time.time() - none_left_since >= GO_NONE_LEFT_GRACE:
+                return None, f"the scheduler has no GO of {spec} left ({why}): raise its \"rounds\" to give this run more"
+        else:
+            none_left_since = None
         time.sleep(poll)
 
 
@@ -646,8 +681,10 @@ def main(argv=None):
     ap.add_argument("--goldens", choices=("after", "only", "skip"), default="after",
                     help="after (default): after the rounds, run each case of the golden list (video-goldens.txt) once "
                          "on --build on a whole-host lease and write its row to the golden ledger; only: run just "
-                         "those cases (no smoke rounds, never a .pass; exit 0 when no golden case blocks the build, 1 "
-                         "when one FAILED, else 75); skip: none (the ledger's rows of earlier runs still decide)")
+                         "those cases (no smoke rounds, never a .pass; exit 0 when the list was read and no golden case "
+                         "blocks the build, 1 when one FAILED, else 75); skip: none (the ledger's rows of earlier runs "
+                         "still decide). With --go-spec the spec must offer one GO per round plus one per case: the "
+                         "gate refuses to start otherwise")
     ap.add_argument("--handoff", default=str(HANDOFF))
     ap.add_argument("--golden-judge", default=str(GOLDEN_JUDGE), help=argparse.SUPPRESS)  # tests: video_golden.py
     ap.add_argument("--runner", default=str(HERE / "run.py"), help=argparse.SUPPRESS)  # tests: a stand-in for run.py
@@ -677,6 +714,19 @@ def main(argv=None):
         if state != "done":
             ap.error(f"--go-spec needs a finished build: job {opts.build} is {state} (run.py would wait for it inside "
                      "the GO's window and take its lease after the GO ends)")
+        # Every GO the run needs must be on offer before it starts (lead 15:2xZ: never wait hours for GOs that will
+        # not come): one per smoke round and one per listed golden case. Replacement rounds (no pressure) take more;
+        # when none is left, await_go stops them at once.
+        listed = golden_list()
+        cases = (len({f[0] for f in listed[1]}) if listed[0] == "listed" and opts.goldens != "skip"
+                 and not (opts.diagnostic and opts.goldens == "after") else 0)
+        needed = (0 if opts.goldens == "only" else opts.rounds) + cases
+        left, taken, why = go_budget(opts.go_spec)
+        if left is not None and left < needed:
+            ap.error(f"--go-spec {opts.go_spec} gives {left} more GO(s) ({why}), but this run needs {needed} "
+                     f"({0 if opts.goldens == 'only' else opts.rounds} round(s) + {cases} golden case(s)): set the "
+                     f"spec's \"rounds\" to at least {taken + needed}, "
+                     "or give --goldens skip / fewer --rounds")
     # The lease settings of every run.py this gate starts (smoke rounds and golden cases); see the round loop.
     env_base = {**os.environ,
                 "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS": os.environ.get("CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", "600"),
