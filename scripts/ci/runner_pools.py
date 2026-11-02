@@ -115,6 +115,12 @@ SPILL_RETURN_QUEUED = 5
 SPILL_RETURN_SHARE = 0.7
 # The janitor sweeps every 10 minutes; a load older than this decides no spill either way.
 LOAD_MAX_AGE = dt.timedelta(minutes=20)
+# A sweep whose job listing failed for some runs (`unread_runs`, nearly every sweep) still shows a backlog (its
+# counts are a lower bound), but proves a drain only while those runs are at most this many, or this share of
+# the runs listed: a missing run's jobs read as nothing queued and nothing running.
+DRAIN_UNREAD_RUNS = 5
+DRAIN_UNREAD_SHARE = 0.02
+DRAIN_PROOF_KEY = "_drain_proof"
 # A dead mark lasts this long unless seen again. The probe runs every 10 minutes and the janitor
 # sweeps about as often, so a label that is still dead is marked again before its mark expires,
 # and one that recovered is used again within half an hour (or at once when it starts a job).
@@ -245,7 +251,8 @@ def queue_load(snapshot: Mapping[str, Any] | None, *, now: dt.datetime) -> dict[
     """Blacksmith Linux label -> {queued, running, waited} from the janitor snapshot, or None when unknown.
 
     Unknown: no snapshot, one older than LOAD_MAX_AGE (or undated, or from the future), a truncated one, or one
-    written before the janitor counted Linux jobs. A label it does not list had nothing seen on it."""
+    written before the janitor counted Linux jobs. A label it does not list had nothing seen on it.
+    DRAIN_PROOF_KEY says whether the listing is complete enough to prove a member drained (DRAIN_UNREAD_RUNS)."""
     if not isinstance(snapshot, Mapping):
         return None
     generated = parse_time(snapshot.get("generated_at"))
@@ -256,7 +263,15 @@ def queue_load(snapshot: Mapping[str, Any] | None, *, now: dt.datetime) -> dict[
     raw = snapshot.get(LOAD_KEY)
     if not isinstance(raw, Mapping):
         return None
-    load: dict[str, dict[str, int]] = {}
+    load: dict[str, Any] = {}
+    unread = snapshot.get("unread_runs")
+    unread_count = len(unread) if isinstance(unread, list) else (0 if unread is None else None)
+    try:
+        listed = max(0, int(snapshot.get("listed") or 0))
+    except (TypeError, ValueError):
+        listed = 0
+    load[DRAIN_PROOF_KEY] = unread_count is not None and unread_count <= max(DRAIN_UNREAD_RUNS,
+                                                                             DRAIN_UNREAD_SHARE * listed)
     for label, entry in raw.items():
         if not (isinstance(label, str) and isinstance(entry, Mapping)):
             continue
@@ -292,7 +307,7 @@ def spill_choice(name: str, candidates: Sequence[str], marks: Mapping[str, str],
                                 f"and {base} is not; back to {base}"]
         since = parse_time(spill.get("since"))
         held = since is not None and now - since >= SPILL_MIN_HOLD
-        if held and left["waited"] == 0 and left["queued"] <= SPILL_RETURN_QUEUED \
+        if held and load.get(DRAIN_PROOF_KEY, True) is True and left["waited"] == 0 and left["queued"] <= SPILL_RETURN_QUEUED \
                 and left["running"] <= SPILL_RETURN_SHARE * int(spill.get("running") or 0):
             return base, None, [f"pools.{name}: {base} drained ({left['queued']} queued, {left['running']} running, "
                                 f"{spill.get('running')} when the pool left); back to {base}"]

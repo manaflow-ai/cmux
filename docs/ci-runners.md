@@ -1033,7 +1033,9 @@ it left has nothing waiting, at most 5 queued, and runs at most 70% of what it
 ran when the pool left, or sooner if the spill target backs up while the member
 it left does not. The load is the janitor snapshot's `linux_load`
 (`queue_janitor.linux_load()`, a lower bound: Linux-only workflows' runs are not
-listed); a snapshot older than 20 minutes, or truncated, changes no spill. On
+listed); a snapshot older than 20 minutes, or truncated, changes no spill, and
+one whose job listing failed for more than 5 runs (or 2% of those listed)
+never proves a drain. On
 2026-11-02 at about 04:40Z 4 vCPU had 428 jobs queued beside 535 running, the
 oldest about 45 minutes, while 16 vCPU had about 11 queued, and nothing moved.
 `LINUX_RUNNER` predates the pools and most Linux `runs-on` still read it

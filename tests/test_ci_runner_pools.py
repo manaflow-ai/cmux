@@ -537,6 +537,22 @@ class QueueAwareSpill(unittest.TestCase):
         self.assertNotIn("_spill", back)
         self.assertTrue(any("drained" in line for line in lines))
 
+    def test_many_unread_runs_never_prove_a_drain(self) -> None:
+        # Review of #31861: a failed job listing sets unread_runs without truncated; the missing runs' jobs read as
+        # nothing queued and nothing running, which looked like a drain.
+        spilled, _ = self.step({"linux": FOUR}, self.BACKED_UP, NOW)
+        drained = {FOUR: {"queued": 0, "running": 100, "waited": 0}}
+        later = NOW + runner_pools.SPILL_MIN_HOLD
+        many = linux_snapshot(drained, at=later, unread_runs=list(range(40)), listed=500)
+        load = runner_pools.queue_load(many, now=later)
+        self.assertFalse(load[runner_pools.DRAIN_PROOF_KEY])
+        self.assertEqual(self.step(spilled, load, later)[0]["linux"], SIXTEEN)
+        few = runner_pools.queue_load(linux_snapshot(drained, at=later, unread_runs=[1, 2], listed=500), now=later)
+        self.assertEqual(self.step(spilled, few, later)[0]["linux"], FOUR)
+        # A backlog still spills on an incomplete listing: its counts are a lower bound.
+        backed = runner_pools.queue_load(linux_snapshot(self.BACKED_UP, unread_runs=list(range(40)), listed=500), now=NOW)
+        self.assertEqual(self.step({"linux": FOUR}, backed, NOW)[0]["linux"], SIXTEEN)
+
     def test_a_steady_spill_writes_nothing(self) -> None:
         spilled, _ = self.step({"linux": FOUR}, self.BACKED_UP, NOW)
         again, lines = self.step(spilled, self.BACKED_UP, NOW + dt.timedelta(minutes=10))
@@ -582,7 +598,8 @@ class QueueAwareSpill(unittest.TestCase):
                 self.assertTrue(dropped)
 
     def test_queue_load_reads_only_a_fresh_complete_snapshot(self) -> None:
-        self.assertEqual(runner_pools.queue_load(linux_snapshot(self.BACKED_UP), now=NOW), self.BACKED_UP)
+        self.assertEqual(runner_pools.queue_load(linux_snapshot(self.BACKED_UP), now=NOW),
+                         self.BACKED_UP | {runner_pools.DRAIN_PROOF_KEY: True})
         self.assertIsNone(runner_pools.queue_load(None, now=NOW))
         self.assertIsNone(runner_pools.queue_load(copy.deepcopy(RECORDED) | {"generated_at": runner_pools.iso(NOW)}, now=NOW))
         stale = linux_snapshot(self.BACKED_UP, at=NOW - runner_pools.LOAD_MAX_AGE - dt.timedelta(minutes=1))
