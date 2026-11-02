@@ -7,6 +7,7 @@ import CmuxNextBrowserTabs
 import CmuxNextDaemon
 import CmuxNextMacScreen
 import CmuxNextNowPlaying
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextRemoteLocalhostService
