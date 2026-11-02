@@ -113,6 +113,20 @@ def main():
         start_clock = "t_post"  # the probe missed keys: do not mix clocks
         for e in events:
             e.pop("t_start", None)
+    # Achieved typing rate next to its target (cmux-ad 03:40Z rule 4), from the keys' own NSEvent times when the probe
+    # has them (else from the Python post times: provisional). Below 95% of the plan's rate: NOT RUN.
+    times = sorted(e["t_start"] for e in events if "t_start" in e) if start_clock == "nsevent" else sorted(e["t_post"] for e in events)
+    plan_span = sum((p["result"]["events"][-1]["t"] - p["result"]["events"][0]["t"]) for p in plays if p["result"]["events"])
+    target_kps = round(len(events) / plan_span, 3) if plan_span else None
+    spans, k0 = 0.0, 0
+    for p in plays:
+        n = len(p["result"]["events"])
+        part = times[k0:k0 + n]
+        k0 += n
+        if len(part) > 1:
+            spans += part[-1] - part[0]
+    achieved_kps = round(len(events) / spans, 3) if spans else None
+    rate_ok = bool(target_kps and achieved_kps and achieved_kps >= 0.95 * target_kps)
     keys = {}
     if (jdir / "echo.jsonl").is_file():
         import keys_check
@@ -160,6 +174,8 @@ def main():
            "p50_refreshes": pct(refreshes, 50), "p95_refreshes": pct(refreshes, 95), "p99_refreshes": pct(refreshes, 99),
            "max_refreshes": max(refreshes) if refreshes else None, "missing_frames": missing,
            "start_clock": start_clock, "parts": len(plays), "planned_keys": planned,
+           "target_keys_per_s": target_kps, "achieved_keys_per_s": achieved_kps, "rate_ok": rate_ok,
+           "provisional": start_clock != "nsevent",
            "load_ok": load_ok if profile != "L0" else True, "loads": loads, "hog_held_gb": hog, "typist_late_ms_max": lag,
            "lost": keys.get("lost"), "merged": keys.get("merged"), "order_ok": keys.get("order_ok"),
            "pty_ms": keys.get("pty_ms"), "probe_contents_ms": probe_contents(jdir / "probe.csv"),

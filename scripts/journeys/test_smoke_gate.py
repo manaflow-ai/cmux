@@ -632,7 +632,7 @@ class TypingRule(unittest.TestCase):
     GOOD = {"profile": "L6", "build_job": "J", "kit_dirty": False, "smoke_env": False, "source": "video",
             "refresh_ms": 8.333, "p95_refreshes": 1, "max_refreshes": 2, "lost": [], "merged": [], "order_ok": True,
             "status": "pass", "parts": 2, "keys": 973, "planned_keys": 973, "load_ok": True, "hog_held_gb": 14.2,
-            "missing_frames": 0, "start_clock": "nsevent"}
+            "missing_frames": 0, "start_clock": "nsevent", "rate_ok": True}
 
     def setUp(self):
         self.on = tempfile.NamedTemporaryFile(delete=False)
@@ -672,24 +672,27 @@ class TypingRule(unittest.TestCase):
             for skip in ({"kit_dirty": True}, {"smoke_env": True}, {"source": "in-app"}, {"refresh_ms": 16.67},
                          {"profile": "L5"}, {"build_job": "OTHER"}, {"status": "fail"}, {"parts": 1},
                          {"keys": 400}, {"load_ok": False}, {"hog_held_gb": 3}, {"refresh_ms": "x"},
-                         {"start_clock": "t_post", "p95_refreshes": 3}):
+                         {"start_clock": "t_post", "p95_refreshes": 3}, {"rate_ok": False}):
                 self.rows(mod, tmp, dict(self.GOOD, **skip))
                 self.assertIn("no judged L6", mod.typing_blockers("J")[0][1], skip)
             # a breach in a row that does not count does not block a good row
             self.rows(mod, tmp, self.GOOD, dict(self.GOOD, p95_refreshes=5, smoke_env=True))
             self.assertEqual(mod.typing_blockers("J"), [])
 
-    def test_a_lost_key_blocks_whatever_the_start_clock(self):
-        mod = load_gate()
-        with tempfile.TemporaryDirectory() as tmp:
-            self.rows(mod, tmp, self.GOOD, dict(self.GOOD, start_clock="t_post", lost=[3], out="/r"))
-            self.assertIn("break the rule", mod.typing_blockers("J")[0][1])
-
-    def test_an_upper_bound_pass_counts(self):
+    def test_a_python_timed_row_never_counts(self):
+        """cmux-ad 03:40Z: a key start from a Python timestamp is provisional: it neither passes nor breaks."""
         mod = load_gate()
         with tempfile.TemporaryDirectory() as tmp:
             self.rows(mod, tmp, dict(self.GOOD, start_clock="t_post"))
+            self.assertIn("no judged L6", mod.typing_blockers("J")[0][1])
+            self.rows(mod, tmp, self.GOOD, dict(self.GOOD, start_clock="t_post", lost=[3]))
             self.assertEqual(mod.typing_blockers("J"), [])
+
+    def test_a_low_rate_row_is_not_run(self):
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            self.rows(mod, tmp, dict(self.GOOD, rate_ok=False))
+            self.assertIn("no judged L6", mod.typing_blockers("J")[0][1])
 
     def test_the_rule_holds_back_the_pass_file(self):
         with tempfile.TemporaryDirectory() as tmp:
