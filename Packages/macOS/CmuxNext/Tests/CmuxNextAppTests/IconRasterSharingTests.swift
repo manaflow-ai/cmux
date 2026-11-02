@@ -34,7 +34,8 @@ import Testing
         let images = (0..<8).map { _ in NSImage.icon(symbol: "chevron.down", size: 12) }
         let bitmaps = try images.map { try #require(Self.bitmap($0, side: 12, scale: 2)) }
         #expect(Set(bitmaps.map(ObjectIdentifier.init)).count == 1)
-        #expect(images.allSatisfy(\.isTemplate), "a chrome glyph is a template: its tint comes from the view")
+        let templates = images.filter(\.isTemplate).count
+        #expect(templates == images.count, "a chrome glyph is a template: its tint comes from the view")
     }
 
     /// Each caller still gets its own image: setting one image's size or description changes no other.
