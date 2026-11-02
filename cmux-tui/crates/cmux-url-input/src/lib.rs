@@ -20,6 +20,7 @@ mod chromium;
 #[cfg(any(feature = "ffi", test))]
 pub mod ffi;
 mod typed;
+mod uri;
 
 pub use chromium::{ChromiumPageRoute, chromium_internal_url, chromium_page_route};
 pub use typed::{
