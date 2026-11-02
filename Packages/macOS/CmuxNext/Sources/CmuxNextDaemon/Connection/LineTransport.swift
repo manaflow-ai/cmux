@@ -93,13 +93,17 @@ final class LineTransport: Sendable {
     /// Nonblocking, ordered writes (never parks the calling actor's thread).
     private let writer: SocketWriter
     let path: String
+    /// The daemon-request probe this transport records into; nil: none.
+    private let latency: DaemonRequestLatency?
 
     /// The bridge child of this connection (``DaemonBridge``), killed and
     /// reaped when the connection closes.
     private let child: BridgeChild?
 
     /// - Parameter writerLimit: The most bytes the writer queues before it refuses a write (``SocketWriter``).
-    init(path: String, bridge: DaemonBridge? = nil, writerLimit: Int = 64 << 20) throws(DaemonError) {
+    init(path: String, bridge: DaemonBridge? = nil, latency: DaemonRequestLatency? = nil,
+         writerLimit: Int = 64 << 20) throws(DaemonError) {
+        self.latency = latency
         self.path = path
         let fd: Int32
         if let bridge {
@@ -196,6 +200,23 @@ final class LineTransport: Sendable {
     /// arrived in time fails the request with `DaemonError.timedOut`; the
     /// late reply is dropped when it comes (architecture.md 5a).
     func request(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
+        // The daemon-request probe (`debug.daemon_requests`): send to reply, or to the failure.
+        guard let latency else { return try await exchange(cmd: cmd, timeout: timeout, body) }
+        let sent = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        do {
+            let response = try await exchange(cmd: cmd, timeout: timeout, body)
+            latency.record(nanoseconds: clock_gettime_nsec_np(CLOCK_UPTIME_RAW) &- sent, outcome: .reply)
+            return response
+        } catch {
+            let outcome: DaemonRequestLatency.Outcome
+            if case DaemonError.timedOut = error { outcome = .timedOut } else { outcome = .error }
+            latency.record(nanoseconds: clock_gettime_nsec_np(CLOCK_UPTIME_RAW) &- sent, outcome: outcome)
+            throw error
+        }
+    }
+
+    /// ``request(cmd:timeout:_:)`` without the probe.
+    private func exchange(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
         let slot = ReplySlot()
         #if DEBUG || CMUX_BENCH_HOOKS
         // A traced new terminal: the request naming its id, and that request's reply.

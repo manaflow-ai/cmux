@@ -62,6 +62,9 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// sends no `workspace_placement` restatement. The App's composition root sets it
     /// (`SidebarMirror.isLinked`) on the connections that feed the sidebar; off by default.
     public var echoesPlacementShift = false
+    /// Records each request's send-to-reply time (``DaemonRequestLatency``; Debug and bench builds read
+    /// it through `debug.daemon_requests`). Nil: not measured. The local ``DaemonService`` sets its own.
+    public var requestLatency: DaemonRequestLatency?
     /// Hands an owner the handshake refuses (another protocol, or a required capability missing)
     /// off to the bundled build before the refusal surfaces; true when it is exiting for that
     /// handoff. Only the app's own connections to its local daemon set it
