@@ -264,7 +264,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// should always just be there left aligned". A turn without a "Worked for" line (a Claude turn,
 /// #30176; history paged in mid-turn) keeps its time and tokens in the time's tooltip, never in the
 /// row. Retry is the prompt's (UserBubble.tsx), and also here when the turn failed, whose row always
-/// shows; so does the chat's last footer (conversation.css), so a finished reply's Copy is in sight.
+/// shows; so does the footer that ends the chat (#31503), so a finished reply's Copy is in sight.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const language = usePaneLanguage();

@@ -77,7 +77,7 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
   const still = async (page: Page, name: string) => {
     if (!artifacts) return;
     const box = await page.evaluate(() => {
-      const footer = document.querySelector(".acpmux-row--last-footer")!.getBoundingClientRect();
+      const footer = document.querySelector(".acpmux-row--final-footer")!.getBoundingClientRect();
       const replies = [...document.querySelectorAll(".acpmux-row.acpmux-assistant")];
       const reply = replies.at(-1)!.getBoundingClientRect();
       const top = Math.max(0, reply.top - 24);
@@ -157,7 +157,7 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
     test(`a finished chat's last reply shows its buttons at rest and its time on hover (${theme.name})`, async () => {
       const page = await open("finished", theme.name);
       try {
-        const last = ".acpmux-turnSummary.acpmux-row--last-footer";
+        const last = ".acpmux-turnSummary.acpmux-row--final-footer";
         await page.locator(`${last} .cv-turn-action-group`).waitFor();
         await page.mouse.move(1, 1);
         const [rest] = await footers(page, last);
@@ -182,7 +182,7 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         expect(hover!.buttons).toEqual(rest!.buttons);
         // Earlier footers stay hidden at rest: only the last reply's row is in sight.
         await page.mouse.move(1, 1);
-        const earlier = await footers(page, ".acpmux-turnSummary:not(.acpmux-row--last-footer)");
+        const earlier = await footers(page, ".acpmux-turnSummary:not(.acpmux-row--final-footer)");
         for (const footer of earlier) expect(footer.actionsOpacity).toBe(0);
       } finally {
         await page.close();

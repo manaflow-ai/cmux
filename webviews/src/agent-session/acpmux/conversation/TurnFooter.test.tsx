@@ -45,6 +45,16 @@ test("a 5 s turn says Worked for 5s in its time's tooltip, never in front of the
   expect(markup).toMatch(/<time class="cv-turn-time"[^>]*title="Worked for 5s · ↓ 359 out ↑ 328.8K in"/);
 });
 
+// Leo, 2026-11-02, on "Worked for" drawn in front of Copy: "this should not be placed in front of
+// the copy/whatever buttons. those buttons should always just be there left aligned".
+test("the buttons lead the footer row; Worked for comes after them, in the time's tooltip", () => {
+  const markup = renderToStaticMarkup(<TurnFooter row={footer({ durationMs: 5_000, text: "Done." })} />);
+  const group = markup.indexOf("cv-turn-action-group");
+  expect(group).toBeGreaterThan(-1);
+  expect(markup.indexOf("Copy")).toBeGreaterThan(group);
+  expect(markup.indexOf('title="Worked for 5s"')).toBeGreaterThan(markup.indexOf("Copy"));
+});
+
 test("a turn stopped within a second still says it stopped", () => {
   expect(footerLabel(t, footer({ durationMs: 400, status: "cancelled" }))).toBe("You stopped after 0s");
 });

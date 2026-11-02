@@ -3663,7 +3663,7 @@ a.cv-sha:focus-visible {
   display: none;
 }
 /* Debug Settings `agentPane.debug.turnActionsPlacement` "right": the earlier row at the column's
-   right edge, the actions after the time. */
+   right edge. */
 :root[data-turn-actions-placement="right"] .cv-turn-actions {
   justify-content: flex-end;
   padding-inline: 0 2px;
@@ -3788,21 +3788,19 @@ a.cv-sha:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 /* Hidden, its space kept, but for a failed turn, the turn the reader points at (data-turn-revealed,
-   VirtualTranscript) or keyboard focus. */
+   VirtualTranscript), keyboard focus, or the turn that ends the chat (App.tsx `acpmux-row--final-footer`):
+   once the agent is done its Copy shows without a hover, as Claude's and ChatGPT's (Leo, 2026-11-02). */
 .acpmux-turnSummary .cv-turn-actions {
   opacity: 0;
 }
 .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
-/* The chat's last footer, the finished reply's: its buttons stay in sight at rest, as ChatGPT's under
-   its last answer (Leo, 2026-11-02: "i should be able to see the copy buttons on your responses when
-   your things end"). Its time still waits for the pointer (below). */
-.acpmux-turnSummary.acpmux-row--last-footer .cv-turn-actions,
 .acpmux-turnSummary:focus-visible .cv-turn-actions,
 .acpmux-turnSummary:hover .cv-turn-actions,
 .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions,
 .acpmux-turnSummary .cv-turn-actions:focus-within,
 .acpmux-turnSummary .cv-turn-actions--failed,
-.acpmux-turnSummary .cv-turn-actions--resumable {
+.acpmux-turnSummary .cv-turn-actions--resumable,
+.acpmux-row--final-footer .cv-turn-actions {
   opacity: 1;
 }
 /* A reply's time comes after its buttons, hidden at rest, and shows while the reader points at the
@@ -5435,6 +5433,17 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   top: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
   margin: 0;
   padding: 0;
+}
+/* A waiting steer keeps its action row in flow (model.ts userMetaHeight reserves it), but draws it
+   where the sent prompt's row sits: half the turn gap's spare under the bubble, overhanging
+   col-right by the control's inset. Sending it then moves nothing (design/grid.md 5.5: the row's
+   glyphs sit 4 under the message "in every case"; queued-user-footer.test.ts). */
+.cv-user:has(.cv-user__pending) > .cv-user__actions,
+.cv-user:has(.cv-user__pending) > .cv-user__body > .cv-user__actions {
+  position: relative;
+  top: calc((var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
+  right: calc(-1 * var(--cv-action-overhang));
+  padding-right: 0;
 }
 
 

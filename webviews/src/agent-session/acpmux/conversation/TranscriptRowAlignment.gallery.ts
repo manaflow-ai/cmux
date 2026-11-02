@@ -91,8 +91,8 @@ const revealFooter: Play = async (ctx) => {
 
 /// The pointer on the finished chat's last reply, so its time shows after the buttons.
 const revealLastFooter: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-row--last-footer .cv-turn-action-group") !== null);
-  await ctx.hover({ selector: ".acpmux-row--last-footer .cv-turn-action-group" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-row--final-footer .cv-turn-action-group") !== null);
+  await ctx.hover({ selector: ".acpmux-row--final-footer .cv-turn-action-group" });
 };
 
 export default agentPaneEntry({
