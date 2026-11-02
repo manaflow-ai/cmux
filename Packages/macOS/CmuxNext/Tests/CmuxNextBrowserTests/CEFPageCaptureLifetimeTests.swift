@@ -20,8 +20,8 @@ import Testing
         CaptureSpy.methods = []
         // The answer never comes: the send is checked, then the close ends the wait with no picture.
         let picture = Task { @MainActor in try? await tab.snapshot() }
-        await rig.until { !CaptureSpy.methods.isEmpty }
-        #expect(CaptureSpy.methods == ["Page.captureScreenshot"], "a shown page was not pictured")
+        await rig.until { !CaptureSpy.screenshots.isEmpty }
+        #expect(CaptureSpy.screenshots.count == 1, "a shown page was not pictured: \(CaptureSpy.methods)")
         rig.runtime.handle(.beforeClose(browser: Rig.browser))
         #expect(await picture.value == nil, "a closed page's picture came back")
     }
@@ -35,8 +35,8 @@ import Testing
         let thumbnail = Task { @MainActor () -> (any Error)? in
             do { _ = try await tab.thumbnail(); return nil } catch { return error }
         }
-        await rig.until { !CaptureSpy.methods.isEmpty }
-        #expect(!CaptureSpy.methods.contains("Page.captureScreenshot"), "a hidden page was pictured: \(CaptureSpy.methods)")
+        await rig.until { !CaptureSpy.screenshots.isEmpty }
+        #expect(CaptureSpy.screenshots.isEmpty, "a hidden page was pictured: \(CaptureSpy.methods)")
         rig.runtime.handle(.beforeClose(browser: Rig.browser)) // ends a wait the red build started
         #expect(await thumbnail.value as? BrowserTabError == .snapshotUnavailable)
     }
@@ -49,8 +49,8 @@ import Testing
         CaptureSpy.methods = []
         tab.setContentVisible(false)
         let picture = Task { @MainActor in try? await tab.snapshot() }
-        await rig.until { !CaptureSpy.methods.isEmpty }
-        #expect(CaptureSpy.methods == ["Page.captureScreenshot"], "a screenshot of a hidden page was refused")
+        await rig.until { !CaptureSpy.screenshots.isEmpty }
+        #expect(CaptureSpy.screenshots.count == 1, "a screenshot of a hidden page was refused: \(CaptureSpy.methods)")
         rig.runtime.handle(.beforeClose(browser: Rig.browser))
         #expect(await picture.value == nil)
     }
@@ -69,8 +69,8 @@ import Testing
             do { _ = try await tab.thumbnail(); errors.append(nil) } catch { errors.append(error) }
             return errors
         }
-        await rig.until { !CaptureSpy.methods.isEmpty }
-        #expect(!CaptureSpy.methods.contains("Page.captureScreenshot"), "a page was pictured after quit began: \(CaptureSpy.methods)")
+        await rig.until { !CaptureSpy.screenshots.isEmpty }
+        #expect(CaptureSpy.screenshots.isEmpty, "a page was pictured after quit began: \(CaptureSpy.methods)")
         rig.runtime.shutdownSequence = nil
         rig.runtime.handle(.beforeClose(browser: Rig.browser)) // ends a wait the red build started
         #expect(await pictures.value.map { $0 as? BrowserTabError } == [.snapshotUnavailable, .snapshotUnavailable])
@@ -87,8 +87,8 @@ import Testing
         let picture = Task { @MainActor () -> (any Error)? in
             do { _ = try await tab.snapshot(); return nil } catch { return error }
         }
-        await rig.until { !CaptureSpy.methods.isEmpty }
-        try #require(CaptureSpy.methods == ["Page.captureScreenshot"])
+        await rig.until { !CaptureSpy.screenshots.isEmpty }
+        try #require(CaptureSpy.screenshots.count == 1)
         // The browser never closes (the spy reports no close): the quit waits out its timeout.
         let quit = Task { await rig.runtime.shutdown(timeout: .seconds(3)) }
         let ended = Flag()
@@ -108,7 +108,7 @@ import Testing
         CaptureSpy.methods = []
         rig.runtime.handle(.beforeClose(browser: Rig.browser))
         await #expect(throws: (any Error).self) { try await tab.snapshot() }
-        #expect(!CaptureSpy.methods.contains("Page.captureScreenshot"))
+        #expect(CaptureSpy.screenshots.isEmpty)
     }
 
     // MARK: Rig
@@ -154,9 +154,12 @@ import Testing
     var isSet = false
 }
 
-/// The DevTools methods a CEFTab sends; each gets a message id and no answer.
+/// The DevTools methods a CEFTab sends; each gets a message id and no answer. An attached tab also sends its own
+/// set-up calls (Page.enable, Emulation.setEmulatedMedia, in later turns), so the tests count only the screenshots.
 private nonisolated enum CaptureSpy {
     nonisolated(unsafe) static var methods: [String] = []
+    /// The `Page.captureScreenshot` calls among ``methods``.
+    static var screenshots: [String] { methods.filter { $0 == "Page.captureScreenshot" } }
     nonisolated(unsafe) static var nextMessage: Int32 = 100
 
     static func library() throws -> CEFShimLibrary {
