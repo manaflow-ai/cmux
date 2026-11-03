@@ -58,13 +58,13 @@
    "digits": "234567891928374656"
   },
   {
+   "do": "tiers_stop",
+   "name": "tiers"
+  },
+  {
    "do": "video_stop",
    "name": "sw-w1-heavy",
    "tail": 0.8
-  },
-  {
-   "do": "tiers_stop",
-   "name": "tiers"
   },
   {
    "do": "switch_adopt_shown"

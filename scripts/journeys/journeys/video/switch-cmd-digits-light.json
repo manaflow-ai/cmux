@@ -49,13 +49,13 @@
    "digits": "23456789172839415263748591"
   },
   {
+   "do": "tiers_stop",
+   "name": "tiers"
+  },
+  {
    "do": "video_stop",
    "name": "sw-w1-light",
    "tail": 0.8
-  },
-  {
-   "do": "tiers_stop",
-   "name": "tiers"
   },
   {
    "do": "switch_adopt_shown"
