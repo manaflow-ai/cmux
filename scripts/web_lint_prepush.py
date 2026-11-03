@@ -33,7 +33,8 @@ later push of it out too (trust_base()). It counts deletes and type changes, and
 check code (a folder turned into a symlink). Check code may hold no symlink in the pushed commit, at its paths or
 any parent folder (executed_symlinks()). A file directly in a folder above a package, or in a node_modules there,
 is check code too: tools search upward for their config (above_package()); and so is a node_modules anywhere, whose
-programs and modules tools run (in_node_modules()). Before anything runs every executed folder and every script a check
+programs and modules tools run (in_node_modules()), and a build or lint tool's config module found by name anywhere in
+a package, which the tool may run though nothing imports it (tool_config_in()). Before anything runs every executed folder and every script a check
 names must resolve, symlinks followed, to that same path in the tree being linted (escaping_paths()).
 
 Which files: a push's own range (scripts/cmux-next/push_range.py, the definition the
@@ -330,12 +331,26 @@ def in_node_modules(path: str) -> bool:
     return "node_modules" in fold(path).split("/")[:-1] or fold(path).split("/")[-1] == "node_modules"
 
 
+# Config modules the build and lint tools find by name in any folder of a package, and run as code: vite-plus 1.3's
+# `vp lint` runs a nested vite.config.ts it finds under src/, though nothing imports it. Every vite, vitest, vite-plus
+# and prettier config, wherever it sits in a package, is check code (tool_config_in()).
+TOOL_CONFIG = re.compile(r"^(?:(?:vite|vitest|vite-plus|prettier)\.config\..+|\.prettierrc(?:\..*)?)$")
+
+
+def tool_config_in(path: str, directories: tuple[str, ...]) -> bool:
+    """PATH, folded, is a build or lint tool's config module by name (TOOL_CONFIG) anywhere in one of DIRECTORIES."""
+    folded_path = fold(path)
+    return (TOOL_CONFIG.match(folded_path.rsplit("/", 1)[-1]) is not None
+            and any(folded_path.startswith(f"{fold(d)}/") for d in directories))
+
+
 def is_check_code(path: str, executed: tuple[str, ...], sources: tuple[str, ...] = (),
                   directories: tuple[str, ...] = ()) -> bool:
     """PATH, folded, is in a node_modules (in_node_modules()), at, inside (outside SOURCES) or a parent folder of an
     EXECUTED path, or directly in a folder above one of DIRECTORIES (the package and its local builds;
     above_package())."""
-    if in_node_modules(path) or (directories and above_package(path, directories)):
+    if in_node_modules(path) or (directories and (above_package(path, directories)
+                                                   or tool_config_in(path, directories))):
         return True
     path, executed, sources = fold(path), folded(executed), folded(sources)
     return (under(path, executed) and not under(path, sources)) or above(path, executed)
@@ -354,7 +369,7 @@ def executed_changes(package: ScriptPackage, files: list[str]) -> list[str]:
 def eslint_executed_changes(package: EslintPackage, files: list[str]) -> list[str]:
     executed = folded(package.executed)
     return [f for f in files if fold(f) in executed or above(fold(f), executed) or in_node_modules(f)
-            or above_package(f, package_directories(package))]
+            or above_package(f, package_directories(package)) or tool_config_in(f, package_directories(package))]
 
 
 # The branches whose history is reviewed: check code that matches where a pushed commit meets one of them is
