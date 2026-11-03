@@ -11,9 +11,11 @@ import CmuxNextDesign
 /// leading edge): nothing between the closing pane and any of its neighbours shows the shell, and where a faster
 /// neighbour has passed over it, that live pane draws above it (closing hosts stack under every live host,
 /// `ScreenContentView.ensureStacking`). With neighbours on both sides of an axis, the leading side keeps the gap it had to
-/// them (the divider that stays), so the pane rests at zero width where they meet. A side whose neighbour closed too
-/// rides that closing pane's facing edge; a side with no neighbour (the screen's edge, a docked column's side) stays
-/// where it showed. Chrome's tab close does the same: the closing tab shrinks to zero width on the strip's own animation.
+/// them (the divider that stays), so the pane rests at zero width where they meet. A side whose neighbour closed too rides
+/// that closing pane's facing edge. A side with no neighbour (the screen's edge, a docked column's side), opposite one on a
+/// moving neighbour, travels to where that side rests by the same share of the travel, so the pane rests at zero size
+/// (nothing for the landing to take away in one frame); else it stays where it showed. Chrome's tab close does the same:
+/// the closing tab shrinks to zero width on the strip's own animation.
 /// The host goes when the motion lands (`ScreenContentView.releaseClosing`); a close taken back starts the pane's live
 /// frame from where it shows, with its neighbours' velocities.
 struct ClosingPanes {
@@ -23,6 +25,8 @@ struct ClosingPanes {
         let neighbours: [PaneID]
         let gap: CGFloat
         var fixed: CGFloat
+        /// Where it stood in the first frame it was placed: the start of its travel.
+        var start: CGFloat?
     }
 
     struct Entry {
@@ -88,14 +92,28 @@ struct ClosingPanes {
             func facing(_ neighbour: PaneID, _ edge: (CGRect) -> CGFloat) -> CGFloat? {
                 frames[neighbour].map { edge($0.rect) } ?? shown[neighbour].map(edge)
             }
-            func place(_ side: inout Side, slowest: ([CGFloat]) -> CGFloat?, edge: (CGRect) -> CGFloat, sign: CGFloat) {
-                guard let value = slowest(side.neighbours.compactMap { facing($0, edge) }) else { return }
-                side.fixed = value + sign * side.gap
+            /// Places `side` on its slowest neighbour's facing edge; returns where it rests (from its live neighbours).
+            func place(_ side: inout Side, slowest: ([CGFloat]) -> CGFloat?, edge: (CGRect) -> CGFloat, sign: CGFloat) -> CGFloat? {
+                if let value = slowest(side.neighbours.compactMap({ facing($0, edge) })) { side.fixed = value + sign * side.gap }
+                if side.start == nil { side.start = side.fixed }
+                return slowest(side.neighbours.compactMap { frames[$0].map { edge($0.targetRect) } }).map { $0 + sign * side.gap }
             }
-            place(&entry.minX, slowest: { $0.min() }, edge: \.maxX, sign: 1)
-            place(&entry.maxX, slowest: { $0.max() }, edge: \.minX, sign: -1)
-            place(&entry.minY, slowest: { $0.min() }, edge: \.maxY, sign: 1)
-            place(&entry.maxY, slowest: { $0.max() }, edge: \.minY, sign: -1)
+            /// A side with no neighbour, opposite one that rides a moving neighbour: it travels from where it stood to where
+            /// that side rests, by the same share of the travel, so the pane rests at zero size there (no ground left for
+            /// the landing to take away in one frame).
+            func collapse(_ free: inout Side, toward rider: Side, rest: CGFloat?) {
+                guard free.neighbours.isEmpty, !rider.neighbours.isEmpty, let rest, let riderStart = rider.start, let freeStart = free.start,
+                      abs(rest - riderStart) >= 0.5 else { return }
+                free.fixed = freeStart + (rest - freeStart) * min(1, max(0, (rider.fixed - riderStart) / (rest - riderStart)))
+            }
+            let restMinX = place(&entry.minX, slowest: { $0.min() }, edge: \.maxX, sign: 1)
+            let restMaxX = place(&entry.maxX, slowest: { $0.max() }, edge: \.minX, sign: -1)
+            let restMinY = place(&entry.minY, slowest: { $0.min() }, edge: \.maxY, sign: 1)
+            let restMaxY = place(&entry.maxY, slowest: { $0.max() }, edge: \.minY, sign: -1)
+            collapse(&entry.maxX, toward: entry.minX, rest: restMinX)
+            collapse(&entry.minX, toward: entry.maxX, rest: restMaxX)
+            collapse(&entry.maxY, toward: entry.minY, rest: restMinY)
+            collapse(&entry.minY, toward: entry.maxY, rest: restMaxY)
             entries[pane] = entry
             shown[pane] = CGRect(x: entry.minX.fixed, y: entry.minY.fixed, width: max(0, entry.maxX.fixed - entry.minX.fixed),
                                  height: max(0, entry.maxY.fixed - entry.minY.fixed))
@@ -125,7 +143,8 @@ struct ClosingPanes {
             guard let shown = entry.carriedShown else { continue }
             var entry = entry
             let offset = entry.scrolls ? shift : 0
-            (entry.minX.fixed, entry.maxX.fixed) = (shown.minX - offset, shown.maxX - offset)
+            Self.move(&entry.minX, to: shown.minX - offset)
+            Self.move(&entry.maxX, to: shown.maxX - offset)
             entry.carriedShown = nil
             entries[pane] = entry
         }
@@ -135,8 +154,8 @@ struct ClosingPanes {
     mutating func shiftY(inRowColumn column: ColumnID, by delta: CGFloat) {
         for (pane, entry) in entries where entry.rowColumn == column {
             var entry = entry
-            entry.minY.fixed += delta
-            entry.maxY.fixed += delta
+            Self.move(&entry.minY, to: entry.minY.fixed + delta)
+            Self.move(&entry.maxY, to: entry.maxY.fixed + delta)
             entries[pane] = entry
         }
     }
@@ -164,8 +183,14 @@ struct ClosingPanes {
     }
 
     private static func shiftX(_ entry: inout Entry, by delta: CGFloat) {
-        entry.minX.fixed += delta
-        entry.maxX.fixed += delta
+        move(&entry.minX, to: entry.minX.fixed + delta)
+        move(&entry.maxX, to: entry.maxX.fixed + delta)
+    }
+
+    /// Moves a side to `value` with the start of its travel (a coordinate change, not travel).
+    private static func move(_ side: inout Side, to value: CGFloat) {
+        side.start = side.start.map { $0 + value - side.fixed }
+        side.fixed = value
     }
 
     /// Takes `pane` out (its close was taken back): where it shows now (its last presented sides, carried with the strip as

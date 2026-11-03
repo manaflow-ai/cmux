@@ -350,7 +350,9 @@ struct PaneContentPolicyTests {
         rig.root.context.contentPolicyOverride = true
         let screen = try rig.screen
         let line = screen.convert(screen.bounds, to: nil)
-        #expect(try rig.uncoveredWidth(of: line) < 3, "SETUP: the column is not covered at rest")
+        // At rest only the gaps show (the column's edge gaps and its dividers).
+        let atRest = try rig.uncoveredWidth(of: line)
+        try #require(atRest < 20, "SETUP: \(atRest) pt of the column is not covered at rest")
         var widths: [(label: String, width: CGFloat)] = [], order: [String] = []
         func check(_ label: String) throws {
             widths.append((label, try rig.uncoveredWidth(of: line)))
@@ -378,9 +380,9 @@ struct PaneContentPolicyTests {
             try check("frame \(frames)")
         }
         let rest = try rig.uncoveredWidth(of: line)
-        let open = widths.filter { $0.width > rest + 1 }
+        let open = widths.filter { $0.width > max(atRest, rest) + 1 }
         #expect(frames > 10, "the closes did not spring (\(frames) frames)")
-        #expect(open.isEmpty, "\(open.count) frames show a hole in the column (rest \(rest) pt): \(open.prefix(4))")
+        #expect(open.isEmpty, "\(open.count) frames show a hole in the column (\(atRest) pt before, \(rest) pt after): \(open.prefix(4))")
         #expect(order.isEmpty, "\(order.prefix(3))")
         #expect(screen.closingPanes.isEmpty, "a closing pane is left after the landing")
     }
@@ -436,21 +438,38 @@ struct PaneContentPolicyTests {
         #expect(try !rig.screen.hasMotion, "a spring still runs after a change with motion off")
     }
 
-    /// A column at the strip's end closes (two columns, the right one closes): nothing closes over its place (the left
-    /// column keeps its strip frame; only the camera moves), so it hides at once, as before S3c, and its place shows what
-    /// the layout rests at from the first frame: no ground that pops at the landing.
-    @Test func aPaneNothingClosesOverHidesAtOnce() throws {
+    /// A column at the strip's end closes (two columns, the right one closes). Whatever its neighbour does (it may stay or
+    /// move to the strip's new place), the closing pane leaves no ground for the landing to take away in one frame: it hides
+    /// at once when nothing closes over it, else in its last frame its ground that no live pane covers is under a point wide.
+    @Test func aClosingPaneLeavesNoGroundForTheLanding() throws {
         let rig = Rig(.columns([LayoutColumn(id: "c0", width: 0.5, root: .leaf("p1")), LayoutColumn(id: "c1", width: 0.5, root: .leaf("p2"))]),
                       focused: "p2")
         defer { rig.close() }
         rig.root.context.contentPolicyOverride = true
         let host = try #require(rig.root.context.hosts["p2"])
+        let screen = try rig.screen
+        /// Along its middle line, the part of the closing ground no live host covers.
+        func visibleGround() -> CGFloat {
+            let ground = host.convert(host.bounds, to: nil)
+            var spans = [(ground.minX, ground.maxX)]
+            for live in screen.subviews.compactMap({ $0 as? PaneHostView }) where live !== host && !live.isHidden && !live.showsClosingGround {
+                let shown = live.convert(live.bounds, to: nil)
+                guard shown.minY <= ground.midY, shown.maxY >= ground.midY else { continue }
+                spans = spans.flatMap { span in [(span.0, min(span.1, shown.minX)), (max(span.0, shown.maxX), span.1)].filter { $0.1 - $0.0 > 0 } }
+            }
+            return spans.reduce(0) { $0 + ($1.1 - $1.0) }
+        }
         _ = try #require(rig.model.showPaneClose("p2"))
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
-        #expect(host.isHidden && !host.showsClosingGround, "a pane nothing closes over showed its ground")
-        #expect(try rig.screen.closingPanes.isEmpty, "a pane nothing closes over has a closing frame")
+        var last: CGFloat?
+        var frames = 0
+        while frames < 240, host.superview != nil, host.showsClosingGround, rig.frame() {
+            frames += 1
+            if host.superview != nil, host.showsClosingGround { last = visibleGround() }
+        }
         try Self.run(rig)
+        if let last { #expect(last < 1, "the closing pane's last frame shows \(last) pt of its ground: the landing takes it away in one frame") }
         #expect(host.superview == nil, "the closed host is left in the tree after the landing")
     }
 
