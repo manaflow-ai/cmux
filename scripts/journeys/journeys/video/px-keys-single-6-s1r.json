@@ -1,15 +1,14 @@
 {
- "id": "px-keys-single-6-a",
+ "id": "px-keys-single-6-s1r",
  "priority": "P1",
- "title": "PIXEL: Ctrl-Shift-L, H, J, K on p1 ((p0 T / p3 T) | (p1 P / p4 A) | (p2 T / p5 P)), at x0.25, x0.5, x1 (part a)",
- "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge per film frame from the exact scan lines.",
+ "title": "PIXEL: Ctrl-Shift-L, H, J, K on p1 ((p0 T / p3 T) | (p1 P / p4 A) | (p2 T / p5 P)), at x1, Reduce Motion (x1 and Reduce Motion: any bench build)",
+ "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, tab strips #000000, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge, tab strip and divider per film frame from the exact scan lines.",
  "source": "PIXEL PERFECT kit (video-cases/gen_pixel.py)",
- "budget_seconds": 210,
- "estimate_seconds": 168,
+ "budget_seconds": 106,
+ "estimate_seconds": 89,
  "recordings": [
-  "px-keys-single-6-a-s025",
-  "px-keys-single-6-a-s05",
-  "px-keys-single-6-a-s1"
+  "px-keys-single-6-s1r-s1",
+  "px-keys-single-6-s1r-reduce"
  ],
  "options": {
   "key_path": "real"
@@ -17,7 +16,7 @@
  "steps": [
   {
    "do": "settings_file",
-   "title": "set-up: shell #FF00FF (app theme Nord), terminal ground #00FFFF, agent ground #0000FF, no close warning, new columns share the strip",
+   "title": "set-up: shell #FF00FF (app theme Nord), terminal ground #00FFFF, tab strips #000000, agent ground #0000FF, no close warning, new columns share the strip",
    "set": {
     "appearance": {
      "theme": "Builtin Dark",
@@ -29,6 +28,10 @@
      "surfaces": {
       "terminal": {
        "color": "#00FFFF",
+       "opacity": 1
+      },
+      "tabBar": {
+       "color": "#000000",
        "opacity": 1
       },
       "agentPane": {
@@ -59,7 +62,7 @@
   {
    "do": "new_terminal",
    "via": "key",
-   "name": "px-keys-single-6-a"
+   "name": "px-keys-single-6-s1r"
   },
   {
    "do": "neutral_prompt"
@@ -106,7 +109,7 @@
    "do": "px_tunable",
    "key": "browserResize.pageBackdrop",
    "value": false,
-   "title": "set-up: a Chromium page that lags shows the gap (browserResize.pageBackdrop off)"
+   "title": "set-up: a Chromium page that lags shows the gap (browserResize.pageBackdrop off, where the store takes it)"
   },
   {
    "do": "px_agent_css",
@@ -272,376 +275,268 @@
    "title": "the layout and the load settle (nothing observable to wait on)"
   },
   {
-   "do": "px_springs",
-   "speed": 0.25,
-   "title": "speed x0.25: every motion.spring.* response / 0.25"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "p1",
-   "title": "set-up: focus p1 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "px_record_start",
-   "name": "px-keys-single-6-a-s025",
-   "seconds": 14.1,
-   "require_hz": 120,
-   "fixture": {
-    "p0": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+   "do": "px_film",
+   "name": "px-keys-single-6-s1r-s1",
+   "steps": [
+    {
+     "do": "rk_focus",
+     "pane": "p1",
+     "title": "set-up: focus p1 (cmux pane focus)"
     },
-    "p1": {
-     "kind": "page",
-     "fill": "#00FF00"
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
     },
-    "p2": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+    {
+     "do": "px_record_start",
+     "name": "px-keys-single-6-s1r-s1",
+     "seconds": 10.0,
+     "require_hz": 120,
+     "fixture": {
+      "p0": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      },
+      "p1": {
+       "kind": "page",
+       "fill": "#00FF00"
+      },
+      "p2": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      },
+      "p3": {
+       "kind": "tui",
+       "fill": "#00FF00"
+      },
+      "p4": {
+       "kind": "agent",
+       "fill": "#0000FF"
+      },
+      "p5": {
+       "kind": "page",
+       "fill": "#00FF00"
+      }
+     },
+     "spring": "move",
+     "input": "keys",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-keys-single-6-s1r-s1)",
+     "spring_default": {
+      "response": 0.15,
+      "damping": 1.0
+     }
     },
-    "p3": {
-     "kind": "tui",
-     "fill": "#00FF00"
+    {
+     "do": "rk_press",
+     "key": "l",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "key0",
+     "title": "Ctrl-Shift-L"
     },
-    "p4": {
-     "kind": "agent",
-     "fill": "#0000FF"
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
     },
-    "p5": {
-     "kind": "page",
-     "fill": "#00FF00"
+    {
+     "do": "rk_press",
+     "key": "h",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "key1",
+     "title": "Ctrl-Shift-H"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "j",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "key2",
+     "title": "Ctrl-Shift-J"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "k",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "key3",
+     "title": "Ctrl-Shift-K"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-keys-single-6-s1r-s1",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-keys-single-6-s1r-s1)"
     }
-   },
-   "spring": "move",
-   "input": "keys",
-   "title": "start the 120 Hz movie, the trace and scan lines across every pane border (px-keys-single-6-a-s025)"
-  },
-  {
-   "do": "rk_press",
-   "key": "l",
-   "modifiers": [
-    "control",
-    "shift"
    ],
-   "count": 1,
-   "gap_ms": 0,
-   "mark": "key0",
-   "title": "Ctrl-Shift-L"
+   "after": [],
+   "title": "film px-keys-single-6-s1r-s1: every motion.spring.* response / 1",
+   "speed": 1.0
   },
   {
-   "do": "wait",
-   "seconds": 1.25,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "rk_press",
-   "key": "h",
-   "modifiers": [
-    "control",
-    "shift"
-   ],
-   "count": 1,
-   "gap_ms": 0,
-   "mark": "key1",
-   "title": "Ctrl-Shift-H"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.25,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "rk_press",
-   "key": "j",
-   "modifiers": [
-    "control",
-    "shift"
-   ],
-   "count": 1,
-   "gap_ms": 0,
-   "mark": "key2",
-   "title": "Ctrl-Shift-J"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.25,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "rk_press",
-   "key": "k",
-   "modifiers": [
-    "control",
-    "shift"
-   ],
-   "count": 1,
-   "gap_ms": 0,
-   "mark": "key3",
-   "title": "Ctrl-Shift-K"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.25,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "video_stop",
-   "name": "px-keys-single-6-a-s025",
-   "tail": 0.4,
-   "title": "the motion ends; stop the recording (px-keys-single-6-a-s025)"
-  },
-  {
-   "do": "px_springs",
-   "speed": 0.5,
-   "title": "speed x0.5: every motion.spring.* response / 0.5"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "p1",
-   "title": "set-up: focus p1 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "px_record_start",
-   "name": "px-keys-single-6-a-s05",
-   "seconds": 11.4,
-   "require_hz": 120,
-   "fixture": {
-    "p0": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+   "do": "px_film",
+   "name": "px-keys-single-6-s1r-reduce",
+   "steps": [
+    {
+     "do": "rk_focus",
+     "pane": "p1",
+     "title": "set-up: focus p1 (cmux pane focus)"
     },
-    "p1": {
-     "kind": "page",
-     "fill": "#00FF00"
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
     },
-    "p2": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+    {
+     "do": "px_record_start",
+     "name": "px-keys-single-6-s1r-reduce",
+     "seconds": 9.6,
+     "require_hz": 120,
+     "fixture": {
+      "p0": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      },
+      "p1": {
+       "kind": "page",
+       "fill": "#00FF00"
+      },
+      "p2": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      },
+      "p3": {
+       "kind": "tui",
+       "fill": "#00FF00"
+      },
+      "p4": {
+       "kind": "agent",
+       "fill": "#0000FF"
+      },
+      "p5": {
+       "kind": "page",
+       "fill": "#00FF00"
+      }
+     },
+     "spring": "move",
+     "input": "keys",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-keys-single-6-s1r-reduce)",
+     "spring_default": {
+      "response": 0.15,
+      "damping": 1.0
+     }
     },
-    "p3": {
-     "kind": "tui",
-     "fill": "#00FF00"
+    {
+     "do": "rk_press",
+     "key": "l",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "key0",
+     "title": "Ctrl-Shift-L"
     },
-    "p4": {
-     "kind": "agent",
-     "fill": "#0000FF"
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
     },
-    "p5": {
-     "kind": "page",
-     "fill": "#00FF00"
+    {
+     "do": "rk_press",
+     "key": "h",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "key1",
+     "title": "Ctrl-Shift-H"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "j",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "key2",
+     "title": "Ctrl-Shift-J"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "k",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "key3",
+     "title": "Ctrl-Shift-K"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-keys-single-6-s1r-reduce",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-keys-single-6-s1r-reduce)"
     }
-   },
-   "spring": "move",
-   "input": "keys",
-   "title": "start the 120 Hz movie, the trace and scan lines across every pane border (px-keys-single-6-a-s05)"
-  },
-  {
-   "do": "rk_press",
-   "key": "l",
-   "modifiers": [
-    "control",
-    "shift"
    ],
-   "count": 1,
-   "gap_ms": 0,
-   "mark": "key0",
-   "title": "Ctrl-Shift-L"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "rk_press",
-   "key": "h",
-   "modifiers": [
-    "control",
-    "shift"
-   ],
-   "count": 1,
-   "gap_ms": 0,
-   "mark": "key1",
-   "title": "Ctrl-Shift-H"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "rk_press",
-   "key": "j",
-   "modifiers": [
-    "control",
-    "shift"
-   ],
-   "count": 1,
-   "gap_ms": 0,
-   "mark": "key2",
-   "title": "Ctrl-Shift-J"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "rk_press",
-   "key": "k",
-   "modifiers": [
-    "control",
-    "shift"
-   ],
-   "count": 1,
-   "gap_ms": 0,
-   "mark": "key3",
-   "title": "Ctrl-Shift-K"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "video_stop",
-   "name": "px-keys-single-6-a-s05",
-   "tail": 0.4,
-   "title": "the motion ends; stop the recording (px-keys-single-6-a-s05)"
-  },
-  {
-   "do": "px_springs",
-   "speed": 1.0,
-   "title": "speed x1: every motion.spring.* response / 1"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "p1",
-   "title": "set-up: focus p1 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "px_record_start",
-   "name": "px-keys-single-6-a-s1",
-   "seconds": 10.0,
-   "require_hz": 120,
-   "fixture": {
-    "p0": {
-     "kind": "tui",
-     "fill": "#FFFF00"
-    },
-    "p1": {
-     "kind": "page",
-     "fill": "#00FF00"
-    },
-    "p2": {
-     "kind": "tui",
-     "fill": "#FFFF00"
-    },
-    "p3": {
-     "kind": "tui",
-     "fill": "#00FF00"
-    },
-    "p4": {
-     "kind": "agent",
-     "fill": "#0000FF"
-    },
-    "p5": {
-     "kind": "page",
-     "fill": "#00FF00"
-    }
-   },
-   "spring": "move",
-   "input": "keys",
-   "title": "start the 120 Hz movie, the trace and scan lines across every pane border (px-keys-single-6-a-s1)"
-  },
-  {
-   "do": "rk_press",
-   "key": "l",
-   "modifiers": [
-    "control",
-    "shift"
-   ],
-   "count": 1,
-   "gap_ms": 0,
-   "mark": "key0",
-   "title": "Ctrl-Shift-L"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.57,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "rk_press",
-   "key": "h",
-   "modifiers": [
-    "control",
-    "shift"
-   ],
-   "count": 1,
-   "gap_ms": 0,
-   "mark": "key1",
-   "title": "Ctrl-Shift-H"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.57,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "rk_press",
-   "key": "j",
-   "modifiers": [
-    "control",
-    "shift"
-   ],
-   "count": 1,
-   "gap_ms": 0,
-   "mark": "key2",
-   "title": "Ctrl-Shift-J"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.57,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "rk_press",
-   "key": "k",
-   "modifiers": [
-    "control",
-    "shift"
-   ],
-   "count": 1,
-   "gap_ms": 0,
-   "mark": "key3",
-   "title": "Ctrl-Shift-K"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.57,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "video_stop",
-   "name": "px-keys-single-6-a-s1",
-   "tail": 0.4,
-   "title": "the motion ends; stop the recording (px-keys-single-6-a-s1)"
+   "after": [],
+   "title": "film px-keys-single-6-s1r-reduce: Reduce Motion",
+   "reduce": true
   },
   {
    "do": "use_pane",

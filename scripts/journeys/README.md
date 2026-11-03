@@ -267,10 +267,13 @@ grid). The file's docstring has every field.
 `ext_pixel.py` (group pixel-perfect, `journeys/video/px-*.json` from `video-cases/gen_pixel.py`) films
 pane resizes with loud fixtures: `pixel/tui_border.py` (every cell its own color, three one-cell rings)
 in terminals, `pixel/page.html` (1, 2 and 3 CSS px borders) in Chromium tabs, an agent pane with its
-`agent-pane/theme.css`, a #FF00FF shell and a #00FFFF terminal ground. Steps: `px_springs` (every
-`motion.spring.*` response divided by a speed through `debug.tunables`, or Reduce Motion), `px_tunable`,
-`px_page`, `px_agent_css` and `px_record_start` (ext_video's recorder with scan lines across every pane
-border, and the judge's note). `video-cases/judge_pixel.py` judges the films from the exact scan lines;
+`agent-pane/theme.css`, a #FF00FF shell, a #00FFFF terminal ground and #000000 tab strips. Steps: `px_film`
+(one film at one speed: every `motion.spring.*` response divided by the speed through `debug.tunables`, or
+Reduce Motion; where the tunable store stays inactive, even after `debug.tunables activate`, only the x1 and
+Reduce Motion films play and each other speed is a "not run" line), `px_springs`, `px_tunable`, `px_page`,
+`px_agent_css` and `px_record_start` (ext_video's recorder with a scan row through every tab strip and lines
+across every pane border, and the judge's note). Each case has a six-speed journey and a `-s1r` journey (x1 and
+Reduce Motion, three to a lease). `video-cases/judge_pixel.py` judges the films from the exact scan lines;
 tests: `test_ext_pixel.py` (stdlib) and `video-cases/test_judge_pixel.py` (numpy).
 
 ## Judge

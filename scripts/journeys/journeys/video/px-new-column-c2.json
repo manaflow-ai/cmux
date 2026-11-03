@@ -2,10 +2,10 @@
  "id": "px-new-column-c2",
  "priority": "P1",
  "title": "PIXEL: New Column on p1, then Cmd-W on it (columns p0 T | p1 P), at x0.25, x0.5, x1, x2, x4, Reduce Motion",
- "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge per film frame from the exact scan lines.",
+ "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, tab strips #000000, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge, tab strip and divider per film frame from the exact scan lines.",
  "source": "PIXEL PERFECT kit (video-cases/gen_pixel.py)",
- "budget_seconds": 206,
- "estimate_seconds": 165,
+ "budget_seconds": 137,
+ "estimate_seconds": 115,
  "recordings": [
   "px-new-column-c2-s025",
   "px-new-column-c2-s05",
@@ -20,7 +20,7 @@
  "steps": [
   {
    "do": "settings_file",
-   "title": "set-up: shell #FF00FF (app theme Nord), terminal ground #00FFFF, agent ground #0000FF, no close warning, new columns share the strip",
+   "title": "set-up: shell #FF00FF (app theme Nord), terminal ground #00FFFF, tab strips #000000, agent ground #0000FF, no close warning, new columns share the strip",
    "set": {
     "appearance": {
      "theme": "Builtin Dark",
@@ -32,6 +32,10 @@
      "surfaces": {
       "terminal": {
        "color": "#00FFFF",
+       "opacity": 1
+      },
+      "tabBar": {
+       "color": "#000000",
        "opacity": 1
       },
       "agentPane": {
@@ -109,7 +113,7 @@
    "do": "px_tunable",
    "key": "browserResize.pageBackdrop",
    "value": false,
-   "title": "set-up: a Chromium page that lags shows the gap (browserResize.pageBackdrop off)"
+   "title": "set-up: a Chromium page that lags shows the gap (browserResize.pageBackdrop off, where the store takes it)"
   },
   {
    "do": "type",
@@ -154,424 +158,472 @@
    "title": "the layout and the load settle (nothing observable to wait on)"
   },
   {
-   "do": "px_springs",
-   "speed": 0.25,
-   "title": "speed x0.25: every motion.spring.* response / 0.25"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "p1",
-   "title": "set-up: focus p1 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "px_record_start",
+   "do": "px_film",
    "name": "px-new-column-c2-s025",
-   "seconds": 13.4,
-   "require_hz": 120,
-   "fixture": {
-    "p0": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+   "steps": [
+    {
+     "do": "rk_focus",
+     "pane": "p1",
+     "title": "set-up: focus p1 (cmux pane focus)"
     },
-    "p1": {
-     "kind": "page",
-     "fill": "#00FF00"
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "px_record_start",
+     "name": "px-new-column-c2-s025",
+     "seconds": 13.4,
+     "require_hz": 120,
+     "fixture": {
+      "p0": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      },
+      "p1": {
+       "kind": "page",
+       "fill": "#00FF00"
+      }
+     },
+     "spring": "split",
+     "input": "new column",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-new-column-c2-s025)",
+     "spring_default": {
+      "response": 0.23,
+      "damping": 0.95
+     }
+    },
+    {
+     "do": "action",
+     "action": "newColumn",
+     "mark": "new",
+     "title": "New Column (action newColumn, as its menu item)"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.73,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "adopt_pane",
+     "as": "pnew",
+     "title": "the new pane has the focus"
+    },
+    {
+     "do": "hid_key",
+     "key": "w",
+     "modifiers": [
+      "cmd"
+     ],
+     "mark": "close",
+     "title": "Cmd-W closes the new pane"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.73,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-new-column-c2-s025",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-new-column-c2-s025)"
     }
-   },
-   "spring": "split",
-   "input": "new column",
-   "title": "start the 120 Hz movie, the trace and scan lines across every pane border (px-new-column-c2-s025)"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "mark": "new",
-   "title": "New Column (action newColumn, as its menu item)"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.73,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "pnew",
-   "title": "the new pane has the focus"
-  },
-  {
-   "do": "hid_key",
-   "key": "w",
-   "modifiers": [
-    "cmd"
    ],
-   "mark": "close",
-   "title": "Cmd-W closes the new pane"
+   "after": [],
+   "title": "film px-new-column-c2-s025: every motion.spring.* response / 0.25",
+   "speed": 0.25
   },
   {
-   "do": "wait",
-   "seconds": 1.73,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "video_stop",
-   "name": "px-new-column-c2-s025",
-   "tail": 0.4,
-   "title": "the motion ends; stop the recording (px-new-column-c2-s025)"
-  },
-  {
-   "do": "px_springs",
-   "speed": 0.5,
-   "title": "speed x0.5: every motion.spring.* response / 0.5"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "p1",
-   "title": "set-up: focus p1 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "px_record_start",
+   "do": "px_film",
    "name": "px-new-column-c2-s05",
-   "seconds": 11.4,
-   "require_hz": 120,
-   "fixture": {
-    "p0": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+   "steps": [
+    {
+     "do": "rk_focus",
+     "pane": "p1",
+     "title": "set-up: focus p1 (cmux pane focus)"
     },
-    "p1": {
-     "kind": "page",
-     "fill": "#00FF00"
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "px_record_start",
+     "name": "px-new-column-c2-s05",
+     "seconds": 11.4,
+     "require_hz": 120,
+     "fixture": {
+      "p0": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      },
+      "p1": {
+       "kind": "page",
+       "fill": "#00FF00"
+      }
+     },
+     "spring": "split",
+     "input": "new column",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-new-column-c2-s05)",
+     "spring_default": {
+      "response": 0.23,
+      "damping": 0.95
+     }
+    },
+    {
+     "do": "action",
+     "action": "newColumn",
+     "mark": "new",
+     "title": "New Column (action newColumn, as its menu item)"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.04,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "adopt_pane",
+     "as": "pnew",
+     "title": "the new pane has the focus"
+    },
+    {
+     "do": "hid_key",
+     "key": "w",
+     "modifiers": [
+      "cmd"
+     ],
+     "mark": "close",
+     "title": "Cmd-W closes the new pane"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.04,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-new-column-c2-s05",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-new-column-c2-s05)"
     }
-   },
-   "spring": "split",
-   "input": "new column",
-   "title": "start the 120 Hz movie, the trace and scan lines across every pane border (px-new-column-c2-s05)"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "mark": "new",
-   "title": "New Column (action newColumn, as its menu item)"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.04,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "pnew",
-   "title": "the new pane has the focus"
-  },
-  {
-   "do": "hid_key",
-   "key": "w",
-   "modifiers": [
-    "cmd"
    ],
-   "mark": "close",
-   "title": "Cmd-W closes the new pane"
+   "after": [],
+   "title": "film px-new-column-c2-s05: every motion.spring.* response / 0.5",
+   "speed": 0.5
   },
   {
-   "do": "wait",
-   "seconds": 1.04,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "video_stop",
-   "name": "px-new-column-c2-s05",
-   "tail": 0.4,
-   "title": "the motion ends; stop the recording (px-new-column-c2-s05)"
-  },
-  {
-   "do": "px_springs",
-   "speed": 1.0,
-   "title": "speed x1: every motion.spring.* response / 1"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "p1",
-   "title": "set-up: focus p1 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "px_record_start",
+   "do": "px_film",
    "name": "px-new-column-c2-s1",
-   "seconds": 10.3,
-   "require_hz": 120,
-   "fixture": {
-    "p0": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+   "steps": [
+    {
+     "do": "rk_focus",
+     "pane": "p1",
+     "title": "set-up: focus p1 (cmux pane focus)"
     },
-    "p1": {
-     "kind": "page",
-     "fill": "#00FF00"
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "px_record_start",
+     "name": "px-new-column-c2-s1",
+     "seconds": 10.3,
+     "require_hz": 120,
+     "fixture": {
+      "p0": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      },
+      "p1": {
+       "kind": "page",
+       "fill": "#00FF00"
+      }
+     },
+     "spring": "split",
+     "input": "new column",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-new-column-c2-s1)",
+     "spring_default": {
+      "response": 0.23,
+      "damping": 0.95
+     }
+    },
+    {
+     "do": "action",
+     "action": "newColumn",
+     "mark": "new",
+     "title": "New Column (action newColumn, as its menu item)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "adopt_pane",
+     "as": "pnew",
+     "title": "the new pane has the focus"
+    },
+    {
+     "do": "hid_key",
+     "key": "w",
+     "modifiers": [
+      "cmd"
+     ],
+     "mark": "close",
+     "title": "Cmd-W closes the new pane"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.7,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-new-column-c2-s1",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-new-column-c2-s1)"
     }
-   },
-   "spring": "split",
-   "input": "new column",
-   "title": "start the 120 Hz movie, the trace and scan lines across every pane border (px-new-column-c2-s1)"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "mark": "new",
-   "title": "New Column (action newColumn, as its menu item)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.7,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "pnew",
-   "title": "the new pane has the focus"
-  },
-  {
-   "do": "hid_key",
-   "key": "w",
-   "modifiers": [
-    "cmd"
    ],
-   "mark": "close",
-   "title": "Cmd-W closes the new pane"
+   "after": [],
+   "title": "film px-new-column-c2-s1: every motion.spring.* response / 1",
+   "speed": 1.0
   },
   {
-   "do": "wait",
-   "seconds": 0.7,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "video_stop",
-   "name": "px-new-column-c2-s1",
-   "tail": 0.4,
-   "title": "the motion ends; stop the recording (px-new-column-c2-s1)"
-  },
-  {
-   "do": "px_springs",
-   "speed": 2.0,
-   "title": "speed x2: every motion.spring.* response / 2"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "p1",
-   "title": "set-up: focus p1 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "px_record_start",
+   "do": "px_film",
    "name": "px-new-column-c2-s2",
-   "seconds": 9.8,
-   "require_hz": 120,
-   "fixture": {
-    "p0": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+   "steps": [
+    {
+     "do": "rk_focus",
+     "pane": "p1",
+     "title": "set-up: focus p1 (cmux pane focus)"
     },
-    "p1": {
-     "kind": "page",
-     "fill": "#00FF00"
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "px_record_start",
+     "name": "px-new-column-c2-s2",
+     "seconds": 9.8,
+     "require_hz": 120,
+     "fixture": {
+      "p0": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      },
+      "p1": {
+       "kind": "page",
+       "fill": "#00FF00"
+      }
+     },
+     "spring": "split",
+     "input": "new column",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-new-column-c2-s2)",
+     "spring_default": {
+      "response": 0.23,
+      "damping": 0.95
+     }
+    },
+    {
+     "do": "action",
+     "action": "newColumn",
+     "mark": "new",
+     "title": "New Column (action newColumn, as its menu item)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.52,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "adopt_pane",
+     "as": "pnew",
+     "title": "the new pane has the focus"
+    },
+    {
+     "do": "hid_key",
+     "key": "w",
+     "modifiers": [
+      "cmd"
+     ],
+     "mark": "close",
+     "title": "Cmd-W closes the new pane"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.52,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-new-column-c2-s2",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-new-column-c2-s2)"
     }
-   },
-   "spring": "split",
-   "input": "new column",
-   "title": "start the 120 Hz movie, the trace and scan lines across every pane border (px-new-column-c2-s2)"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "mark": "new",
-   "title": "New Column (action newColumn, as its menu item)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.52,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "pnew",
-   "title": "the new pane has the focus"
-  },
-  {
-   "do": "hid_key",
-   "key": "w",
-   "modifiers": [
-    "cmd"
    ],
-   "mark": "close",
-   "title": "Cmd-W closes the new pane"
+   "after": [],
+   "title": "film px-new-column-c2-s2: every motion.spring.* response / 2",
+   "speed": 2.0
   },
   {
-   "do": "wait",
-   "seconds": 0.52,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "video_stop",
-   "name": "px-new-column-c2-s2",
-   "tail": 0.4,
-   "title": "the motion ends; stop the recording (px-new-column-c2-s2)"
-  },
-  {
-   "do": "px_springs",
-   "speed": 4.0,
-   "title": "speed x4: every motion.spring.* response / 4"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "p1",
-   "title": "set-up: focus p1 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "px_record_start",
+   "do": "px_film",
    "name": "px-new-column-c2-s4",
-   "seconds": 9.6,
-   "require_hz": 120,
-   "fixture": {
-    "p0": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+   "steps": [
+    {
+     "do": "rk_focus",
+     "pane": "p1",
+     "title": "set-up: focus p1 (cmux pane focus)"
     },
-    "p1": {
-     "kind": "page",
-     "fill": "#00FF00"
-    }
-   },
-   "spring": "split",
-   "input": "new column",
-   "title": "start the 120 Hz movie, the trace and scan lines across every pane border (px-new-column-c2-s4)"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "mark": "new",
-   "title": "New Column (action newColumn, as its menu item)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.44,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "pnew",
-   "title": "the new pane has the focus"
-  },
-  {
-   "do": "hid_key",
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "mark": "close",
-   "title": "Cmd-W closes the new pane"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.44,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "video_stop",
-   "name": "px-new-column-c2-s4",
-   "tail": 0.4,
-   "title": "the motion ends; stop the recording (px-new-column-c2-s4)"
-  },
-  {
-   "do": "px_springs",
-   "reduce": true,
-   "title": "Reduce Motion on (debug.motion reduce), springs at their defaults"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "p1",
-   "title": "set-up: focus p1 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "px_record_start",
-   "name": "px-new-column-c2-reduce",
-   "seconds": 9.8,
-   "require_hz": 120,
-   "fixture": {
-    "p0": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
     },
-    "p1": {
-     "kind": "page",
-     "fill": "#00FF00"
+    {
+     "do": "px_record_start",
+     "name": "px-new-column-c2-s4",
+     "seconds": 9.6,
+     "require_hz": 120,
+     "fixture": {
+      "p0": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      },
+      "p1": {
+       "kind": "page",
+       "fill": "#00FF00"
+      }
+     },
+     "spring": "split",
+     "input": "new column",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-new-column-c2-s4)",
+     "spring_default": {
+      "response": 0.23,
+      "damping": 0.95
+     }
+    },
+    {
+     "do": "action",
+     "action": "newColumn",
+     "mark": "new",
+     "title": "New Column (action newColumn, as its menu item)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.44,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "adopt_pane",
+     "as": "pnew",
+     "title": "the new pane has the focus"
+    },
+    {
+     "do": "hid_key",
+     "key": "w",
+     "modifiers": [
+      "cmd"
+     ],
+     "mark": "close",
+     "title": "Cmd-W closes the new pane"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.44,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-new-column-c2-s4",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-new-column-c2-s4)"
     }
-   },
-   "spring": "split",
-   "input": "new column",
-   "title": "start the 120 Hz movie, the trace and scan lines across every pane border (px-new-column-c2-reduce)"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "mark": "new",
-   "title": "New Column (action newColumn, as its menu item)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.5,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "pnew",
-   "title": "the new pane has the focus"
-  },
-  {
-   "do": "hid_key",
-   "key": "w",
-   "modifiers": [
-    "cmd"
    ],
-   "mark": "close",
-   "title": "Cmd-W closes the new pane"
+   "after": [],
+   "title": "film px-new-column-c2-s4: every motion.spring.* response / 4",
+   "speed": 4.0
   },
   {
-   "do": "wait",
-   "seconds": 0.5,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "video_stop",
+   "do": "px_film",
    "name": "px-new-column-c2-reduce",
-   "tail": 0.4,
-   "title": "the motion ends; stop the recording (px-new-column-c2-reduce)"
+   "steps": [
+    {
+     "do": "rk_focus",
+     "pane": "p1",
+     "title": "set-up: focus p1 (cmux pane focus)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "px_record_start",
+     "name": "px-new-column-c2-reduce",
+     "seconds": 9.8,
+     "require_hz": 120,
+     "fixture": {
+      "p0": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      },
+      "p1": {
+       "kind": "page",
+       "fill": "#00FF00"
+      }
+     },
+     "spring": "split",
+     "input": "new column",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-new-column-c2-reduce)",
+     "spring_default": {
+      "response": 0.23,
+      "damping": 0.95
+     }
+    },
+    {
+     "do": "action",
+     "action": "newColumn",
+     "mark": "new",
+     "title": "New Column (action newColumn, as its menu item)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "adopt_pane",
+     "as": "pnew",
+     "title": "the new pane has the focus"
+    },
+    {
+     "do": "hid_key",
+     "key": "w",
+     "modifiers": [
+      "cmd"
+     ],
+     "mark": "close",
+     "title": "Cmd-W closes the new pane"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-new-column-c2-reduce",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-new-column-c2-reduce)"
+    }
+   ],
+   "after": [],
+   "title": "film px-new-column-c2-reduce: Reduce Motion",
+   "reduce": true
   },
   {
    "do": "use_pane",

@@ -2,10 +2,10 @@
  "id": "px-row-drag-3r",
  "priority": "P1",
  "title": "PIXEL: the row divider dragged 120 pt down slowly and back fast (p0 T | (p1 P / p2 T)), at x0.25, x0.5, x1, x2, x4, Reduce Motion",
- "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge per film frame from the exact scan lines.",
+ "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, tab strips #000000, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge, tab strip and divider per film frame from the exact scan lines.",
  "source": "PIXEL PERFECT kit (video-cases/gen_pixel.py)",
- "budget_seconds": 208,
- "estimate_seconds": 167,
+ "budget_seconds": 137,
+ "estimate_seconds": 115,
  "recordings": [
   "px-row-drag-3r-s025",
   "px-row-drag-3r-s05",
@@ -20,7 +20,7 @@
  "steps": [
   {
    "do": "settings_file",
-   "title": "set-up: shell #FF00FF (app theme Nord), terminal ground #00FFFF, agent ground #0000FF, no close warning, new columns share the strip",
+   "title": "set-up: shell #FF00FF (app theme Nord), terminal ground #00FFFF, tab strips #000000, agent ground #0000FF, no close warning, new columns share the strip",
    "set": {
     "appearance": {
      "theme": "Builtin Dark",
@@ -32,6 +32,10 @@
      "surfaces": {
       "terminal": {
        "color": "#00FFFF",
+       "opacity": 1
+      },
+      "tabBar": {
+       "color": "#000000",
        "opacity": 1
       },
       "agentPane": {
@@ -109,7 +113,7 @@
    "do": "px_tunable",
    "key": "browserResize.pageBackdrop",
    "value": false,
-   "title": "set-up: a Chromium page that lags shows the gap (browserResize.pageBackdrop off)"
+   "title": "set-up: a Chromium page that lags shows the gap (browserResize.pageBackdrop off, where the store takes it)"
   },
   {
    "do": "type",
@@ -184,454 +188,478 @@
    "title": "the layout and the load settle (nothing observable to wait on)"
   },
   {
-   "do": "px_springs",
-   "speed": 0.25,
-   "title": "speed x0.25: every motion.spring.* response / 0.25"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "px_record_start",
+   "do": "px_film",
    "name": "px-row-drag-3r-s025",
-   "seconds": 11.7,
-   "require_hz": 120,
-   "fixture": {
-    "p0": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
     },
-    "p1": {
-     "kind": "page",
-     "fill": "#00FF00"
+    {
+     "do": "px_record_start",
+     "name": "px-row-drag-3r-s025",
+     "seconds": 11.7,
+     "require_hz": 120,
+     "fixture": {
+      "p0": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      },
+      "p1": {
+       "kind": "page",
+       "fill": "#00FF00"
+      },
+      "p2": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      }
+     },
+     "spring": null,
+     "input": "drag",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-row-drag-3r-s025)"
     },
-    "p2": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+    {
+     "do": "hid_drag",
+     "target": {
+      "row_divider": 0
+     },
+     "by": [
+      0,
+      120
+     ],
+     "duration_ms": 1000,
+     "mark": "slow",
+     "title": "slow drag: 120 pt down in 1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.25,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "hid_drag",
+     "target": {
+      "row_divider": 0
+     },
+     "by": [
+      0,
+      -120
+     ],
+     "duration_ms": 100,
+     "mark": "fast",
+     "title": "fast drag: 120 pt back up in 0.1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.25,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-row-drag-3r-s025",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-row-drag-3r-s025)"
     }
-   },
-   "spring": null,
-   "input": "drag",
-   "title": "start the 120 Hz movie, the trace and scan lines across every pane border (px-row-drag-3r-s025)"
-  },
-  {
-   "do": "hid_drag",
-   "target": {
-    "row_divider": 0
-   },
-   "by": [
-    0,
-    120
    ],
-   "duration_ms": 1000,
-   "mark": "slow",
-   "title": "slow drag: 120 pt down in 1 s"
+   "after": [],
+   "title": "film px-row-drag-3r-s025: every motion.spring.* response / 0.25",
+   "speed": 0.25
   },
   {
-   "do": "wait",
-   "seconds": 1.25,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "hid_drag",
-   "target": {
-    "row_divider": 0
-   },
-   "by": [
-    0,
-    -120
-   ],
-   "duration_ms": 100,
-   "mark": "fast",
-   "title": "fast drag: 120 pt back up in 0.1 s"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.25,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "video_stop",
-   "name": "px-row-drag-3r-s025",
-   "tail": 0.4,
-   "title": "the motion ends; stop the recording (px-row-drag-3r-s025)"
-  },
-  {
-   "do": "px_springs",
-   "speed": 0.5,
-   "title": "speed x0.5: every motion.spring.* response / 0.5"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "px_record_start",
+   "do": "px_film",
    "name": "px-row-drag-3r-s05",
-   "seconds": 10.4,
-   "require_hz": 120,
-   "fixture": {
-    "p0": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
     },
-    "p1": {
-     "kind": "page",
-     "fill": "#00FF00"
+    {
+     "do": "px_record_start",
+     "name": "px-row-drag-3r-s05",
+     "seconds": 10.4,
+     "require_hz": 120,
+     "fixture": {
+      "p0": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      },
+      "p1": {
+       "kind": "page",
+       "fill": "#00FF00"
+      },
+      "p2": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      }
+     },
+     "spring": null,
+     "input": "drag",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-row-drag-3r-s05)"
     },
-    "p2": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+    {
+     "do": "hid_drag",
+     "target": {
+      "row_divider": 0
+     },
+     "by": [
+      0,
+      120
+     ],
+     "duration_ms": 1000,
+     "mark": "slow",
+     "title": "slow drag: 120 pt down in 1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "hid_drag",
+     "target": {
+      "row_divider": 0
+     },
+     "by": [
+      0,
+      -120
+     ],
+     "duration_ms": 100,
+     "mark": "fast",
+     "title": "fast drag: 120 pt back up in 0.1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-row-drag-3r-s05",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-row-drag-3r-s05)"
     }
-   },
-   "spring": null,
-   "input": "drag",
-   "title": "start the 120 Hz movie, the trace and scan lines across every pane border (px-row-drag-3r-s05)"
-  },
-  {
-   "do": "hid_drag",
-   "target": {
-    "row_divider": 0
-   },
-   "by": [
-    0,
-    120
    ],
-   "duration_ms": 1000,
-   "mark": "slow",
-   "title": "slow drag: 120 pt down in 1 s"
+   "after": [],
+   "title": "film px-row-drag-3r-s05: every motion.spring.* response / 0.5",
+   "speed": 0.5
   },
   {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "hid_drag",
-   "target": {
-    "row_divider": 0
-   },
-   "by": [
-    0,
-    -120
-   ],
-   "duration_ms": 100,
-   "mark": "fast",
-   "title": "fast drag: 120 pt back up in 0.1 s"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "video_stop",
-   "name": "px-row-drag-3r-s05",
-   "tail": 0.4,
-   "title": "the motion ends; stop the recording (px-row-drag-3r-s05)"
-  },
-  {
-   "do": "px_springs",
-   "speed": 1.0,
-   "title": "speed x1: every motion.spring.* response / 1"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "px_record_start",
+   "do": "px_film",
    "name": "px-row-drag-3r-s1",
-   "seconds": 9.7,
-   "require_hz": 120,
-   "fixture": {
-    "p0": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
     },
-    "p1": {
-     "kind": "page",
-     "fill": "#00FF00"
+    {
+     "do": "px_record_start",
+     "name": "px-row-drag-3r-s1",
+     "seconds": 9.7,
+     "require_hz": 120,
+     "fixture": {
+      "p0": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      },
+      "p1": {
+       "kind": "page",
+       "fill": "#00FF00"
+      },
+      "p2": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      }
+     },
+     "spring": null,
+     "input": "drag",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-row-drag-3r-s1)"
     },
-    "p2": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+    {
+     "do": "hid_drag",
+     "target": {
+      "row_divider": 0
+     },
+     "by": [
+      0,
+      120
+     ],
+     "duration_ms": 1000,
+     "mark": "slow",
+     "title": "slow drag: 120 pt down in 1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "hid_drag",
+     "target": {
+      "row_divider": 0
+     },
+     "by": [
+      0,
+      -120
+     ],
+     "duration_ms": 100,
+     "mark": "fast",
+     "title": "fast drag: 120 pt back up in 0.1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-row-drag-3r-s1",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-row-drag-3r-s1)"
     }
-   },
-   "spring": null,
-   "input": "drag",
-   "title": "start the 120 Hz movie, the trace and scan lines across every pane border (px-row-drag-3r-s1)"
-  },
-  {
-   "do": "hid_drag",
-   "target": {
-    "row_divider": 0
-   },
-   "by": [
-    0,
-    120
    ],
-   "duration_ms": 1000,
-   "mark": "slow",
-   "title": "slow drag: 120 pt down in 1 s"
+   "after": [],
+   "title": "film px-row-drag-3r-s1: every motion.spring.* response / 1",
+   "speed": 1.0
   },
   {
-   "do": "wait",
-   "seconds": 0.57,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "hid_drag",
-   "target": {
-    "row_divider": 0
-   },
-   "by": [
-    0,
-    -120
-   ],
-   "duration_ms": 100,
-   "mark": "fast",
-   "title": "fast drag: 120 pt back up in 0.1 s"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.57,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "video_stop",
-   "name": "px-row-drag-3r-s1",
-   "tail": 0.4,
-   "title": "the motion ends; stop the recording (px-row-drag-3r-s1)"
-  },
-  {
-   "do": "px_springs",
-   "speed": 2.0,
-   "title": "speed x2: every motion.spring.* response / 2"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "px_record_start",
+   "do": "px_film",
    "name": "px-row-drag-3r-s2",
-   "seconds": 9.3,
-   "require_hz": 120,
-   "fixture": {
-    "p0": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
     },
-    "p1": {
-     "kind": "page",
-     "fill": "#00FF00"
+    {
+     "do": "px_record_start",
+     "name": "px-row-drag-3r-s2",
+     "seconds": 9.3,
+     "require_hz": 120,
+     "fixture": {
+      "p0": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      },
+      "p1": {
+       "kind": "page",
+       "fill": "#00FF00"
+      },
+      "p2": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      }
+     },
+     "spring": null,
+     "input": "drag",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-row-drag-3r-s2)"
     },
-    "p2": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+    {
+     "do": "hid_drag",
+     "target": {
+      "row_divider": 0
+     },
+     "by": [
+      0,
+      120
+     ],
+     "duration_ms": 1000,
+     "mark": "slow",
+     "title": "slow drag: 120 pt down in 1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.46,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "hid_drag",
+     "target": {
+      "row_divider": 0
+     },
+     "by": [
+      0,
+      -120
+     ],
+     "duration_ms": 100,
+     "mark": "fast",
+     "title": "fast drag: 120 pt back up in 0.1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.46,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-row-drag-3r-s2",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-row-drag-3r-s2)"
     }
-   },
-   "spring": null,
-   "input": "drag",
-   "title": "start the 120 Hz movie, the trace and scan lines across every pane border (px-row-drag-3r-s2)"
-  },
-  {
-   "do": "hid_drag",
-   "target": {
-    "row_divider": 0
-   },
-   "by": [
-    0,
-    120
    ],
-   "duration_ms": 1000,
-   "mark": "slow",
-   "title": "slow drag: 120 pt down in 1 s"
+   "after": [],
+   "title": "film px-row-drag-3r-s2: every motion.spring.* response / 2",
+   "speed": 2.0
   },
   {
-   "do": "wait",
-   "seconds": 0.46,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "hid_drag",
-   "target": {
-    "row_divider": 0
-   },
-   "by": [
-    0,
-    -120
-   ],
-   "duration_ms": 100,
-   "mark": "fast",
-   "title": "fast drag: 120 pt back up in 0.1 s"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.46,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "video_stop",
-   "name": "px-row-drag-3r-s2",
-   "tail": 0.4,
-   "title": "the motion ends; stop the recording (px-row-drag-3r-s2)"
-  },
-  {
-   "do": "px_springs",
-   "speed": 4.0,
-   "title": "speed x4: every motion.spring.* response / 4"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "px_record_start",
+   "do": "px_film",
    "name": "px-row-drag-3r-s4",
-   "seconds": 9.2,
-   "require_hz": 120,
-   "fixture": {
-    "p0": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
     },
-    "p1": {
-     "kind": "page",
-     "fill": "#00FF00"
+    {
+     "do": "px_record_start",
+     "name": "px-row-drag-3r-s4",
+     "seconds": 9.2,
+     "require_hz": 120,
+     "fixture": {
+      "p0": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      },
+      "p1": {
+       "kind": "page",
+       "fill": "#00FF00"
+      },
+      "p2": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      }
+     },
+     "spring": null,
+     "input": "drag",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-row-drag-3r-s4)"
     },
-    "p2": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+    {
+     "do": "hid_drag",
+     "target": {
+      "row_divider": 0
+     },
+     "by": [
+      0,
+      120
+     ],
+     "duration_ms": 1000,
+     "mark": "slow",
+     "title": "slow drag: 120 pt down in 1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.41,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "hid_drag",
+     "target": {
+      "row_divider": 0
+     },
+     "by": [
+      0,
+      -120
+     ],
+     "duration_ms": 100,
+     "mark": "fast",
+     "title": "fast drag: 120 pt back up in 0.1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.41,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-row-drag-3r-s4",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-row-drag-3r-s4)"
     }
-   },
-   "spring": null,
-   "input": "drag",
-   "title": "start the 120 Hz movie, the trace and scan lines across every pane border (px-row-drag-3r-s4)"
-  },
-  {
-   "do": "hid_drag",
-   "target": {
-    "row_divider": 0
-   },
-   "by": [
-    0,
-    120
    ],
-   "duration_ms": 1000,
-   "mark": "slow",
-   "title": "slow drag: 120 pt down in 1 s"
+   "after": [],
+   "title": "film px-row-drag-3r-s4: every motion.spring.* response / 4",
+   "speed": 4.0
   },
   {
-   "do": "wait",
-   "seconds": 0.41,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "hid_drag",
-   "target": {
-    "row_divider": 0
-   },
-   "by": [
-    0,
-    -120
-   ],
-   "duration_ms": 100,
-   "mark": "fast",
-   "title": "fast drag: 120 pt back up in 0.1 s"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.41,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "video_stop",
-   "name": "px-row-drag-3r-s4",
-   "tail": 0.4,
-   "title": "the motion ends; stop the recording (px-row-drag-3r-s4)"
-  },
-  {
-   "do": "px_springs",
-   "reduce": true,
-   "title": "Reduce Motion on (debug.motion reduce), springs at their defaults"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "px_record_start",
+   "do": "px_film",
    "name": "px-row-drag-3r-reduce",
-   "seconds": 9.4,
-   "require_hz": 120,
-   "fixture": {
-    "p0": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+   "steps": [
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
     },
-    "p1": {
-     "kind": "page",
-     "fill": "#00FF00"
+    {
+     "do": "px_record_start",
+     "name": "px-row-drag-3r-reduce",
+     "seconds": 9.4,
+     "require_hz": 120,
+     "fixture": {
+      "p0": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      },
+      "p1": {
+       "kind": "page",
+       "fill": "#00FF00"
+      },
+      "p2": {
+       "kind": "tui",
+       "fill": "#FFFF00"
+      }
+     },
+     "spring": null,
+     "input": "drag",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-row-drag-3r-reduce)"
     },
-    "p2": {
-     "kind": "tui",
-     "fill": "#FFFF00"
+    {
+     "do": "hid_drag",
+     "target": {
+      "row_divider": 0
+     },
+     "by": [
+      0,
+      120
+     ],
+     "duration_ms": 1000,
+     "mark": "slow",
+     "title": "slow drag: 120 pt down in 1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "hid_drag",
+     "target": {
+      "row_divider": 0
+     },
+     "by": [
+      0,
+      -120
+     ],
+     "duration_ms": 100,
+     "mark": "fast",
+     "title": "fast drag: 120 pt back up in 0.1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-row-drag-3r-reduce",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-row-drag-3r-reduce)"
     }
-   },
-   "spring": null,
-   "input": "drag",
-   "title": "start the 120 Hz movie, the trace and scan lines across every pane border (px-row-drag-3r-reduce)"
-  },
-  {
-   "do": "hid_drag",
-   "target": {
-    "row_divider": 0
-   },
-   "by": [
-    0,
-    120
    ],
-   "duration_ms": 1000,
-   "mark": "slow",
-   "title": "slow drag: 120 pt down in 1 s"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.5,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "hid_drag",
-   "target": {
-    "row_divider": 0
-   },
-   "by": [
-    0,
-    -120
-   ],
-   "duration_ms": 100,
-   "mark": "fast",
-   "title": "fast drag: 120 pt back up in 0.1 s"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.5,
-   "title": "the motion lands and rests"
-  },
-  {
-   "do": "video_stop",
-   "name": "px-row-drag-3r-reduce",
-   "tail": 0.4,
-   "title": "the motion ends; stop the recording (px-row-drag-3r-reduce)"
+   "after": [],
+   "title": "film px-row-drag-3r-reduce: Reduce Motion",
+   "reduce": true
   },
   {
    "do": "use_pane",

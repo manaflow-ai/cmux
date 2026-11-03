@@ -19,18 +19,27 @@ Every journey: a new workspace with 2 to 6 fixture panes, the fixture colors, th
                      and 3 CSS px borders in the same three colors, a body fill per pane, a 10 CSS px ruler
   agent panes        palette.newAgentChat, with appearance.surfaces.agentPane.color and .newTabPage.color (#0000FF) and
                      agent-pane/theme.css beside the settings file (ext_pixel px_agent_css): the same rings
-  browserResize.pageBackdrop off (debug.tunables): a Chromium page that lags its pane shows the gap, not its own color
+  tab strips #000000 appearance.surfaces.tabBar.color (opacity 1): the strip's edges show against the shell, and the
+                     selected tab's pill (the theme's selection fill over it) against the strip
+  browserResize.pageBackdrop off (debug.tunables): a Chromium page that lags its pane shows the gap, not its own color;
+                     where the tunable store is inactive it stays on, and each film's note says so
 
-Speeds (ext_pixel px_springs, debug.tunables): every motion.spring.<token> response = its default / S, damping its
+Speeds (ext_pixel px_film, debug.tunables): every motion.spring.<token> response = its default / S, damping its
 default, with debug.motion speed fast (time scale 1): S = 0.25, 0.5, 1, 2, 4; and Reduce Motion (debug.motion reduce
-true, springs at their defaults). Recording names end -s025, -s05, -s1, -s2, -s4, -reduce.
+true, springs at their defaults). Recording names end -s025, -s05, -s1, -s2, -s4, -reduce. In a build whose tunable
+store is inactive (Release with bench hooks; `debug.tunables activate` turns it on where the build has it), the x1
+and Reduce Motion films run and every other speed is one "not run: tunable store inactive" px_film result.
 
-Each recording: ext_pixel px_record_start (ext_video's 120 Hz recorder, require_hz 120, with scan rows and columns at
-0.3 and 0.7 of every pane, so every pane border is crossed), the input as a person gives it (real HID drags, keys and
-the app's actions), video_stop. The judge (judge_pixel.py) reads the scan lines, the trace and the note px_record_start
-writes (which pane is which fixture, the speed, the declared spring). Each journey ends with the kit's after check:
+Each recording is one px_film step: the speed, ext_pixel px_record_start (ext_video's 120 Hz recorder, require_hz 120,
+with a scan row through every tab strip and rows and columns at 0.3 and 0.7 of every pane, so every pane border is
+crossed), the input as a person gives it (real HID drags, keys and the app's actions), video_stop, and the rebuild of a
+closed pane. The judge (judge_pixel.py) reads the scan lines, the trace and the note px_record_start writes (which pane
+is which fixture, the speed, the declared spring, the page backdrop). Each journey ends with the kit's after check:
 p0's TUI ends on a real HID Ctrl-C and p0 echoes a line (app, daemon and frame). `finally` puts the springs, Reduce
 Motion, the page backdrop tunable, the agent theme.css and the settings back.
+
+Two journeys per case: <case> (the six speeds, for a build whose store is active; split -a, -b when too long for one
+lease) and <case>-s1r (x1 and Reduce Motion only: several fit one lease, for any bench build).
 
 Cases (layouts: T terminal fixture, P page fixture, A agent pane; | a vertical divider, / stacked):
   px-col-drag-*      a vertical divider dragged 150 pt right in 1 s (slow), back in 0.1 s (fast)    T|P and T|P|(A/T)
@@ -43,7 +52,6 @@ Cases (layouts: T terminal fixture, P page fixture, A agent pane; | a vertical d
   px-close-column-*  Cmd-W on the middle column's only pane; it comes back before the next speed    columns T|T|A
   px-window-resize-* the window's bottom-right corner 300 x 150 pt in and back in 0.6 s each       T|P|(A/T)
 The key of New Column will be Ctrl-Cmd-X after #29866; the cases run the action, as a menu item does.
-A journey that would pass the 260 s lease budget is split by speeds (-a, -b, ...).
 """
 import argparse
 import json
@@ -62,8 +70,15 @@ SHELL_THEME, TERMINAL_THEME = "Nord", "Builtin Dark"
 YELLOW, GREEN, BLUE = "#FFFF00", "#00FF00", "#0000FF"
 AGENT_FILL = BLUE
 SPEEDS = (("s025", 0.25), ("s05", 0.5), ("s1", 1.0), ("s2", 2.0), ("s4", 4.0), ("reduce", None))
-# MotionTunables.springDefaults (feat-cmux-next): the tokens the inputs ride, for the waits.
+# MotionTunables.springDefaults (feat-cmux-next): the tokens the inputs ride, for the waits and the judge's note when the
+# store cannot be read; damping as MotionPolicy applies it (move is structural: never under 1).
 RESPONSE = {"move": 0.15, "split": 0.23, "scroll": 0.2}
+DAMPING = {"move": 1.0, "split": 0.95, "scroll": 0.9}
+STRIP = "#000000"
+SPEEDS_S1R = (("s1", 1.0), ("reduce", None))
+# Seconds, from the first rounds (cmux22, 2026-11-03: a pane's set-up took 1-3 s); MARGIN on top.
+EST_BASE, EST_PANE, EST_FOCUS, EST_FILM, EST_REBUILD, EST_AFTER = 12, {"tui": 4, "page": 12, "agent": 5}, 1, 9, 7, 8
+MARGIN, BUDGET_MIN = 1.2, 40
 H, J, K, L = (("h", ["control", "shift"]), ("j", ["control", "shift"]), ("k", ["control", "shift"]),
               ("l", ["control", "shift"]))
 NAMES = {"h": "Ctrl-Shift-H", "j": "Ctrl-Shift-J", "k": "Ctrl-Shift-K", "l": "Ctrl-Shift-L"}
@@ -82,10 +97,11 @@ def fixture_files():
 
 def fixture_settings():
     return {"do": "settings_file", "title": f"set-up: shell {SHELL} (app theme {SHELL_THEME}), terminal ground {THEME_BG}, "
-                                            f"agent ground {AGENT_FILL}, no close warning, new columns share the strip",
+                                            f"tab strips {STRIP}, agent ground {AGENT_FILL}, no close warning, new columns share the strip",
             "set": {"appearance": {"theme": TERMINAL_THEME, "appTheme": SHELL_THEME,
                                    "themeEdits": {f"{SHELL_THEME}/background": SHELL, f"{TERMINAL_THEME}/background": THEME_BG},
                                    "surfaces": {"terminal": {"color": THEME_BG, "opacity": 1},
+                                                "tabBar": {"color": STRIP, "opacity": 1},
                                                 "agentPane": {"color": AGENT_FILL, "opacity": 1},
                                                 "newTabPage": {"color": AGENT_FILL, "opacity": 1}}},
                     "app": {"warnBeforeClosingTab": False},
@@ -157,8 +173,7 @@ class Layout:
         return steps
 
     def seconds(self):
-        cost = {"tui": 6, "page": 20, "agent": 8}
-        return sum(cost[k] for k in self.kinds()) + 3 * sum(1 for p in self.panes if p[3] and p[3][1])
+        return sum(EST_PANE[k] for k in self.kinds()) + EST_FOCUS * sum(1 for p in self.panes if p[3] and p[3][1])
 
 
 T2 = Layout("2", "p0 T | p1 P", [("p0", "tui", YELLOW, None), ("p1", "page", GREEN, ("splitRight", None))])
@@ -209,23 +224,22 @@ class Case:
         self.play_seconds = play_seconds
 
     def recording(self, jid, label, speed, last=False):
+        """One px_film step (the speed, the film and the rebuild after it) and its estimated seconds."""
         name = f"{jid}-{label}"
-        play = self.play(speed)
         expected = self.play_seconds(speed)
         # The recorder stops by itself after `seconds`: room for the lead (1 s), the steps' own overhead and the tail.
         seconds = round(1.5 * expected + 6.0, 1)
-        springs = {"do": "px_springs", "reduce": True, "title": "Reduce Motion on (debug.motion reduce), springs at their defaults"} \
-            if speed is None else {"do": "px_springs", "speed": speed, "title": f"speed x{speed:g}: every motion.spring.* response / {speed:g}"}
-        steps = [springs] + list(self.before) + [G.settle(0.8)]
-        steps.append({"do": "px_record_start", "name": name, "seconds": seconds, "require_hz": 120, "fixture": self.layout.fixture,
-                      "spring": self.spring, "input": self.input,
-                      "title": f"start the 120 Hz movie, the trace and scan lines across every pane border ({name})"})
-        steps += play
-        steps.append(G.kit_record_stop(name, 0.4))
-        rebuild = [] if last else list(self.rebuild)  # the journey's last recording needs no pane back
-        steps += rebuild
-        # Speeds, the recorder's start and stop with its files, the input and the rebuild of a closed pane.
-        return steps, 12 + 1.3 * expected + (12 if rebuild else 0)
+        start = {"do": "px_record_start", "name": name, "seconds": seconds, "require_hz": 120, "fixture": self.layout.fixture,
+                 "spring": self.spring, "input": self.input,
+                 "title": f"start the 120 Hz movie, the trace and scan lines across every pane border and tab strip ({name})"}
+        if self.spring:
+            start["spring_default"] = {"response": RESPONSE[self.spring], "damping": DAMPING[self.spring]}
+        steps = list(self.before) + [G.settle(0.8), start] + self.play(speed) + [G.kit_record_stop(name, 0.4)]
+        rebuild = [] if last else list(self.rebuild)  # the journey's last film needs no pane back
+        film = {"do": "px_film", "name": name, "steps": steps, "after": rebuild,
+                "title": (f"film {name}: Reduce Motion" if speed is None else f"film {name}: every motion.spring.* response / {speed:g}")}
+        film.update({"reduce": True} if speed is None else {"speed": speed})
+        return film, EST_FILM + 1.3 * expected + (EST_REBUILD if rebuild else 0)
 
 
 def col_drag_play(divider):
@@ -307,20 +321,20 @@ def cases():
 def journey(case, jid, speeds, part_note):
     steps = [fixture_settings()] + G.first_pane(jid, False) + fixture_files()
     steps.append({"do": "px_tunable", "key": "browserResize.pageBackdrop", "value": False,
-                  "title": "set-up: a Chromium page that lags shows the gap (browserResize.pageBackdrop off)"})
+                  "title": "set-up: a Chromium page that lags shows the gap (browserResize.pageBackdrop off, where the store takes it)"})
     if "agent" in case.layout.kinds():
         steps.append({"do": "px_agent_css", "fill": AGENT_FILL, "title": "set-up: agent-pane/theme.css: the agent ground and its rings"})
     steps += case.layout.build() + [G.settle(1.5)]
-    seconds = 30 + case.layout.seconds()
+    seconds = EST_BASE + case.layout.seconds()
     names = []
     for n, (label, speed) in enumerate(speeds):
-        rec, cost = case.recording(jid, label, speed, last=n == len(speeds) - 1)
-        steps += rec
+        film, cost = case.recording(jid, label, speed, last=n == len(speeds) - 1)
+        steps.append(film)
         seconds += cost
-        names.append(f"{jid}-{label}")
+        names.append(film["name"])
     steps += G.after_check_hid()
-    seconds += 12
-    budget = int(min(BUDGET_MAX, round(seconds * 1.25)))
+    seconds += EST_AFTER
+    budget = int(min(BUDGET_MAX, max(BUDGET_MIN, round(seconds * MARGIN))))
     final = [{"do": "px_springs", "reset": True, "title": "clean-up: springs and Reduce Motion back"},
              {"do": "px_tunable", "key": "browserResize.pageBackdrop", "value": None, "title": "clean-up: the page backdrop back"},
              {"do": "px_agent_css", "remove": True, "title": "clean-up: agent-pane/theme.css removed"},
@@ -328,25 +342,29 @@ def journey(case, jid, speeds, part_note):
     speeds_text = ", ".join("Reduce Motion" if s is None else f"x{s:g}" for _, s in speeds)
     return {"id": jid, "priority": "P1", "title": f"PIXEL: {case.title}, at {speeds_text}{part_note}",
             "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell "
-                   f"{SHELL}, terminal ground {THEME_BG}, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; "
-                   "judge_pixel.py reads every pane edge per film frame from the exact scan lines.",
+                   f"{SHELL}, terminal ground {THEME_BG}, tab strips {STRIP}, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or "
+                   "lag visible; judge_pixel.py reads every pane edge, tab strip and divider per film frame from the exact scan lines.",
             "source": "PIXEL PERFECT kit (video-cases/gen_pixel.py)", "budget_seconds": budget, "estimate_seconds": round(seconds),
             "recordings": names, "options": {"key_path": "real"}, "steps": steps, "finally": final}
+
+
+def sweep(case):
+    """The six speeds in as few journeys as fit one lease each (-a, -b, ... when split)."""
+    groups = [list(SPEEDS)]
+    while True:
+        built = [journey(case, case.cid, g, "") for g in groups] if len(groups) == 1 else \
+            [journey(case, f"{case.cid}-{'abcdefgh'[i]}", g, f" (part {'abcdefgh'[i]})") for i, g in enumerate(groups)]
+        if all(j["estimate_seconds"] * MARGIN <= BUDGET_MAX for j in built) or max(len(g) for g in groups) == 1:
+            return built
+        size = -(-len(SPEEDS) // (len(groups) + 1))
+        groups = [list(SPEEDS[i:i + size]) for i in range(0, len(SPEEDS), size)]
 
 
 def journeys():
     out = []
     for case in cases():
-        groups = [list(SPEEDS)]
-        while True:
-            built = [journey(case, case.cid, g, "") for g in groups] if len(groups) == 1 else \
-                [journey(case, f"{case.cid}-{'abcdefgh'[i]}", g, f" (part {'abcdefgh'[i]})") for i, g in enumerate(groups)]
-            if all(j["estimate_seconds"] * 1.25 <= BUDGET_MAX for j in built) or max(len(g) for g in groups) == 1:
-                break
-            n = len(groups) + 1
-            size = -(-len(SPEEDS) // n)
-            groups = [list(SPEEDS[i:i + size]) for i in range(0, len(SPEEDS), size)]
-        out += built
+        out += sweep(case)
+        out.append(journey(case, f"{case.cid}-s1r", list(SPEEDS_S1R), " (x1 and Reduce Motion: any bench build)"))
     return out
 
 
@@ -367,8 +385,28 @@ def main():
         with open(os.path.join(opts.out, j["id"] + ".json"), "w") as f:
             json.dump(j, f, indent=1)
             f.write("\n")
-    print(f"{len(chosen)} journeys in {opts.out}")
+    removed = [] if opts.only else prune(opts.out, {j["id"] for j in chosen})
+    print(f"{len(chosen)} journeys in {opts.out}" + (f"; removed {len(removed)} this generator no longer makes: {', '.join(removed)}"
+                                                     if removed else ""))
     return 0
+
+
+def prune(out, keep):
+    """Removes px-*.json files in OUT that this generator wrote (their source says so) and no longer makes."""
+    removed = []
+    for name in sorted(os.listdir(out)):
+        if not (name.startswith("px-") and name.endswith(".json")) or name[:-5] in keep:
+            continue
+        path = os.path.join(out, name)
+        try:
+            with open(path) as f:
+                ours = json.load(f).get("source", "").startswith("PIXEL PERFECT kit (video-cases/gen_pixel.py)")
+        except (OSError, ValueError):
+            ours = False
+        if ours:
+            os.remove(path)
+            removed.append(name[:-5])
+    return removed
 
 
 if __name__ == "__main__":
