@@ -330,6 +330,64 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("web lint", result.stderr)
 
+    RINGED_FIELD = 'struct Field {\n    var body: some View {\n        TextField("Name", text: $name)\n    }\n}\n'
+
+    def trusted_fixture(self):
+        """text_focus_fixture(), with the hook's reviewed copy of scripts/cmux-next reinstalled from it."""
+        log = self.text_focus_fixture()
+        installed = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        return log
+
+    def test_a_push_that_also_changes_scripts_cmux_next_still_runs_the_reviewed_text_focus_check(self):
+        # c0230efd501: a CmuxNext Swift field plus scripts/cmux-next/media/states/*.json. The hook can't run the
+        # pushed check code, but it holds a reviewed copy of scripts/cmux-next, which reads the pushed Swift.
+        log = self.trusted_fixture()
+        before = self.remote_head()
+        self.write("scripts/cmux-next/media/states/app-theme.json", "{}\n")
+        self.write(self.SWIFT_SOURCE, self.RINGED_FIELD)
+        self.commit("a state file and a field with a focus ring")
+
+        for env in ({}, LIGHT_HOST):
+            with self.subTest(env=env):
+                result = self.push(**env)
+
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.remote_head(), before, "the field with a ring must not reach origin")
+                self.assertIn("not linted here", result.stderr)
+                self.assertIn("still run, from the hook's reviewed copy of scripts/cmux-next/", result.stderr)
+                self.assertIn(f"{self.SWIFT_SOURCE}:3", result.stderr, "must name the field")
+                self.assertFalse(log.exists(), "only the declared source checks run")
+
+    def test_the_reviewed_copy_is_what_runs_never_the_pushed_check_code(self):
+        # A pushed module that would shadow the stdlib for a script run from scripts/cmux-next must never load.
+        self.trusted_fixture()
+        marker = self.root / "pushed-code-ran"
+        self.write("scripts/cmux-next/argparse.py", f"open({str(marker)!r}, 'w').close()\nraise SystemExit(0)\n")
+        self.write(self.SWIFT_SOURCE, self.RINGED_FIELD)
+        self.commit("a shadowing module and a field with a focus ring")
+
+        result = self.push()
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(marker.exists(), "the hook ran a module the push added")
+        self.assertIn(f"{self.SWIFT_SOURCE}:3", result.stderr)
+
+    def test_a_push_that_changes_a_check_script_does_not_run_that_check_from_the_copy(self):
+        # The copy would judge the push by the rule the push replaces; the CI job checks the new rule.
+        self.trusted_fixture()
+        source = (self.repo / self.TEXT_FOCUS).read_text()
+        self.write(self.TEXT_FOCUS, source.replace("text-focus-allow:", "text-focus-ok:"))
+        self.write(self.SWIFT_SOURCE, self.RINGED_FIELD)
+        self.commit("a changed text-focus rule and a field")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("not run, because this push changes its script: "
+                      "python3 ../scripts/cmux-next/check-text-focus-rings.py", result.stderr)
+        self.assertNotIn(f"{self.SWIFT_SOURCE}:3", result.stderr)
+
     def test_a_lint_error_in_the_pushed_commit_is_refused_when_the_working_tree_has_the_fix(self):
         # The fix is made but not committed: linting the working tree passed this push (0b115ab).
         before = self.remote_head()
@@ -1355,10 +1413,45 @@ class CheckPiecesTests(unittest.TestCase):
         webviews = next(p for p in lint.SCRIPT_PACKAGES if p.directory == "webviews")
         read = lambda rel: (SOURCE / rel).read_text(encoding="utf-8")
         pieces = lint.input_pieces(SOURCE, webviews, ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/New.swift"], read)
-        for script in ("check-text-focus-rings.py", "check-toast-targets.py", "check-dialog-key-hints.py",
-                       "check-system-blue.py"):
+        for script in ("check-text-focus-rings.py", "check-toast-targets.py", "check-dialog-key-hints.py"):
             self.assertTrue([piece for piece in pieces if script in piece], (script, pieces))
+        self.assertFalse([piece for piece in pieces if "check-system-blue.py" in piece], "it only warns")
         self.assertEqual(lint.input_pieces(SOURCE, webviews, ["README.md", "ios/App.swift"], read), [])
+
+    def test_every_declared_input_names_files_that_exist(self):
+        # A typo in INPUTS would turn the piece's coverage off with no error: each check of the real webviews check
+        # that assigns INPUTS must evaluate it, and every entry must match a tracked file.
+        lint = load_lint(SOURCE)
+        webviews = next(p for p in lint.SCRIPT_PACKAGES if p.directory == "webviews")
+        read = lambda rel: (SOURCE / rel).read_text(encoding="utf-8")
+        scripts = lint.package_scripts(SOURCE, webviews, read)
+        leaves, _ = lint.light_leaves(webviews, lint.script_chain(scripts, "check"), scripts)
+        tracked = subprocess.run(["git", "-C", str(SOURCE), "ls-files"], text=True, capture_output=True,
+                                 check=True).stdout.splitlines()
+        declared = 0
+        for piece in leaves:
+            argv = lint.light_argv(piece)
+            if not argv or argv[0] != "python3" or not lint.light_script(webviews, argv):
+                continue
+            script = next(word for word in argv[1:] if not word.startswith("-"))
+            source = read(lint.posixpath.normpath(lint.posixpath.join(webviews.directory, script)))
+            if f"\n{lint.INPUTS_NAME} =" not in f"\n{source}":
+                continue
+            inputs = lint.declared_inputs(source)
+            with self.subTest(piece=piece):
+                self.assertTrue(inputs, "INPUTS is assigned in a form declared_inputs() can't read")
+                for pattern in inputs:
+                    self.assertTrue(any(lint.input_matches(path, pattern) for path in tracked),
+                                    f"{pattern!r} matches no tracked file")
+            declared += 1
+        self.assertGreaterEqual(declared, 9, "the source checks that read outside webviews/ declare INPUTS")
+
+    def test_a_check_that_only_warns_declares_no_inputs(self):
+        # check:system-blue and check:attachment-caps can't fail; running them alone for a push could only cost time.
+        lint = load_lint(SOURCE)
+        for script in ("check-system-blue.py", "check-attachment-caps.py"):
+            with self.subTest(script=script):
+                self.assertEqual(lint.declared_inputs((SOURCE / "scripts/cmux-next" / script).read_text()), ())
 
 
 if __name__ == "__main__":
