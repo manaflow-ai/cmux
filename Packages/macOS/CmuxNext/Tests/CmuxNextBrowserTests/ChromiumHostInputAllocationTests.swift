@@ -8,9 +8,12 @@ import Testing
 /// The floor of the `cef-host-input` hot path (scripts/cmux-next/perf-hot-benches.json): one input event
 /// forwarded to the Chromium host app is one fixed-size encode and one non-blocking write, with no heap
 /// allocation. The page view turns each mouse move, key and scroll event into a wire frame and the connection
-/// writes it (HOT PATH AUDIT browser, handoff/hot-path-audit/browser/AUDIT.md). A scroll event may make the one
-/// `CGEvent` that Chromium's own Mac input path reads (`WebMouseWheelEventBuilder` reads `[event CGEvent]` once),
-/// never more.
+/// writes it (HOT PATH AUDIT browser, handoff/hot-path-audit/browser/AUDIT.md).
+///
+/// Counted on this thread with libmalloc's hook, against controls with the same loop over other events of the
+/// same kind: the send alone against a loop that only reads each frame, and each view handler against the
+/// AppKit reads it needs (the event's place, buttons, flags, time and characters; for a scroll, the one
+/// `CGEvent` Chromium's own Mac wheel path reads). What is left is cmux's own work, and it allocates nothing.
 @MainActor @Suite(.serialized)
 struct ChromiumHostInputAllocationTests {
     private static let events = 500
@@ -22,39 +25,108 @@ struct ChromiumHostInputAllocationTests {
         defer { wire.close() }
         let view = ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         view.sink = { [connection = wire.connection] frame in _ = connection.send(frame) }
+        var sink = 0
 
-        var moves: [NSEvent] = []
-        var keys: [NSEvent] = []
-        var wheels: [NSEvent] = []
-        for index in 0..<Self.events {
-            let time = TimeInterval(index) / 1_000 + 1
-            let point = NSPoint(x: CGFloat(index % 700) + 10, y: CGFloat(index % 500) + 20)
-            let move = NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: time,
-                                          windowNumber: 0, context: nil, eventNumber: index, clickCount: 0, pressure: 0)
-            moves.append(try #require(move))
-            let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: time, windowNumber: 0,
-                                       context: nil, characters: "a", charactersIgnoringModifiers: "a", isARepeat: false, keyCode: 0)
-            keys.append(try #require(key))
-            let scroll = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -3, wheel2: 1, wheel3: 0)
-            wheels.append(try #require(scroll.flatMap { NSEvent(cgEvent: $0) }))
-        }
-        // Warm-up outside the count: first-use statics, metadata and the event's lazily made fields.
-        view.mouseMoved(with: moves[0])
-        view.keyDown(with: keys[0])
-        view.scrollWheel(with: wheels[0])
+        // Frames made before the count (their making is the view's part below): the send alone.
+        let frames = (0..<Self.events).map { _ in ChromiumHostFrame(.mouse, v: [1, 2, 0, 0, 0, 0], flags: 256, t0: 42) }
+        _ = wire.connection.send(frames[0])
+        let frameLoop = try #require(HostInputMallocProbe.allocations { for frame in frames { sink &+= Int(frame.rawKind) } })
+        let sends = try #require(HostInputMallocProbe.allocations { for frame in frames { _ = wire.connection.send(frame) } })
 
-        // The same loop with nothing in it is the baseline (a Debug for-in can allocate per iteration).
-        let loop = try #require(HostInputMallocProbe.allocations { for _ in 0..<Self.events {} })
-        let mouse = try #require(HostInputMallocProbe.allocations { for event in moves { view.mouseMoved(with: event) } }) - loop
-        let key = try #require(HostInputMallocProbe.allocations { for event in keys { view.keyDown(with: event) } }) - loop
-        let wheel = try #require(HostInputMallocProbe.allocations { for event in wheels { view.scrollWheel(with: event) } }) - loop
+        // Each handler against its AppKit reads, on other events of the same kind (an event may cache what it made).
+        let (moves, controlMoves) = (try Self.moves(), try Self.moves())
+        let (keys, controlKeys) = (try Self.keys(), try Self.keys())
+        let (wheels, controlWheels) = (try Self.wheels(), try Self.wheels())
+        view.mouseMoved(with: try Self.moves()[0])  // warm-up outside the count: first-use statics and metadata
+        view.keyDown(with: try Self.keys()[0])
+        view.scrollWheel(with: try Self.wheels()[0])
+        sink &+= Self.mouseReads(try Self.moves()[0], in: view)
+        sink &+= Self.keyReads(try Self.keys()[0])
+        sink &+= Self.wheelReads(try Self.wheels()[0], in: view)
+
+        let mouseReads = try #require(HostInputMallocProbe.allocations { for event in controlMoves { sink &+= Self.mouseReads(event, in: view) } })
+        let mouse = try #require(HostInputMallocProbe.allocations { for event in moves { view.mouseMoved(with: event) } })
+        let keyReads = try #require(HostInputMallocProbe.allocations { for event in controlKeys { sink &+= Self.keyReads(event) } })
+        let key = try #require(HostInputMallocProbe.allocations { for event in keys { view.keyDown(with: event) } })
+        let wheelReads = try #require(HostInputMallocProbe.allocations { for event in controlWheels { sink &+= Self.wheelReads(event, in: view) } })
+        let wheel = try #require(HostInputMallocProbe.allocations { for event in wheels { view.scrollWheel(with: event) } })
         try #require(wire.connection.endedByProtocolError == false, "the wire ended: the counts are not of sent frames")
+
+        let counts: [(String, Int)] = [("send", sends - frameLoop), ("mouse move", mouse - mouseReads), ("key", key - keyReads), ("scroll", wheel - wheelReads)]
         func per(_ count: Int) -> String { String(format: "%.2f", Double(count) / Double(Self.events)) }
-        print("CEF-HOST-INPUT-ALLOCS per event: mouse move \(per(mouse)), key \(per(key)), scroll \(per(wheel)) "
-              + "(\(Self.events) events each; loop alone \(loop))")
-        #expect(mouse == 0, "a forwarded mouse move made \(per(mouse)) allocations per event")
-        #expect(key == 0, "a forwarded key made \(per(key)) allocations per event")
-        #expect(wheel <= Self.events, "a forwarded scroll made \(per(wheel)) allocations per event (at most its one CGEvent)")
+        print("CEF-HOST-INPUT-ALLOCS per event, cmux's own: " + counts.map { "\($0.0) \(per($0.1))" }.joined(separator: ", ")
+              + " (\(Self.events) events each; controls: frame loop \(frameLoop), AppKit reads mouse \(mouseReads), "
+              + "key \(keyReads), scroll \(wheelReads); sink \(sink & 1))")
+        for (name, count) in counts {
+            #expect(count <= 0, "a forwarded \(name) made \(per(count)) allocations per event of its own")
+        }
+    }
+
+    // MARK: Events and the AppKit reads each handler needs
+
+    private static func moves() throws -> [NSEvent] {
+        var events: [NSEvent] = []
+        for index in 0..<Self.events {
+            let point = NSPoint(x: CGFloat(index % 700) + 10, y: CGFloat(index % 500) + 20)
+            let event = NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: TimeInterval(index) / 1_000 + 1,
+                                           windowNumber: 0, context: nil, eventNumber: index, clickCount: 0, pressure: 0)
+            events.append(try #require(event))
+        }
+        return events
+    }
+
+    private static func keys() throws -> [NSEvent] {
+        var events: [NSEvent] = []
+        for index in 0..<Self.events {
+            let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: TimeInterval(index) / 1_000 + 1,
+                                         windowNumber: 0, context: nil, characters: "a", charactersIgnoringModifiers: "a",
+                                         isARepeat: false, keyCode: 0)
+            events.append(try #require(event))
+        }
+        return events
+    }
+
+    private static func wheels() throws -> [NSEvent] {
+        var events: [NSEvent] = []
+        for _ in 0..<Self.events {
+            let scroll = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -3, wheel2: 1, wheel3: 0)
+            events.append(try #require(scroll.flatMap { NSEvent(cgEvent: $0) }))
+        }
+        return events
+    }
+
+    private static func mouseReads(_ event: NSEvent, in view: NSView) -> Int {
+        let local = view.convert(event.locationInWindow, from: nil)
+        var total = Int(local.x)
+        total &+= Int(view.bounds.height - local.y)
+        total &+= NSEvent.pressedMouseButtons
+        total &+= Int(event.modifierFlags.rawValue)
+        total &+= Int(event.timestamp)
+        return total
+    }
+
+    private static func keyReads(_ event: NSEvent) -> Int {
+        var total = Int(event.characters?.utf16.first ?? 0)
+        total &+= Int(event.charactersIgnoringModifiers?.utf16.first ?? 0)
+        total &+= Int(event.keyCode)
+        total &+= event.isARepeat ? 1 : 0
+        total &+= Int(event.type.rawValue)
+        total &+= Int(event.modifierFlags.rawValue)
+        total &+= Int(event.timestamp)
+        return total
+    }
+
+    private static func wheelReads(_ event: NSEvent, in view: NSView) -> Int {
+        let local = view.convert(event.locationInWindow, from: nil)
+        var total = Int(local.x)
+        total &+= Int(view.bounds.height - local.y)
+        if let cgEvent = event.cgEvent {
+            total &+= Int(cgEvent.getIntegerValueField(.scrollWheelEventPointDeltaAxis1))
+            total &+= Int(cgEvent.getIntegerValueField(.scrollWheelEventPointDeltaAxis2))
+        }
+        total &+= Int(event.modifierFlags.rawValue)
+        total &+= Int(event.timestamp)
+        return total
     }
 }
 
