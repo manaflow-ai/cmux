@@ -243,8 +243,11 @@ private func draw(_ ctx: CGContext, _ ctLine: CTLine, x: CGFloat, mid: CGFloat) 
     return width.rounded(.up)
 }
 
+/// The first line of `text` as plain words: a Markdown link shows its text, emphasis marks go.
 private func firstLine(_ text: String) -> String {
-    text.split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init) ?? text
+    let first = text.split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init) ?? text
+    let linked = first.replacingOccurrences(of: #"\[([^\]]+)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
+    return linked.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
 }
 
 private func circle(_ ctx: CGContext, _ center: CGPoint, _ radius: CGFloat, _ color: NSColor) {
