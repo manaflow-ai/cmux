@@ -5,28 +5,62 @@ import CryptoKit
 import Foundation
 import Testing
 @MainActor @Suite(.serialized) struct KillSwitchesTests {
+    /// How long a test waits for a held fetch to arrive or a read to end before it fails. Far past
+    /// what an in-memory fetch takes, even with the main actor busy, and far under the hang
+    /// watchdog: a wait that can never end fails this test instead of cutting its shard short.
+    nonisolated static let patience: Duration = .seconds(60)
     actor Gate {
         private var isOpen = false
         private var waiters: [CheckedContinuation<Void, Never>] = []
         private var arrived = 0
-        private var arrivals: [(count: Int, waiter: CheckedContinuation<Void, Never>)] = []
+        private var arrivals: [(id: Int, count: Int, waiter: CheckedContinuation<Bool, Never>)] = []
+        private var nextArrival = 0
         func wait() async {
             arrived += 1
             let reached = arrivals.filter { $0.count <= arrived }
             arrivals.removeAll { $0.count <= arrived }
-            reached.forEach { $0.waiter.resume() }
+            reached.forEach { $0.waiter.resume(returning: true) }
             guard !isOpen else { return }
             await withCheckedContinuation { waiters.append($0) }
         }
-        func reached(_ count: Int) async {
-            guard arrived < count else { return }
-            await withCheckedContinuation { arrivals.append((count, $0)) }
+        /// True once `count` fetches have reached the gate; false after `timeout` without them.
+        func reached(_ count: Int, within timeout: Duration = KillSwitchesTests.patience) async -> Bool {
+            guard arrived < count else { return true }
+            nextArrival += 1
+            let id = nextArrival
+            let deadline = Task { try? await Task.sleep(for: timeout); self.expire(id) }
+            defer { deadline.cancel() }
+            return await withCheckedContinuation { arrivals.append((id, count, $0)) }
+        }
+        private func expire(_ id: Int) {
+            guard let index = arrivals.firstIndex(where: { $0.id == id }) else { return }
+            arrivals.remove(at: index).waiter.resume(returning: false)
         }
         func release() {
             isOpen = true
             waiters.forEach { $0.resume() }
             waiters = []
         }
+    }
+    /// Resumes a continuation once: the first of a read's end and its deadline.
+    actor Once {
+        private var done = false
+        func resume(_ continuation: CheckedContinuation<Bool, Never>, _ value: Bool) {
+            guard !done else { return }
+            done = true
+            continuation.resume(returning: value)
+        }
+    }
+    /// True once `task` ends; false after `timeout`, leaving it running.
+    static func finishes(_ task: Task<Void, Never>, within timeout: Duration = patience) async -> Bool {
+        let once = Once()
+        var deadline: Task<Void, Never>?
+        let finished = await withCheckedContinuation { continuation in
+            Task { await task.value; await once.resume(continuation, true) }
+            deadline = Task { try? await Task.sleep(for: timeout); await once.resume(continuation, false) }
+        }
+        deadline?.cancel()
+        return finished
     }
     actor Network: AppcastFetching {
         var files: [String: Data]
@@ -191,14 +225,21 @@ import Testing
         _ = try #require(reader.read())
         updater.follow(ring: "nightly")
         let latest = try #require(reader.read())
+        // The first read's task runs only once this test suspends, so its fetches must be seen held
+        // at `firstGate` before the network holds the next read at `queuedGate` instead. Without
+        // this wait the first read's own fetches were held at `queuedGate`, which opens only after
+        // the first read ends: the test waited forever.
+        try #require(await firstGate.reached(2), "the first read never reached its fetches")
         let queuedGate = Gate()
         await network.hold(queuedGate)
         await network.set(try fixture.served(#"{"version":1,"default":{"DisabledFeatures":["pr-3"]}}"#))
         await firstGate.release()
-        await first.value
-        await queuedGate.reached(1)
+        try #require(await Self.finishes(first), "the first read never ended")
+        // Its ring is nightly again, but two later reads were asked: its list must not apply.
+        #expect(switches.off.isEmpty)
+        try #require(await queuedGate.reached(1), "the queued read never reached its fetch")
         await queuedGate.release()
-        await latest.value
+        try #require(await Self.finishes(latest), "the queued read never ended")
         #expect(switches.off == ["pr-3"])
     }
     @Test func aReadAskedWhileTheSameRingsFetchIsOutReadsAgainAfterIt() async throws {
@@ -211,7 +252,7 @@ import Testing
         let (updater, reader) = try Self.reader(store: try fixture.store(network), switches: switches)
         defer { withExtendedLifetime(updater) {} }
         let first = try #require(reader.read())
-        await gate.reached(2)
+        try #require(await gate.reached(2), "the first read never reached its fetches")
         await network.set(try fixture.served(#"{"version":1,"default":{"DisabledFeatures":["pr-2"]}}"#))
         let asked = try #require(reader.read())
         await gate.release()

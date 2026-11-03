@@ -46,6 +46,10 @@ export function participant(id: unknown, name: unknown, avatar?: unknown): Parti
   return { id: key, name: displayName(name) ?? displayName(key) ?? "?", ...(shown && { avatar: shown }) };
 }
 
+/// A link guest (`guest:<share>.<guest>`, design/chat-multiplayer.md): their name is the one they
+/// typed, a label rather than proof, so the pane shows it as "<name> (guest)".
+export const isGuest = (person: Participant | undefined): boolean => person?.id.startsWith("guest:") === true;
+
 /// The person who sent a `user_message` or `queued` record, or undefined for the chat owner's own.
 export function promptAuthor(msg: { _meta?: { provenance?: unknown } } | undefined): Participant | undefined {
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
@@ -84,10 +88,4 @@ export function chatPresence(value: unknown, me = "owner"): ChatPresence {
 }
 
 /// Up to two initials of a name, by grapheme, so an accent or an emoji stays whole.
-export function initials(name: string, count = 2): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  const first = (word: string) => Array.from(new Intl.Segmenter().segment(word), (part) => part.segment);
-  const letters = words.length > 1 ? [first(words[0]!)[0], first(words[1]!)[0]] : first(words[0] ?? "?").slice(0, 2);
-  // Whole graphemes only: a UTF-16 slice of the joined string would split a surrogate pair.
-  return letters.slice(0, count).join("").toUpperCase();
-}
+export { initials } from "../../../ui/initials";

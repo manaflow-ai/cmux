@@ -81,6 +81,7 @@ public struct CloudDiagnosticsReport {
             "app": .string(identity.app),
             "version": .string(identity.version),
             "build_commit": jsonText(identity.buildCommit),
+            "build_id": jsonText(identity.buildID),
             "ghostty_commit": jsonText(identity.ghosttyCommit),
             "protocol": .number(Double(identity.protocolVersion)),
             "capabilities": names(identity.capabilities),
@@ -96,6 +97,7 @@ public struct CloudDiagnosticsReport {
             "workspace_revision": .number(Double(identity.workspaceRevision)),
             "lifecycle_ready": .bool(identity.lifecycleReady),
             "launch_snapshot_path": jsonText(identity.launchSnapshotPath),
+            "cli_path": jsonText(identity.cliPath),
         ]
     }
 

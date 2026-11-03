@@ -11,7 +11,9 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ActivityLine } from "../src/agent-session/acpmux/conversation/ActivityLine";
+import { pageClocks } from "../src/ui/pageClock";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
+import { translate } from "../src/agent-session/acpmux/i18n";
 import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
@@ -34,7 +36,11 @@ const call = (id: string, status: string) => ({
   text: "",
   tool: { id, title: id, kind: "execute", status, command: id },
 });
-type Call = { kind: string; text: string; tool: { id: string; title: string; kind: string; status: string } };
+type Call = {
+  kind: string;
+  text: string;
+  tool: { id: string; title: string; kind: string; status: string };
+};
 
 const liveTurn = (calls: Call[]) =>
   turnView(
@@ -49,11 +55,12 @@ function statusLine(calls: Call[]): AcpmuxRow {
 }
 
 const drawn = (status: AcpmuxRow) => renderToStaticMarkup(<WorkingFor row={status} now={() => status.at + 26_000} />);
-// The line draws nothing before its words: no working mark, no activity dots, and its first child
-// is the label itself.
+// The older WorkingFor line draws no mark before its words: no working mark, no activity dots, and
+// its first child is the label itself. The plan activity line below uses the shared icon column.
 const stillMarkup = (html: string) =>
-  /^<div[^>]*><(?:span|output) class="cv-(?:worked__label|thinking|activity__label)/.test(html) &&
-  !/cv-working-mark|cv-activity__dots/.test(html);
+  /^<div[^>]*>(?:<span class="cv-shimmer__row">)?<(?:span|output) class="cv-(?:worked__label|thinking|activity__label)/.test(
+    html,
+  ) && !/cv-working-mark|cv-activity__dots/.test(html);
 const text = (html: string) =>
   html
     .replace(/<[^>]+>/g, " ")
@@ -165,17 +172,99 @@ test("Thinking is the word alone, with no mark before it; the word itself shimme
   expect(html).toContain('class="cv-thinking is-shimmer"');
 });
 
-test("the start status before the turn does not shimmer", () => {
-  const html = renderToStaticMarkup(<Thinking status="Starting Claude Code…" />);
-  expect(html).not.toContain("is-shimmer");
+test("a running label's shimmer includes its timer and uses the slow cadence", async () => {
+  const html = renderToStaticMarkup(
+    <Thinking
+      since={at}
+      doing="Read the Freestyle lanes note; check dispatcher"
+      doingAt={at}
+      now={() => at + 50_000}
+    />,
+  );
+  expect(html).toContain('class="cv-shimmer__row"');
+  expect(html).toContain('class="cv-shimmer__lit-time" data-text="50s"');
+  const css = await Bun.file(new URL("../src/pages/shared/desktop.css", import.meta.url)).text();
+  expect(css).toContain("--cmux-shimmer-period: 2.8s");
+  expect(css).toMatch(/@keyframes cmux-shimmer-band[\s\S]*?45%[\s\S]*?100%/);
 });
 
-test("the activity line names the work with no dots before it", () => {
+test("the line while the agent starts is Thinking, with no Cancel", () => {
+  const html = renderToStaticMarkup(<Thinking starting />);
+  expect(html).toContain("is-shimmer");
+  expect(html).not.toContain(translate("switch.cancelPrompt"));
+});
+
+test("the activity line names the work in the shared icon column", () => {
   const html = renderToStaticMarkup(
     <ActivityLine row={row("act", "activity-line", { text: "Edit grid.css" })} now={() => at + 26_000} />,
   );
   expect(text(html)).toMatch(/^Edit grid\.css \d+s$/);
-  expect(stillMarkup(html)).toBe(true);
+  expect(html).toContain('class="cv-tool__icon"');
+  expect(html).not.toContain("cv-spinner");
+  expect(html).not.toMatch(/cv-working-mark|cv-activity__dots/);
+});
+
+test("a running command keeps only its static terminal mark", () => {
+  const html = renderToStaticMarkup(
+    <ActivityLine
+      row={row("command", "activity-line", { text: "bun test", doingCommand: true })}
+      now={() => at + 26_000}
+    />,
+  );
+  expect(html).toContain("cv-tool__icon");
+  expect(html).toContain("<svg");
+  expect(html).not.toContain("cv-spinner");
+});
+
+test("live activity lines share the page's one second and rest while the page is hidden", () => {
+  const scope = globalThis as Record<string, unknown>;
+  const keys = ["window", "document", "IS_REACT_ACT_ENVIRONMENT", "setInterval"];
+  const saved = keys.map((key) => [key, scope[key]] as const);
+  const dom = new JSDOM("<!doctype html><main id=root></main>", {
+    url: "http://localhost/",
+    pretendToBeVisual: true,
+  });
+  let visibility = "visible";
+  Object.defineProperty(dom.window.document, "visibilityState", {
+    configurable: true,
+    get: () => visibility,
+  });
+  let intervals = 0;
+  const realInterval = globalThis.setInterval;
+  Object.assign(scope, {
+    window: dom.window,
+    document: dom.window.document,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    setInterval: ((handler: () => void, ms?: number) => {
+      intervals += 1;
+      return realInterval(handler, ms);
+    }) as unknown as typeof setInterval,
+  });
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const lines = Array.from({ length: 5 }, (_, index) =>
+    row(`act-${index}`, "activity-line", { text: `Edit grid-${index}.css` }),
+  );
+  try {
+    act(() => root.render(lines.map((line) => <ActivityLine key={line.id} row={line} now={() => at + 26_000} />)));
+    expect(dom.window.document.querySelectorAll(".cv-activity__time")).toHaveLength(5);
+    expect(dom.window.document.querySelectorAll(".cv-activity > .cv-tool__icon")).toHaveLength(5);
+    // Five live lines, one timer: none of their own, and the page clock's one for all of them.
+    expect(intervals).toBe(0);
+    expect(pageClocks(dom.window.document)).toMatchObject({ running: 1, subscribers: 5 });
+    act(() => {
+      visibility = "hidden";
+      dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    });
+    expect(pageClocks(dom.window.document)).toMatchObject({ running: 0, subscribers: 5 });
+  } finally {
+    act(() => root.unmount());
+    dom.window.close();
+    for (const [key, value] of saved) {
+      if (value === undefined) delete scope[key];
+      else scope[key] = value;
+    }
+  }
+  expect(pageClocks(dom.window.document)).toEqual({ running: 0, subscribers: 0, items: [] });
 });
 
 test("a call whose title is its raw input reads as a label, not JSON", () => {
@@ -216,7 +305,13 @@ test("Find skips the status line: it is not a match the count can reach", () => 
 
 // One running call reads once (Leo, 2026-10-21): its own tool row, right under the line, already
 // names it, so while that row is on screen the line says "Working for 26s" alone, with no glyph.
-const times = (html: string, words: string) => text(html).split(words).length - 1;
+// A running row draws its words a second time inside RowShimmer for the sweep (#32805), a copy that
+// is aria-hidden and inert; the count reads what a reader reads, so it leaves that copy out.
+const times = (html: string, words: string) => {
+  const scope = JSDOM.fragment(`<div>${html}</div>`).firstElementChild!;
+  for (const copy of scope.querySelectorAll('[aria-hidden="true"]')) copy.remove();
+  return (scope.textContent ?? "").split(words).length - 1;
+};
 
 test("one running call reads once: its own tool row names it, the line does not", () => {
   const html = renderToStaticMarkup(<Turn rows={liveTurn([call("bun test", "in_progress")])} />);

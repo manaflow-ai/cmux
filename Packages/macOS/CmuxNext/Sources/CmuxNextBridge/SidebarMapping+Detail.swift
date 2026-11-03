@@ -14,6 +14,9 @@ extension SidebarMapping {
         detail.activitySince = Self.activitySince(tabs: tabs, indicator: indicator, turns: turns)
         let chat = agentTab?.agentSession.flatMap(turns.detail(for:))
         detail.model = chat?.model
+        detail.contextTokens = chat?.contextTokens
+        detail.contextWindow = chat?.contextWindow
+        detail.costUsd24h = chat?.costUsd24h
         // The task: the chat's running prompt, else the terminal agent's last prompt (memory
         // only in the daemon), else what a working program says it does (OSC 7501 title, msg).
         detail.task = chat?.prompt ?? agentTab?.agent?.lastPrompt ?? tabs.lazy.filter { ProgramStatusRecord.strongest($0.programStatus)?.state == .working }
@@ -28,7 +31,20 @@ extension SidebarMapping {
             detail.command = process(front)
             detail.commandSince = Self.date(ms: since)
         }
+        // What every agent chat in the workspace runs below its turn, as acpmux counts it.
+        for chat in tabs.compactMap({ $0.agentSession.flatMap(turns.detail(for:)) }) {
+            detail.subagentsRunning += chat.subagentsRunning
+            detail.subagentNames += chat.subagentNames
+            detail.commandsRunning += chat.commandsRunning
+        }
         return detail
+    }
+
+    /// The running subagents and background commands of `tab`'s agent chat (acpmux's counts);
+    /// zero for any other tab.
+    static func running(_ tab: TabModel, turns: AgentTurnStateStore = .shared) -> (subagents: Int, commands: Int) {
+        guard let chat = tab.agentSession.flatMap(turns.detail(for:)) else { return (0, 0) }
+        return (chat.subagentsRunning, chat.commandsRunning)
     }
 
     /// When the row's state began: the earliest start among the tabs that report that state.

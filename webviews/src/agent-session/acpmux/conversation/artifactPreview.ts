@@ -9,10 +9,17 @@ export type Artifact = {
   code: string;
   /// The render card it came from (its key, renderCall.ts `renderPages`), whose pages are its versions.
   render?: string;
+  /// Stable row/fence identity and the accepted source revision while a reply streams.
+  identity?: string;
+  revision?: number;
+  /** Full file identity when the artifact came from a completed write. */
+  path?: string;
 };
 
 const KINDS: Record<string, ArtifactKind> = {
   html: "html",
+  jsx: "html",
+  tsx: "html",
   htm: "html",
   xhtml: "html",
   // A page the reply runs inline (renderCall.ts); its rewrites are versions of one document.
@@ -52,6 +59,11 @@ export function documentName(artifact: Artifact): string {
     .replace(/&(amp|lt|gt|quot|#39);/g, (_, name: string) => ENTITIES[name])
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Prefer a document's own title, then the filename recorded by its completed write. */
+export function artifactFileName(artifact: Artifact): string {
+  return documentName(artifact) || artifact.path?.split(/[\\/]/).pop() || "";
 }
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" };

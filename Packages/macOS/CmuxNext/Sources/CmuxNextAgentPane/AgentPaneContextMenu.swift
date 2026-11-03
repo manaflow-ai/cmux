@@ -91,6 +91,8 @@ enum AgentPaneContextMenu {
         var fork: (Int) -> Void
         var retry: (String) -> Void = { _ in }
         var edit: (String) -> Void = { _ in }
+        /// Quote in Reply: the Markdown quote goes after the composer's draft, which it keeps.
+        var quoteReply: (String) -> Void = { _ in }
         var open: (URL) -> Void = { _ in }
         /// A link part's rows (``LinkMenu``): Open in cmux Browser, ..., Copy Link; nil: Open Link and Copy Link.
         var linkItems: ((URL) -> [NSMenuItem])? = nil
@@ -120,6 +122,44 @@ enum AgentPaneContextMenu {
         let edge = { (key: String) in (box[key] as? NSNumber)?.doubleValue }
         guard let left = edge("left"), let top = edge("top"), let right = edge("right"), let bottom = edge("bottom") else { return nil }
         return CGRect(x: left, y: top, width: max(0, right - left), height: max(0, bottom - top))
+    }
+
+    /// The top-leading corner, in screen points (y up), of a menu of `size` opened from the More
+    /// button at `button`, 2 pt from it: under the button when the whole menu fits there in the
+    /// window's visible part, else above it when it fits there. With room on neither side of the
+    /// window, the side where it fits on the screen (below first), else the screen's roomier side:
+    /// picked by the window's room, a short window near the screen's top sent it up past the window
+    /// and the screen's edge pushed it back down over its button. Past the window on that side it
+    /// still stays on the screen, where AppKit would shrink it to a
+    /// scroll arrow (Lucas, 2026-11-02: the last reply's menu, just over the composer, hid Open in
+    /// Side Chat and the rows after it). Not ``PopupAnchor``: in a window too short for either side
+    /// that slides the menu over the button.
+    /// - Parameters:
+    ///   - button: The button's rect on screen.
+    ///   - size: The menu's size (`NSMenu.size`).
+    ///   - visible: The screen's visible frame; nil with no screen.
+    ///   - window: The window's content rect on screen; nil with no window.
+    static func popUpOrigin(button: CGRect, size: CGSize, visible: CGRect?, window: CGRect?) -> CGPoint {
+        let gap: CGFloat = 2
+        let shown = window.map { visible?.intersection($0) ?? $0 }
+        guard let area = shown.flatMap({ $0.isNull ? nil : $0 }) ?? visible else {
+            return CGPoint(x: button.minX, y: button.minY - gap)
+        }
+        let below = button.minY - gap - area.minY, above = area.maxY - button.maxY - gap
+        let opensUp: Bool
+        if size.height <= below {
+            opensUp = false
+        } else if size.height <= above {
+            opensUp = true
+        } else if let visible {
+            let screenBelow = button.minY - gap - visible.minY, screenAbove = visible.maxY - button.maxY - gap
+            opensUp = size.height > screenBelow && (size.height <= screenAbove || screenAbove > screenBelow)
+        } else {
+            opensUp = above > below
+        }
+        var top = opensUp ? button.maxY + gap + size.height : button.minY - gap
+        if let visible { top = min(max(top, visible.minY + size.height), visible.maxY) }
+        return CGPoint(x: button.minX, y: top)
     }
 
     /// `text` as a Markdown quote, with a blank line after it for the reply.
@@ -164,7 +204,7 @@ enum AgentPaneContextMenu {
             paste.target = target
             paste.action = #selector(NSText.paste(_:))
         }
-        // The Labs item owns this app surface while enabled. Do not leave WebKit's
+        // The UI pointer item owns this app surface while enabled. Do not leave WebKit's
         // browser inspector beside it with the same title.
         let inspect = devTools && actions.inspectElement == nil ? menu.items.first { $0.identifier?.rawValue == inspectItem } : nil
         let inspectElement = actions.inspectElement.map {
@@ -180,7 +220,7 @@ enum AgentPaneContextMenu {
             // Selected text gets the selection menu alone (macOS adds Services last).
             let quote = Self.quote(selection)
             let selected = edits + [
-                AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") { actions.edit(quote) },
+                AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") { actions.quoteReply(quote) },
                 AgentPaneMenuAction.item(AgentPaneMenuStrings.askAboutThis, symbol: "questionmark.bubble") { actions.edit(quote + AgentPaneMenuStrings.askAboutThisPrompt) },
             ]
             let find = [AgentPaneMenuAction.item(AgentPaneMenuStrings.searchTheWeb, symbol: "magnifyingglass") { actions.search(selection) }] + (lookUp.map { [$0] } ?? [])
@@ -213,6 +253,10 @@ enum AgentPaneContextMenu {
             } else {
                 copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessage, symbol: "doc.on.doc") { actions.copy(target.text) })
             }
+            // Quote in Reply without selecting first (u18673): the whole message, as the reader sees it in Markdown,
+            // appended to the draft like the selection's Quote in Reply, never Edit and Resend's replace.
+            let quoted = Self.quote(target.markdown ?? target.text)
+            message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") { actions.quoteReply(quoted) })
             if let row = target.retryRowId {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.retry, symbol: "arrow.clockwise") { actions.retry(row) })
             }
@@ -227,6 +271,11 @@ enum AgentPaneContextMenu {
                         actions.page("chat.side", ["throughSeq": String(seq)])
                     })
                 }
+            }
+            if let seq = target.forkSeq {
+                message.append(AgentForkMenu.item { destination in
+                    actions.page("chat.fork", ["throughSeq": String(seq), "placement": destination.rawValue])
+                })
             }
             // On a link, the part's Open Link stands for the message's.
             links = target.part?.link == nil ? linkItems(target.links, open: actions.open) : []

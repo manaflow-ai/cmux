@@ -33,6 +33,29 @@ impl Mux {
         Arc::new(causes.with_loss_cause(Some(public_id), end.wire_json()))
     }
 
+    /// Terminals that keep an app session's owner (server/owner_keepers.rs):
+    /// a row that is launching, adopting or running, plus every terminal
+    /// whose new shell is on its way ([`PendingTerminal::Respawning`]: a lost
+    /// host's respawn in its backoff, or the restart of an `on_exit` shell
+    /// terminal). Read under the registry lock: every lifecycle commit takes
+    /// it, and an exit that restarts its terminal marks it respawning in the
+    /// same critical section as its commit, so the rows and the marks are
+    /// read at one instant and a restarting terminal is never counted as
+    /// neither.
+    pub(crate) fn kept_terminal_count(&self) -> anyhow::Result<usize> {
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let live = registry.live_terminal_row_count()?;
+        let respawning = self
+            .pending_terminals
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .filter(|(_, pending)| *pending == PendingTerminal::Respawning)
+            .count();
+        drop(registry);
+        Ok(live.saturating_add(respawning))
+    }
+
     /// Whether a terminal's host may run while it has no runtime here.
     pub(crate) fn terminal_is_pending(&self, terminal_id: &str) -> bool {
         self.pending_terminals.lock().unwrap().values().any(|(id, _)| id == terminal_id)

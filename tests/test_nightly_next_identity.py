@@ -51,9 +51,9 @@ def test_next_signs_without_a_provisioning_profile():
     for restricted in ("com.apple.application-identifier", "keychain-access-groups",
                        "com.apple.developer.web-browser.public-key-credential"):
         assert restricted not in keys, f"{entitlements} requests {restricted}, which needs a profile"
-    assert "core.setOutput('profile_channel', notaryProbe ? 'RELEASE' : track === 'nightly-next' ? '' :" in WORKFLOW
+    assert "core.setOutput('profile_channel', nightlyProbe ? 'NIGHTLY' : notaryProbe ? 'RELEASE' : track === 'nightly-next' ? '' :" in WORKFLOW
     assert "if: needs.decide.outputs.profile_channel != ''" in WORKFLOW
-    assert "core.setOutput('sign_channel', notaryProbe ? 'stable' : track === 'nightly-next' ? 'next' : channel);" in WORKFLOW
+    assert "core.setOutput('sign_channel', nightlyProbe ? 'nightly' : notaryProbe ? 'stable' : track === 'nightly-next' ? 'next' : channel);" in WORKFLOW
 
 
 def test_next_signs_in_through_its_own_scheme():
@@ -114,7 +114,15 @@ def job_containing(text: str) -> str:
 def job_env(block: str, name: str) -> str:
     match = re.search(rf"\n      {name}: ([^\n]+)\n", block)
     assert match, f"no job env {name}"
-    return match.group(1)
+    value = match.group(1)
+    # A YAML anchor (`&name value`) or alias (`*name`, #30278 shares env values to keep nightly.yml
+    # under GitHub's size limit) reads as the anchored value, as YAML does.
+    alias = re.fullmatch(r"\*([A-Za-z0-9_-]+)", value)
+    if alias:
+        anchors = re.findall(rf"[ :]&{re.escape(alias[1])} ([^\n]+)\n", WORKFLOW)
+        assert len(anchors) == 1, f"alias *{alias[1]} has {len(anchors)} anchors"
+        value = anchors[0]
+    return re.sub(r"^&[A-Za-z0-9_-]+ ", "", value)
 
 
 def test_each_app_reads_the_feed_its_publisher_writes():

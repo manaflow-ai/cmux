@@ -25,12 +25,14 @@ extension UpdaterService {
             }
         }
         return Self.channelsPage(tracks: tracks, installed: installed, prs: prs, installedVersion: identity.shortVersion,
-                                 ring: shown, way: await way)
+                                 ring: shown, way: await way, switches: switchesBuilds)
     }
 
+    /// - Parameter switches: this app can switch builds (``switchesBuilds``): every build but the
+    ///   installed and pulled ones gets the Switch button.
     nonisolated static func channelsPage(tracks: [ChannelTrack], installed: ChannelBuild?, prs: [String: [Int]],
                                          installedVersion: String, ring: UpdateRing = .nightly,
-                                         way: RingReturn = .none) -> [String: Any] {
+                                         way: RingReturn = .none, switches: Bool = false) -> [String: Any] {
         [
             "title": UpdaterStrings.channelsTitle,
             "installed": UpdaterStrings.channelsInstalled(installedVersion),
@@ -39,6 +41,7 @@ extension UpdaterService {
                 "you_are_here": UpdaterStrings.channelsYouAreHere, "following": UpdaterStrings.channelsFollowing,
                 "kept": UpdaterStrings.channelsKept, "compare": UpdaterStrings.channelsCompare,
                 "commit": UpdaterStrings.channelsCommit, "release": UpdaterStrings.channelsRelease,
+                "switch": UpdaterStrings.channelsSwitch,
             ],
             "tracks": tracks.map { track -> [String: Any] in
                 [
@@ -51,9 +54,10 @@ extension UpdaterService {
                             "commit": build.commit.map { String($0.prefix(8)) } ?? NSNull(),
                             "commit_url": build.commitURL?.absoluteString ?? NSNull(),
                             "compare_url": build.compareURL(from: installed)?.absoluteString ?? NSNull(),
-                            "health": build.health.rawValue, "health_title": healthTitle(build.health),
+                            "health": build.health.rawValue, "health_title": healthTitle(build.health) ?? NSNull(),
                             "pulled_reason": build.pulledReason ?? NSNull(),
                             "installed": build.isInstalled, "kept": build.isKept,
+                            "switch": switches && !build.isInstalled && build.health != .pulled,
                             "prs": (prs[build.build] ?? []).map { ["number": $0, "url": "\(ChannelBuild.repository)/pull/\($0)"] as [String: Any] },
                         ]
                     },
@@ -88,12 +92,15 @@ extension UpdaterService {
         }
     }
 
-    nonisolated static func healthTitle(_ health: ChannelBuild.Health) -> String {
+    /// The build's badge; nil for a build with no canary verdict, which shows none. The canary
+    /// rates few builds, so "Awaiting Verdict" sat on nearly every build, also ones days old
+    /// (Leo: "what is #2 going on there awaiting verdict? i fele like ui could be improvedthere").
+    nonisolated static func healthTitle(_ health: ChannelBuild.Health) -> String? {
         switch health {
         case .promoted: UpdaterStrings.channelsPromoted
         case .held: UpdaterStrings.channelsHeld
         case .pulled: UpdaterStrings.channelsPulled
-        case .pending: UpdaterStrings.channelsPending
+        case .pending: nil
         }
     }
 }
@@ -111,7 +118,6 @@ nonisolated extension UpdaterStrings {
     static var channelsPromoted: String { text("updater.channels.promoted", "Promoted") }
     static var channelsHeld: String { text("updater.channels.held", "Held") }
     static var channelsPulled: String { text("updater.channels.pulled", "Pulled") }
-    static var channelsPending: String { text("updater.channels.pending", "Awaiting Verdict") }
     static func channelsGoBack(_ channel: String) -> String { format("updater.channels.goBack", "Go Back to %@", channel) }
     static func channelsGoBackDetail(_ version: String) -> String {
         format("updater.channels.goBackDetail", "Restarts once into %@, kept on this Mac. Settings and sessions stay.", version)

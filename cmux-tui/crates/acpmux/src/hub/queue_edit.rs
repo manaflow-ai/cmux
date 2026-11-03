@@ -10,6 +10,7 @@
 
 use super::queue::PromptRun;
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
 /// How long Send now waits for the agent to stop its step for a steer.
@@ -18,6 +19,9 @@ const STEP_NOW_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 // `_acpmux/prompt_withdraw`, a queue change too (here: `hub/mod.rs` is at its size budget).
 #[path = "withdraw.rs"]
 mod withdraw;
+// `_acpmux/queue_text`, one queued prompt's whole text (`hub/mod.rs` is at its size budget).
+#[path = "queue_text.rs"]
+mod queue_text;
 
 /// The Full-access machine an edited prompt keeps (`PromptRun::full_access_device`): its own,
 /// only when the edit comes from that same machine.
@@ -32,6 +36,25 @@ fn stricter(a: Control, b: Control) -> Control {
         (Control::Web, _) | (_, Control::Web) => Control::Web,
         (Control::Peer, _) | (_, Control::Peer) => Control::Peer,
         _ => Control::Local,
+    }
+}
+
+impl PromptRun {
+    /// This run under the stricter of its own rules and another's who acts on it (its editor, or
+    /// the owner who approves it, `queue_approve.rs`): the stricter control, the trust gate when
+    /// either asks it, and a Full-access machine only when both are that machine.
+    pub(super) fn restricted(
+        &self,
+        control: Control,
+        trust_gate: bool,
+        device: Option<&str>,
+    ) -> PromptRun {
+        PromptRun {
+            control: stricter(self.control, control),
+            trust_gate: self.trust_gate || trust_gate,
+            full_access_device: same_device(self.full_access_device.as_deref(), device),
+            ..self.clone()
+        }
     }
 }
 
@@ -102,7 +125,7 @@ impl Edit {
             .map(|(i, _)| i)
             .collect();
         let blocks = std::iter::once(json!({"type": "text", "text": text}))
-            .chain(kept.iter().map(|&i| before[i].clone()))
+            .chain(kept.iter().filter_map(|&i| before.get(i).cloned()))
             .collect();
         (blocks, std::iter::once(None).chain(kept.into_iter().map(Some)).collect())
     }
@@ -159,7 +182,7 @@ fn checked_display_parts(parts: Option<&Value>, blocks: &[Value]) -> (Option<Val
     let valid: Vec<Value> = valid
         .into_iter()
         .map(|(index, mut part)| {
-            part["blockIndex"] = json!(index);
+            part.set("blockIndex", json!(index));
             part
         })
         .collect();
@@ -199,9 +222,9 @@ impl Hub {
         let editor = crate::author::editor(author.as_ref());
         let mut reply = json!({"sessionId": session.id, "op": op});
         if !prompt_id.is_empty() {
-            reply["promptId"] = json!(prompt_id);
+            reply.set("promptId", json!(prompt_id));
         }
-        reply["ok"] = match op {
+        let new_value = match op {
             "update" => {
                 let edit = Edit::parse(params)?;
                 let updated = self
@@ -221,21 +244,27 @@ impl Hub {
                         Some(sent) => Some(sent),
                         None => self.step_now(session, prompt_id, control, device, editor).await?,
                     };
-                reply["sent"] = json!(sent);
+                reply.set("sent", json!(sent));
                 json!(sent.is_some())
             }
             "interrupt" => {
                 let sent = self.interrupt_for_queued(session, prompt_id, editor).await?;
-                reply["sent"] = json!(sent);
+                reply.set("sent", json!(sent));
                 json!(sent.is_some())
             }
-            "resume" => json!(self.resume_queue(session)),
+            "resume" => {
+                let resumed = self.resume_queue(session);
+                // The Stop's hold is over: what the inbox held back goes in (`inbox_review`).
+                self.inbox_review(session);
+                json!(resumed)
+            }
             "withdraw" => json!(self.withdraw_steer(session, prompt_id, control, editor).await?),
             _ => {
                 let e = "op must be update, move, send_now, interrupt, resume or withdraw";
                 return Err(RpcError::invalid_params(e));
             }
         };
+        reply.set("ok", new_value);
         Ok(reply)
     }
 
@@ -263,12 +292,20 @@ impl Hub {
         device: Option<&str>,
         editor: crate::author::Editor<'_>,
     ) -> Result<bool, RpcError> {
-        let (turn_id, run, text) = {
-            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Logged under the lock that changed it, as `queue_approved` is: two edits of one prompt
+        // reach the log in the order their revisions were given, so a restart restores the last
+        // words and never pairs an approval with older ones (`restore_queue`).
+        let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (turn_id, run, text, revision) = {
             let Some(q) = queue.iter_mut().find(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
             };
             crate::author::may_change(editor, q.sender())?;
+            // Approved, it runs the words the owner approved (`queue_approve.rs`).
+            let again = crate::author::awaits_owner(q.run.provenance.as_ref());
+            if again && !q.awaiting_owner {
+                return Err(super::queue::approved_error());
+            }
             let (mut blocks, origin) = edit.blocks(&q.run.blocks);
             // Only `session/prompt` adds a hidden context (prompt_context.rs).
             crate::prompt_context::strip_marks(&mut blocks);
@@ -280,10 +317,13 @@ impl Hub {
             if dropped + refused > 0 {
                 tracing::info!(session = %session.id, prompt = %prompt_id, dropped, refused, "a queue edit dropped display parts of blocks it did not keep or that no longer fit them");
             }
+            let size = super::queue_admission::content_bytes(&blocks, display_parts.as_ref());
             q.run = Arc::new(PromptRun {
+                size: size.into(),
                 blocks,
                 display_parts,
                 control: stricter(q.run.control, control),
+                cloud_mobile: q.run.cloud_mobile,
                 trust_gate: q.run.trust_gate || trust_gate,
                 // The person rewrote it: it is no longer the sender's message, unless the sender
                 // is that person.
@@ -291,17 +331,29 @@ impl Hub {
                     crate::author::of_provenance(Some(p)).is_some_and(|id| editor == Some(Some(id)))
                 }),
                 agent: None,
+                class: None,
                 supersede: None,
                 full_access_device: same_device(q.run.full_access_device.as_deref(), device),
+                message_id: None,
+                message_sender: None,
             });
             q.preview = short_text(&text, 200);
-            (q.turn_id.clone(), q.run.clone(), text)
+            // Its author's edit of a prompt that waits for the owner is a new revision: an
+            // approval names the words the owner saw (`queue_approve.rs`).
+            if again {
+                q.revision = q.revision.saturating_add(1);
+            }
+            (q.turn_id.clone(), q.run.clone(), text, again.then_some(q.revision))
         };
         let mut msg = json!({"promptId": prompt_id, "turnId": turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
+        if let Some(revision) = revision {
+            msg.set("awaitingOwner", json!(true));
+            msg.set("revision", json!(revision));
+        }
         // Its images, kept and named as `queued` names them (`prompt_images.rs`).
-        let images = super::prompt_images::keep(&run.blocks);
+        let images = super::prompt_images::keep_sourced(&run.blocks, run.display_parts.as_ref());
         if !images.is_empty() {
-            msg["images"] = Value::Array(images);
+            msg.set("images", Value::Array(images));
         }
         let inline_parts = super::prompt_images::inline_parts(
             &run.blocks,
@@ -309,14 +361,15 @@ impl Hub {
             run.display_parts.as_ref(),
         );
         if !inline_parts.is_empty() {
-            msg["inlineParts"] = Value::Array(inline_parts);
+            msg.set("inlineParts", Value::Array(inline_parts));
         }
         if let Some(display_parts) = &run.display_parts {
-            msg["displayParts"] = display_parts.clone();
+            msg.set("displayParts", display_parts.clone());
         }
         super::session::mark_pasted(&mut msg, &run.blocks);
         let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
         self.append(session, "mux", "queue_updated", msg);
+        drop(queue);
         Ok(true)
     }
 
@@ -334,7 +387,11 @@ impl Hub {
             let Some(from) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
             };
-            crate::author::may_change(editor, queue[from].sender())?;
+            let Some(item) = queue.get(from) else { return Ok(false) };
+            crate::author::may_change(editor, item.sender())?;
+            // A prompt that waits for the owner runs only in its place, once approved: checked
+            // under the lock that changes it (`queue_approve.rs`).
+            super::queue::released(item)?;
             let q = queue.remove(from);
             let to = index.min(queue.len());
             queue.insert(to, q);
@@ -375,15 +432,22 @@ impl Hub {
                     return Ok(None);
                 };
                 crate::author::may_change(editor, q.sender())?;
+                // Under the lock that makes it a steer (`queue_approve.rs`).
+                super::queue::released(q)?;
                 let run = PromptRun {
+                    size: q.run.size.clone(),
                     blocks: q.run.blocks.clone(),
                     display_parts: q.run.display_parts.clone(),
                     control,
+                    cloud_mobile: q.run.cloud_mobile,
                     trust_gate: q.run.trust_gate,
                     provenance: q.run.provenance.clone(),
                     agent: q.run.agent.clone(),
+                    class: q.run.class,
                     supersede: q.run.supersede.clone(),
                     full_access_device: device,
+                    message_id: q.run.message_id.clone(),
+                    message_sender: q.run.message_sender.clone(),
                 };
                 (q.run, q.steer) = (Arc::new(run), true);
             }
@@ -413,7 +477,7 @@ impl Hub {
         let Some(running) = running else {
             return Ok(Some("next"));
         };
-        self.cancel_turn(session, &running).await;
+        self.cancel_turn_for_replacement(session, &running, prompt_id).await;
         Ok(Some("interrupt"))
     }
 

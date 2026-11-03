@@ -87,8 +87,9 @@ test("a one-line note with no room keeps the cap", async () => {
   expect(shortCommand(CP).length).toBeLessThanOrEqual(60);
 });
 
-// The CSS that cuts them: each label takes what the row has left and ends in an ellipsis, with no
-// width cap of its own (max-width or a ch measure) that stops it before the edge.
+// Labels can use the row's available space and truncate without an artificial width cap.
+// Short labels stay content-sized so the caret follows them; the message button still fills
+// the remaining line so clicking blank space continues to expand the message.
 const css = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8");
 const CONVERSATION = css("../src/agent-session/acpmux/conversation/conversation.css");
 const MESSAGE = css("../src/agent-session/acpmux/conversation/AgentMessageRow.css");
@@ -101,7 +102,7 @@ function rule(sheet: string, selector: string): string {
 }
 
 for (const [sheet, selector, fills] of [
-  [CONVERSATION, ".cv-command__text", true],
+  [CONVERSATION, ".cv-command__text", false],
   [CONVERSATION, ".cv-tool__text", false],
   [MESSAGE, ".cv-agentmsg__toggle", true],
   [MESSAGE, ".cv-agentmsg__preview", false],

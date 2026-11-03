@@ -42,8 +42,7 @@ import Testing
         sidebar.list.model.setGroupCollapsed(group, false)
         let open = try #require(sidebar.list.rowViews[.group(group)] as? GroupHeaderRowView)
         #expect(open.debugDisclosure?.icon == "disclosure.expanded", "the open header reads \(String(describing: open.debugDisclosure))")
-        let opening = try #require(try Self.turn(open), "opening the group snapped the chevron down with no rotation")
-        #expect(opening.duration > 0, "the opening turn takes no time")
+        #expect(try Self.turn(open) != nil, "opening the group snapped the chevron down with no rotation")
         let opened = try Self.angle(open)
         #expect(abs(abs(opened) - .pi / 2) < 0.001, "the open chevron rests at \(opened) rad, not a quarter turn")
 

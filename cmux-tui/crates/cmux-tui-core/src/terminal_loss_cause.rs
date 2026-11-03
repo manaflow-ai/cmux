@@ -11,6 +11,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// The host's crash sidecar (its last panic, written by the host's panic
@@ -112,10 +113,10 @@ pub(crate) fn cause_summary(signals: &[Value], crash: Option<&Value>) -> Option<
     let mut summary = json!({"panicked": crash.is_some()});
     if let Some(line) = first {
         let reused = line.get("sender").and_then(|sender| sender.get("reused")).is_some();
-        summary["signal"] = json!(signal_name(line["signal"].as_i64().unwrap_or(0)));
-        summary["sender_pid"] = line.get("sender_pid").cloned().unwrap_or(Value::Null);
+        summary.set("signal", json!(signal_name(line["signal"].as_i64().unwrap_or(0))));
+        summary.set("sender_pid", line.get("sender_pid").cloned().unwrap_or(Value::Null));
         if !reused && let Some(name) = sender_name(line) {
-            summary["sender_name"] = json!(name);
+            summary.set("sender_name", json!(name));
         }
     }
     Some(summary)

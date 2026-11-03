@@ -8,7 +8,7 @@ import CmuxNextSettings
 ///
 /// `action`: `state` (default), `show` (on browser tab `tab`, else the
 /// first one on screen, skipping the once-per-launch and state checks),
-/// `answer` (`choice`: import, not_now), `reset` (a fresh Mac).
+/// `answer` (`choice`: import, not_now, never), `reset` (a fresh Mac, the banner setting on).
 @MainActor
 enum DebugBrowserImportOffer {
     static func run(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
@@ -21,8 +21,8 @@ enum DebugBrowserImportOffer {
                 if let entry { offer?.show(on: entry.chrome, browsers: found) }
             }
         case "answer":
-            let choices: [String: BrowserCookieImportChoice] = ["import": .importCookies, "not_now": .notNow]
-            guard let choice = params["choice"]?.stringValue.flatMap({ choices[$0] }) else { return .object(["error": .string("choice: import or not_now")]) }
+            let choices: [String: BrowserCookieImportChoice] = ["import": .importCookies, "not_now": .notNow, "never": .never]
+            guard let choice = params["choice"]?.stringValue.flatMap({ choices[$0] }) else { return .object(["error": .string("choice: import, not_now or never")]) }
             // Answered from the card on screen: Import then targets that tab's profile.
             let shown = services.cache.browsers.values.first { $0.chrome.showsCookieImportOffer }
             for entry in services.cache.browsers.values { entry.chrome.hideCookieImportOffer() }
@@ -42,7 +42,7 @@ enum DebugBrowserImportOffer {
         let offer = services.onboarding.browserImportOffer
         let shownOn = services.cache.browsers.filter { $0.value.chrome.showsCookieImportOffer }.map(\.key).sorted()
         return .object([
-            "dismissed": .bool(offer.state.dismissed),
+            "dismissed": .bool(services.settings?.snapshot.browserImportCookieBanner == false), "offered": .bool(offer.isOffered), "showing": .bool(!shownOn.isEmpty),
             "imported": .bool(offer.state.imported),
             "shown_this_launch": .bool(offer.shownThisLaunch),
             "shown_on": .array(shownOn.map(JSONValue.string)),

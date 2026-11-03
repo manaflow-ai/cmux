@@ -38,7 +38,7 @@ export const redeemOverlayServerCode = (meshId: string, payload: CodeEnrollOverl
   const store = yield* MeshStore;
   const hash = yield* sha256Hex(payload.code);
   const found = yield* store.findOverlayServerCode(hash).pipe(Effect.catchAll(dependencyDown("serverCode.find")));
-  if (Option.isNone(found) || !config.enabledFor(found.value.tenantId)) return yield* Effect.fail(missing());
+  if (Option.isNone(found) || !config.enabledFor(found.value.tenantId, found.value.createdBy)) return yield* Effect.fail(missing());
   const code = found.value;
   const refuse = <E>(error: E) => now.pipe(Effect.flatMap((at) => store.burnOverlayServerCode(hash, at))).pipe(Effect.catchAll(dependencyDown("serverCode.burn")), Effect.zipRight(Effect.fail(error)));
   const parsed = parseMeshId(meshId);

@@ -13,13 +13,13 @@ public final class MobileHostProcess: Sendable {
         var exitWaiters: [CheckedContinuation<Int32, Never>] = []
     }
 
-    /// hostd's stdout lines (bounded: oldest dropped past 256 pending).
+    /// Every stdout line, bounded by backpressure on the pipe reader.
     public let lines: AsyncStream<String>
-    private let continuation: AsyncStream<String>.Continuation
+    private let queue = MobileHostQueue<String>(capacity: 256)
     private let state = Mutex(State())
 
     public init() {
-        (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(256))
+        lines = queue.stream
     }
 
     /// Starts `launch.executable` with `environment`; stderr goes to `log` (created 0600) or nowhere.
@@ -34,16 +34,15 @@ public final class MobileHostProcess: Sendable {
         // A write after hostd exited must fail with EPIPE, not raise SIGPIPE in the app.
         _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         let buffer = LineBuffer()
-        let continuation = continuation
+        let queue = queue
         output.fileHandleForReading.readabilityHandler = { handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty {
+            switch handle.readReady() {
+            case .bytes(let data): for line in buffer.append(data) { queue.push(line) }
+            case .retry: return
+            case .end:
                 handle.readabilityHandler = nil
-                continuation.finish()
-                return
+                queue.finish()
             }
-            for line in buffer.append(data) { continuation.yield(line) }
         }
         process.terminationHandler = { [weak self] finished in
             let status = finished.terminationStatus
@@ -60,7 +59,18 @@ public final class MobileHostProcess: Sendable {
             $0.process = process
             $0.input = input.fileHandleForWriting
         }
-        try process.run()
+        do {
+            try process.run()
+        } catch {
+            output.fileHandleForReading.readabilityHandler = nil
+            queue.cancel()
+            state.withLock {
+                try? $0.input?.close()
+                $0.input = nil
+                $0.process = nil
+            }
+            throw error
+        }
     }
 
     /// Writes one control line; false when hostd is gone.
@@ -92,6 +102,7 @@ public final class MobileHostProcess: Sendable {
 
     /// Closes stdin (hostd exits on its own) and sends SIGTERM.
     public func stop() {
+        queue.cancel()
         let process = state.withLock { state -> Process? in
             try? state.input?.close()
             state.input = nil

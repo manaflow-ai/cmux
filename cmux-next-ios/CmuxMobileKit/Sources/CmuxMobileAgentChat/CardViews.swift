@@ -148,6 +148,8 @@ public struct PermissionActionBar: View {
 
     /// Shown on the allow while Face ID runs (the Feed's string).
     public static let waitingForFaceID = "Waiting for Face ID…"
+    /// Taps on a choice, for the tap's haptic.
+    @State private var taps = 0
 
     public var body: some View {
         VStack(spacing: 8) {
@@ -155,6 +157,7 @@ public struct PermissionActionBar: View {
                 Button {
                     // The allow already waiting for Face ID ignores a second tap.
                     guard !(option.isAllow && approvingOptionID != nil) else { return }
+                    taps += 1
                     respond(option)
                 } label: {
                     // Long options ("Always allow cargo test in this workspace")
@@ -174,7 +177,6 @@ public struct PermissionActionBar: View {
                     .disabled(approvingOptionID != nil && option.isAllow && option.id != approvingOptionID)
                     .accessibilityHint(option.isAllow ? "Approve with Face ID" : "")
                     .buttonStyle(CmuxMobileCapsuleButtonStyle(style(option), size: .bar))
-                    .sensoryFeedback(.impact(weight: .light), trigger: false)
             }
             if let replyInstead {
                 Button("Reply instead", action: replyInstead)
@@ -184,6 +186,7 @@ public struct PermissionActionBar: View {
                     .contentShape(.rect)
             }
         }
+        .sensoryFeedback(.impact(weight: .light), trigger: taps)
     }
 
     private func style(_ option: ACPPermissionOption) -> CmuxMobileCapsuleButtonStyle.Kind {
@@ -473,6 +476,9 @@ struct FailureCard: View {
     let message: String
     /// The agent's own message, when the sentence says it in plain words (the Mac's Details).
     var detail: String?
+    var canRetry = true
+    /// Retry with another model, beside Retry (the Mac's failed turn shows it there).
+    var retryWith: RetryModelChoice?
     let retry: () -> Void
 
     var body: some View {
@@ -491,7 +497,16 @@ struct FailureCard: View {
                 .font(.footnote)
                 .tint(.secondary)
             }
-            Button("Retry", action: retry).buttonStyle(CmuxMobileCapsuleButtonStyle(.primary, size: .large))
+            HStack(spacing: 8) {
+                Button("Retry", action: retry).buttonStyle(CmuxMobileCapsuleButtonStyle(.primary, size: .large))
+                    .disabled(!canRetry)
+                if let retryWith {
+                    retryWith.menu
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(CmuxMobileCapsuleButtonStyle(.secondary, size: .large))
+                        .accessibilityLabel(RetryModelChoice.title)
+                }
+            }
         }
         .padding(16)
         .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(uiColor: .separator), lineWidth: 1) }

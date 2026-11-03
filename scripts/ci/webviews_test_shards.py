@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Shard and order the webviews test files by recorded duration (run-webviews-tests.sh).
 
-    webviews_test_shards.py assign FILES SERIAL DURATIONS SHARD COUNT   # print this shard's files, NUL-separated
+    webviews_test_shards.py assign FILES SERIAL DURATIONS SHARD COUNT [WIDTHS]  # this shard's files, NUL-separated
     webviews_test_shards.py order FILE_LIST DURATIONS asc|desc          # a NUL list, shortest or longest first
     webviews_test_shards.py order-triples TRIPLES DURATIONS desc         # xargs -n 3 triples, by their first item
     webviews_test_shards.py record LINES OUT                            # the runner's `SECONDS FILE` lines as JSON
@@ -13,11 +13,18 @@ heavy dev-server files fell together by chance (run 40815704587 on 32 vCPU: shar
 far, longest first (greedy longest-processing-time). A file with no recorded duration (a new one)
 goes by a stable hash of its path, after the others, so it moves only itself.
 
-Load is wall time on a shard, not CPU time: the plain files run 32 at a time, the dev-server files
-(SERIAL) 8 at a time, and a `// cmux-web-test-alone` file alone (ShardPlan). The widths are fixed,
-not read from this runner, so every shard job computes the same split even when one lands on a
-smaller runner. Each shard job must get the same FILES, SERIAL and DURATIONS: the workflow reads the
-manifest once (web-subarea-scope) and hands every shard that copy.
+Load is wall time on a shard, not CPU time: the plain files run 24 at a time beside the plain files
+that drive a real browser, 8 at a time (BROWSER_MARK), then the dev-server files (SERIAL) 8 at a
+time, and a `// cmux-web-test-alone` file alone (ShardPlan). WIDTHS (`PLAIN,BROWSER,DEV`) are the
+pool widths the runner will use; run-webviews-tests.sh passes them only when they come from the
+workflow's CMUX_WEB_TEST_JOBS (and its BROWSER and DEV overrides), never from this runner's cores,
+so every shard job computes the same split even when one lands on a smaller runner. Without WIDTHS
+the 32 vCPU widths below stand. The split must use the widths the runner really has: #32224 took
+the shards to 8 jobs (6 plain, 2 browser, 2 dev-server at once) while the split still assumed 24, 8
+and 8, so it counted the dev-server files four times too cheap and put 4 shards' worth of them on
+the 4 shards without an accent-glass-invariants file: shards of 8 to 40 min, three of 64 cancelled
+at the 40 min timeout (the 8 base runs to 41581500665). Each shard job must get the same FILES, SERIAL, DURATIONS and
+WIDTHS: the workflow reads the manifest once (web-subarea-scope) and hands every shard that copy.
 
 DURATIONS is a JSON object {file: seconds}; a missing or unreadable file is no durations. The
 runner writes each file's first-run seconds (CMUX_WEB_TEST_DURATIONS_OUT); `merge` averages them
@@ -27,12 +34,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 import sys
 
-# Files at once on the 32 vCPU shard: plain files (jobs), dev-server files (jobs / 4), alone files.
-PLAIN_AT_ONCE, DEV_AT_ONCE = 32, 8
+# Files at once on the 32 vCPU shard: plain files (jobs - jobs / 4) beside browser files (jobs / 4),
+# then dev-server files (jobs / 4), then alone files.
+PLAIN_AT_ONCE, BROWSER_AT_ONCE, DEV_AT_ONCE = 24, 8, 8
 ALONE_MARK = "// cmux-web-test-alone"
+# run-webviews-tests.sh's browser_files: a plain file that drives a real browser.
+BROWSER_MARK = re.compile(r'from "playwright"|import\("playwright"\)|requireBrowserLane\(')
 
 
 def load_durations(path: str) -> dict[str, float]:
@@ -65,6 +76,13 @@ def runs_alone(name: str) -> bool:
         return False
 
 
+def runs_browser(name: str) -> bool:
+    try:
+        return BROWSER_MARK.search(Path(name).read_text(encoding="utf-8", errors="replace")) is not None
+    except OSError:
+        return False
+
+
 def stable_shard(name: str, count: int) -> int:
     return int.from_bytes(hashlib.sha256(name.encode()).digest()[:8], "big") % count
 
@@ -84,16 +102,19 @@ def vite_config(name: str) -> str:
 
 class ShardPlan:
     """One shard's estimated wall time in integer milliseconds, phase by phase as run-webviews-tests.sh
-    runs them: its plain files on PLAIN_AT_ONCE lanes; one warming file per Vite config, alone, one
+    runs them: its plain files on PLAIN_AT_ONCE lanes beside its browser files on BROWSER_AT_ONCE
+    lanes (the phase lasts as long as the longer pool); one warming file per Vite config, alone, one
     after another (the config's shortest: files come longest first, so each new file of a config
     takes over warming and the one it replaces joins the pool); the other dev-server files on
     DEV_AT_ONCE lanes; then the alone files in series. Lanes, not seconds divided by width: a 549 s
     file in an 8-wide pool still takes 549 s (accent-glass-invariants)."""
 
-    def __init__(self) -> None:
-        self.plain = [0] * PLAIN_AT_ONCE
+    def __init__(self, widths: tuple[int, int, int] | None = None) -> None:
+        plain, browser, dev = widths or (PLAIN_AT_ONCE, BROWSER_AT_ONCE, DEV_AT_ONCE)
+        self.plain = [0] * plain
+        self.browser = [0] * browser
         self.warm: dict[str, int] = {}
-        self.dev = [0] * DEV_AT_ONCE
+        self.dev = [0] * dev
         self.alone = 0
         self.total = 0
 
@@ -104,9 +125,11 @@ class ShardPlan:
         return lanes
 
     def _after(self, kind: str, cost: int, config: str):
-        plain, warm, dev, alone = self.plain, self.warm, self.dev, self.alone
+        plain, browser, warm, dev, alone = self.plain, self.browser, self.warm, self.dev, self.alone
         if kind == "plain":
             plain = self._onto(plain, cost)
+        elif kind == "browser":
+            browser = self._onto(browser, cost)
         elif kind == "dev":
             warm = dict(warm)
             if config in warm:
@@ -114,29 +137,42 @@ class ShardPlan:
             warm[config] = cost
         elif kind == "alone":
             alone += cost
-        return plain, warm, dev, alone
+        return plain, browser, warm, dev, alone
 
     def wall(self, kind: str = "", cost: int = 0, config: str = "") -> int:
-        plain, warm, dev, alone = self._after(kind, cost, config)
-        return max(plain) + sum(warm.values()) + max(dev) + alone
+        plain, browser, warm, dev, alone = self._after(kind, cost, config)
+        return max(max(plain), max(browser)) + sum(warm.values()) + max(dev) + alone
 
     def add(self, kind: str, cost: int, config: str = "") -> None:
-        self.plain, self.warm, self.dev, self.alone = self._after(kind, cost, config)
+        self.plain, self.browser, self.warm, self.dev, self.alone = self._after(kind, cost, config)
         self.total += cost
 
 
-def assign(files: list[str], serial: set[str], durations: dict[str, float], count: int) -> list[int]:
+def parse_widths(text: str) -> tuple[int, int, int] | None:
+    """`PLAIN,BROWSER,DEV` lane counts, each at least 1; anything else is no widths."""
+    parts = text.split(",")
+    if len(parts) != 3 or not all(part.isdigit() for part in parts):
+        return None
+    plain, browser, dev = (max(1, int(part)) for part in parts)
+    return plain, browser, dev
+
+
+def assign(files: list[str], serial: set[str], durations: dict[str, float], count: int,
+           widths: tuple[int, int, int] | None = None) -> list[int]:
     """Each file's zero-based shard, the same for the same inputs on every runner. Known files go
     longest first to the shard whose estimated wall time grows least (ties: less work, then the
     lower shard); unknown files by path hash, after, so they never move a known one."""
     shards = [0] * len(files)
-    plans = [ShardPlan() for _ in range(count)]
+    plans = [ShardPlan(widths) for _ in range(count)]
     known = []
     for index, name in enumerate(files):
         if name not in durations:
             shards[index] = stable_shard(name, count)
             continue
-        kind = ("alone" if runs_alone(name) else "dev") if name in serial else "plain"
+        if name in serial:
+            kind = "alone" if runs_alone(name) else "dev"
+        else:
+            kind = "browser" if runs_browser(name) else "plain"
         config = vite_config(name) if kind == "dev" else ""
         known.append((round(durations[name] * 1000), name, kind, config, index))
     for cost, _, kind, config, index in sorted(known, key=lambda item: (-item[0], item[1])):
@@ -177,13 +213,17 @@ def merge(prior: dict[str, float], measured: list[dict[str, float]]) -> dict[str
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) == 6 and argv[0] == "assign":
+    if len(argv) in (6, 7) and argv[0] == "assign":
         files, serial = read_nul(argv[1]), set(read_nul(argv[2]))
         shard, count = int(argv[4]), int(argv[5])
         if not 1 <= shard <= count:
             print(f"error: shard {shard} is not in 1..{count}", file=sys.stderr)
             return 2
-        shards = assign(files, serial, load_durations(argv[3]), count)
+        widths = parse_widths(argv[6]) if len(argv) == 7 else None
+        if len(argv) == 7 and widths is None:
+            print(f"error: widths {argv[6]!r} are not PLAIN,BROWSER,DEV", file=sys.stderr)
+            return 2
+        shards = assign(files, serial, load_durations(argv[3]), count, widths)
         write_nul([name for name, target in zip(files, shards) if target == shard - 1])
         return 0
     if len(argv) == 4 and argv[0] == "order" and argv[3] in ("asc", "desc"):

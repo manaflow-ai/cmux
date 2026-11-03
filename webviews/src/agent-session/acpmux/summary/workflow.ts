@@ -7,10 +7,14 @@ export type WorkflowAgent = {
   index?: number;
   agentId?: string;
   lastProgressAt?: number;
+  /// Monotonic folded event sequence, including progress events that only update usage.
+  progressVersion?: number;
   retryReason?: string;
   cached?: boolean;
   doing?: string;
   lastMessage?: string;
+  /// The provider's failure reason, when reported for this agent.
+  error?: string;
   tokens?: number;
   transcriptRowId?: string;
   /// The model it runs on, as the harness names it (`claude-opus-5-5`, `opus`).

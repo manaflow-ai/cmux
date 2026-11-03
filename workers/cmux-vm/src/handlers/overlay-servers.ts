@@ -53,7 +53,7 @@ const withSignedServer = <A, E, R>(rawId: string, payload: SignedDeviceRequest, 
   const parsed = parseDeviceId(rawId);
   if (Option.isNone(parsed)) return yield* Effect.fail(missing());
   const found = yield* (yield* MeshStore).findOverlayServerForSignature(parsed.value).pipe(Effect.catchAll(dependencyDown("overlay.findForSignature")));
-  if (Option.isNone(found) || !config.enabledFor(found.value.tenantId)) return yield* Effect.fail(missing());
+  if (Option.isNone(found) || !config.enabledFor(found.value.tenantId, found.value.createdBy)) return yield* Effect.fail(missing());
   const row = found.value;
   const actor = actorOf(row.createdBy);
   if (Option.isNone(actor)) return yield* Effect.fail(missing());

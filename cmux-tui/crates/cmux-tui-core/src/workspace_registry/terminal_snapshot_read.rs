@@ -3,6 +3,18 @@
 use super::*;
 
 impl WorkspaceRegistry {
+    /// Rows of terminals that run or are about to (launching, adopting,
+    /// running): one count, no row read.
+    pub(crate) fn live_terminal_row_count(&self) -> anyhow::Result<usize> {
+        let count: i64 = self.connection.get().query_row(
+            "SELECT COUNT(*) FROM terminal_hosts
+             WHERE lifecycle IN ('launching', 'adopting', 'running')",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(usize::try_from(count).unwrap_or(usize::MAX))
+    }
+
     /// Returns the canonical, non-tombstoned terminal placement projection.
     /// Runtime surface ids and renderer process ids are intentionally absent.
     pub fn terminal_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {

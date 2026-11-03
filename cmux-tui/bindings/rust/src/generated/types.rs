@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7ab19e2949e8f0b31d2f38035d4d9e3f646770fad5164b47a17153493d2e12a1.
+// cmux-tui mux protocol 12, IR bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -307,6 +307,63 @@ pub struct CellPixelSurface {
     pub height_px: u16,
     pub surface: Id,
     pub width_px: u16,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChiefWorkAgentState {
+    #[serde(rename = "working")]
+    Working,
+    #[serde(rename = "waiting")]
+    Waiting,
+    #[serde(rename = "idle")]
+    Idle,
+    #[serde(rename = "failed")]
+    Failed,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefWorkAgent {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "startedAt")]
+    pub started_at: Nullable<u64>,
+    pub state: ChiefWorkAgentState,
+    pub task: Nullable<String>,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Nullable<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChiefWorkTaskStatus {
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "done")]
+    Done,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefWorkTask {
+    pub command: String,
+    pub detail: Nullable<String>,
+    #[serde(rename = "endedAt")]
+    pub ended_at: Nullable<u64>,
+    pub id: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "startedAt")]
+    pub started_at: Nullable<u64>,
+    pub status: ChiefWorkTaskStatus,
+    pub title: String,
 }
 
 #[rustfmt::skip]
@@ -1671,6 +1728,23 @@ pub struct Screen {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SelectionPane {
+    pub active_tab: u64,
+    pub focused_at: u64,
+    pub id: Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SelectionScreen {
+    pub active: bool,
+    pub active_pane: Id,
+    pub id: Id,
+    pub panes: Vec<SelectionPane>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SendExpectAgent {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1700,6 +1774,14 @@ pub struct ServerStatsHistogram {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsHookQueue {
+    pub queued_events: u64,
+    pub reset_dropped_events: u64,
+    pub undeliverable_events: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsJournalWriter {
     pub batch_size: ServerStatsHistogram,
     pub batches: u64,
@@ -1714,6 +1796,20 @@ pub struct ServerStatsJournalWriter {
     pub receipt_wait_us: ServerStatsHistogram,
     pub terminal_events: u64,
     pub terminal_queued: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockDetail {
+    pub by_hold_p99: Vec<ServerStatsLockSiteDetail>,
+    pub by_hold_total: Vec<ServerStatsLockSiteDetail>,
+    pub contended_acquisitions: u64,
+    pub hold_us: ServerStatsHistogram,
+    pub holder: Nullable<ServerStatsLockHolder>,
+    pub last_stall: Nullable<ServerStatsLockStall>,
+    pub sites: u64,
+    pub stalls: u64,
+    pub wait_us: ServerStatsHistogram,
 }
 
 #[rustfmt::skip]
@@ -1734,10 +1830,30 @@ pub struct ServerStatsLockSite {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLockSiteDetail {
+    pub acquisitions: u64,
+    pub hold_max_us: u64,
+    pub hold_p99_us: u64,
+    pub hold_total_us: u64,
+    pub site: String,
+    pub wait_max_us: u64,
+    pub wait_p99_us: u64,
+    pub wait_total_us: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsLockStall {
     pub blocker: Nullable<String>,
     pub waited_us: u64,
     pub waiter: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsLocks {
+    pub registry: ServerStatsLockDetail,
+    pub state: ServerStatsLockDetail,
 }
 
 #[rustfmt::skip]
@@ -1778,7 +1894,11 @@ pub struct ServerStatsResourceProjection {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsResult {
     pub connections: ServerStatsConnections,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub hook_queue: Option<ServerStatsHookQueue>,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub locks: Option<ServerStatsLocks>,
     pub registry_lock: ServerStatsRegistryLock,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub resource_projection: Option<ServerStatsResourceProjection>,

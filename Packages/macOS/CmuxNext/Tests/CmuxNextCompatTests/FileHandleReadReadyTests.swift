@@ -29,4 +29,39 @@ struct FileHandleReadReadyTests {
         let handle = FileHandle(fileDescriptor: fds[0], closeOnDealloc: false)
         #expect(handle.readReady() == .end)
     }
+
+    @Test func readyChunksGiveTheBytesThenEndAtEndOfFile() async throws {
+        let pipe = Pipe()
+        let reading = pipe.fileHandleForReading
+        let (chunks, _) = reading.readyChunks()
+        try pipe.fileHandleForWriting.write(contentsOf: Data("one\ntwo\n".utf8))
+        try pipe.fileHandleForWriting.close()
+        var read = Data()
+        for await chunk in chunks { read.append(chunk) }
+        #expect(read == Data("one\ntwo\n".utf8))
+        #expect(reading.readabilityHandler == nil)
+    }
+
+    /// A consumer that breaks out releases the stream, which ends it: the handler is cleared with
+    /// no `stop()` call.
+    @Test func aConsumerThatBreaksOutClearsTheHandler() async throws {
+        let pipe = Pipe()
+        let reading = pipe.fileHandleForReading
+        try pipe.fileHandleForWriting.write(contentsOf: Data("a".utf8))
+        let consumer = Task {
+            let (chunks, _) = reading.readyChunks()
+            for await _ in chunks { break }
+        }
+        await consumer.value
+        #expect(reading.readabilityHandler == nil)
+    }
+
+    @Test func stopEndsTheStreamAndClearsTheHandler() async {
+        let pipe = Pipe()
+        let reading = pipe.fileHandleForReading
+        let (chunks, stop) = reading.readyChunks()
+        stop()
+        for await _ in chunks { Issue.record("no chunk after stop") }
+        #expect(reading.readabilityHandler == nil)
+    }
 }

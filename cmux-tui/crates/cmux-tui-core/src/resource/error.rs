@@ -1,6 +1,7 @@
 //! ResourceError, the cmux.protocol/2 error value, and its check against the catalog's error contracts.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResourceError {
@@ -42,7 +43,7 @@ impl ResourceError {
             "reason":reason,
         });
         if extra.as_object().is_some_and(|extra| !extra.is_empty()) {
-            details["extra"] = extra;
+            details.set("extra", extra);
         }
         Self::new("operation.failed", reason, details, false)
     }
@@ -113,7 +114,7 @@ impl ResourceError {
         let reason = reason.into();
         let mut details = json!({"reason":reason});
         if let Some(field) = field {
-            details["field"] = json!(field);
+            details.set("field", json!(field));
         }
         Self::new("validation.invalid", reason, details, false)
     }

@@ -110,6 +110,8 @@ enum TerminalHandlers {
         daemon.send("clear-history", onFailure: { failure in
             // An alternate-screen program without Kitty keys has no Cmd-K: nothing changed, as in Ghostty.
             if failure.message.contains(ClearHistoryRequest.fallbackUnrepresentable) { return }
+            // A typed refusal (a pane still opening) is not a failure to report: the person was told why.
+            if failure.refusal != nil { return }
             reporter.recordFailure("terminal.clear", message: Self.failureKind(failure.message))
         }, body)
     }
@@ -141,5 +143,8 @@ enum TerminalHandlers {
             guard let entry = ctx.terminal(invocation) else { return }
             if !entry.session.surfaceView.toggleCopyMode() { ctx.refuse(RefusalStrings.ghosttyRejected("keyboard_copy_cursor_set")) }
         })
+        ActionTargetTitles.setPaletteState("toggleTerminalCopyMode", in: registry) {
+            if case .terminal(let entry)? = ctx.services.windows.active?.focusedPane?.currentContent { entry.session.surfaceView.isCopyModeActive } else { false }
+        }
     }
 }

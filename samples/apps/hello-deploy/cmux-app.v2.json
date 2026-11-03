@@ -1,0 +1,32 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "manaflow-ai/hello-deploy",
+  "name": { "en": "Hello Deploy", "ja": "ハロー デプロイ" },
+  "version": "1.0.0",
+  "description": {
+    "en": "Install = deploy + pin: runs a small web server on your cmux Cloud machine or on a machine you host yourself, and opens it as a pane in your workspace. Shows the request headers it receives.",
+    "ja": "インストール = デプロイ + ピン留め: 小さな Web サーバーを cmux Cloud のマシンまたは自分でホストするマシンで動かし、ワークスペースのペインとして開きます。受け取ったリクエストヘッダーを表示します。"
+  },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "server.rack" },
+  "categories": ["developer-tools", "cloud"],
+  "keywords": ["deploy", "self-hosted", "cloud", "remote", "example"],
+  "engines": { "cmux": "^2.0" },
+  "implements": {
+    "cmux.pane/1": { "remote": "instance", "title": { "en": "Hello Deploy", "ja": "ハロー デプロイ" }, "symbol": "server.rack" }
+  },
+  "presentation": {
+    "sidebarItem": { "section": "top", "order": 160 },
+    "screen": "app",
+    "tab": true
+  },
+  "deploy": {
+    "server": { "kind": "container", "image": "docker.io/traefik/whoami:v1.10", "port": 80, "health": "/health" },
+    "tenancy": ["user"],
+    "targets": ["self-hosted", "cloud-vm"]
+  },
+  "billing": { "model": "free" }
+}

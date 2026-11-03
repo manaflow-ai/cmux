@@ -48,4 +48,9 @@ public nonisolated struct ChiefHomeSessionHost: AgentPaneHostProviding {
     public func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool {
         await fallback.restartAcpmux(owner: owner)
     }
+
+    /// Restart agent service goes where the pane's handshake goes (``AcpmuxChiefSessionRouter``).
+    public func restartStuckAcpmux(sessionId: String?) async -> Bool {
+        await resolved().restartStuckAcpmux(sessionId: sessionId)
+    }
 }

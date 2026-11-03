@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// With the sidebar open, every control in its titlebar row shows at rest: the sidebar toggle, Back,
@@ -10,7 +11,7 @@ import Testing
 /// show"). Only Show Sidebar Controls Only on Hover (`sidebar.controlsOnHover`) hides them until the
 /// pointer is over the sidebar. With the sidebar hidden, `window.titlebarButtons` still decides (hover
 /// by default: the corner hover opens the collapsed band, cx-fi0i).
-@MainActor @Suite(.serialized) struct SidebarOpenTitlebarControlsTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct SidebarOpenTitlebarControlsTests {
     /// A window root in a titled, full-size-content window, as the app shows it.
     func root(sidebarHidden: Bool) -> (NSWindow, WindowRootView) {
         _ = NSApplication.shared

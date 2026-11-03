@@ -1,6 +1,7 @@
 # Lane: layout
 
 ## Active streams
+- 2026-10-28 (#25999, branch `issue-25999-tab-move-adoption`): placed terminal tabs without a runtime surface move through the shared `move_tab_in_state` path; layout validation projects their durable content identity while adoption is pending. No operation or storage schema changes. Owner: PL-daemon. Regression covers same-pane reorder and cross-pane move.
 - Docked column (layout document fields + app) and strip scrollbar: docked-column lead.
 - Layout model (columns, rows, four edge docks; plans/cmux-next/layout-model.md proposal) and rows: layout model lead (was rows lead), branch feat-cmux-next-layoutmodel.
 - Rows (each column a vertical strip of rows; reducer ops InsertRow, MoveTabToRow, SetRowHeights; daemon `rows-v1`; app vertical strip reducer): rows lead, design plans/cmux-next/rows.md, branch feat-cmux-next-rows.

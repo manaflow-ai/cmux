@@ -229,6 +229,17 @@ impl BrowserConfig {
         })
     }
 
+    /// Like [`Self::release`], and stops the host too when `viewer` still owned it: for a host
+    /// that must not outlive its viewer (a Cloud desktop holds a VNC session to the machine,
+    /// which keeps it from pausing). A newer viewer's host is left alone.
+    pub(crate) async fn release_and_stop(&self, tab: &str, viewer: u64) {
+        let mut hosts = self.hosts.lock().await;
+        if hosts.get(tab).is_some_and(|entry| entry.viewer.as_ref().is_some_and(|(id, _)| *id == viewer)) {
+            hosts.remove(tab);
+            tracing::info!(tab, "surface: host stopped with its last viewer");
+        }
+    }
+
     pub(crate) async fn release(&self, tab: &str, viewer: u64) {
         let mut hosts = self.hosts.lock().await;
         if let Some(entry) = hosts.get_mut(tab) {
@@ -1246,6 +1257,19 @@ mod tests {
         drop(shown);
     }
 
+    /// cmux issue 31488: a Cloud desktop's host stops when its viewer leaves, so the Mac's VNC
+    /// session to the machine closes; a newer viewer's host stays.
+    #[tokio::test]
+    async fn release_and_stop_ends_the_host_only_for_its_own_viewer() {
+        let config = BrowserConfig::new(Some(fake_launcher()), 2);
+        let first = config.claim("c~vm~team", "").await.unwrap();
+        let second = config.claim("c~vm~team", "").await.unwrap();
+        config.release_and_stop("c~vm~team", first.viewer).await;
+        assert_eq!(config.running_tabs().await, vec!["c~vm~team".to_owned()]);
+        config.release_and_stop("c~vm~team", second.viewer).await;
+        assert!(config.running_tabs().await.is_empty());
+    }
+
     #[tokio::test]
     async fn a_second_viewer_of_a_tab_replaces_the_first() {
         let config = BrowserConfig::new(Some(fake_launcher()), 2);
@@ -1447,7 +1471,7 @@ mod tests {
     fn hello_carries_the_secret_and_the_rb_service() {
         let frame = hello_frame(
             "ab".repeat(32).as_str(),
-            &Peer { device_id: "phone".into(), session_id: "s".into(), video: None },
+            &Peer { device_id: "phone".into(), session_id: "s".into(), video: None, session_exposure: None },
         );
         let mut deframer = StreamDeframer::default();
         deframer.extend(&frame);

@@ -108,6 +108,52 @@ def test_build_not_above_classic_nightly_is_refused():
         assert "3719500000001" in result.stderr
 
 
+def test_a_feed_above_the_build_is_superseded_only_with_superseded_ok():
+    """Run 40825878411: build 4082587841101 after 4082702109901 had published."""
+    with tempfile.TemporaryDirectory() as d:
+        nxt = write(d, "next.xml", appcast("4082702109901"))
+        classic = write(d, "classic.xml", appcast("3719500000001"))
+        refused = run("check-build", "--already-published-ok", "--build", "4082587841101", "--feed", nxt, "--feed", classic)
+        assert refused.returncode != 0
+        quiet = run("check-build", "--already-published-ok", "--superseded-ok", "--build", "4082587841101",
+                    "--feed", nxt, "--feed", classic)
+        assert quiet.returncode == 0, quiet.stderr
+        assert quiet.stdout.strip().splitlines()[-1] == "superseded=true", quiet.stdout
+        assert "superseded by 4082702109901" in quiet.stdout
+        newer = run("check-build", "--already-published-ok", "--superseded-ok", "--build", "4082800000001",
+                    "--feed", nxt, "--feed", classic)
+        assert newer.returncode == 0, newer.stderr
+        assert newer.stdout.strip().splitlines()[-2:] == ["already_published=false", "superseded=false"], newer.stdout
+        same = run("check-build", "--already-published-ok", "--superseded-ok", "--build", "4082702109901",
+                   "--feed", nxt, "--feed", classic)
+        assert same.stdout.strip().splitlines()[-2:] == ["already_published=true", "superseded=false"], same.stdout
+
+
+def test_superseded_ok_never_hides_an_unreadable_feed():
+    with tempfile.TemporaryDirectory() as d:
+        nxt = write(d, "next.xml", appcast("4082702109901"))
+        result = run("check-build", "--superseded-ok", "--build", "4082587841101",
+                     "--feed", nxt, "--feed", str(Path(d) / "missing.xml"))
+        assert result.returncode != 0
+        assert "superseded=true" not in result.stdout
+
+
+def test_a_feed_with_an_unbound_cmux_prefix_is_read():
+    # The live cmux NEXT feed of 2026-11-01: a carried item's bare <cmux:sourceCommit>
+    # with only sparkle: declared on <rss>, beside an item that binds cmux: inline.
+    unbound = appcast("3717696535601", "3718773117601").replace(
+        "<item><sparkle:version>3717696535601",
+        "<item><cmux:sourceCommit>" + "b" * 40 + "</cmux:sourceCommit><sparkle:version>3717696535601").replace(
+        "<item><sparkle:version>3718773117601",
+        '<item><cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">' + "c" * 40
+        + "</cmux:sourceCommit><sparkle:version>3718773117601")
+    with tempfile.TemporaryDirectory() as d:
+        feed = write(d, "next.xml", unbound)
+        assert run("check-build", "--build", "3719000000001", "--feed", feed).returncode == 0
+        refused = run("check-build", "--build", "3718000000001", "--feed", feed)
+        assert refused.returncode == 1 and "unbound" not in refused.stderr, refused.stderr
+
+
 def test_unreadable_feed_is_refused():
     with tempfile.TemporaryDirectory() as d:
         broken = write(d, "broken.xml", "<rss")

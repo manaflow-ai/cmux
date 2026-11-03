@@ -23,17 +23,21 @@ public final class AgentPaneScrollAnchors {
     public static var shared: AgentPaneScrollAnchors?
     static let limit = 500
 
-    private struct Entry: Codable, Equatable {
+    private nonisolated struct Entry: Codable, Equatable, Sendable {
         var sessionId: String
         var anchor: AgentPaneScrollAnchor
     }
 
     let file: URL?
+    /// Saves leave the main thread: every settled scroll of a chat saves.
+    private let store: AgentPaneStateFile?
     /// Oldest first; read from the file on first use.
     private var entries: [Entry]?
 
-    public init(directory: URL?) {
+    /// - Parameter files: The app's state files (`AppServices`), so the file has one writer.
+    public init(directory: URL?, files: AgentPaneStateFiles) {
         file = directory?.appending(path: Self.fileName)
+        store = file.map(files.at)
     }
 
     public func anchor(for sessionId: String) -> AgentPaneScrollAnchor? {
@@ -52,20 +56,14 @@ public final class AgentPaneScrollAnchors {
 
     private func loaded() -> [Entry] {
         if let entries { return entries }
-        // concurrency-allow: one read of a small local state file, at the first chat's attach
-        let data = file.flatMap { try? Data(contentsOf: $0) }
+        let data = store?.read()
         let read = data.flatMap { try? JSONDecoder().decode([Entry].self, from: $0) } ?? []
         entries = read
         return read
     }
 
     private func save() {
-        guard let file, let entries else { return }
-        if entries.isEmpty {
-            try? FileManager.default.removeItem(at: file)
-            return
-        }
-        // concurrency-allow: one small atomic write per settled scroll of a chat
-        try? JSONEncoder().encode(entries).write(to: file, options: .atomic)
+        guard let store, let entries else { return }
+        store.write { entries.isEmpty ? nil : try JSONEncoder().encode(entries) }
     }
 }

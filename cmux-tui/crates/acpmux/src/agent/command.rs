@@ -73,6 +73,8 @@ pub(crate) fn harness_command(
     // A bound route's provider variables the inherited env must not keep
     // (routes.rs): an earlier route's key never reaches this process.
     let route_unset = env.remove(crate::routes::UNSET_KEY);
+    // The bound route's name, for `/status` only (`session_status.rs`).
+    let route_name = env.remove(crate::routes::NAME_KEY);
     // Your own endpoint (byo_endpoint.rs): the marker is acpmux's own.
     let own_endpoint = crate::byo_endpoint::Kind::of_env(&env);
     env.remove(crate::byo_endpoint::OWN_ENDPOINT_KEY);
@@ -120,6 +122,9 @@ pub(crate) fn harness_command(
         &mut cmd,
         if remote_environment { None } else { family },
     );
+    if !remote_environment {
+        crate::login_env::restore_machine_tokio(&mut cmd);
+    }
     // Caller context, herdr-style: the agent knows which session it is.
     for (k, _) in std::env::vars_os() {
         if k.to_string_lossy().starts_with("ACPMUX_") {
@@ -139,6 +144,9 @@ pub(crate) fn harness_command(
     // Chief turn's shell) is not the agent's: a harness passes its env to
     // its MCP servers. A turn's preset puts its own value back (`envs`).
     cmd.env_remove(crate::agent_tools::MCP_TOOLS_ENV);
+    // The app the daemon follows is not the agent's: a daemon its commands start must not
+    // follow it too (`daemon/owner_exit.rs`).
+    cmd.env_remove(crate::daemon::owner_exit::OWNER_APP_PID_ENV);
     cmd.env_remove(crate::agent_tools::UPSTREAMS_ENV);
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
@@ -153,6 +161,8 @@ pub(crate) fn harness_command(
             .env("ACPMUX_SESSION_ID", id)
             .env("ACPMUX_SESSION_NAME", sname)
             .env("ACPMUX_SOCKET", crate::config::socket_path())
+            // With its home: a socket pairs only with an explicit home (`config::autostart_refusal`).
+            .env("ACPMUX_HOME", crate::config::home())
             // Its caller token and the socket it is for (hub/person.rs (a)); the cmux CLI's caller.
             .envs(crate::hub::person::caller_env(id))
             .env(crate::agent_tools::AGENT_SESSION_ENV, id);
@@ -234,11 +244,16 @@ pub(crate) fn harness_command(
         let format = preview_format(profile).claude_value();
         cmd.env(crate::hub::questions::PREVIEW_FORMAT_ENV, format);
     }
-    // A Claude agent's sign-in inputs, for a clear message if it has none.
-    match (family == Some("claude"), session) {
-        (true, Some((id, _))) => {
-            crate::claude_auth::remember(id, &command_env_with(&cmd, !remote_environment))
-        }
+    // A Claude agent's sign-in inputs, for a clear message if it has none (plain Claude Code)
+    // and for `/status` (every Claude family, a launcher's too: `session_status.rs`).
+    match (claude_code, session) {
+        (true, Some((id, _))) => crate::claude_auth::remember(
+            id,
+            &command_env_with(&cmd, !remote_environment),
+            route_unset.is_some() || route_name.is_some(),
+            route_name,
+            family == Some("claude"),
+        ),
         (false, Some((id, _))) => crate::claude_auth::forget(id),
         _ => {}
     }
@@ -303,7 +318,7 @@ pub(crate) fn pinned_preview_format(cmd: &Command) -> crate::hub::questions::Pre
 /// resolved (`config::profiles`). The secret store is asked only when a
 /// value holds a reference; the lookup blocks, so a multi-thread runtime
 /// moves it off its worker first.
-fn resolved_profile_env(
+pub(crate) fn resolved_profile_env(
     profile: &HarnessProfile,
 ) -> Result<std::collections::BTreeMap<String, String>> {
     let mut env = profile.env.clone();
@@ -313,7 +328,7 @@ fn resolved_profile_env(
     let resolve = |env: &mut std::collections::BTreeMap<String, String>| {
         crate::config::profiles::resolve_env_refs(
             env,
-            &|var| crate::login_env::allowed_var(var).or_else(|| std::env::var(var).ok()),
+            &crate::login_env::reference_var,
             &crate::config::profiles::keychain_lookup,
         )
     };
@@ -400,6 +415,9 @@ pub(crate) fn host_environment() -> Vec<(std::ffi::OsString, std::ffi::OsString)
             "TERM",
             "COLORTERM",
             "TZ",
+            // The QoS opt-out (`qos.rs`), so a daemon started with it starts
+            // its hosts unclamped too.
+            "ACPMUX_QOS",
             // Windows process startup and temporary-directory basics.
             "SYSTEMROOT",
             "WINDIR",

@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextResources
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 import CmuxNextWakeupsTestSupport
 
@@ -11,7 +12,7 @@ import CmuxNextWakeupsTestSupport
 /// window (a gap between tabs) shows its card at once. Lawrence 2026-10-19: the card touches its
 /// tab, and the pointer moving from the tab onto the card keeps it. The delays run on a manual
 /// clock the test moves.
-@MainActor @Suite(.serialized) struct TabHoverCardTimingTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabHoverCardTimingTests {
     private struct Strip {
         let strip: TabStripView
         let window: NSWindow
@@ -36,6 +37,7 @@ import CmuxNextWakeupsTestSupport
 
         func tearDown() {
             coordinator.dismiss(.action)
+            coordinator.panel?.closeAfterTest()
             window.contentView = nil
             window.close()
         }
@@ -137,7 +139,11 @@ import CmuxNextWakeupsTestSupport
             try await Task.sleep(for: .milliseconds(5))
         }
         #expect(!panel.isVisible || panel.alphaValue <= 0.001, "the card was still at alpha \(panel.alphaValue)")
-        #expect(ContinuousClock.now - start <= .seconds(fade + 0.25), "the fade ran past its \(fade) s")
+        // "At once" is the fade starting on the move (`isShowingCard` above, with the grace
+        // timer on the manual clock, which never fires here). This bound only catches a fade
+        // that runs far longer than its own: the main actor polls it, and a loaded CI mini
+        // late by tens of ms was a false red (0.335 s against fade + 0.25 s, run 41440924263).
+        #expect(ContinuousClock.now - start <= .seconds(fade + 0.75), "the fade ran far past its \(fade) s")
         // Back onto a tab within the grace: its card at once.
         s.move(to: try s.center("b"))
         #expect(s.shows("b"), "a tab reached within the grace waited for the delay")

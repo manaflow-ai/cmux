@@ -839,6 +839,84 @@ fn vt_replay_preserves_plain_url_text_across_soft_wrapped_rows() {
     assert!(target_text.contains("#frag-B"), "target text was {target_text:?}");
 }
 
+/// Source terminal with history: numbered short lines, a long line that
+/// soft-wraps at the source width, and enough lines after it that the long
+/// line is in the scrollback.
+fn terminal_with_wrapped_history(cols: u16, long: &str) -> Terminal {
+    let mut source = Terminal::new(cols, 6, 1000, Callbacks::default()).unwrap();
+    for i in 0..30 {
+        source.vt_write(format!("before-{i:02}\r\n").as_bytes());
+    }
+    source.vt_write(long.as_bytes());
+    source.vt_write(b"\r\n");
+    for i in 0..20 {
+        source.vt_write(format!("after-{i:02}\r\n").as_bytes());
+    }
+    source.vt_write(b"$ ");
+    source
+}
+
+fn long_line(len: usize) -> String {
+    (0..len).map(|i| char::from(b'a' + (i % 26) as u8)).collect()
+}
+
+#[test]
+fn history_replay_keeps_soft_wraps_so_the_line_reflows_at_a_new_width() {
+    // A 60-character line soft-wrapped at 54 columns (54 + 6), restored from
+    // a replay and then shown at 48 columns, must re-flow to 48 + 12 as the
+    // live terminal does, not stay split where the old width wrapped it.
+    let long = long_line(60);
+    let mut source = terminal_with_wrapped_history(54, &long);
+    assert!(source.history_rows() > 0, "the long line must be in the history");
+
+    let replay = source.vt_replay_bounded_bytes(1024 * 1024).unwrap();
+    let mut target = Terminal::new(54, 6, 1000, Callbacks::default()).unwrap();
+    target.vt_write(&replay);
+    assert_eq!(target.plain_text().unwrap(), source.plain_text().unwrap());
+    assert_eq!(target.history_rows(), source.history_rows(), "physical rows moved");
+    assert_eq!(target.cursor_position(), source.cursor_position());
+
+    source.resize(48, 6, 8, 16).unwrap();
+    target.resize(48, 6, 8, 16).unwrap();
+    let source_text = source.plain_text().unwrap();
+    let target_text = target.plain_text().unwrap();
+    let expected = format!("\n{}\n{}\n", &long[..48], &long[48..]);
+    assert!(source_text.contains(&expected), "{source_text:?}");
+    assert_eq!(target_text, source_text, "the restored line did not re-flow");
+}
+
+#[test]
+fn history_replay_keeps_rows_where_a_wrap_cannot_be_reprinted() {
+    // A wrapped row whose continuation was erased at its start cannot be
+    // re-created by printing on; the replay keeps that row's break and every
+    // physical row in place.
+    let long = format!("{}\x1b[1K", long_line(30));
+    let mut source = terminal_with_wrapped_history(20, &long);
+    let replay = source.vt_replay_bounded_bytes(1024 * 1024).unwrap();
+    let mut target = Terminal::new(20, 6, 1000, Callbacks::default()).unwrap();
+    target.vt_write(&replay);
+    assert_eq!(target.plain_text().unwrap(), source.plain_text().unwrap());
+    assert_eq!(target.history_rows(), source.history_rows(), "physical rows moved");
+    assert_eq!(target.cursor_position(), source.cursor_position());
+}
+
+#[test]
+fn history_replay_keeps_a_wide_character_soft_wrap() {
+    // 5 + 32 cells at 20 columns: the first row ends in the spacer a wide
+    // character leaves when it wraps.
+    let wide = format!("wide {}", "中文".repeat(8));
+    let mut source = terminal_with_wrapped_history(20, &wide);
+    let replay = source.vt_replay_bounded_bytes(1024 * 1024).unwrap();
+    let mut target = Terminal::new(20, 6, 1000, Callbacks::default()).unwrap();
+    target.vt_write(&replay);
+    assert_eq!(target.plain_text().unwrap(), source.plain_text().unwrap());
+    assert_eq!(target.history_rows(), source.history_rows(), "physical rows moved");
+
+    source.resize(26, 6, 8, 16).unwrap();
+    target.resize(26, 6, 8, 16).unwrap();
+    assert_eq!(target.plain_text().unwrap(), source.plain_text().unwrap());
+}
+
 #[test]
 fn selection_text_absolute_spans_scrolled_out_rows() {
     let mut term = Terminal::new(20, 3, 1000, Callbacks::default()).unwrap();

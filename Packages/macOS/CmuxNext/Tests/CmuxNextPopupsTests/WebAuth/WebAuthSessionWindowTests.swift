@@ -33,7 +33,7 @@ import Testing
         let windows = WebAuthSessionWindows(
             host: host, logger: Logger(subsystem: "com.cmuxterm.tests", category: "webauth"),
             profiles: profiles, signInCallbacks: CEFSignInCallbacks(), contextMenus: BrowserContextMenuBuilder(),
-            present: { panels.present($0, $1) }
+            activeLook: nil, present: { panels.present($0, $1) }
         )
         let broker = WebAuthSessionBroker(opener: windows)
         brokers.all.append(broker)

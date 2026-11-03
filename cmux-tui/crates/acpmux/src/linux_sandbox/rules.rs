@@ -59,7 +59,7 @@ impl WritePolicy {
         while !reader.0.is_empty() {
             let start = reader.0;
             let node = reader.expr(0)?;
-            let text = &start[..start.len() - reader.0.len()];
+            let text = start.get(..start.len() - reader.0.len()).unwrap_or("");
             let items = node.list()?;
             match items {
                 [Expr::Atom("version"), Expr::Atom("1")]
@@ -169,7 +169,8 @@ fn canonical_text(path: &Path) -> Result<&str, ParseError> {
     let valid = path.to_str().filter(|s| {
         s.starts_with('/')
             && !s.contains(['\0', '\n', '\r'])
-            && (*s == "/" || s[1..].split('/').all(|p| !matches!(p, "" | "." | "..")))
+            && (*s == "/"
+                || s.get(1..).unwrap_or("").split('/').all(|p| !matches!(p, "" | "." | "..")))
     });
     valid.ok_or_else(|| {
         ParseError("path must be canonical absolute UTF-8 without NUL/newlines".into())
@@ -279,12 +280,12 @@ impl<'a> Reader<'a> {
         }
         self.space();
         if self.0.starts_with('(') {
-            self.0 = &self.0[1..];
+            self.0 = self.0.get(1..).unwrap_or("");
             let mut children = Vec::new();
             loop {
                 self.space();
                 if self.0.starts_with(')') {
-                    self.0 = &self.0[1..];
+                    self.0 = self.0.get(1..).unwrap_or("");
                     return Ok(Expr::List(children));
                 }
                 children.push(self.expr(depth + 1)?);
@@ -292,10 +293,10 @@ impl<'a> Reader<'a> {
         }
         let raw = self.0.starts_with("#\"");
         if raw || self.0.starts_with('"') {
-            self.0 = &self.0[if raw { 2 } else { 1 }..];
+            self.0 = self.0.get(if raw { 2 } else { 1 }..).unwrap_or("");
             let mut value = String::new();
             while let Some(c) = self.0.chars().next() {
-                self.0 = &self.0[c.len_utf8()..];
+                self.0 = self.0.get(c.len_utf8()..).unwrap_or("");
                 match c {
                     '"' => return Ok(if raw { Expr::Raw(value) } else { Expr::Text(value) }),
                     '\\' if !raw => {
@@ -305,7 +306,7 @@ impl<'a> Reader<'a> {
                             .next()
                             .filter(|c| matches!(*c, '\\' | '"'))
                             .ok_or_else(|| ParseError("unsupported string escape".into()))?;
-                        self.0 = &self.0[c.len_utf8()..];
+                        self.0 = self.0.get(c.len_utf8()..).unwrap_or("");
                         value.push(c);
                     }
                     _ => value.push(c),
