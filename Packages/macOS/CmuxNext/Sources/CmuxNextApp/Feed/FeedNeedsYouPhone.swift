@@ -29,10 +29,14 @@ enum FeedNeedsYouPhone {
     static func follow(feed: FeedService, iphone: IPhoneHostService) -> Task<Void, Never> {
         // task-owner: NotificationCenterService.tasks; cancelled with the service.
         Task { [weak feed, weak iphone] in
-            let pinned = ObservationStream { [weak feed] in
-                feed.map { feed in requests(feed.model.listSections.requests) { feed.githubDetail(for: $0) } } ?? []
+            // Nil until the Feed's owner first answered: an empty set sent at launch would close
+            // every request on the phone (and clear its delivered push) until the Feed loads.
+            let pinned = ObservationStream { [weak feed] () -> [MobileHostNeedsYouRequest]? in
+                guard let feed, feed.model.connection != .connecting else { return nil }
+                return requests(feed.model.listSections.requests) { feed.githubDetail(for: $0) }
             }
             for await set in pinned {
+                guard let set else { continue }
                 await iphone?.setNeedsYou(set)
             }
         }
