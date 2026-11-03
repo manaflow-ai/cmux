@@ -1,5 +1,16 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-02: a group's fold clips its members to the group's height. Leo, verbatim, on collapsing a group: "the
+  collapsing group animation is kinda funky looking when the text all races up" ("*compared to claude code"). Each
+  member slid up to its header's y over its own distance while fading, so the members raced past each other and drew
+  over the rows rising below. Now the members stay where they are and fade, each masked to the group's slot under its
+  header (`SidebarListView.clipFold`), whose bottom edge closes on the `.move` spring with the rows below; an expand
+  opens the slot down the same way. The masks are render-server springs (no layout per frame), come off when the fold
+  ends or the row is reused, and are never added with motion off. Only a person's own fold of a group moves this way
+  (`foldGroup`); reload-driven folds keep the slide under the header. Regression:
+  `SidebarRowsMoveOnRenderServerTests.collapsingAGroupClipsItsMembersInPlace`,
+  `expandingAGroupOpensItsSlotOverTheMembersInPlace`, `aFoldWithoutMotionLeavesNoMask`.
+
 - 2026-11-02: a group nobody colored draws no bar, chip or wash: a plain row with only its hover and drop fills. Leo,
   on an uncolored group's header: "WTF IS THIS GROUP COLOUR????" / "THE GROUP COLOUR SOMEHOW BEING THE THEME COLOUR???"
   / "IT'S USELESS". `GroupTint.none.headerChip` and `headerWash` were the opaque `sidebarBackground`, which drew the
