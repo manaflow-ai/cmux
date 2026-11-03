@@ -87,14 +87,25 @@ impl Hub {
             "native": [],
             "harness": harness,
         });
+        let mut copied = Vec::new();
         if !native.is_empty() {
             std::fs::create_dir_all(dir.join("native"))?;
-            let mut copied = Vec::new();
             for (label, src) in native {
                 if let Ok(rel) = crate::native::copy_into(&src, &dir.join("native"), &label) {
                     copied.push(json!({"label": label, "path": rel, "source": src}));
                 }
             }
+        }
+        // OpenCode keeps its sessions in a database: the session goes as its export. A failed
+        // export still moves the chat, which then resumes from this log only.
+        match crate::native::export_opencode(&meta, &dir.join("native")) {
+            Ok(Some(rel)) => {
+                copied.push(json!({"label": crate::native::OPENCODE_EXPORT, "path": rel}))
+            }
+            Ok(None) => {}
+            Err(e) => tracing::warn!(session = %meta.id, "opencode session not bundled: {e:#}"),
+        }
+        if !copied.is_empty() {
             manifest.set("native", Value::Array(copied));
         }
         std::fs::write(dir.join("manifest.json"), serde_json::to_string_pretty(&manifest)?)?;
@@ -236,6 +247,11 @@ impl Hub {
                 }
             }
         };
+        // OpenCode's session is imported into its own database, in the chat's folder here. One
+        // that fails leaves the chat to resume from its log, as a chat with no agent store does.
+        if let Err(e) = crate::native::import_opencode(bundle, &meta) {
+            tracing::warn!(session = %meta.id, "opencode session not imported: {e:#}");
+        }
         // Made once nothing can fail: a failed import leaves nothing in the child index.
         let session = self.make_session(meta.clone());
         // Its copied log may hold the source's move: unknown until its own `imported` receipt
