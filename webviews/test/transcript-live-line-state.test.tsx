@@ -148,12 +148,14 @@ test("the long-wait gallery entry's live line names its subagents and the turn's
   expect(drawn(step, GALLERY_NOW)).toBe("Opened 1 agent session 3m 27s · 1h 24m 7s total");
 });
 
-test("a running call reads its own time, then the turn's total", () => {
+test("a running call reads the turn's clock as its total, never a clock that starts at the call", () => {
+  // Leo, 2026-11-01: "it should just keep going" (transcript-live-line-continuous-browser.test.ts).
   const start = 1_000_000;
   const html = renderToStaticMarkup(
     <Thinking since={start} doing="bun test" doingShell doingAt={start + 5_000} turnTotal now={() => start + 13_000} />,
   );
-  expect(words(html)).toBe("Running bun test 8s · 13s total");
+  expect(words(html)).toBe("Running bun test · 13s total");
+  expect(html).toContain('<span class="cv-worked__time">13s</span>');
 });
 
 test("waiting on subagents, the line does not count them a second time", () => {

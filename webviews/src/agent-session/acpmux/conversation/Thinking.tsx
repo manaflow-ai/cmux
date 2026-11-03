@@ -144,19 +144,15 @@ export function Thinking({
   // Past the first step the turn's time is labelled as the whole turn's, after the finished step's
   // own time when it has one: "Ran grep -n x 2s · 15s total", "Waiting on 2 subagents · 1h 24m total"
   // (Leo, 2026-11-03: "i think the "thinking" accounting is also off pretty frequently").
-  const total = turnTotal && turnTime !== undefined ? t("turn.live.total", { time: turnTime }) : undefined;
-  // The step's own time beside it: a finished step's start to end, a running call's start to now.
-  const stepTime =
-    doing === undefined
-      ? waitsOnAgents || writing
-        ? undefined
-        : thoughtMs
-      : done
-        ? doneMs
-        : doingAt !== undefined && timed
-          ? Math.max(0, time - doingAt)
-          : undefined;
-  const elapsed = total ? (stepTime !== undefined ? formatDuration(stepTime) : undefined) : turnTime;
+  // The total's words around the time ("{time} total"), so the turn's clock stays its own element
+  // (`cv-worked__time`) that keeps ticking from the prompt.
+  const total =
+    turnTotal && turnTime !== undefined ? t("turn.live.total", { time: "\u0000" }).split("\u0000") : undefined;
+  // What stands beside the label then, never a clock that starts again at a call (Leo, 2026-11-01:
+  // "it should just keep going"): a finished step's own start to end, or the turn's summed thinking.
+  const ownMs = doing === undefined ? (waitsOnAgents || writing ? undefined : thoughtMs) : done ? doneMs : undefined;
+  const own = total && ownMs !== undefined ? formatDuration(ownMs) : undefined;
+  const elapsed = total ? own : turnTime;
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).
@@ -198,7 +194,7 @@ export function Thinking({
               }
             />
           </output>
-          {elapsed && <span className="cv-worked__time">{elapsed}</span>}
+          {elapsed && <span className={total ? "cv-worked__own" : "cv-worked__time"}>{elapsed}</span>}
         </span>
       )}
       {total && !waiting && (
@@ -206,7 +202,9 @@ export function Thinking({
           <span className="cv-worked__sep" aria-hidden="true">
             ·
           </span>
-          {total}
+          {total[0]}
+          <span className="cv-worked__time">{turnTime}</span>
+          {total.slice(1).join("")}
         </span>
       )}
       {showTokens && (
