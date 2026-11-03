@@ -323,6 +323,10 @@ fn a_native_wrappers_numbered_agent_name_relays_to_the_agent() {
         format!("/home/u/.local/bin/claude --autocompact 404061 --settings /tmp/s.json {args}");
     let idle = vec![under(11, 10, &claude), under(12, 11, "/home/u/cmux mcp serve")];
     assert!(matches!(census_of(&idle, sr2, &servers), Census::Clear));
+    // An agent really named with the number still relays.
+    let claude2 = format!("/home/u/.local/bin/claude2 --settings /tmp/s.json {args}");
+    let named = vec![under(11, 10, &claude2), under(12, 11, "/home/u/cmux mcp serve")];
+    assert!(matches!(census_of(&named, sr2, &servers), Census::Clear));
     // Only a number after the agent's name: another word names another program.
     for leader in [
         format!("/home/u/.local/bin/sr2 claudex {args}"),

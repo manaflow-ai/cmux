@@ -636,12 +636,14 @@ fn relays(who: &crate::agent_host::tree::Identity, launcher: &Launcher) -> bool 
 /// A native wrapper (`wrapper`): the agent it names and the args it passes on.
 struct Wrapper<'a> {
     name: &'a str,
+    /// `name` with the account number sr2 puts after it dropped (`claude2`: `claude`).
+    agent: &'a str,
     args: &'a [String],
 }
 
 /// A native wrapper harness: a program, not an interpreter, run as `WRAPPER NAME ARGS` with at
 /// least one arg (`sr2 claude -p ...`, `sr codex -c ... app-server`; `sr2 claude2 ...` names
-/// `claude` for an account, its number dropped). It runs the agent `NAME`
+/// `claude` for an account, or `claude2` itself). It runs the agent `NAME`
 /// as its child with those args plus its own (`relays_for`), and that child starts the MCP
 /// servers. Argv is the leader's own to rewrite too, so the executable the kernel says it runs
 /// must be the wrapper: the file argv names, or for a bare name, the one the harness's `path`
@@ -661,13 +663,13 @@ fn wrapper<'a>(
     }
     // sr2 names an account's agent with a number after it (`sr2 claude2`) and runs `claude`.
     let agent = name.trim_end_matches(|c: char| c.is_ascii_digit());
-    let name = if agent.is_empty() { name.as_str() } else { agent };
+    let agent = if agent.is_empty() { name.as_str() } else { agent };
     let runs_wrapper = if program.contains('/') {
         program.starts_with('/') && runs_file(who, program)
     } else {
         path.and_then(|path| first_on_path(program, path)).is_some_and(|w| runs_file(who, &w))
     };
-    runs_wrapper.then_some(Wrapper { name, args })
+    runs_wrapper.then_some(Wrapper { name, agent, args })
 }
 
 /// Whether `who`, a child of a native wrapper (`wrapper`), is the agent it relays to: a program
@@ -680,11 +682,13 @@ fn relays_for(who: &crate::agent_host::tree::Identity, wrapper: &Wrapper) -> boo
     let Some(file) = Path::new(program).file_name().and_then(|n| n.to_str()) else {
         return false;
     };
-    let named = file == wrapper.name
-        || file
-            .strip_suffix(wrapper.name)
-            .and_then(|prefix| prefix.strip_suffix('-'))
-            .is_some_and(|prefix| !prefix.is_empty());
+    let named = [wrapper.name, wrapper.agent].into_iter().any(|name| {
+        file == name
+            || file
+                .strip_suffix(name)
+                .and_then(|prefix| prefix.strip_suffix('-'))
+                .is_some_and(|prefix| !prefix.is_empty())
+    });
     program.starts_with('/')
         && !is_interpreter(program)
         && named
@@ -773,10 +777,10 @@ fn classify(
                 // where `claude-*` is any program.
                 harness.push(p.pid);
                 let program = who.argv.first().map(Path::new);
-                if program.and_then(Path::file_name).is_some_and(|f| f != w.name)
+                if program.and_then(Path::file_name).is_some_and(|f| f != w.name && f != w.agent)
                     && let Some(program) = program
                 {
-                    let named = program.with_file_name(w.name);
+                    let named = program.with_file_name(w.agent);
                     harness_programs.push(named.to_string_lossy().into_owned());
                 }
             } else if part_of(who, &harness_programs) {
