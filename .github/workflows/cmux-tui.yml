@@ -1397,7 +1397,7 @@ jobs:
       - name: Install pinned Playwright Chromium (Linux)
         if: runner.os == 'Linux'
         working-directory: web
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/ensure-system-chrome.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
       - name: Resolve Playwright Chromium executable
         id: chromium

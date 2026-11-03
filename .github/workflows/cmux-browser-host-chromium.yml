@@ -58,7 +58,7 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --no-audit --no-fund
-          "$GITHUB_WORKSPACE/scripts/ci/ensure-system-chrome.sh"
+          "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
           path="$(command -v google-chrome-stable || command -v google-chrome || echo /opt/google/chrome/chrome)"
           test -x "$path"
           echo "CMUX_BROWSER_HOST_TEST_CHROME=$path" >> "$GITHUB_ENV"
