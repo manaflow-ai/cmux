@@ -27,6 +27,7 @@ extension SidebarUpdateCardView {
         guard card != nil, let highlights, highlights.contentHeight > 0, let window, !isHiddenOrHasHiddenAncestor,
               let cards = hoverCards() else { return }
         let host = notesHost
+        host.fit(width: Self.popoverWidth)
         wireNotes(highlights)
         host.adopt(highlights)
         host.fit(height: notesHeight(for: highlights.contentHeight))
@@ -47,8 +48,9 @@ extension SidebarUpdateCardView {
         parkHighlights()
     }
 
-    /// Menu width: the popover type every cmux popover uses (320-360 pt).
-    static var popoverWidth: CGFloat { 340 }
+    /// The popup's width: derived from the rows' text size (``SidebarRowTokens/popover``, 312 pt at
+    /// Compact's 12 pt titles), the width its page lays out to (`--cmux-sidebar-pop-width`).
+    static var popoverWidth: CGFloat { SidebarRowTokens.current.popover.width }
 
     /// The popup is at most this share of its window's height; the page scrolls inside it.
     static var popoverMaxHeightFraction: CGFloat { 0.6 }

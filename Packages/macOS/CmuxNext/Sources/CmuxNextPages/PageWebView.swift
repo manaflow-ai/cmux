@@ -439,11 +439,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
 
     /// The theme carries the static status look (`data-status-indicators`, cx-sya4n) and the sidebar
-    /// cards' sizes (`--cmux-sidebar-card-*`): a change of the setting, of Reduce Motion or of the
+    /// cards' and popover's sizes (`--cmux-sidebar-card-*`, `--cmux-sidebar-pop-*`): a change of the setting, of Reduce Motion or of the
     /// sidebar's density or text size pushes the theme again.
     private func observeStatusLook() {
         statusLookObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.statusIndicator.animation, SidebarRowTokens.current.card) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.statusIndicator.animation, SidebarRowTokens.current.card, SidebarRowTokens.current.popover) }) {
                 guard let self else { return }
                 self.applyTheme()
             }
