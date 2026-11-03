@@ -1645,8 +1645,10 @@ const openPreview = (url: string) => void callNative("browser.open", { url }).ca
 /// A tagged ask the turn's answer ended on, as a card with its answers (conversation/NextStepCard.tsx).
 const NextStepRow = memo(
   function NextStepRow({ row }: RowProps) {
-    const { answer } = useContext(TurnActionsContext);
-    return row.nextStep ? <NextStepCard ask={row.nextStep.ask} answer={row.nextStep.answer} onAnswer={answer} /> : null;
+    const { answer, nextStepKey } = useContext(TurnActionsContext);
+    return row.nextStep ? (
+      <NextStepCard ask={row.nextStep.ask} answer={row.nextStep.answer} onAnswer={answer} registerKey={nextStepKey} />
+    ) : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -7872,6 +7874,13 @@ function AcpmuxPane() {
   const queuedMessageActionsRef = useRef<QueuedMessageActionsValue | undefined>(undefined);
   // The chat's Codex skills, for its sent prompts' `/$name` (conversation/skillWords.ts).
   const skillWords = useSkillWords(snapshot.commands);
+  // The waiting tagged-ask card's first answer, which the composer's ⌘↩ on an empty prompt sends
+  // (NextStepCard.tsx, TurnActions `nextStepKey`).
+  const [nextStepFire, setNextStepFire] = useState<{ fire: () => void }>();
+  const nextStepKey = useCallback((fire: () => void) => {
+    setNextStepFire({ fire });
+    return () => setNextStepFire((now) => (now?.fire === fire ? undefined : now));
+  }, []);
   const turnActions = useMemo<TurnActions>(
     () => ({
       queuedMessages: () => queuedMessageActionsRef.current,
@@ -7950,6 +7959,7 @@ function AcpmuxPane() {
       }),
       // A tagged ask's answer (NextStepCard.tsx) sends as Continue does, with the same reach.
       ...(restartChat && {
+        nextStepKey,
         answer: (
           (owner: string) => (text: string) =>
             restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
@@ -8095,6 +8105,7 @@ function AcpmuxPane() {
       catalog,
       restartChat,
       snapshot.commands,
+      nextStepKey,
     ],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
@@ -14000,7 +14011,9 @@ function AcpmuxPane() {
             // A chat on this Mac (as Sources' + below); the host refuses any other.
             localPaths={localCwd !== undefined && !quick && !readOnlySubagent ? localPaths : undefined}
             onOpenInWindow={quick ? openInWindow : undefined}
-            onEmptyCommandReturn={recapCard.recap ? recapCard.reply : undefined}
+            // ⌘↩ on an empty prompt answers the recap card's question, else a waiting tagged ask's
+            // first answer (NextStepCard.tsx), never while a question or permission card waits.
+            onEmptyCommandReturn={recapCard.recap ? recapCard.reply : hasBottomAsk ? undefined : nextStepFire?.fire}
             onShellChange={setComposerShell}
             prompt={prompt}
             handle={composerRef}

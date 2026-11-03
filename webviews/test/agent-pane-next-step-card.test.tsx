@@ -85,7 +85,7 @@ describe("a tagged ask in the transcript", () => {
 describe("NextStepCard", () => {
   const ask = nextStepAsk(ANSWER)!;
   test("waiting: the question and one button per answer, the first with ⌘↩", () => {
-    const html = renderToStaticMarkup(createElement(NextStepCard, { ask, onAnswer: async () => undefined }));
+    const html = renderToStaticMarkup(createElement(NextStepCard, { ask, onAnswer: async () => undefined, registerKey: () => () => undefined }));
     expect(html).toContain("Add a hook that pushes them to the background?");
     expect(html.match(/acpmux-next-step__answer\b(?!s)/g)).toHaveLength(3);
     expect(html).toContain('aria-keyshortcuts="Meta+Enter"');

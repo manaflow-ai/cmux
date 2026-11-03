@@ -71,6 +71,11 @@ export type TurnActions = {
   /// path, so it shows as the reader's prompt and starts the next turn. Absent where the pane cannot
   /// send (View Only, a read-only pane); the card then draws no buttons.
   answer?: (text: string) => Promise<void>;
+  /// A waiting tagged-ask card hands its first answer to the composer's ⌘↩ on an empty prompt, the
+  /// way the recap card's yes takes it (Composer.tsx `onEmptyCommandReturn`), so the composer's own
+  /// rules hold: never in the Quick Composer (whose ⌘↩ opens a window), shell mode or a running turn.
+  /// Returns the release, which clears it only while it is still that card's.
+  nextStepKey?: (fire: () => void) => () => void;
   /// Compact the chat (a context-full failure's Compact): sends the harness's own `/compact` through
   /// the composer's send path. Only where the agent lists `compact` among its slash commands.
   compact?: () => Promise<void>;

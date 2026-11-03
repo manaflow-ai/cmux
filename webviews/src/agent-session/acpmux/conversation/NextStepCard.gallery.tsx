@@ -31,6 +31,7 @@ function NextStepInPane({ look, text, reply }: Props) {
         ask={ask}
         answer={reply === undefined ? undefined : chosenAnswer(ask, reply)}
         onAnswer={() => Promise.resolve()}
+        registerKey={() => () => undefined}
       />
     </div>
   );
