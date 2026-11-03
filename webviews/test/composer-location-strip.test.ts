@@ -578,6 +578,58 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       expect(marks.branchClipped).toBe(false);
     });
 
+  /** Runs in the page: each chip of the new chat's Project | Where | Machine strip (#32814). */
+  function measureChips() {
+    const strip = document.querySelector(".acpmux-composer-strip")!;
+    const chip = (rows: string) => {
+      const picker = strip.querySelector<HTMLElement>(`.acpmux-location-picker[data-rows="${rows}"]`);
+      if (!picker) return null;
+      const label = picker.querySelector<HTMLElement>(".acpmux-location-label");
+      const shown = label ? getComputedStyle(label).display !== "none" : false;
+      let clipped: boolean | null = null;
+      if (label && shown) {
+        const range = document.createRange();
+        range.selectNodeContents(label);
+        clipped = range.getBoundingClientRect().width > label.getBoundingClientRect().width + 0.01;
+      }
+      return {
+        text: label?.textContent ?? "",
+        shown,
+        clipped,
+        title: picker.getAttribute("title") ?? "",
+        name: picker.querySelector("button")?.getAttribute("aria-label") ?? "",
+        right: picker.getBoundingClientRect().right,
+      };
+    };
+    return {
+      where: chip("where"),
+      machine: chip("machines") ?? chip("cloud"),
+      stripRight: strip.getBoundingClientRect().right,
+    };
+  }
+
+  // A new chat opened beside the Chief is about 430 px wide on a fresh home (DEV 77e9a45): the Where
+  // and Machine chips keep their names there (Codex desktop's strip names each choice in text). Leo,
+  // 2026-11-03: "yeah chatgpt codex has nicer ways to deal with stuff".
+  for (const [variant, where, machine] of [
+    ["strip-where-machine", "This Mac", null],
+    ["strip-where-machine-cloud", "Cloud", "New machine"],
+  ] as const)
+    test(`a new chat's strip at 430 px: ${variant} names Where${machine ? " and Machine" : ""} in text`, async () => {
+      const page = await open("agent-pane.composer-context", variant, 430, undefined, 180);
+      await page.locator('.acpmux-composer-strip .acpmux-location-picker[data-rows="where"]').waitFor();
+      const chips = await page.evaluate(measureChips);
+      await page.close();
+      expect(chips.where).toMatchObject({ text: where, shown: true, clipped: false });
+      expect(chips.where!.name).toContain(where);
+      expect(chips.where!.title).toContain(where);
+      if (machine) {
+        expect(chips.machine).toMatchObject({ text: machine, shown: true, clipped: false });
+        expect(chips.machine!.title).toContain(machine);
+        expect(chips.machine!.right).toBeLessThanOrEqual(chips.stripRight + 0.5);
+      }
+    });
+
   for (const [width, cut] of [
     [341, false],
     [340, true],
