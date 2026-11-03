@@ -56,8 +56,9 @@ const PREFIX = "mcp__cmux__";
 function loadCases() {
   const files = arg("cases", null)?.split(",") ?? readdirSync(join(HERE, "cases")).filter((f) => f.endsWith(".ndjson")).map((f) => join(HERE, "cases", f));
   const all = files.flatMap((f) => readFileSync(f, "utf8").split("\n").filter((l) => l.trim() && !l.startsWith("//")).map((l) => JSON.parse(l)));
-  // The headless agent-evals tasks run here too, graded on state alone.
-  for (const t of TASKS.filter((t) => t.tier === "headless")) {
+  // The headless agent-evals tasks run here too, graded on state alone; a --cases run (a
+  // targeted panel) has only its own cases.
+  for (const t of arg("cases", null) ? [] : TASKS.filter((t) => t.tier === "headless")) {
     all.push({ id: `ae-${t.id}`, area: "agent-evals", kind: "guard", source: "tests/agent-evals/tasks.mjs", prompt: t.prompt, setup: t.setup, expect: { state: t.checks } });
   }
   const ids = arg("case", null)?.split(",");
