@@ -18,6 +18,10 @@ import Testing
 /// From #32988 (RESIZE KEYS, superseded): its `aDragThatStartsOnASnapFollowsThePointerFromItsFirstPoint` is kept here
 /// (with Shift too); its tests that a no-modifier drag snaps back onto a half, or snaps onto one from 4 pt away, are
 /// the soft snap this change removes.
+///
+/// Each drag runs on both drag paths (`motion.frameOwner.timing`, FRAME OWNER REFACTOR S2), pinned per root
+/// (`frameTimingOverride`): off, each move writes the model in its own turn; on, a move keeps the pointer and the next
+/// display frame applies it (`DividerDrag.applyWaiting`), so the divider is read after that frame.
 @MainActor
 @Suite(.closesItsWindows)
 struct DividerDragFollowsPointerTests {
@@ -32,11 +36,16 @@ struct DividerDragFollowsPointerTests {
         let window: NSWindow
         var ended: [LayoutIntent] = []
 
-        init(_ layout: ScreenLayout, animates: Bool = false) {
+        /// `motion.frameOwner.timing` for this root: a move waits for the next display frame.
+        let frameTick: Bool
+
+        init(_ layout: ScreenLayout, animates: Bool = false, frameTick: Bool = false) {
             _ = NSApplication.shared
+            self.frameTick = frameTick
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: "p1")
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = !animates
+            root.context.frameTimingOverride = frameTick
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 700), styleMask: [.borderless], backing: .buffered,
                               defer: false)
             window.isReleasedWhenClosed = false
@@ -80,7 +89,8 @@ struct DividerDragFollowsPointerTests {
             var shown: [CGFloat] = []
             for dx in offsets {
                 view.mouseDragged(with: event(.leftMouseDragged, CGPoint(x: from.x + dx, y: from.y), flags))
-                root.syncWithModel()
+                // The move shows in its own turn, or (frame tick) in the next display frame.
+                if frameTick { _ = root.advanceFrame(1.0 / 120) } else { root.syncWithModel() }
                 shown.append(try edge())
             }
             view.mouseUp(with: event(.leftMouseUp, CGPoint(x: from.x + (offsets.last ?? 0), y: from.y), releaseFlags ?? flags))
@@ -133,7 +143,16 @@ struct DividerDragFollowsPointerTests {
     /// modifier and with Shift.
     @Test(arguments: [CGFloat(1), 3, 6, -3], [false, true])
     func aDragThatStartsOnASnapFollowsThePointerFromItsFirstPoint(_ dx: CGFloat, _ shift: Bool) throws {
-        let rig = Rig(Self.even)
+        try aDragThatStartsOnASnapFollowsThePointer(dx, shift: shift, frameTick: false)
+    }
+
+    @Test(arguments: [CGFloat(1), 3, 6, -3], [false, true])
+    func onTheFrameTickADragThatStartsOnASnapFollowsThePointerFromItsFirstPoint(_ dx: CGFloat, _ shift: Bool) throws {
+        try aDragThatStartsOnASnapFollowsThePointer(dx, shift: shift, frameTick: true)
+    }
+
+    private func aDragThatStartsOnASnapFollowsThePointer(_ dx: CGFloat, shift: Bool, frameTick: Bool) throws {
+        let rig = Rig(Self.even, frameTick: frameTick)
         defer { rig.window.closeAfterTest() }
         let start = try rig.dividerX("p1")
         let shown = try rig.drag(.split("x"), offsets: [dx / 2, dx], flags: shift ? .shift : [], releaseFlags: []) { try rig.dividerX("p1") }
@@ -141,9 +160,9 @@ struct DividerDragFollowsPointerTests {
     }
 
     /// A slow drag across a half and a third: the divider never holds on a snap, never jumps to one.
-    @Test(arguments: [false, true])
-    func aSlowDragAcrossSnapsFollowsThePointerInEveryFrame(_ shift: Bool) throws {
-        let rig = Rig(.splits(.split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))))
+    @Test(arguments: [false, true], [false, true])
+    func aSlowDragAcrossSnapsFollowsThePointerInEveryFrame(_ shift: Bool, _ frameTick: Bool) throws {
+        let rig = Rig(.splits(.split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))), frameTick: frameTick)
         defer { rig.window.closeAfterTest() }
         let start = try rig.dividerX("p1")
         let room = try rig.room("x")
@@ -188,8 +207,9 @@ struct DividerDragFollowsPointerTests {
     // MARK: Shift
 
     /// Shift: the divider follows the pointer during the drag; the release lands on the nearest snap.
-    @Test func shiftLandsTheReleaseOnTheNearestSnap() throws {
-        let rig = Rig(.splits(.split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))))
+    @Test(arguments: [false, true])
+    func shiftLandsTheReleaseOnTheNearestSnap(_ frameTick: Bool) throws {
+        let rig = Rig(.splits(.split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))), frameTick: frameTick)
         defer { rig.window.closeAfterTest() }
         let room = try rig.room("x")
         let start = try rig.dividerX("p1")
@@ -202,9 +222,10 @@ struct DividerDragFollowsPointerTests {
     }
 
     /// Shift on a column edge: the column follows the pointer; the release lands on the nearest preset width.
-    @Test func shiftLandsAColumnEdgeReleaseOnAPresetWidth() throws {
+    @Test(arguments: [false, true])
+    func shiftLandsAColumnEdgeReleaseOnAPresetWidth(_ frameTick: Bool) throws {
         let columns: ScreenLayout = .columns([LayoutColumn(id: "c0", width: 0.4, root: .leaf("p1")), LayoutColumn(id: "c1", width: 0.4, root: .leaf("p2"))])
-        let rig = Rig(columns)
+        let rig = Rig(columns, frameTick: frameTick)
         defer { rig.window.closeAfterTest() }
         let start = try rig.dividerX("p1")
         let shown = try rig.drag(.columnEdge("c0"), offsets: [30, 60], flags: .shift) { try rig.dividerX("p1") }
@@ -223,8 +244,9 @@ struct DividerDragFollowsPointerTests {
     }
 
     /// Shift's landing moves on the release spring: no frame jumps, and the frames run from the pointer to the snap.
-    @Test func shiftsLandingMovesOnTheReleaseSpring() throws {
-        let rig = Rig(.splits(.split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))), animates: true)
+    @Test(arguments: [false, true])
+    func shiftsLandingMovesOnTheReleaseSpring(_ frameTick: Bool) throws {
+        let rig = Rig(.splits(.split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))), animates: true, frameTick: frameTick)
         defer { rig.window.closeAfterTest() }
         let room = try rig.room("x")
         let start = try rig.dividerX("p1")
