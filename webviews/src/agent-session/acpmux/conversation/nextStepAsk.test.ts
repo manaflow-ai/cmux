@@ -20,7 +20,9 @@ describe("nextStepAsk", () => {
   });
 
   test("a list under the line is its answers, first is primary; the lines leave the prose", () => {
-    const ask = nextStepAsk("Recap.\n\n**[taste]** For Leo: which tab style?\n- Chrome tabs\n- Safari tabs\n- **Pills**\n\nThanks.");
+    const ask = nextStepAsk(
+      "Recap.\n\n**[taste]** For Leo: which tab style?\n- Chrome tabs\n- Safari tabs\n- **Pills**\n\nThanks.",
+    );
     expect(ask?.question).toBe("Which tab style?");
     expect(ask?.options.map((option) => option.label)).toEqual(["Chrome tabs", "Safari tabs", "Pills"]);
     expect(ask?.rest).toBe("Recap.\n\nThanks.");

@@ -57,9 +57,7 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
           page.on("pageerror", (error) => errors.push(error.message));
           try {
             const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
-            await page.goto(
-              base + galleryFrame(ENTRY, { variant, width: WIDTH, height: HEIGHT, colorScheme: scheme }),
-            );
+            await page.goto(base + galleryFrame(ENTRY, { variant, width: WIDTH, height: HEIGHT, colorScheme: scheme }));
             await page.waitForFunction(
               () => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
               undefined,
@@ -87,7 +85,10 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
             expect(layout.right).toBeLessThanOrEqual(layout.width);
             if (buttons > 0) expect(layout.keycap).toBe(true);
             if (variant.startsWith("box-") && buttons > 0) expect(layout.lines).toBe(1);
-            if (out) await page.locator(".acpmux-next-step-gallery").screenshot({ path: path.join(out, `${variant}-${scheme}.png`) });
+            if (out)
+              await page
+                .locator(".acpmux-next-step-gallery")
+                .screenshot({ path: path.join(out, `${variant}-${scheme}.png`) });
             expect(errors).toEqual([]);
           } finally {
             await page.close();

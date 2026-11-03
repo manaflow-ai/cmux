@@ -64,7 +64,7 @@ export const NextStepCard = memo(function NextStepCard({
     void onAnswer(label).finally(() => setSending(undefined));
   };
   return (
-    <div className="acpmux-next-step" role="group" aria-label={ask.question}>
+    <fieldset className="acpmux-next-step" aria-label={ask.question}>
       <p className="acpmux-next-step__question">{inlineText(ask.question)}</p>
       {ask.detail && <p className="acpmux-next-step__detail">{inlineText(ask.detail)}</p>}
       {onAnswer && (
@@ -85,6 +85,6 @@ export const NextStepCard = memo(function NextStepCard({
           ))}
         </div>
       )}
-    </div>
+    </fieldset>
   );
 });

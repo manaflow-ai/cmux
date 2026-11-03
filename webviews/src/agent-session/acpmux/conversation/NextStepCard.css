@@ -8,7 +8,9 @@
   flex-direction: column;
   gap: var(--ds-space-2, 8px);
   box-sizing: border-box;
+  min-width: 0;
   max-width: 100%;
+  margin: 0;
   padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
   border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
   border-radius: 12px;
@@ -71,4 +73,11 @@
 }
 .acpmux-next-step__answer:disabled {
   opacity: 0.6;
+}
+/* Answered, the box keeps its width and inset, so it folds in place instead of shrinking to the
+   answered question card's fit-content width (Leo's answered reference keeps the full box). */
+.acpmux-next-step.acpmux-next-step--answered {
+  align-self: stretch;
+  width: auto;
+  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
 }
