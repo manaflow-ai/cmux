@@ -19,8 +19,11 @@ Stack's response bodies are never echoed (they hold account data), only status c
 
 `--grant-only EMAIL` instead gives one existing capture test account (an email matching
 GRANT_ONLY_EMAIL: `cmux-cloud-capture…@manaflow.dev`, such as the no-team owner account) the same operator plan
-grant and touches nothing else: no password, no seal, no bundle. Without it, a staging account whose
-record carries a plan that is not paid is restricted and gets no Cloud machines, the stub plan included.
+grant and a verified primary email, and touches nothing else: no password, no seal, no bundle. Without the plan, a
+staging account whose record carries a plan that is not paid is restricted and gets no Cloud machines, the stub
+plan included. Without the verified email, a team invitation sent to the account cannot be accepted (cmux web
+teams/received.ts answers email_mismatch), so HQ's team invite readback could never join it to a team. The account
+made above is created verified; this does the same for one made some other way.
 
 Runs in .github/workflows/cloud-capture-provision.yml (environment cloud-vm-staging). The bundle is
 stored with `python3 scripts/ci/sealed_secrets.py put BUNDLE`; docs/ci-sealed-secrets.md.
@@ -146,15 +149,19 @@ class Stack:
             "client_read_only_metadata": metadata})
 
     def grant(self, user):
-        """Sets only the operator plan grant, keeping the account's other metadata and its password."""
+        """Sets the operator plan grant and marks the primary email verified, keeping the account's other metadata
+        and its password."""
         metadata = user.get("client_read_only_metadata")
         metadata = dict(metadata) if isinstance(metadata, dict) else {}
         metadata[PLAN_KEY] = PLAN
-        self.server("PATCH", f"/users/{urllib.parse.quote(user['id'])}", {"client_read_only_metadata": metadata})
+        self.server("PATCH", f"/users/{urllib.parse.quote(user['id'])}",
+                    {"client_read_only_metadata": metadata, "primary_email_verified": True})
+
+    def read(self, user_id):
+        return self.server("GET", f"/users/{urllib.parse.quote(user_id)}")
 
     def plan(self, user_id):
-        user = self.server("GET", f"/users/{urllib.parse.quote(user_id)}")
-        metadata = user.get("client_read_only_metadata")
+        metadata = self.read(user_id).get("client_read_only_metadata")
         return metadata.get(PLAN_KEY) if isinstance(metadata, dict) else None
 
     def signs_in(self, email, password):
@@ -202,16 +209,21 @@ def provision(stack, out, log=print, lib=None, key_id=TARGET_KEY_ID, key=TARGET_
 
 
 def grant_only(stack, email, log=print):
-    """Gives the existing capture account EMAIL the operator plan grant; nothing else changes."""
+    """Gives the existing capture account EMAIL the operator plan grant and a verified email; nothing else changes."""
     if not GRANT_ONLY_EMAIL.fullmatch(email):
         raise ProvisionError("--grant-only takes only a staging capture test account's email")
     user = stack.find(email)
     if user is None:
         raise ProvisionError("no staging account has that email; --grant-only never creates one")
     stack.grant(user)
-    if stack.plan(user["id"]) != PLAN:
+    after = stack.read(user["id"])
+    metadata = after.get("client_read_only_metadata")
+    if (metadata.get(PLAN_KEY) if isinstance(metadata, dict) else None) != PLAN:
         raise ProvisionError(f"the account's {PLAN_KEY} did not read back as {PLAN!r}")
-    log(f"granted {PLAN_KEY} {PLAN!r} to the staging capture account; its password and other metadata are unchanged")
+    if after.get("primary_email_verified") is not True:
+        raise ProvisionError("the account's primary email did not read back as verified")
+    log(f"granted {PLAN_KEY} {PLAN!r} and a verified email to the staging capture account; its password and other "
+        "metadata are unchanged")
 
 
 def main(argv=None):

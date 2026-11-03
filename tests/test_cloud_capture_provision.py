@@ -139,14 +139,26 @@ class Provision(unittest.TestCase):
 class GrantOnly(unittest.TestCase):
     OWNER = "cmux-cloud-capture-owner3@manaflow.dev"
 
-    def test_an_existing_capture_account_gets_only_the_plan_grant(self):
-        fake = FakeStack([{"id": "u1", "primary_email": self.OWNER, "password": PASSWORD,
+    def test_an_existing_capture_account_gets_only_the_plan_grant_and_a_verified_email(self):
+        fake = FakeStack([{"id": "u1", "primary_email": self.OWNER, "password": PASSWORD, "primary_email_verified": False,
                            "client_read_only_metadata": {"cmuxPlan": "free", "keep": 1}}])
         provision.grant_only(stack(fake), self.OWNER, log=lambda _: None)
         self.assertEqual(fake.users["u1"]["client_read_only_metadata"], {"cmuxPlan": "free", "keep": 1, "cmuxVmPlan": "pro"})
+        self.assertIs(fake.users["u1"]["primary_email_verified"], True)
         self.assertEqual(fake.users["u1"]["password"], PASSWORD)
         patches = [body for method, _, _, body in fake.requests if method == "PATCH"]
-        self.assertEqual(patches, [{"client_read_only_metadata": {"cmuxPlan": "free", "keep": 1, "cmuxVmPlan": "pro"}}])
+        self.assertEqual(patches, [{"client_read_only_metadata": {"cmuxPlan": "free", "keep": 1, "cmuxVmPlan": "pro"},
+                                    "primary_email_verified": True}])
+
+    def test_an_email_that_does_not_read_back_verified_fails(self):
+        class Unverifiable(FakeStack):
+            def __call__(self, method, url, headers, body, timeout=None):
+                if method == "PATCH" and body:
+                    body = {k: v for k, v in body.items() if k != "primary_email_verified"}
+                return super().__call__(method, url, headers, body, timeout)
+        fake = Unverifiable([{"id": "u1", "primary_email": self.OWNER, "primary_email_verified": False}])
+        with self.assertRaisesRegex(provision.ProvisionError, "verified"):
+            provision.grant_only(stack(fake), self.OWNER, log=lambda _: None)
 
     def test_a_missing_account_is_never_created(self):
         fake = FakeStack()
