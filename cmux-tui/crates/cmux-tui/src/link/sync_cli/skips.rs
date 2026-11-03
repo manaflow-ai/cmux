@@ -17,6 +17,8 @@ pub(super) enum Why {
     EnvFile,
     /// A private key or certificate store (`id_rsa*`, `*.pem`, `*.key`, ...).
     KeyFile,
+    /// Untracked .netrc or registry credentials identified by Git seeding.
+    CredentialFile,
     SymlinkInside,
     SymlinkOutside,
     /// A symlink to nothing.
@@ -36,7 +38,7 @@ impl Why {
     /// The category, a stable code the App may group by.
     pub(super) fn kind(self) -> &'static str {
         match self {
-            Self::EnvFile | Self::KeyFile => "secret",
+            Self::EnvFile | Self::KeyFile | Self::CredentialFile => "secret",
             Self::SymlinkInside | Self::SymlinkOutside | Self::SymlinkBroken => "symlink",
             Self::Special => "special",
             Self::NameTooLong | Self::NameControl | Self::NameNotUtf8 => "name",
@@ -50,6 +52,7 @@ impl Why {
         match self {
             Self::EnvFile => "secret: .env files are shared only on purpose",
             Self::KeyFile => "secret: key files are shared only on purpose",
+            Self::CredentialFile => "secret: credential files are shared only on purpose",
             Self::SymlinkInside => "a symlink (to a place inside the folder)",
             Self::SymlinkOutside => "a symlink (to a place outside the folder)",
             Self::SymlinkBroken => "a symlink (to nothing)",
