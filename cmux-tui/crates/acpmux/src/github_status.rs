@@ -236,6 +236,8 @@ async fn from_cloud(socket: &std::path::Path) -> Option<Value> {
 async fn from_platform(platform: &Platform) -> Option<Value> {
     let read = async {
         let bearer = platform.bearer.get().await?;
+        // reqwest is built without a default TLS provider (as `mesh_http::HttpHub::new` does).
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
