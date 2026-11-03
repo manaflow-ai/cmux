@@ -582,9 +582,13 @@ body,
 }
 
 /* Composer popovers (ui/Popover places them on the dropdown layer). */
+/* One size whatever the search leaves: the popover opens above the composer, so a list that
+   shrank as each letter filtered it pulled the search field and grid down under the caret. */
 .hc-emoji.ui-popover {
+  --hc-emoji-popover-height: 340px;
   width: 324px;
-  max-height: 340px;
+  height: var(--hc-emoji-popover-height);
+  max-height: var(--hc-emoji-popover-height);
   display: flex;
   flex-direction: column;
   padding: var(--ds-space-2);
@@ -614,7 +618,10 @@ body,
 }
 .hc-emoji-grid {
   display: grid;
+  flex: 1;
+  min-height: 0;
   grid-template-columns: repeat(8, 1fr);
+  align-content: start;
   gap: var(--grid-half-step);
   margin-top: var(--ds-space-2);
   overflow-y: auto;

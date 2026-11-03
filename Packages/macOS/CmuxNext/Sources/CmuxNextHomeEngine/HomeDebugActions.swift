@@ -28,6 +28,11 @@ public struct HomeDebugActions {
                                             team: invocation["team"]?.boolValue)
             return .done
         })
+        registry.bindEffect("home.mcpConnectPlayground", effect: { invocation in
+            McpConnectCardPlayground.show(style: invocation["style"]?.intValue, fixture: invocation["fixture"]?.intValue,
+                                          phase: invocation["phase"]?.intValue)
+            return .done
+        })
         #endif
     }
 }
