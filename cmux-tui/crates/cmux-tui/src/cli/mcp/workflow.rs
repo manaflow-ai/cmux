@@ -168,6 +168,9 @@ fn handle<B: Backend>(
     // interpreter. A paused/replaced runner cannot dispatch another mutation.
     let check = proof.request(&server.backend, "check")?;
     refresh_tools(server, &check)?;
+    if let Some(refusal) = server.tool_refusal("cmux_workflow") {
+        return Ok(code_mode::script_answer(Ok(refusal), images));
+    }
     match request {
         code_mode::Request::ActivityStart { kind, prompt, options } => {
             let required = match kind.as_str() {
@@ -233,7 +236,12 @@ fn handle<B: Backend>(
         }
         request => {
             let (name, arguments) = match &request {
-                code_mode::Request::Call { name, arguments } => (name.as_str(), json!(arguments)),
+                code_mode::Request::Call { name, arguments } => {
+                    if let Some(refusal) = server.tool_refusal(name) {
+                        return Ok(code_mode::script_answer(Ok(refusal), images));
+                    }
+                    (name.as_str(), json!(arguments))
+                }
                 code_mode::Request::Docs { query } => ("cmux.docs", json!({"query":query})),
                 _ => unreachable!(),
             };

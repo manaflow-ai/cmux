@@ -188,3 +188,33 @@ fn native_workflow_host_fences_before_raw_call_and_catalog_blocks_primitives() {
     assert_eq!(server.backend.effects.get(), 0);
     assert!(server.workflow_activity.is_none());
 }
+
+#[test]
+fn native_workflow_host_rechecks_permissions_before_replaying_raw_tool_results() {
+    let directory = tempfile::tempdir().unwrap();
+    {
+        let mut journal = Journal::open(directory.path(), "source", 1).unwrap();
+        let Activity::Work { id, .. } = journal.begin("call", "window_list", &json!({})).unwrap()
+        else {
+            panic!("new call")
+        };
+        journal.complete(&id, Ok(json!({"ok":true,"value":"saved result"}))).unwrap();
+        journal.finish().unwrap();
+    }
+    let mut journal = Journal::open(directory.path(), "source", 0).unwrap();
+    let mut server = Server::new(Fake::default(), None);
+    *server.backend.allowed.borrow_mut() = json!(["cmux_workflow"]);
+    let result = handle(
+        &mut server,
+        &proof(),
+        &mut journal,
+        &mut BTreeMap::new(),
+        &mut None,
+        &mut Vec::new(),
+        code_mode::Request::Call { name: "window_list".into(), arguments: Map::new() },
+    )
+    .unwrap();
+    assert_eq!(result["ok"], false, "{result}");
+    assert!(journal.last_id().is_none(), "denied replay advanced the journal");
+    assert_eq!(server.backend.effects.get(), 0);
+}

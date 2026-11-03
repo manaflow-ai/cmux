@@ -802,15 +802,7 @@ impl<B: Backend> Server<B> {
         }
     }
 
-    fn call(&mut self, params: &Value) -> Result<Value, (i64, String)> {
-        let name = params["name"]
-            .as_str()
-            .ok_or_else(|| (-32602, "tools/call needs a tool name".to_string()))?;
-        let arguments = match params.get("arguments") {
-            None | Some(Value::Null) => Map::new(),
-            Some(Value::Object(arguments)) => arguments.clone(),
-            Some(_) => return Err((-32602, "tools/call arguments must be an object".into())),
-        };
+    fn tool_refusal(&self, name: &str) -> Option<Value> {
         if let Some(path) = &self.config
             && let Some(message) = refusal(path)
         {
@@ -820,7 +812,7 @@ impl<B: Backend> Server<B> {
                 "details": {},
                 "retryable": false,
             });
-            return Ok(tool_error(envelope(error, "not_run", None)));
+            return Some(tool_error(envelope(error, "not_run", None)));
         }
         if let Some(allowed) = &self.allowed
             && !allowed.contains(name)
@@ -831,7 +823,22 @@ impl<B: Backend> Server<B> {
                 "details": {},
                 "retryable": false,
             });
-            return Ok(tool_error(envelope(error, "not_run", None)));
+            return Some(tool_error(envelope(error, "not_run", None)));
+        }
+        None
+    }
+
+    fn call(&mut self, params: &Value) -> Result<Value, (i64, String)> {
+        let name = params["name"]
+            .as_str()
+            .ok_or_else(|| (-32602, "tools/call needs a tool name".to_string()))?;
+        let arguments = match params.get("arguments") {
+            None | Some(Value::Null) => Map::new(),
+            Some(Value::Object(arguments)) => arguments.clone(),
+            Some(_) => return Err((-32602, "tools/call arguments must be an object".into())),
+        };
+        if let Some(refusal) = self.tool_refusal(name) {
+            return Ok(refusal);
         }
         if name == "cmux_workflow"
             && let Some(operation) = self.workflow_activity.take()
