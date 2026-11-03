@@ -45,7 +45,6 @@ Object.assign(scope, replacements);
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 10_000 });
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
 
-
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
@@ -135,7 +134,10 @@ describe("the folded running bar names what runs", () => {
         agent("a2", "Review the fold", 40_000),
         agent("a3", "Audit the stack", 3_000),
       ],
-      [command("c1", "bun run dev", 30_000, "Run the dev server"), command("c2", "bun run lint", 1_000, "Lint the web")],
+      [
+        command("c1", "bun run dev", 30_000, "Run the dev server"),
+        command("c2", "bun run lint", 1_000, "Lint the web"),
+      ],
     );
     try {
       expect(bar.title()).toBe("Lint the web · Audit the stack");
