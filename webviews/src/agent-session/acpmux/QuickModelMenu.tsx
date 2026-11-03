@@ -1403,7 +1403,8 @@ export function QuickModelMenu({
           ),
         );
       else if (!query && shown?.note && shown.setUp) items.push(out.text("note", shown.note));
-      if (!query && shown?.note && shown.logIn) items.push(out.action("log-in", t("harness.logIn"), () => shown.logIn?.()));
+      if (!query && shown?.note && shown.logIn)
+        items.push(out.action("log-in", t("harness.logIn"), () => shown.logIn?.()));
       if (!query && shown?.note && shown.setUp)
         items.push(out.action("set-up", t("harnesses.install"), () => shown.setUp?.()));
       if (!query && inlineMore && shown && shown.more.length > 0) {
@@ -1423,7 +1424,12 @@ export function QuickModelMenu({
     }
     if (!query && onChatTab && effort && levels.length > 1) {
       items.push(out.separator("effort-sep"));
-      const effortRow = out.action("effort", t("effort.title"), undefined, level?.name ? { sideLabel: level.name } : {});
+      const effortRow = out.action(
+        "effort",
+        t("effort.title"),
+        undefined,
+        level?.name ? { sideLabel: level.name } : {},
+      );
       if (effort.slider) {
         const at = (id: string | undefined) => levels.findIndex((choice) => choice.id === id);
         const recommended = levels.find((choice) => choice.recommended);
@@ -1457,15 +1463,25 @@ export function QuickModelMenu({
           ...effortRow,
           kind: "submenu",
           children: levels.map((choice) =>
-            out.action(`level\u0000${choice.id}`, choice.name, close(() => effort.onPick(choice.id)), {
-              checked: effort.current === choice.id,
-            }),
+            out.action(
+              `level\u0000${choice.id}`,
+              choice.name,
+              close(() => effort.onPick(choice.id)),
+              {
+                checked: effort.current === choice.id,
+              },
+            ),
           ),
         });
     }
     if (!query && runningRow?.offers && providerLook === "row")
       items.push(out.separator("provider-sep"), {
-        ...out.action("provider", t("picker.provider"), undefined, runningProvider ? { sideLabel: runningProvider } : {}),
+        ...out.action(
+          "provider",
+          t("picker.provider"),
+          undefined,
+          runningProvider ? { sideLabel: runningProvider } : {},
+        ),
         kind: "submenu",
         children: offerRows(runningRow.offers),
       });
@@ -1543,7 +1559,9 @@ export function QuickModelMenu({
             out.action(`account\u0000${choice.id}`, choice.name, choose(choice.id), { checked: choice.id === value });
           const grouped = menu.routeLayout !== "inline";
           const routers = choices.filter((choice) => isModelRouterKind(choice.kind));
-          accountRows.push(...(grouped ? choices.filter((choice) => !isModelRouterKind(choice.kind)) : choices).map(row));
+          accountRows.push(
+            ...(grouped ? choices.filter((choice) => !isModelRouterKind(choice.kind)) : choices).map(row),
+          );
           if (grouped && routers.length)
             accountRows.push(out.section("account-routers", t("picker.provider")), ...routers.map(row));
           if (account?.accounts.add && accountList.family)
