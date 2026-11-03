@@ -2118,6 +2118,9 @@ type DrawnHeight = {
   actions?: boolean;
   /// model.ts `statusEdge` when it was drawn: the room under the row depends on it.
   status?: string;
+  /// CSS and neighbouring-row flags that affect the article's own measured box. A remount may
+  /// reuse a cached height only when it was drawn under the same layout conditions.
+  layoutKey?: string;
 };
 /// `height` is undefined for a row the page has not laid out (drawnHeightOf).
 type ReportDrawn = (
@@ -2126,10 +2129,21 @@ type ReportDrawn = (
   height: number | undefined,
   actions?: boolean,
   status?: string,
+  layoutKey?: string,
 ) => void;
 
 /// Enqueues a row's pre-paint measurement after all sibling content layout effects have written.
-type QueueDrawn = (node: HTMLElement, id: string, version: number, actions?: boolean, status?: string) => () => void;
+type QueueDrawn = (
+  node: HTMLElement,
+  id: string,
+  version: number,
+  actions?: boolean,
+  status?: string,
+  layoutKey?: string,
+  cached?: DrawnHeight,
+  sessionId?: string,
+  rowWidth?: number,
+) => () => void;
 
 /// A mounted row's drawn height, or undefined when the page has not laid it out (an undisplayed
 /// transcript, or a DOM without layout): such a box has no client rects. A laid-out row that draws
@@ -2179,7 +2193,8 @@ function sameDrawn(old: DrawnHeight | undefined, entry: DrawnHeight): boolean {
     old.width === entry.width &&
     old.height === entry.height &&
     Boolean(old.actions) === Boolean(entry.actions) &&
-    old.status === entry.status
+    old.status === entry.status &&
+    old.layoutKey === entry.layoutKey
   );
 }
 
@@ -2264,6 +2279,7 @@ function sameRowFrame(previous: Record<string, unknown>, next: Record<string, un
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
 /// (a font that loads, a custom renderer that grows).
 const RowFrame = React.memo(function RowFrame({
+  sessionId,
   row,
   kind,
   joinsPrevious,
@@ -2283,6 +2299,7 @@ const RowFrame = React.memo(function RowFrame({
   expanded,
   observer,
   queueDrawn,
+  cachedDrawn,
   enter,
   onEntered,
   older,
@@ -2296,6 +2313,7 @@ const RowFrame = React.memo(function RowFrame({
   gapBelow,
   children,
 }: {
+  sessionId?: string;
   row: AcpmuxRow;
   kind: string;
   /// The placed gap under the row (grid.md 5.5: the stack owns it, the row has no padding): the row's
@@ -2333,6 +2351,7 @@ const RowFrame = React.memo(function RowFrame({
   expanded: boolean;
   observer: ResizeObserver | undefined;
   queueDrawn: QueueDrawn;
+  cachedDrawn: DrawnHeight | undefined;
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
   onEntered: (id: string) => void;
@@ -2376,6 +2395,22 @@ const RowFrame = React.memo(function RowFrame({
   const content = (
     <ReferenceScopeContext.Provider value={referenceScope ?? null}>{children}</ReferenceScopeContext.Provider>
   );
+  const layoutKey = [
+    kind,
+    row.below ? 1 : 0,
+    row.ended ? 1 : 0,
+    expanded ? 1 : 0,
+    joinsPrevious ? 1 : 0,
+    joinsNext ? 1 : 0,
+    beforeFooter ? 1 : 0,
+    beforeIndicator ? 1 : 0,
+    replyActions ? 1 : 0,
+    status ?? "",
+    lastFooter ? 1 : 0,
+    finalFooter ? 1 : 0,
+    continuationFooter ? 1 : 0,
+    lastTurn ? 1 : 0,
+  ].join("|");
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
     // Only the first mount enters.
@@ -2400,7 +2435,18 @@ const RowFrame = React.memo(function RowFrame({
   }, [observer]);
   useLayoutEffect(() => {
     const node = ref.current;
-    if (node) return queueDrawn(node, row.id, row.version, replyActions, status);
+    if (node)
+      return queueDrawn(
+        node,
+        row.id,
+        row.version,
+        replyActions,
+        status,
+        layoutKey,
+        cachedDrawn,
+        sessionId,
+        rowWidth,
+      );
   }, [
     row.id,
     row.version,
@@ -2415,6 +2461,9 @@ const RowFrame = React.memo(function RowFrame({
     continuationFooter,
     lastTurn,
     queueDrawn,
+    layoutKey,
+    cachedDrawn,
+    sessionId,
   ]);
   const placedTop = top + THREAD_TOP;
   const integralTop = Math.floor(placedTop);
@@ -2423,6 +2472,7 @@ const RowFrame = React.memo(function RowFrame({
       ref={ref}
       id={rowDomId(row.id)}
       data-row-id={row.id}
+      data-drawn-layout={layoutKey}
       data-row-card={row.ended ? "true" : undefined}
       className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
@@ -3439,7 +3489,7 @@ export function VirtualTranscript({
   const onOlderShown = useCallback((id: string) => olderRows.current?.shown(id), []);
   useEffect(() => () => olderRows.current?.disconnect(), []);
   const reportDrawn = useCallback<ReportDrawn>(
-    (id, version, drawnHeight, actions, status) => {
+    (id, version, drawnHeight, actions, status, layoutKey) => {
       // A row not laid out (hidden, or no layout at all) has no height yet; 0 is one (drawnHeightOf).
       if (drawnHeight !== undefined)
         pendingDrawn.current.set(id, {
@@ -3449,20 +3499,29 @@ export function VirtualTranscript({
           height: drawnHeight,
           ...(actions ? { actions } : {}),
           ...(status ? { status } : {}),
+          ...(layoutKey ? { layoutKey } : {}),
         });
     },
     [sessionId],
   );
   const queueDrawn = useCallback<QueueDrawn>(
-    (node, id, version, actions, status) => {
+    (node, id, version, actions, status, layoutKey, cached, cachedSessionId, cachedWidth) => {
       const measure = () => {
         if (!node.isConnected || node.dataset.rowId !== id) return;
+        const height =
+          cached?.sessionId === cachedSessionId &&
+          cached.version === version &&
+          cached.width === cachedWidth &&
+          cached.layoutKey === layoutKey
+            ? cached.height
+            : drawnHeightOf(node);
         reportDrawn(
           id,
           version,
-          acpmuxPerf.timed("row.measure", () => drawnHeightOf(node)),
+          acpmuxPerf.timed("row.measure", () => height),
           actions,
           status,
+          layoutKey,
         );
       };
       pendingMeasures.current.set(node, measure);
@@ -3531,6 +3590,7 @@ export function VirtualTranscript({
                     drawnHeightOf(target),
                     keepsReplyRoom(row, nextDrawnRow(shown, index)),
                     statusEdge(row, nextDrawnRow(shown, index), prevDrawnRow(shown, index)),
+                    target.dataset.drawnLayout,
                   );
               }
             };
@@ -5807,6 +5867,7 @@ export function VirtualTranscript({
                     row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
                   return (
                     <RowFrame
+                      sessionId={sessionId}
                       key={`${sessionId ?? ""}:${row.id}`}
                       row={row}
                       kind={kind}
@@ -5833,6 +5894,7 @@ export function VirtualTranscript({
                       expanded={isExpanded}
                       observer={observer}
                       queueDrawn={queueDrawn}
+                      cachedDrawn={drawn.get(row.id)}
                       // A session switch is a load, not a live arrival. The reset effect runs after
                       // this render, so gate it here as well to avoid a reused row id animating once.
                       enter={!sessionChanged && enteringRows.current.has(row.id)}
