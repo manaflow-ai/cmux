@@ -168,7 +168,7 @@ function ChiefChat({
   openSocket?: ChiefWebProps["openSocket"];
 }) {
   const t = useT();
-  const transcript = useMemo(() => new ChiefTranscript(), [identity]);
+  const [transcript] = useState(() => new ChiefTranscript());
   const { rows, working } = useSyncExternalStore(transcript.subscribe, transcript.snapshot);
   const [connection, setConnection] = useState<ChiefConnection>("connecting");
   const [expanded, setExpanded] = useState(() => new Set<string>());
