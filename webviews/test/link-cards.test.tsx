@@ -155,7 +155,9 @@ async function renderChip(
   };
 }
 
-const FAVICON = "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E";
+// An inline PNG: the only icon the page draws (siteIcons.ts `pngIcon`).
+const FAVICON =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
 test("a bare address with a token reads as plain link text: no icon, the token masked, the href real", async () => {
   // A site title cmux browsed on that port changes nothing: a local address is never dressed as a site.
