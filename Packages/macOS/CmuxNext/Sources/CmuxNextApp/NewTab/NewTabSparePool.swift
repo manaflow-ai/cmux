@@ -40,7 +40,8 @@ final class NewTabSparePool {
     static let maximumOpenings = 64
 
     private unowned let services: AppServices
-    private var slot = AgentPaneSpareSlot<AgentPaneView>()
+    private var slot = AgentPaneSpareSlot<AgentPaneView>(capacity: 2) // a rapid pair of Cmd-T adopts two loaded pages
+    private lazy var refills = AgentPaneSpareRefiller(on: services.mainWork) { [weak self] in self?.warmNow() }
     private let parking = PageOffscreenParking()
     /// The main window the spare parks in (the key one, or the last key one).
     private(set) weak var target: NSWindow?
@@ -83,7 +84,7 @@ final class NewTabSparePool {
     /// cold). The pane's view for `key` claims it (``claimNative(_:)``); the next spare follows when input is quiet.
     func takeNative(for key: String) -> NativeNewTabHostingView? {
         guard let host = nativeSpare else { return nil }
-        defer { scheduleWarm(afterOpen: true) }
+        defer { refills.afterOpen(shown: nil, still: nil) }
         nativeSpare = nil
         host.removeFromSuperview()
         // One opening at a time: a spare an earlier open took but no pane claimed (its tab closed first) goes.
@@ -212,12 +213,14 @@ final class NewTabSparePool {
     /// Prepares the pool put off because the parked page had no handshake or first paint yet (tests wait on it).
     private(set) var deferredPrepares = 0
     private func prepareParked() {
-        guard let view = slot.peek, view.superview === parking, view.model.hasHandshake, view.model.hasPainted else {
+        let parked = slot.all.filter { $0.superview === parking } // each draws the context; the next one handed out gives the cover
+        guard !parked.isEmpty, parked.allSatisfy({ $0.model.hasHandshake && $0.model.hasPainted }) else {
             deferredPrepares += 1
-            return slot.peek?.model.whenPainted { [weak self] in self?.schedulePrepare() } ?? ()
+            return (parked.first { !$0.model.hasPainted } ?? slot.peek)?.model.whenPainted { [weak self] in self?.schedulePrepare() } ?? ()
         }
         preparedFor = targetIdentity  // the cover: once the page drew the prepared screen
-        if BenchSpans.measure("pool.prepare", { view.prepareNewTab(preparedPage) }) { view.redraw.afterNextFrame { [weak self] in self?.snapshotParked() } }
+        let page = preparedPage
+        for view in parked where BenchSpans.measure("pool.prepare", { view.prepareNewTab(page) }) && view === slot.peek { view.redraw.afterNextFrame { [weak self] in self?.snapshotParked() } }
     }
 
     /// The size a Cmd-T tab in `pane` shows at: the pane less its tab bar, also where a browser's
@@ -253,13 +256,18 @@ final class NewTabSparePool {
     /// The caller adopts it at once; the next spare follows as `refill` says.
     /// `refit` is true when the spare waited at another size than `size`, the one it shows at
     /// (nil: not known yet, Cmd-N): its adoption resizes it.
-    func take(for window: NSWindow?, size: NSSize?, refill: AgentPaneSpareRefill = .now) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
+    func take(for window: NSWindow?, size: NSSize?, refill: AgentPaneSpareRefill = .now, still: AgentPaneSpareRefiller.Still? = nil) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
         usedThisSession = true
         observeWindows()
         if target == nil, let window { retarget(window) }
         guard let view = slot.take() else { return nil }
-        // Hand the parked page out now; its replacement comes once this open settled (`scheduleWarm(afterOpen:)`).
-        defer { scheduleWarm(afterOpen: refill == .now) }
+        // Hand the parked page out now; its replacement comes once this open settled (`still`), the quiet-input warm
+        // as the backstop. The next spare is the cover.
+        defer {
+            scheduleWarm()
+            if refill == .now { refills.afterOpen(shown: view, still: still) }
+            snapshotParked()
+        }
         snapshotGeneration &+= 1
         view.redraw.newTabFrameCaptureChanged = nil
         view.isHidden = false
@@ -343,7 +351,7 @@ final class NewTabSparePool {
 
     /// The parked spare, for `debug.new_tab`: its window number and page view.
     var spare: (window: Int, view: AgentPaneView)? {
-        guard let view = parking.subviews.first as? AgentPaneView, let window = target else { return nil }
+        guard let view = slot.peek, view.superview === parking, let window = target else { return nil }
         return (window.windowNumber, view)
     }
 
@@ -351,10 +359,11 @@ final class NewTabSparePool {
     func dropAll() {
         nativeSpare?.removeFromSuperview()
         nativeSpare = nil
-        guard let view = slot.drop() else { return }
-        view.redraw.newTabFrameCaptureChanged = nil
-        view.removeFromSuperview()
-        view.close()
+        for view in slot.dropAll() {
+            view.redraw.newTabFrameCaptureChanged = nil
+            view.removeFromSuperview()
+            view.close()
+        }
     }
 
     static func milliseconds(since start: ContinuousClock.Instant) -> Double {
@@ -364,17 +373,11 @@ final class NewTabSparePool {
 
     // MARK: Warming
 
-    /// Arms the quiet-input deadline; each key or click pushes it back. `afterOpen` (a handout): ``openSettle`` after it,
-    /// unmoved by input, never in the open's frames, where a web view and a Chromium browser (10-40 ms of main-thread
-    /// tasks) dropped 4-17 refreshes per Cmd-T (#32910). Chrome makes its spare renderer after the navigation too.
-    private func scheduleWarm(afterOpen: Bool = false) {
+    /// Arms the quiet-input deadline; each key or click pushes it back.
+    private func scheduleWarm() {
         let web = services.agentTabs.canHostChat && (slot.shouldWarm || unparked != nil)
         guard target != nil, web || (wantsNative && nativeSpare == nil) else { return }
         watchMemoryPressure()
-        if afterOpen, !refillAfterOpen {
-            refillAfterOpen = true
-            return warmTimer.schedule(after: Self.openSettle) { @MainActor [weak self] in self?.warmNow() }
-        }
         if inputMonitor == nil {
             inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]) {
                 [weak self] event in
@@ -385,16 +388,14 @@ final class NewTabSparePool {
         armWarmTimer()
     }
 
-    /// From a handout to its replacement (and the launch warm's quiet input).
+    /// The launch warm's quiet input.
     static let openSettle: Duration = .milliseconds(250)
-    private var refillAfterOpen = false
 
     /// Whether this run has warmed a spare yet: the first one starts at once, before the person
     /// types (a cold launch's first Cmd-N then finds a page that is loading or loaded, cx-ec99).
     private var warmedOnce = false
 
     private func armWarmTimer() {
-        guard !refillAfterOpen else { return } // the handout's replacement keeps its time (`scheduleWarm(afterOpen:)`)
         // Only the launch warm comes early, after the first frame: a `take()` that found nothing
         // (it set `usedThisSession`) must not make a web view in the person's keystroke.
         let launch = !warmedOnce && !usedThisSession
@@ -403,15 +404,11 @@ final class NewTabSparePool {
     }
 
     /// A recycled spare not yet back in the window.
-    private var unparked: AgentPaneView? {
-        guard let view = slot.peek, view.superview == nil else { return nil }
-        return view
-    }
+    private var unparked: AgentPaneView? { slot.all.first { $0.superview == nil } }
 
     private func warmNow() {
         if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
         inputMonitor = nil
-        refillAfterOpen = false
         warmNative()
         guard services.agentTabs.canHostChat else { return }
         if let view = unparked, let content = target?.contentView {
@@ -435,6 +432,7 @@ final class NewTabSparePool {
         slot.parked(view)
         snapshotParked()
         schedulePrepare()
+        if slot.shouldWarm { refills.after(made: view) }
     }
 
     private func watchMemoryPressure() {
