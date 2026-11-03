@@ -7532,7 +7532,7 @@ function AcpmuxPane() {
   const [folderContinuation] = useState(() => new FolderContinuation());
   // The next new chat's extra folders reach the client that starts it (a reconnect makes a new one).
   useEffect(() => {
-    directClient.current?.setNewChatFolders(extraFolderDraft?.folders);
+    directClient.current?.setNewChatFolders(extraFolderDraft);
   }, [extraFolderDraft, clientEpoch]);
   const continuationProject = useRef(projectDraft);
   const continuationProjectGeneration = useRef(0);

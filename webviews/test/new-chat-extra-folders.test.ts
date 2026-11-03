@@ -20,7 +20,10 @@ function recordingClient(): { client: AcpmuxDirectClient; sent: Record<string, u
 
 test("a new chat in a project sees its extra folders beside it", async () => {
   const { client, sent } = recordingClient();
-  client.setNewChatFolders(["/Users/you/notes", "/Users/you/src/cmux", "/Users/you/data"]);
+  client.setNewChatFolders({
+    machine: "local",
+    folders: ["/Users/you/notes", "/Users/you/src/cmux", "/Users/you/data"],
+  });
   await client.startSession("claude", "/Users/you/src/cmux");
   expect(sent[0]!.cwd).toBe("/Users/you/src/cmux");
   // Never the chat's own folder.
@@ -32,7 +35,7 @@ test("a new chat in a project sees its extra folders beside it", async () => {
 
 test("a chat with no project starts in its private folder, with the folders beside it", async () => {
   const { client, sent } = recordingClient();
-  client.setNewChatFolders(["/Users/you/notes"]);
+  client.setNewChatFolders({ machine: "local", folders: ["/Users/you/notes"] });
   await client.startSession("codex", undefined, undefined, undefined, true);
   expect(sent[0]!.cwd).toBeUndefined();
   expect(sent[0]!.additionalDirectories).toEqual(["/Users/you/notes"]);
@@ -41,7 +44,7 @@ test("a chat with no project starts in its private folder, with the folders besi
 
 test("a chat on another machine names that machine's folders", async () => {
   const { client, sent } = recordingClient();
-  client.setNewChatFolders(["/srv/data"]);
+  client.setNewChatFolders({ machine: "devbox", folders: ["/srv/data"] });
   await client.startSession("claude", "/srv/api", "devbox");
   expect(sent[0]!.additionalDirectories).toEqual(["/srv/data"]);
   expect((sent[0]!._meta as { acpmux: Record<string, unknown> }).acpmux.peer).toBe("devbox");
@@ -56,9 +59,19 @@ test("a failed start keeps the folders for the retry", async () => {
     if (fail) throw new Error("down");
     return { sessionId: "s1" };
   };
-  client.setNewChatFolders(["/Users/you/notes"]);
+  client.setNewChatFolders({ machine: "local", folders: ["/Users/you/notes"] });
   await expect(client.startSession("claude", "/Users/you/src/cmux")).rejects.toThrow("down");
   fail = false;
+  await client.startSession("claude", "/Users/you/src/cmux");
+  expect(sent[1]!.additionalDirectories).toEqual(["/Users/you/notes"]);
+});
+
+test("folders added for one machine never go to a chat on another", async () => {
+  const { client, sent } = recordingClient();
+  client.setNewChatFolders({ machine: "local", folders: ["/Users/you/notes"] });
+  await client.startSession("claude", "/srv/api", "devbox");
+  expect("additionalDirectories" in sent[0]!).toBe(false);
+  // They wait for a chat on their own machine.
   await client.startSession("claude", "/Users/you/src/cmux");
   expect(sent[1]!.additionalDirectories).toEqual(["/Users/you/notes"]);
 });

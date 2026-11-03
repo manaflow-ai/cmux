@@ -1,7 +1,7 @@
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
-import { extraFoldersParam, summaryExtraFolders } from "./extraFolders";
+import { extraFoldersParam, summaryExtraFolders, type ExtraFolderDraft } from "./extraFolders";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } from "./subagents/retryState";
 import { isModelRouterKind } from "./routerKinds";
@@ -8276,11 +8276,12 @@ export class AcpmuxDirectClient {
     this.creating = tracked;
     return started;
   }
-  /// The folders the next new chat sees beside its own (the composer's Add folder…, extraFolders.ts):
-  /// sent in its `session/new` as `additionalDirectories`, then dropped once it started.
-  private newChatFolders?: readonly string[];
-  setNewChatFolders(folders: readonly string[] | undefined): void {
-    this.newChatFolders = folders?.length ? folders : undefined;
+  /// The folders the next new chat sees beside its own (the composer's Add folder…, extraFolders.ts),
+  /// and the machine they are on: sent in its `session/new` as `additionalDirectories` only when it
+  /// starts on that machine (another machine's paths mean nothing there), then dropped once it started.
+  private newChatFolders?: ExtraFolderDraft;
+  setNewChatFolders(draft: ExtraFolderDraft | undefined): void {
+    this.newChatFolders = draft?.folders.length ? draft : undefined;
   }
   /// `session/new` without showing it: a harness switch starts the session behind the pane's
   /// new chat and shows it once it is ready (harnessSwitch.ts).
@@ -8296,13 +8297,14 @@ export class AcpmuxDirectClient {
   ): Promise<string | undefined> {
     const target = newSessionHost(this.host, cwd, peer, noProject);
     const folders = this.newChatFolders;
+    const onMachine = folders && folders.machine === (target.peer || "local") ? folders.folders : undefined;
     const result = await this.newSession(
-      newSessionParams(target, harness, noProject, model, extraFoldersParam(folders, target.cwd)),
+      newSessionParams(target, harness, noProject, model, extraFoldersParam(onMachine, target.cwd)),
       again,
       declined,
     );
     // The folders were this start's (a failed one keeps them for its retry).
-    if (result?.sessionId && this.newChatFolders === folders) this.newChatFolders = undefined;
+    if (result?.sessionId && onMachine && this.newChatFolders === folders) this.newChatFolders = undefined;
     // Startup picks handed to this new-chat page are one-shot defaults: consume them only after
     // session/new succeeds, so a failed start can retry with the same picks. The inherited cwd
     // keeps its existing first-chat behavior for local starts. A peer's explicit folder is
