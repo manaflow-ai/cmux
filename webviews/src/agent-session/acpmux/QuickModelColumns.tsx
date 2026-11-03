@@ -318,6 +318,13 @@ function Columns({
     setHeld(undefined);
   }
   const field = useRef<HTMLInputElement | null>(null);
+  // The field takes the keyboard as it mounts, not a frame later: a menu reopened at once (⌘⌃M right
+  // after a pick) has its keys from the first one. Stable, so a re-render never runs it again: it
+  // would take the keyboard back from another chip's menu that just opened.
+  const fieldRef = useCallback((node: HTMLInputElement | null) => {
+    field.current = node;
+    if (node && !node.ownerDocument.activeElement?.closest(".acpmux-cols")) node.focus({ preventScroll: true });
+  }, []);
   const updateAction = useRef<HTMLButtonElement | null>(null);
   // The menu never shrinks while open: a tab, a search or a model with fewer rows keeps its size, so
   // the edge away from the chip stays put. The floor is the largest it has been since it opened; the
@@ -1075,13 +1082,7 @@ function Columns({
             </span>
             <SearchIcon size={14} />
             <input
-              // The field takes the keyboard as it mounts, not a frame later: a menu reopened at once
-              // (⌘⌃M right after a pick) has its keys from the first one.
-              ref={(node) => {
-                field.current = node;
-                if (node && !node.ownerDocument.activeElement?.closest(".acpmux-cols"))
-                  node.focus({ preventScroll: true });
-              }}
+              ref={fieldRef}
               type="search"
               aria-label={t("picker.search")}
               placeholder={t("picker.search")}

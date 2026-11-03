@@ -212,7 +212,8 @@
   cursor: default;
   user-select: none;
 }
-.acpmux-cols-row:not([aria-disabled="true"]):not([data-hl]):hover {
+/* The star's own hover is the star's: the row around it stays as it was. */
+.acpmux-cols-row:not([aria-disabled="true"]):not([data-hl]):not(:has(.acpmux-cols-star:hover)):hover {
   background: color-mix(in srgb, var(--agent-text) 7%, transparent);
 }
 .acpmux-cols-list[data-col-focus] .acpmux-cols-row[data-hl] { background: var(--acpmux-menu-hover, var(--ui-hover)); }

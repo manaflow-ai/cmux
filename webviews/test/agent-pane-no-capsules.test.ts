@@ -26,6 +26,11 @@ if (!built) console.warn("agent-pane-no-capsules: skipping (run scripts/cmux-nex
 const SHAPES = new Set([
   ".acpmux-switch",
   ".acpmux-quick-fast-toggle",
+  // The model menu's columns (QuickModelColumns.tsx): the Fast switch's track, and the account
+  // avatar and its harness badge, circles sized square inline (style width and height).
+  ".acpmux-cols-switch",
+  ".acpmux-cols-avatar",
+  ".acpmux-cols-avatar-badge",
   // Session Info's Remote Control switch track (#28981), styled like Settings' ds-switch.
   ".acpmux-session-info-switch__input",
   ".acpmux-effort-track",

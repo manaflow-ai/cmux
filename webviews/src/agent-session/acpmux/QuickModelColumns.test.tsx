@@ -436,3 +436,17 @@ test("Escape clears a search before it closes the menu", async () => {
   await settle();
   expect(calls.open).toBe(false);
 });
+
+test("a re-render never takes the keyboard back from a control outside the menu", async () => {
+  const calls = await openMenu();
+  const input = popup().querySelector<HTMLInputElement>(".acpmux-cols-search input")!;
+  expect(document.activeElement).toBe(input);
+  // Another chip's menu took the keyboard while this one is still open.
+  const other = document.createElement("button");
+  document.body.append(other);
+  other.focus();
+  await act(async () => root!.render(<Harness calls={calls} list={[claude, codex, gemini]} startEffort="medium" />));
+  await settle();
+  expect(document.activeElement).toBe(other);
+  other.remove();
+});
