@@ -77,3 +77,14 @@ test("the Take over label is painted in the transcript's text colour on a quiet 
   expect(rule).not.toMatch(/background:var\(--agent-text\)/);
   expect(rule).toMatch(/border:1px solid var\(--agent-border\)/);
 });
+
+test("the line sits on a glass capsule with readable text, so a background image never shows through bare", () => {
+  const css = readFileSync(new URL("./managedBanner.css", import.meta.url), "utf8");
+  const rule = css.match(/\.acpmux-managed-banner\{([^}]*)\}/)?.[1] ?? "";
+  // #32745: muted text straight on the pane was unreadable over a background image.
+  expect(rule).toMatch(/background:color-mix\(in srgb,var\(--acpmux-composer-bg\) 72%,transparent\)/);
+  expect(rule).toMatch(/backdrop-filter:blur\(/);
+  expect(rule).not.toMatch(/(^|;)color:var\(--agent-muted\)/);
+  // Reduced transparency swaps the glass for an opaque surface.
+  expect(css).toMatch(/:root\[data-reduce-transparency\] \.acpmux-managed-banner\{background:var\(--surface-popup\)/);
+});

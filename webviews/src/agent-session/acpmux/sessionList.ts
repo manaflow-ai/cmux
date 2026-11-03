@@ -64,6 +64,9 @@ export type AcpmuxSessionEntry = {
   reportsTo?: string;
   /** Started by a Chief (its `mux.parent` tag, `optchat-chief:<home>`): the Chief manages it. */
   chiefChild?: true;
+  /** A Chief's own session (its turn or compactor, acpmux tag `cmux.chief` valued with the Chief's
+   *  home id, optchat-chief acpmux.rs `CHIEF_TAG`): a chat it starts is the Chief's, by name. */
+  chief?: true;
   /** A sub-session's name among its parent's (acpmux `shortName`, "tests"). */
   shortName?: string;
   /** What it is doing (acpmux `lane.state`): working, waiting on the person, failed, lost or idle. */
@@ -192,6 +195,21 @@ function chiefParent(tags: unknown): boolean {
   return typeof value === "string" && /^optchat-chief(?::|$)/.test(value);
 }
 
+/** The tag a Chief puts on its own sessions, valued with its home id (optchat-chief acpmux.rs
+ *  `CHIEF_TAG`). */
+const CHIEF_TAG = "cmux.chief";
+
+/** A Chief's turn session name (optchat-chief host.rs `turn_prefix`): `optchat-<8 hex home id>`,
+ *  then the turn's suffix. Read only when the tag has not reached the list yet. */
+const CHIEF_TURN_NAME = /^optchat-[0-9a-f]{8}(?:-|$)/;
+
+/** Whether the session is a Chief's own: its `cmux.chief` tag, the Chief's harness (as NeedsYou
+ *  reads it, needsYou/model.ts) or its turn session name. */
+function chiefSession(session: Record<string, any>): boolean {
+  if (tagValue(session.tags, CHIEF_TAG) || session.harness === "chief") return true;
+  return typeof session.name === "string" && CHIEF_TURN_NAME.test(session.name);
+}
+
 /** The tag acpmux sets on a chat while a sub-session of it waits for a folder's trust (hub/trust_wait.rs). */
 const TRUST_PENDING_TAG = "trust.pending:";
 
@@ -275,6 +293,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     startedBy: text(session.startedBy),
     reportsTo: tagValue(session.tags, REPORTS_TO_TAG),
     ...(chiefParent(session.tags) && { chiefChild: true as const }),
+    ...(chiefSession(session) && { chief: true as const }),
     shortName: text(session.shortName),
     lane: LANES.includes(session.lane?.state) ? session.lane.state : undefined,
     queued: Number(session.queued) > 0 ? Number(session.queued) : undefined,

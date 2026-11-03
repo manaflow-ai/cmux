@@ -16,7 +16,10 @@ export type ManagedBy =
   /** Another chat's agent started it: that chat, by its title. */
   | { kind: "agent"; name: string; sessionId: string };
 
-type Entry = Pick<AcpmuxSessionEntry, "sessionId" | "chiefChild" | "startedBy" | "spawnedBy" | "displayTitle" | "name">;
+type Entry = Pick<
+  AcpmuxSessionEntry,
+  "sessionId" | "chiefChild" | "chief" | "startedBy" | "spawnedBy" | "displayTitle" | "name"
+>;
 
 /** Who manages the chat `sessionId`, from the session list; undefined when the person does. A
  *  manager the list does not hold (closed, on another machine) is not named, so no line shows. */
@@ -28,6 +31,9 @@ export function managedBy(sessionId: string | undefined, sessions: readonly Entr
   const parentId = own.startedBy ?? own.spawnedBy;
   if (!parentId || parentId === sessionId) return undefined;
   const parent = sessions.find((entry) => entry.sessionId === parentId);
+  // A chat the Chief's own turn started is the Chief's: its session name is a raw
+  // `optchat-<home>-…` id, never a name to show (#32745).
+  if (parent?.chief) return { kind: "chief" };
   const name = parent?.displayTitle?.trim() || parent?.name?.trim();
   return name ? { kind: "agent", name, sessionId: parentId } : undefined;
 }

@@ -20,22 +20,25 @@ export function ManagedBanner({
   const name = manager.kind === "chief" ? "Chief" : manager.name;
   const [before, after = ""] = t("managed.banner", { name: "\u0000" }).split("\u0000");
   const opens = manager.kind === "agent" && onOpenManager ? manager.sessionId : undefined;
+  // The row centres the capsule on the conversation column; the capsule is the line's glass backing.
   return (
-    <output className="acpmux-managed-banner" data-managed={manager.kind}>
-      <span className="acpmux-managed-text">
-        {before}
-        {opens ? (
-          <button type="button" className="acpmux-managed-name" onClick={() => onOpenManager?.(opens)}>
-            {name}
-          </button>
-        ) : (
-          <strong className="acpmux-managed-name">{name}</strong>
-        )}
-        {after}
-      </span>
-      <button type="button" className="acpmux-managed-take-over" onClick={onTakeOver}>
-        {t("managed.takeOver")}
-      </button>
-    </output>
+    <div className="acpmux-managed-row">
+      <output className="acpmux-managed-banner" data-managed={manager.kind}>
+        <span className="acpmux-managed-text">
+          {before}
+          {opens ? (
+            <button type="button" className="acpmux-managed-name" onClick={() => onOpenManager?.(opens)}>
+              {name}
+            </button>
+          ) : (
+            <strong className="acpmux-managed-name">{name}</strong>
+          )}
+          {after}
+        </span>
+        <button type="button" className="acpmux-managed-take-over" onClick={onTakeOver}>
+          {t("managed.takeOver")}
+        </button>
+      </output>
+    </div>
   );
 }
