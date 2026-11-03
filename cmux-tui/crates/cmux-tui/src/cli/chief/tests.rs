@@ -95,6 +95,42 @@ fn an_agents_prompt_names_its_sender_and_a_persons_none() {
 }
 
 #[test]
+fn a_prompt_goes_to_the_chief_it_names() {
+    let to = parse_args(&strings(&["-p", "hi", "--chief", "Codex Chief"])).unwrap();
+    assert_eq!(to.target.chat.as_deref(), Some("Codex Chief"));
+    assert_eq!(to.chief, None);
+    let alias = parse_args(&strings(&["-p", "hi", "--to", "muse"])).unwrap();
+    assert_eq!(alias.target.chat.as_deref(), Some("muse"));
+    assert!(parse_args(&strings(&["-p", "hi", "--to", "a", "--chat", "b"])).is_err());
+    // With engine the flag still names the Chief to change.
+    let engine = parse_args(&strings(&["engine", "--chief", "agent_7"])).unwrap();
+    assert_eq!((engine.chief.as_deref(), engine.target.chat), (Some("agent_7"), None));
+}
+
+#[test]
+fn a_chat_is_named_by_its_chiefs_name_or_id() {
+    use super::backend::Owner;
+    let chat = |id: &str, title: &str, chief: &str| {
+        json!({"id": id, "title": title,
+            "participants": [{"id": "user_local", "kind": "person"}, {"id": chief, "kind": "agent"}]})
+    };
+    let chats = vec![
+        chat("conv_A", "Chief", "agent_mux"),
+        chat("conv_B", "Codex Chief", "agent_01CODEX"),
+        chat("conv_C", "Muse Chief", "agent_01MUSE"),
+    ];
+    let id = |wanted: Option<&str>| {
+        super::pick_chat(&chats, wanted, Owner::Local)
+            .map(|c| c["id"].as_str().unwrap_or_default().to_owned())
+    };
+    assert_eq!(id(Some("codex")).as_deref(), Ok("conv_B"));
+    assert_eq!(id(Some("Muse Chief")).as_deref(), Ok("conv_C"));
+    assert_eq!(id(Some("agent_01CODEX")).as_deref(), Ok("conv_B"));
+    assert_eq!(id(Some("conv_C")).as_deref(), Ok("conv_C"));
+    assert!(id(Some("Austin")).is_err());
+}
+
+#[test]
 fn chief_conversation_is_the_oldest_with_agent_mux() {
     let conv = |id: &str, created: &str, chief: bool| {
         let mut participants =
