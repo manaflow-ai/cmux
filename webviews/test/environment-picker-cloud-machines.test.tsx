@@ -679,3 +679,12 @@ test("the composer's chip and list say a lost, paused Cloud peer is Paused, neve
   await act(async () => row!.click());
   expect(picks).toEqual([["cloud", "vm-cloud"]]);
 });
+
+test("the server's resuming stage reads as a resume, in the account row and on a lost peer", async () => {
+  const { withCloudSleep, cloudMachineAsleep } = await import("../src/agent-session/acpmux/cloudMachines");
+  const machines: CloudMachine[] = [{ id: "vm-a", name: "box", stage: "resuming" }];
+  expect(cloudMachineAsleep("box", machines)).toBe(true);
+  expect(withCloudSleep([{ id: "box", label: "box", kind: "cloud", state: "offline" }], machines, true)[0]!.state).toBe(
+    "resuming",
+  );
+});

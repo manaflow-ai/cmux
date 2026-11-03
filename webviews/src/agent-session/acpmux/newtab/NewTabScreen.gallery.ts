@@ -634,7 +634,13 @@ export default agentPaneEntry({
     "minimal-ambient-paused": {
       note: "Machines on, the old Cloud host is a Cloud machine the account says is paused (`cloudMachine.list`): it keeps the quiet ring and its tooltip says Paused, never offline (Cloud machines pause on their own when idle; its first use resumes it).",
       ready: newTab({ template: "minimal", pageWidgets: ["greeting", "machines"] }),
-      snapshot: ambientSnapshot(),
+      // cloud-dev is listed by acpmux too, its link lost while it sleeps.
+      snapshot: {
+        ...ambientSnapshot(),
+        peers: ["build-box", "cloud-dev"],
+        peerKinds: { "build-box": "ssh" as const, "cloud-dev": "cloud" as const },
+        peerStates: { "build-box": "connected", "cloud-dev": "reconnecting" },
+      },
       native: {
         "cloudMachine.list": {
           signedIn: true,

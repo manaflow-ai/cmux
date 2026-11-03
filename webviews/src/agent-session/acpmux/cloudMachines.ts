@@ -95,9 +95,9 @@ export function withCloudMachines<T extends Pick<Environment, "id" | "label" | "
   return [...kept, ...rows];
 }
 
-/// `CloudMachineStage` names of a machine on its way up (Swift CloudMachineStage: a resume reads
-/// `requesting`, then `booting`, then `connecting`).
-const STARTING_STAGES = new Set(["requesting", "creating", "booting", "connecting"]);
+/// `CloudMachineStage` names of a machine on its way up (Swift CloudMachineStage: `resuming` while
+/// the server takes a resume, then `booting` and `connecting`; a page's own Resume reads `requesting`).
+const STARTING_STAGES = new Set(["requesting", "resuming", "creating", "booting", "connecting"]);
 
 /// The account's one machine named `name` (any case, as the app matches a peer to a Cloud machine by
 /// its title). Two of that name give none: a Resume must never start the other one.

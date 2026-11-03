@@ -23,7 +23,7 @@ export function AmbientWidgets({
   weather?: NewTabWeather;
   /// The machines widget is on.
   machines: boolean;
-  snapshot: Pick<AcpmuxSnapshot, "sessions" | "peers" | "peerKinds">;
+  snapshot: Pick<AcpmuxSnapshot, "sessions" | "peers" | "peerKinds" | "peerConnected" | "peerStates">;
   localName: string;
   now: number;
   /// Gallery seam; the app's Cloud account list (cloudMachines.ts) is used when omitted.

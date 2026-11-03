@@ -59,6 +59,7 @@ const CLOUD_STAGE_LABELS: Record<string, StringKey> = {
   ready: "composer.envOpenMachine",
   paused: "composer.envPausedResume",
   requesting: "composer.envStarting",
+  resuming: "composer.envResuming",
   creating: "composer.envStarting",
   booting: "composer.envStarting",
   connecting: "composer.envStarting",
