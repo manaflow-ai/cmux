@@ -42,12 +42,12 @@ public nonisolated enum HomeStrings {
         String(localized: "home.chief.memoryPaused", defaultValue: "Chief memory summaries are paused. The Chief still answers.",
                table: "Home", bundle: .module)
     }
-    /// The Chief conversation's notice while the person's last message has had no reply
-    /// for `minutes` (ChiefReplyWatchdog; at least 2).
-    static func chiefNoReply(minutes: Int) -> String {
-        String(format: String(localized: "home.chief.noReply",
-                              defaultValue: "No reply from the Chief for %lld min. It retries on its own and tells you if it cannot answer.",
-                              table: "Home", bundle: .module), minutes)
+    /// The Chief conversation's notice while the person's last message has waited two
+    /// minutes and the Chief's brain is not running (ChiefReplyWatchdog).
+    static var chiefNotRunning: String {
+        String(localized: "home.chief.notRunning",
+               defaultValue: "The Chief is not running, so it has not read your message yet.",
+               table: "Home", bundle: .module)
     }
     /// The Chief conversation's notice while a turn waits for the compactor.
     static func chiefOrganizing(built: Int, total: Int) -> String {

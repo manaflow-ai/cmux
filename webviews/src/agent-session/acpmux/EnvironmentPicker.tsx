@@ -17,6 +17,8 @@ import {
   environmentSections,
   numberedEnvironments,
   orderEnvironments,
+  savedEnvironmentIsFolder,
+  savedEnvironmentLabel,
 } from "./environments";
 import { type CloudMachine, isCloudMachineRow } from "./cloudMachines";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
@@ -86,8 +88,10 @@ export function useMachineRefresh(open: boolean, refresh: (() => void) | undefin
   }, [open]);
 }
 
-/// The New Tab page's saved environments in the picker: a Saved section over the machines, Create
-/// environment under New environment, and Edit environment while one is picked.
+/// The New Tab page's saved environments in the picker: in Machines… after This Mac, Create
+/// environment on the right-click menu, and Edit environment there while one is picked. One that is
+/// only a folder on this computer (`savedEnvironmentIsFolder`) is the composer's folder menu's, not
+/// a row here; picked, This Mac stays checked.
 export type SavedEnvironmentRows = {
   environments: readonly SavedEnvironment[];
   /// The picked one's id: it, not a machine, is the current row.
@@ -164,8 +168,16 @@ export function EnvironmentPicker({
   /// alone, or a bordered chip. The gallery compares them.
   faceStyle?: EnvironmentFaceStyle;
 }) {
-  // A picked saved environment is the current row: every machine row is then a change.
-  const currentRow = saved?.current !== undefined ? SAVED + saved.current : current;
+  // A picked saved environment is the current row: every machine row is then a change. One that is
+  // only a folder on this computer leaves This Mac the current row.
+  const listedSaved = useMemo(
+    () => (saved?.environments ?? []).filter((environment) => !savedEnvironmentIsFolder(environment)),
+    [saved?.environments],
+  );
+  const currentRow =
+    saved?.current !== undefined && listedSaved.some((environment) => environment.id === saved.current)
+      ? SAVED + saved.current
+      : current;
   const [query, setQuery] = useState("");
   // Which list is open: This Mac and Cloud, or every machine (Machines… on the right-click menu).
   const [list, setList] = useState<"main" | "machines">("main");
@@ -176,9 +188,14 @@ export function EnvironmentPicker({
     if (next && closeOnTrustAsk) return;
     setPopoverOpen(next);
   };
+  // Whether the row Base UI highlights is its own pick (on open): with no search typed, that row draws no
+  // highlight, so the open menu shows the current machine by its check alone and the highlight
+  // means hover or the arrow keys (Austin 2026-11-02: "This highlighting needs some fix").
+  const [highlightAuto, setHighlightAuto] = useState(true);
   const reset = () => {
     setQuery("");
     setList("main");
+    setHighlightAuto(true);
   };
   const press = usePopoverTrigger(open, (next) => {
     setOpen(next);
@@ -233,7 +250,7 @@ export function EnvironmentPicker({
   // Only the machine list searches, and only where it is long (Leo, 2026-10-31): a few machines are
   // read at a glance, and the main list is two rows.
   const machineList = list === "machines";
-  const searchable = machineList && environments.length + (saved?.environments.length ?? 0) >= ENVIRONMENT_SEARCH_MIN;
+  const searchable = machineList && environments.length + listedSaved.length >= ENVIRONMENT_SEARCH_MIN;
   const words = useMemo(() => query.trim().toLowerCase().split(/\s+/).filter(Boolean), [query]);
   const shown = useMemo(
     () =>
@@ -245,13 +262,27 @@ export function EnvironmentPicker({
       ),
     [ordered, sections, words],
   );
-  // The saved environments, first, by name and the Saved section's name.
+  // Each saved environment's name (savedEnvironmentLabel); one that would still read as a machine's
+  // own row ("cmux16", no folder) says it is saved.
+  const savedLabels = useMemo(() => {
+    const machineNames = new Set(environments.map((environment) => environment.label.toLowerCase()));
+    return new Map(
+      listedSaved.map((environment) => {
+        const label = savedEnvironmentLabel(environment);
+        return [
+          environment.id,
+          machineNames.has(label.toLowerCase()) ? `${label} · ${t("composer.envSaved")}` : label,
+        ] as const;
+      }),
+    );
+  }, [environments, listedSaved]);
+  // The saved environments, first, by name, machine and the Saved section's name.
   const savedShown = useMemo(
     () =>
-      (saved?.environments ?? []).filter((environment) =>
-        matches(words, `${environment.name} ${t("composer.envSaved")}`),
+      listedSaved.filter((environment) =>
+        matches(words, `${savedLabels.get(environment.id) ?? environment.name} ${t("composer.envSaved")}`),
       ),
-    [saved?.environments, words],
+    [listedSaved, savedLabels, words],
   );
   // Each shown row's environment and place in the list.
   const positions = useMemo(
@@ -301,7 +332,7 @@ export function EnvironmentPicker({
   const moreActions = (() => {
     const items: { id: string; label: string; onSelect(): void }[] = [];
     // Every machine and saved environment, as a list of its own (the main list has none).
-    if (environments.some((environment) => !isLocalId(environment.id)) || (saved?.environments.length ?? 0) > 0)
+    if (environments.some((environment) => !isLocalId(environment.id)) || listedSaved.length > 0)
       items.push({
         id: "machines",
         label: t("composer.machinesList"),
@@ -488,7 +519,7 @@ export function EnvironmentPicker({
         >
           <EnvironmentIcon kind={environment.kind} />
           <span className="acpmux-menu-text acpmux-location-name">
-            <span className="acpmux-menu-label">{environment.name}</span>
+            <span className="acpmux-menu-label">{savedLabels.get(environment.id) ?? environment.name}</span>
           </span>
           <span className="acpmux-location-check" aria-hidden="true">
             {value === checkedRow && <CheckIcon />}
@@ -584,7 +615,8 @@ export function EnvironmentPicker({
         className={
           "acpmux-menu acpmux-location-menu acpmux-folder-popover acpmux-env-popover" +
           (searchable ? "" : " acpmux-env-searchless") +
-          (machineList ? " acpmux-env-machines" : "")
+          (machineList ? " acpmux-env-machines" : "") +
+          (highlightAuto && query.trim() === "" ? " acpmux-env-highlight-auto" : "")
         }
         side={side}
         flip={flip}
@@ -609,6 +641,7 @@ export function EnvironmentPicker({
           }}
           onHighlight={(highlighted, by) => {
             autoHighlighted.current = by === "none" ? highlighted : undefined;
+            setHighlightAuto(by === "none");
           }}
           label={searchable ? t("composer.environmentSearch") : label}
           {...(searchable ? { placeholder: t("composer.environmentSearch") } : {})}

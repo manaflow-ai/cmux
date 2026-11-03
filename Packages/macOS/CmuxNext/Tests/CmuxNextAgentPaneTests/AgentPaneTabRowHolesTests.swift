@@ -62,6 +62,22 @@ struct AgentPaneTabRowHolesTests {
         ])
     }
 
+    /// Leo (2026-11-03), on a chat alone in its pane: "isn't it kinda arbitrary anyway if you literally
+    /// only have one tab there?" The pane hides that tab, so the page shows through the row's leading
+    /// end too: only the pane's toolbar stays uncovered.
+    @Test func aLoneTabLeavesOnlyTheToolbarUncovered() async throws {
+        let (view, page) = try await chromiumChat()
+        view.model.tabRow.report(width: 120)
+        view.model.tabRow.tabsShown = false // PaneTabRowSharing.setTabRowTabs, as the pane calls it before the offer
+        AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
+        #expect(holes(page, in: view) == [CGRect(x: 740, y: 0, width: 60, height: 36)])
+
+        // A second tab brings the strip back, and its hole with it.
+        view.model.tabRow.tabsShown = true
+        AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
+        #expect(holes(page, in: view).count == 2)
+    }
+
     @Test func aChatOutOfTheRowCoversNothing() async throws {
         let (view, page) = try await chromiumChat()
         view.model.tabRow.report(width: 120)

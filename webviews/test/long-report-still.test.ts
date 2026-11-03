@@ -23,6 +23,7 @@ await requireBrowserLane("long-report-still.test.ts", async () => {
     { variant: "lead-running", width: 400 },
     { variant: "lead-finished", width: 400 },
     { variant: "report", width: 900 },
+    { variant: "report-15px", width: 900 },
   ];
   const LOG = process.env.CMUX_LONG_REPORT_LOG === "1";
 
@@ -109,7 +110,7 @@ await requireBrowserLane("long-report-still.test.ts", async () => {
           const measured = await measure(page);
           if (LOG) console.log(`LONG_REPORT ${variant} ${theme.file} ${JSON.stringify(measured)}`);
           expect(measured?.replies ?? 0).toBeGreaterThan(0);
-          if (variant === "report") {
+          if (variant.startsWith("report")) {
             expect(measured!.paragraphs).toBeGreaterThanOrEqual(8);
             expect(measured!.linkIcons).toBeGreaterThan(0);
           }

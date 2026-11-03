@@ -13,6 +13,8 @@
 //! stdin (1 MiB) is staged in chunks, then renamed over the target once its
 //! sha256 matches, so a write is still atomic and has no size cap.
 
+use std::io::{Seek as _, Write as _};
+use std::os::unix::fs::PermissionsExt as _;
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -367,7 +369,12 @@ pub(super) async fn run(client: &reqwest::Client, grant: &Grant, request: &Reque
         Op::Dir => fs(client, grant, "dir", path, &[], None).await,
         Op::Mkdir => fs(client, grant, "mkdir", path, &[], None).await,
         Op::Remove => fs(client, grant, "remove", path, &[], None).await,
-        Op::Read => read(client, grant, path).await,
+        Op::Read => {
+            return match read(client, grant, path).await {
+                Ok(answer) => Direct::Done(answer),
+                Err(direct) => direct,
+            };
+        }
         Op::Write => match request.data() {
             Some(data) => write(client, grant, path, &data, mode).await,
             None => return Direct::Fallback,
@@ -383,11 +390,23 @@ pub(super) async fn run(client: &reqwest::Client, grant: &Grant, request: &Reque
 /// The file in ranged chunks, every chunk from the same version of it (device, inode, size and
 /// change times, read from the open file). A file that changes between chunks is read again from
 /// the start; one that keeps changing goes to the proxy, which reads it in one go.
-async fn read(client: &reqwest::Client, grant: &Grant, path: &str) -> Result<Value, Direct> {
+async fn read(client: &reqwest::Client, grant: &Grant, path: &str) -> Result<Answer, Direct> {
+    let storage_error = |error: std::io::Error| {
+        Direct::Done(Answer::error(
+            0,
+            "local_io",
+            &format!("the downloaded file could not be stored: {error}"),
+        ))
+    };
+    // Anonymous (0600, unlinked) storage is removed on every exit, including cancellation.
+    let mut file = tempfile::tempfile().map_err(storage_error)?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600)).map_err(storage_error)?;
     'tries: for _ in 0..READ_TRIES {
-        let (mut bytes, mut version) = (Vec::new(), None::<String>);
+        file.set_len(0).map_err(storage_error)?;
+        file.rewind().map_err(storage_error)?;
+        let (mut received, mut version) = (0_u64, None::<String>);
         loop {
-            let args = [bytes.len().to_string(), READ_CHUNK.to_string()];
+            let args = [received.to_string(), READ_CHUNK.to_string()];
             let value = fs(client, grant, "read", path, &args, None).await?;
             let chunk = value
                 .get("dataBase64")
@@ -401,14 +420,23 @@ async fn read(client: &reqwest::Client, grant: &Grant, path: &str) -> Result<Val
             }
             version = Some(seen.to_owned());
             let empty = chunk.is_empty();
-            bytes.extend_from_slice(&chunk);
-            if empty || bytes.len() as u64 >= total {
-                if bytes.len() as u64 != total {
+            if chunk.len() as u64 > READ_CHUNK
+                || chunk.len() as u64 > total.saturating_sub(received)
+            {
+                return Err(Direct::Fallback);
+            }
+            file.write_all(&chunk).map_err(storage_error)?;
+            received += chunk.len() as u64;
+            if empty || received >= total {
+                if received != total {
                     continue 'tries;
                 }
-                return Ok(
-                    json!({ "path": path, "dataBase64": BASE64.encode(&bytes), "size": bytes.len() }),
-                );
+                return Ok(Answer {
+                    status: 200,
+                    body: json!({ "path": path, "size": received }),
+                    code: None,
+                    file: Some(file),
+                });
             }
         }
     }
@@ -469,17 +497,28 @@ async fn stage_command(
 async fn run_exec(client: &reqwest::Client, grant: &Grant, request: &Request) -> Direct {
     let command = request.command.as_deref().unwrap_or_default();
     let timeout = request.exec_timeout_ms();
+    let mut staged = None;
     let line = if command.len() <= INLINE_COMMAND_MAX_BYTES {
         exec_command(command)
     } else {
         match stage_command(client, grant, command).await {
-            Ok(path) => exec_command(&staged_command(&path)),
+            Ok(path) => {
+                let line = exec_command(&staged_command(&path));
+                staged = Some(path);
+                line
+            }
             Err(Direct::Auth) => return Direct::Auth,
             // Nothing of the command ran: the proxy may take it.
             Err(_) => return Direct::Fallback,
         }
     };
-    match exec(client, grant, &line, None, timeout).await {
+    let ran = exec(client, grant, &line, None, timeout).await;
+    // Refused or never sent: the command never started, so its staged file goes (best effort; a
+    // run that started removed it itself).
+    if let (Some(path), Err(Failure::Auth | Failure::NotSent)) = (&staged, &ran) {
+        let _ = fs(client, grant, "remove", path, &[], None).await;
+    }
+    match ran {
         Ok(answer) => Direct::Done(Answer::ok(
             json!({ "exitCode": answer.exit_code, "stdout": answer.stdout, "stderr": answer.stderr }),
         )),

@@ -289,8 +289,8 @@ describe("the tray", () => {
     ];
     const commands = [command("bg1", { command: "bun run dev" }), command("bg2", { state: "completed" })];
     const chats: StartedSession[] = [
-      { sessionId: "c1", title: "Port the history page", state: "running" },
-      { sessionId: "c2", title: "Draft the notes", state: "idle" },
+      { subsession: true, sessionId: "c1", title: "Port the history page", state: "running" },
+      { subsession: true, sessionId: "c2", title: "Draft the notes", state: "idle" },
     ];
     expect(
       trayItems(agents, commands, chats, true).map((item) => [item.id, item.kind === "agent" ? item.depth : -1]),
@@ -457,10 +457,11 @@ describe("the tray", () => {
     const head = () => root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
     try {
       expect(head().getAttribute("aria-expanded")).toBe("false");
+      await act(async () => head().click());
+      // Open, the header counts (folded, it names what runs: subagent-tray-names.test.tsx).
       expect(head().querySelector(".acpmux-running-tray__title")?.textContent).toBe(
         "Running in background · 1 subagent · 2 commands",
       );
-      await act(async () => head().click());
       expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
       await show(tray("chat-2"));
       expect(head().getAttribute("aria-expanded")).toBe("false");
@@ -549,8 +550,8 @@ describe("the tray", () => {
     const agents = Array.from({ length: 300 }, (_, index) => agent(`Agent ${index}`, { startedAt: now - index }));
     const items = trayItems(agents, [], NONE, true);
     let nameReads = 0;
-    // Header totals and elapsed time need the running state, never a row's name.
-    // Reading it proves the component constructed a hidden AgentLine element.
+    // Header totals and elapsed time need the running state; the folded header names only the newest
+    // two. More reads than that prove the component constructed hidden AgentLine elements.
     for (const item of items) {
       if (item.kind !== "agent") continue;
       const name = item.agent.name;
@@ -568,10 +569,11 @@ describe("the tray", () => {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
       expect(head.getAttribute("aria-expanded")).toBe("false");
       expect(root.querySelectorAll(".acpmux-agent-line")).toHaveLength(0);
-      expect(nameReads).toBe(0);
+      const headReads = nameReads;
+      expect(headReads).toBeLessThanOrEqual(10);
       // A header rerender while collapsed must also skip all row construction.
       await show(createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }));
-      expect(nameReads).toBe(0);
+      expect(nameReads).toBe(headReads);
       await act(async () => head.click());
       expect(root.querySelectorAll(".acpmux-agent-line")).toHaveLength(300);
       expect(nameReads).toBeGreaterThanOrEqual(300);
@@ -582,7 +584,7 @@ describe("the tray", () => {
 
   test("tray rows reserve the time, status and stop tracks when values are missing", async () => {
     const running = agent("Reviewer", { startedAt: Date.now() - 5_000 });
-    const chat: StartedSession = { sessionId: "child", title: "Started chat", state: "running" };
+    const chat: StartedSession = { subsession: true, sessionId: "child", title: "Started chat", state: "running" };
     const { root, done } = await render(
       createElement(SubagentTray, {
         items: trayItems([running], [], [chat], true),
@@ -654,7 +656,7 @@ describe("the tray", () => {
     const items = trayItems(
       [agent("Watcher", { background: true, startedAt: now })],
       [registry],
-      [{ sessionId: "c1", title: "Port the history page", state: "running" }],
+      [{ subsession: true, sessionId: "c1", title: "Port the history page", state: "running" }],
       false,
     );
     const opened: string[] = [];
@@ -971,10 +973,10 @@ describe("the tray tells the truth", () => {
       command("bg2", { command: "make", state: "completed" }),
     ];
     const chats: StartedSession[] = [
-      { sessionId: "c1", title: "Port the history page", state: "running", doing: "Run the tests" },
-      { sessionId: "c2", title: "Draft the notes", state: "waiting" },
-      { sessionId: "c3", title: "Fix the dock", state: "idle" },
-      { sessionId: "c4", title: "Retry the upload", state: "failed" },
+      { subsession: true, sessionId: "c1", title: "Port the history page", state: "running", doing: "Run the tests" },
+      { subsession: true, sessionId: "c2", title: "Draft the notes", state: "waiting" },
+      { subsession: true, sessionId: "c3", title: "Fix the dock", state: "idle" },
+      { subsession: true, sessionId: "c4", title: "Retry the upload", state: "failed" },
     ];
     const items = trayItems(agents, commands, chats, true);
     const finished = finishedTrayItems(agents, chats);
@@ -989,10 +991,10 @@ describe("the tray tells the truth", () => {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
       // Four subagents (two harness subagents, two chats it started, one waiting) and one command: five rows.
       // A chat that waits on the person is counted as waiting, never as running.
+      if (head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
         "3 subagents running · 1 waiting · 1 command",
       );
-      if (head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
       const lines = liveLines(root);
       expect(lines.length).toBe(5);
       expect(names(lines)).toEqual([
@@ -1027,11 +1029,12 @@ describe("the tray tells the truth", () => {
     const items = trayItems(
       [agent("Watcher", { background: true, startedAt: now }), agent("Scout", { background: true, startedAt: now })],
       [command("s/1", { command: "cargo watch", processId: "s/1", startedAt: now })],
-      [{ sessionId: "c1", title: "Port the history page", state: "running" }],
+      [{ subsession: true, sessionId: "c1", title: "Port the history page", state: "running" }],
       false,
     );
     const { root, done } = await render(
       createElement(SubagentTray, { items, working: false, waiting: new Set<string>(), onOpen: () => {} }),
+      { open: true },
     );
     try {
       expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
@@ -1249,8 +1252,8 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     const { root, show, done } = await render(tray(runs));
     try {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
-      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running");
       await act(async () => head.click());
+      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running");
       head.focus();
       // Run 1 ends: one runs, one ended. The header stays, the same node, focused and open.
       await show(tray([runs[0]!, { ...runs[1]!, state: "completed", endedAt: now }]));
@@ -1354,9 +1357,9 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       agent("mid", { state: "completed", startedAt: at(0), endedAt: at(20) }),
     ];
     const chats: StartedSession[] = [
-      { sessionId: "untimed", title: "Untimed", state: "idle" },
-      { sessionId: "first", title: "First", state: "idle", createdAt: at(1) },
-      { sessionId: "second", title: "Second", state: "idle", createdAt: at(2) },
+      { subsession: true, sessionId: "untimed", title: "Untimed", state: "idle" },
+      { subsession: true, sessionId: "first", title: "First", state: "idle", createdAt: at(1) },
+      { subsession: true, sessionId: "second", title: "Second", state: "idle", createdAt: at(2) },
     ];
     expect(finishedTrayItems(agents, chats).map((item) => item.id)).toEqual([
       "parent",
@@ -1373,6 +1376,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     const chats: StartedSession[] = [
       {
         sessionId: "c1",
+        subsession: true,
         title: "fanout-infra",
         state: "running",
         doing: "cd /Users/you/Projects/checkouts/ws/broker && sed -i '' 's/a/b/' broker.ts",
@@ -1380,6 +1384,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       },
       {
         sessionId: "c2",
+        subsession: true,
         title: "card",
         state: "running",
         doing: "Check the card · Read AgentCard.tsx",
@@ -1404,10 +1409,10 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
     );
     try {
-      // Four running, none waiting: the header counts them all as running.
-      expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe("4 subagents running");
       // Four lines start folded: open them.
       await act(async () => root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!.click());
+      // Four running, none waiting: the open header counts them all as running.
+      expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe("4 subagents running");
       // What it does is the tooltip's, in words; the line has no subtitle.
       expect(root.querySelector(".acpmux-summary-agent__kind")).toBeNull();
       const tips = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line__button")].map((node) => node.title);
@@ -1506,5 +1511,73 @@ describe("workflow progress in the default tray and Session Info", () => {
         }),
       ),
     ).toEqual([]);
+  });
+});
+
+// Leo, 2026-11-03, on a lane a coordinator dispatched showing in its tray with a spinner: "me just
+// clicking this and the fact that it automatically sends me there is kinda shittry", "like why is
+// this even in the "running" in the firstr place?". The tray lists the chat's own work only: its
+// subagents and the sub-sessions its agent started with start_session (acpmux `startedBy`). A lane
+// `sessions new` placed carries a lineage parent (`spawnedBy`) and the `mux.parent` tag but no
+// `startedBy`; it is its own chat in the sidebar. A sub-session's line opens it beside the chat
+// (`onOpenSession`, the app's `chat.offer.open`), never in this pane.
+const { startedSessions } = await import("../src/agent-session/acpmux/started/startedSessions");
+describe("the tray lists only the chat's own work", () => {
+  const entries = [
+    {
+      sessionId: "own",
+      title: "Review the fold",
+      spawnedBy: "parent",
+      startedBy: "parent",
+      status: "running",
+      indicator: "working",
+    },
+    {
+      sessionId: "lane",
+      title: "mac-studio-ultras",
+      spawnedBy: "parent",
+      status: "running",
+      indicator: "working",
+      lane: "working",
+      tags: { "mux.parent": "parent" },
+    },
+    { sessionId: "lane-done", title: "nightly-lane", spawnedBy: "parent", status: "idle", indicator: "done" },
+  ] as never[];
+
+  test("a dispatched lane is no tray line, running or ended; the chat's own sub-session is", () => {
+    const sessions = startedSessions(entries, "parent", { doing: true });
+    expect(sessions.map((session) => [session.sessionId, session.subsession ?? false])).toEqual([
+      ["own", true],
+      ["lane", false],
+      ["lane-done", false],
+    ]);
+    expect(trayItems([agent("Auditor", { startedAt: Date.now() })], [], sessions, true).map((item) => item.id)).toEqual(
+      ["Auditor", "own"],
+    );
+    expect(finishedTrayItems([], sessions).map((item) => item.id)).toEqual([]);
+  });
+
+  test("a sub-session's line opens it beside the chat, never in this pane", async () => {
+    const sessions = startedSessions(entries, "parent", { doing: true });
+    const opened: string[] = [];
+    const { root, done } = await render(
+      createElement(SubagentTray, {
+        items: trayItems([], [], sessions, true),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: (id: string) => opened.push(`here:${id}`),
+        onOpenSession: (id: string) => opened.push(`beside:${id}`),
+      }),
+    );
+    try {
+      const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
+      expect(lines.map((line) => line.querySelector(".acpmux-summary-agent__name")?.textContent)).toEqual([
+        "Review the fold",
+      ]);
+      await act(async () => lines[0]!.querySelector<HTMLButtonElement>("button")!.click());
+      expect(opened).toEqual(["beside:own"]);
+    } finally {
+      await done();
+    }
   });
 });

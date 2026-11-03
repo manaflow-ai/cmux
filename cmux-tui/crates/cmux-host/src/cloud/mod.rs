@@ -26,22 +26,19 @@
 //! loop),
 //! `role` (the Linux worker), [`trajectory`] (ACP chats kept in cmux
 //! Cloud and restored into a replacement machine, #25584),
-//! `trajectory_thread` (its thread), [`harness_login`] (one sign-in per
-//! person: a Claude or Codex login on one of their machines is kept for them
-//! and written on their next machine) and `harness_login_thread` (its
-//! thread).
+//! and `trajectory_thread` (its thread). A person's Claude or Codex login is
+//! never sent to a cmux server: it stays in the harness's own files on the
+//! machine, and their next machine gets it from their own machine's snapshot.
 
 #[cfg(target_os = "linux")]
 mod bootstrap_role;
 pub mod client;
+pub mod clone_mark;
 pub mod github;
 #[cfg(unix)]
 pub mod github_minter;
 pub mod github_repos;
 pub mod handoff;
-pub mod harness_login;
-#[cfg(unix)]
-pub mod harness_login_thread;
 pub mod private_bootstrap;
 pub mod receiver;
 #[cfg(target_os = "linux")]
@@ -63,8 +60,6 @@ pub mod wire;
 mod github_tests;
 #[cfg(all(test, unix))]
 mod handoff_tests;
-#[cfg(all(test, unix))]
-mod harness_login_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
