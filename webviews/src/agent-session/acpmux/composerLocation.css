@@ -1063,14 +1063,17 @@
 .acpmux-menu.acpmux-location-menu.acpmux-folder-popover {
   display: flex;
   flex-direction: column;
-  min-width: 240px;
+  /* No floor of its own: the location menu's 200 px, so a short folder list is no wider than its
+     fullest row plus the menu-fit spare (design/menus.md, gallery invariants.ts menu-fit). */
   max-height: min(360px, calc(100dvh - 36px));
   overflow: hidden;
 }
 .acpmux-folder-popover .ui-combobox-pinned-list { flex: 1; min-height: 0; }
-/* In a short pane, the actions and projects each get a scrolling area; neither disappears. */
+/* In a short pane, budget one action row, two padding units of continuation fade, and the
+   pinned list's bottom padding. This leaves two complete projects in the shortest gallery pane;
+   a fragment of the third would shift out of view when the second opens its worktrees. */
 @media (max-height: 260px) {
-  .acpmux-folder-popover .ui-combobox-pinned { flex: none; max-height: 54px; overflow: auto; }
+  .acpmux-folder-popover .ui-combobox-pinned { flex: none; max-height: calc(var(--ui-row-height) + 3 * var(--ui-popup-padding)); overflow: auto; }
   .acpmux-folder-popover .ui-combobox-scroll { max-height: none; }
 }
 .acpmux-folder-popover .ui-combobox-scroll { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
@@ -1078,6 +1081,9 @@
 
 .acpmux-folder-popover .acpmux-location-search {
   display: block;
+  /* Only the results give up room in a short popup. Otherwise narrowing them lets the
+     compressed field grow back to its row height and moves every result under the caret. */
+  flex-shrink: 0;
   box-sizing: border-box;
   width: 100%;
   height: var(--ui-row-height);
@@ -1447,7 +1453,8 @@
    "Where should this chat run?" (Leo, 2026-10-31): This Mac and Cloud; every machine is a list of
    its own (Machines…). No section headers and no second lines; each of the first nine machines ends
    with its ⌥⌘ digit, then the current one's check. */
-.acpmux-env-popover { min-width: 220px; }
+/* Its floor beats the folder popover's own rules, whose classes it carries. */
+.acpmux-menu.acpmux-location-menu.acpmux-env-popover { min-width: 220px; }
 /* Its rows as the model picker's and every other menu's (design/menus.md, popupSurface.css): the
    neutral menu wash (--acpmux-menu-hover, as .acpmux-quick-item), no accent tint and no focus bar,
    inset 5 from the popup's edges at radius 5, the icon at the shared 15 leading. The highlight is

@@ -143,6 +143,9 @@ function ChangesGlyphs({ glyphs = "pack" }: { glyphs?: Glyphs }) {
           statuses={statuses}
           machineName="Studio"
           repository="manaflow-ai/cmux"
+          // Changes is one of the sections the default view holds behind Show more (#32939): open it, so
+          // the rows this entry compares are drawn.
+          more
           sections={{
             ...DEFAULT_SECTIONS,
             context: false,

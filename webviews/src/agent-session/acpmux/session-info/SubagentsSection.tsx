@@ -10,6 +10,7 @@
 // still. The live counts sit in the section's head ("3 running · 40 done", `subagentCounts`). Leo
 // 2026-10-21: the row of identical avatars it replaces opened nothing anyone could tell apart.
 import { memo, useState } from "react";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { waveIndices } from "../../../ui/wave";
@@ -202,6 +203,7 @@ export function SubagentsSection({
   const now = useNow(agents.some(running));
   const [more, setMore] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
+  const endedEdges = useScrollEdges();
   const agentLine = (agent: Subagent, depth: number): Line => {
     const status = subagentStatus(agent, waiting, now);
     return {
@@ -308,7 +310,10 @@ export function SubagentsSection({
             <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </button>
           {endedOpen && (
-            <ul className="acpmux-summary-list acpmux-session-info-scroll acpmux-session-info-subagents__list">
+            <ul
+              ref={endedEdges}
+              className="acpmux-summary-list acpmux-session-info-scroll acpmux-session-info-subagents__list ui-scroll-edge-fade"
+            >
               {endedLines.map((item, index) => line(item, index, false))}
             </ul>
           )}

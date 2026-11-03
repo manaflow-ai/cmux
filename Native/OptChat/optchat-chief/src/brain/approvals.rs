@@ -236,7 +236,15 @@ impl Brain {
                     return true;
                 }
             }
-            "mcp__optchat__tell" => {}
+            "mcp__optchat__tell" => {
+                // A trusted agent's turn (`relay.trustedAgents`) may tell any
+                // of the Chief's own subagents; never a session or a Chief.
+                if self.turn_relay.is_some()
+                    && field("id").is_some_and(|id| self.state.sub(id).is_some())
+                {
+                    return true;
+                }
+            }
             // Another person's words never become the owner's preference.
             "mcp__optchat__remember" => return false,
             // Nor spend the owner's money on a Cloud machine.
@@ -282,6 +290,14 @@ impl Brain {
         ))
     }
 
+    /// The trusted agent session(s) that drove the running ask turn (or the
+    /// last one, for its calls that reach the host after it ended); None
+    /// for any other turn.
+    pub(super) fn relay_sender(&self) -> Option<String> {
+        let ask = self.turn_ask || (self.last_turn_ask && self.state.turn.is_none());
+        if ask { self.turn_relay.clone() } else { None }
+    }
+
     /// A permission request of a child that runs with policy `ask` (spawned
     /// under the spawn floor of a turn another person started): refused at
     /// once, never asked and never answered by the Chief itself.
@@ -321,9 +337,10 @@ impl Brain {
     /// subagent.
     pub fn spawn_policy(&self) -> Option<&'static str> {
         // The shared rule (cmux_chief::policy::spawn_floor).
+        // A trusted agent's turn spawns with the owner's policy.
         cmux_chief::policy::spawn_floor(
             false,
-            self.turn_ask,
+            self.turn_ask && self.turn_relay.is_none(),
             self.ask_child_live(),
             self.ask_subagent_live(),
         )
@@ -453,7 +470,7 @@ impl Brain {
                 && self
                     .state
                     .sub(&id)
-                    .is_some_and(|(_, s)| Self::approval_shown(s))
+                    .is_some_and(|(_, s)| Self::approval_workspace_shown(s))
             {
                 continue;
             }
@@ -494,6 +511,24 @@ impl Brain {
                 if let Err(e) = crate::approval::record(dir, fields) {
                     (self.log)(&format!("recording a refusal in the trace: {e}"));
                 }
+            }
+            if let Some(id) = self.state.sub_by_session(&p.session_id)
+                && self.state.sub(&id).is_some_and(|(_, sub)| {
+                    sub.permission.as_ref().is_some_and(|current| {
+                        current.id == p.permission_id && current.request == p.request
+                    })
+                })
+            {
+                self.cancel_home_approval(&id);
+                let outcome = if result.is_ok() {
+                    "its request was denied"
+                } else {
+                    "the request is no longer answerable here; its denial could not be confirmed"
+                };
+                self.tell_person_once(
+                    &p.permission_id,
+                    &format!("{id}'s approval expired because it was not answered; {outcome}."),
+                );
             }
             if let Some(id) = self.state.sub_by_session(&p.session_id)
                 && let Some(sub) = self.state.sub_mut(&id)

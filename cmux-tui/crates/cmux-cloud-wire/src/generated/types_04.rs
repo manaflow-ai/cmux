@@ -4,6 +4,14 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Trigger {
+    pub id: TriggerId,
+    pub status: TriggerStatus,
+    pub spec: TriggerInput,
+    pub next_at: Option<i64>,
+}
+
 wire_enum! {
     TriggerStatus {
         Active = "active",
