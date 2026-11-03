@@ -44,15 +44,15 @@ struct BrowserDownloadWaitPathTests {
         }
     }
 
-    @Test func downloadSavedWhileWaitingIsCopiedToThePath() async throws {
+    /// The panel's progress event comes first; the wait takes the saved one
+    /// and replaces the file already at the path.
+    @Test func progressEventDoesNotEndThePathWait() async throws {
         try await withPanel { panel, params, root in
             let destination = root.appendingPathComponent("x.txt")
             try Data("old".utf8).write(to: destination)
             var wait = params
             wait["path"] = destination.path
             wait["timeout_ms"] = 10_000
-            let pending = Task { try await request("browser.download.wait", wait) }
-            await Task.yield()
 
             let saved = try savedFile(in: root, named: "download.txt", contents: "hello")
             let delegate = try #require(panel.downloadDelegate)
@@ -60,7 +60,7 @@ struct BrowserDownloadWaitPathTests {
             delegate.onDownloadReadyToSave?("x.txt", "download-2")
             delegate.onDownloadSaved?("x.txt", saved, true, "download-2")
 
-            let response = try await pending.value
+            let response = try await request("browser.download.wait", wait)
             #expect(response["ok"] as? Bool == true, "\(response)")
             #expect(try String(contentsOf: destination, encoding: .utf8) == "hello")
         }
@@ -96,6 +96,32 @@ struct BrowserDownloadWaitPathTests {
             #expect(error["code"] as? String == "download_failed")
             #expect((error["data"] as? [String: Any])?["path"] as? String == destination.path)
             #expect(!FileManager.default.fileExists(atPath: destination.path))
+        }
+    }
+
+    @Test func cancelledDownloadIsReported() async throws {
+        try await withPanel { panel, params, root in
+            let delegate = try #require(panel.downloadDelegate)
+            delegate.onDownloadStarted?("x.txt", "download-5")
+            delegate.onDownloadCancelled?("x.txt", true, "download-5")
+
+            var wait = params
+            wait["path"] = root.appendingPathComponent("x.txt").path
+            wait["timeout_ms"] = 5_000
+            let response = try await request("browser.download.wait", wait)
+            let error = try #require(response["error"] as? [String: Any], "\(response)")
+            #expect(error["code"] as? String == "download_failed")
+            #expect((error["data"] as? [String: Any]).flatMap { $0["download"] as? [String: Any] }?["type"] as? String == "cancelled")
+        }
+    }
+
+    @Test func relativePathIsRejected() async throws {
+        try await withPanel { _, params, _ in
+            var wait = params
+            wait["path"] = "x.txt"
+            wait["timeout_ms"] = 5_000
+            let response = try await request("browser.download.wait", wait)
+            #expect((response["error"] as? [String: Any])?["code"] as? String == "invalid_params", "\(response)")
         }
     }
 
