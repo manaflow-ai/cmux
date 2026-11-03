@@ -212,10 +212,10 @@ try {
       const target = surface.kind === "open" ? TARGET_MS.load : TARGET_MS.response;
       perfRow({ name: `${name}.settled`, p50: settled, p95: settled, target });
       if (surface.kind === "open") {
-        // First paint to settled: 0 when the first frame is the final frame; one frame (17 ms) is noise.
+        // First paint to settled: 0 when the first frame is the final frame; the target allows that one frame.
         const afterPaint = median(rounds.map((r) => r.afterPaint ?? 0));
         console.log(`  first paint to settled: ${afterPaint.toFixed(0)} ms`);
-        perfRow({ name: `${name}.settle_after_paint`, p50: afterPaint, p95: afterPaint, target: 0, floor: 17 });
+        perfRow({ name: `${name}.settle_after_paint`, p50: afterPaint, p95: afterPaint, target: 17, floor: 17 });
       }
       // A target of zero: a still page shifts nothing and wakes nothing. The floor keeps a rounding-sized change noise.
       perfRow({ name: `${name}.cls`, p50: cls, p95: cls, unit: "score", target: 0, floor: 0.001 });

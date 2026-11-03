@@ -206,8 +206,7 @@ export function installStabilityProbe(options: { sampleCap: number; boxes: boole
       // The page's own loop registry, beside the wrappers: it names the clock behind a timer.
       type Loops = { loops: number; clocks?: { items?: { name: string; running: boolean }[] } };
       const loops = (w as Window & { cmuxDebug?: { loops?: () => Loops } }).cmuxDebug?.loops?.();
-      for (const clock of loops?.clocks?.items ?? [])
-        if (clock.running) sites.set(`page clock: ${clock.name}`, sites.get(`page clock: ${clock.name}`) ?? 1);
+      for (const clock of loops?.clocks?.items ?? []) if (clock.running) sites.set(`page clock: ${clock.name}`, 1);
       return {
         ...counts,
         pageLoops: loops ? loops.loops : null,
