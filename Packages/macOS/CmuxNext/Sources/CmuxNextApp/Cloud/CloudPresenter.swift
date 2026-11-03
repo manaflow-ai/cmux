@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudCredentials
@@ -108,6 +109,16 @@ enum CloudPresenter {
 
         let teamID = services.cloud.auth.teamID
         guard let provider = CloudCredentialTransfer.Provider(rawValue: request.provider.rawValue) else { return false }
+        if !DevTools.isEnabled {
+            // Release (CloudService+LoginCopy.swift): Claude only, the remote switch read fresh, and the
+            // person's one-time consent, which an automatic recovery never asks.
+            guard provider == .claude else { return false }
+            if request.automatic {
+                guard await services.cloud.readHarnessLoginCopySwitch() == true, CloudStartChat.loginCopyConsent(services) == true else { return false }
+            } else {
+                guard await CloudStartChat.releaseCopyAllowed(services) else { return false }
+            }
+        }
         if request.automatic {
             guard provider == .claude,
                   await CloudCredentialTransfer.hasCachedLogin(provider: provider, teamID: teamID, userID: userID) else { return false }
@@ -141,7 +152,7 @@ enum CloudPresenter {
         let transfer = CloudCredentialTransfer(
             provider: provider, machineID: session.machineID, teamID: teamID,
             userID: userID,
-            allowsCreatorTeamGuest: CloudStartChat.passesHarnessLoginHere,
+            allowsCreatorTeamGuest: CloudStartChat.allowsCreatorTeamGuestHere,
             openTerminal: { [weak services] line in
                 await services?.openLocalProviderLogin(line) ?? false
             })
@@ -198,6 +209,25 @@ enum CloudPresenter {
             identifier: firstLoginIdentifier)
         let answer = await CmuxDialogCenter.shared.present(spec, in: .window(window))
         return answer.button == "setUp" && !answer.isDismissal
+    }
+
+    static let loginCopyConsentIdentifier = "cmux.dialog.cloud.loginCopyConsent"
+
+    /// The one-time consent before a Release build's first copy of the person's Claude login to their
+    /// own Cloud machines (Leo, 2026-11-02: "a clear one-time prompt: 'use my Claude login on my own
+    /// Cloud machines'"). True for yes, false for no or a dismissal, nil with no window to show it on
+    /// (nothing is kept then, so it is asked next time).
+    @MainActor static func confirmLoginCopy(services: AppServices) async -> Bool? {
+        guard let window = services.windows.active?.window else { return nil }
+        let spec = CmuxDialogSpec(
+            title: String(localized: "cloud.loginCopyConsent.title", defaultValue: "Use my Claude login on my own Cloud machines?", table: "CloudCredentialRecovery", bundle: .module),
+            lines: [String(localized: "cloud.loginCopyConsent.body", defaultValue: "cmux copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. It never goes to team or shared machines, and cmux never stores it.", table: "CloudCredentialRecovery", bundle: .module),
+                    String(localized: "cloud.loginCopyConsent.settings", defaultValue: "You can turn this off in Settings > Machines. Without it, each machine offers Sign in to Claude.", table: "CloudCredentialRecovery", bundle: .module)],
+            buttons: [.cancel(String(localized: "cloud.loginCopyConsent.decline", defaultValue: "Don't Use", table: "CloudCredentialRecovery", bundle: .module)),
+                      CmuxDialogButton(id: "use", title: String(localized: "cloud.loginCopyConsent.accept", defaultValue: "Use My Login", table: "CloudCredentialRecovery", bundle: .module), role: .default)],
+            identifier: loginCopyConsentIdentifier)
+        let answer = await CmuxDialogCenter.shared.present(spec, in: .window(window))
+        return answer.button == "use" && !answer.isDismissal
     }
 
     static let codexBrokerDisclosure = String(localized: "cloud.credentialRecovery.codexBroker", defaultValue: "cmux uses Codex sign-in on this Mac when needed; an existing broker login is refreshed without another sign-in. Only short-lived access moves to this owner VM. The refresh token stays on this Mac. Keep cmux running on this Mac to renew Codex access.", table: "CloudCodex", bundle: .module)

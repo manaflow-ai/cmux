@@ -547,10 +547,11 @@ extension AgentTabStore {
         }
     }
     /// Signed in (on either link: CloudService.machineAPI serves a legacy and a Worker machine), and
-    /// this build passes the Mac's login at all (DEV and dogfood; production's card signs in on the
-    /// machine instead).
+    /// this build may pass the Mac's login at all (DEV and dogfood, or Release unless the setting
+    /// turns it off; a Release recovery then reads the remote switch and asks the consent first,
+    /// CloudPresenter.recoverCredentials).
     static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool,
-                                                   passesLogin: Bool = CloudStartChat.passesHarnessLoginHere) -> Bool {
+                                                   passesLogin: Bool = CloudStartChat.offersLoginCopyHere) -> Bool {
         isSignedIn && passesLogin
     }
 }
