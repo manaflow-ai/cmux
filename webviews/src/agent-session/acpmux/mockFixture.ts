@@ -40,6 +40,8 @@ export type MockSession = {
   working?: { title: string; kind: string; command?: string };
   /// A page the agent rendered before its reply (`cmux mcp`'s render tool), shown as a render card.
   render?: { title: string; html: string };
+  /// The chat's whole history, when it is a scene of its own instead of a prompt and its reply.
+  history?: (at: number) => SeedStep[];
 };
 
 type Update = Record<string, unknown>;
@@ -420,11 +422,48 @@ export const mockSessions: MockSession[] = [
     hostKind: "local",
     reply: "The config now lives in dotfiles and links into ~/.config/ghostty on each machine.",
   },
+  {
+    // A background shell from an earlier page ends while a reply streams (Leo, 2026-11-03: "this
+    // chat's text stream got cut in the middle by a tool call which is weird"): its note goes after
+    // the reply, never between "once per machine," and "not once per chat."
+    sessionId: "mock-notice-mid-reply",
+    title: "How often do Cloud machines ask for a login",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9000,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Once per machine, not once per chat.",
+    history: (at) => [
+      { ago: at + 90_000, mux: "user_message", msg: { text: "How often do Cloud machines ask for a login?" } },
+      { ago: at + 90_000, mux: "turn_started" },
+      {
+        ago: at + 40_000,
+        update: text(
+          "- Codex works the same way through its device sign-in.\n- The login stays on that machine's own disk, so it's once per machine,",
+        ),
+      },
+      {
+        ago: at + 30_000,
+        update: {
+          sessionUpdate: "background_task_update",
+          taskId: "task-ci-wait",
+          toolCallId: "mock-notice-mid-reply-earlier-call",
+          command: "Wait for remote CI run",
+          state: "completed",
+        },
+      },
+      { ago: at + 20_000, update: text(" not once per chat. With one machine per workspace, that's rare.") },
+      { ago: at, mux: "turn_result", msg: { status: "completed" } },
+    ],
+  },
 ];
 
 /// A session as `_acpmux/watch` and `_acpmux/attach` report it.
 export function sessionSummary(session: MockSession, now: number, turnCount: number): Record<string, unknown> {
-  const { ago, reply, permission: _permission, ...fields } = session;
+  const { ago, reply, permission: _permission, history: _history, ...fields } = session;
   const preview = session.sessionId === WORKED_SESSION ? "Uploads now retry server errors with backoff." : reply;
   return {
     ...fields,
@@ -736,6 +775,7 @@ export function sampleDiagram(): string {
 /// running session's turn is still open; a session needing input waits on a permission card.
 export function sessionHistory(session: MockSession): SeedStep[] {
   const at = session.ago * MIN;
+  if (session.history) return session.history(at);
   const steps: SeedStep[] = [
     { ago: at + 90_000, mux: "user_message", msg: { text: session.title } },
     { ago: at + 90_000, mux: "turn_started" },

@@ -36,6 +36,7 @@ import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
+import { TASK_LINE, type StartedTask } from "./conversation/taskLineKind";
 import type { SubagentRetryNotice } from "./subagents/retryState";
 import {
   isRunGroup,
@@ -359,6 +360,8 @@ export type AcpmuxRow = {
   untyped?: boolean;
   /// A started sessions row's chats, oldest first (started/StartedSessionCard.tsx).
   started?: StartedSession[];
+  /// A finished turn's task line's sub-sessions, in the order it started them (conversation/TaskLine.tsx).
+  tasks?: StartedTask[];
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's tokens, when its harness reported them on the `turn_result` (Claude Code:
@@ -1442,6 +1445,7 @@ const isStatusKind = (row: AcpmuxRow) =>
   row.kind === "agentPair" ||
   row.kind === "sessionStart" ||
   row.kind === BACKGROUND_TURN ||
+  row.kind === TASK_LINE ||
   row.kind === MESSAGE_RUN ||
   (row.kind === "activity" && isToolRun(row));
 /// A tool run with at least one call, not an edited-files card (turnChanges/sessionRows.ts
@@ -1681,6 +1685,8 @@ function fallbackRowHeight(
     return finish(
       8 + 2 + row.started.reduce((sum, child) => sum + (hasStatusLine(child) ? 50 : 34), 0) + (row.started.length - 1),
     );
+  // A finished turn's task lines (conversation/TaskLine.tsx): one tool row each.
+  if (row.kind === TASK_LINE && row.tasks) return finish(row.tasks.length * toolRowHeight());
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
   if (row.kind === "agentPair") return finish(row.agentPair?.resumed ? 37 : 37 + 24);
   // A session start: its facts line (conversation/SessionStartNote.tsx); the full facts open
