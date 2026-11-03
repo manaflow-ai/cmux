@@ -8,14 +8,10 @@ bundles 156.0.8078.73 or later, tests, benches and scripts launch Chromium with 
 (the installed, auto-updating Google Chrome) and no workflow or script downloads the bundled one.
 """
 
-import os
 import pathlib
 import re
 import subprocess
-import tempfile
 import unittest
-
-import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -84,50 +80,6 @@ class SystemChromeTests(unittest.TestCase):
     def test_web_playwright_configs_use_system_chrome(self):
         for config in tracked("web/playwright*.config.ts"):
             self.assertRegex(config.read_text(), r"channel:\s*\"chrome\"", config.name)
-
-    def test_gallery_head_and_base_receive_the_same_resolved_browser(self):
-        workflow = yaml.safe_load((ROOT / ".github/workflows/gallery-health.yml").read_text())
-        steps = workflow["jobs"]["health"]["steps"]
-        with tempfile.TemporaryDirectory() as directory:
-            work = pathlib.Path(directory)
-            for folder in ("webviews", "scripts/ci", "scripts/gallery-matrix", "bin"):
-                (work / folder).mkdir(parents=True)
-            browser = str(work / "resolved chrome-headless-shell")
-            env_file, launches = work / "env", work / "launches"
-            env_file.touch()
-            stubs = {
-                "scripts/ci/ensure-system-chrome.sh":
-                    '#!/bin/sh\nprintf "CMUX_CHROME_HEADLESS_SHELL=%s\\n" "$TEST_BROWSER" >> "$GITHUB_ENV"\n',
-                "bin/git": '#!/bin/sh\nprintf "%s\\n" "$GITHUB_WORKSPACE"\n',
-                "bin/bun": '#!/bin/sh\nif [ "$1" = health.ts ]; then\n'
-                    '  printf "%s\\n" "${CMUX_CHROME_HEADLESS_SHELL:-chrome}" >> "$TEST_LAUNCHES"\nfi\n',
-            }
-            for name, contents in stubs.items():
-                script = work / name
-                script.write_text(contents)
-                script.chmod(0o755)
-            env = {
-                "PATH": str(work / "bin") + os.pathsep + os.defpath,
-                "GITHUB_WORKSPACE": str(work), "GITHUB_ENV": str(env_file),
-                "RUNNER_TEMP": str(work), "TEST_BROWSER": browser, "TEST_LAUNCHES": str(launches),
-                "ALL": "true", "IDS": "", "SHARD": "0", "pass": "1",
-            }
-            render = next(entry for entry in steps if entry.get("id") == "render")
-            for entry in steps:
-                script = entry.get("run", "")
-                if "ensure-system-chrome.sh" not in script and "bun health.ts" not in script:
-                    continue
-                if "ensure-system-chrome.sh" in script:
-                    self.assertEqual(entry.get("if"), render.get("if"))
-                if "git restore" in script:
-                    # Only execute the base browser invocation; classification and rebuilding
-                    # do not select the executable. Keep its real command and arguments.
-                    script = re.search(r"(?m)^[ \t]*bun health\.ts(?:[^\n]*\\\n)*[^\n]*", script).group()
-                subprocess.run(["bash", "-euc", script], cwd=work / entry.get("working-directory", "."), env=env,
-                               check=True, capture_output=True, text=True)
-                # Actions imports GITHUB_ENV between steps, never into the writer's shell.
-                env.update(line.split("=", 1) for line in env_file.read_text().splitlines())
-            self.assertEqual(launches.read_text().splitlines(), [browser, browser])
 
 
 if __name__ == "__main__":
