@@ -154,6 +154,14 @@ it again reuses the session and worktree and sends nothing:
 acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME -d
 ```
 
+Name a session after its task: a short readable title in 2-5 words
+(`-n session-info-drag-handles`), never an id or a
+counter (`cloud-item-14`, `optchat-sub-6b68ac4a-a26`). People read it in the cmux
+sidebar and in `acpmux ls`. Keep ids, item numbers and bead ids in a tag
+(`--tag item=14`). `new` and `ensure` print a one-line hint for a name that reads
+as an id; it is never refused and still works as an address. A `Title: ...`
+first line in the prompt titles the chat.
+
 `--group "GROUP"` is optional person-facing app state. It runs `cmux agent
 open`, creates a workspace and places it in the named cmux sidebar group (and
 may create that group); it does not move focus. Use a human label only, never a
