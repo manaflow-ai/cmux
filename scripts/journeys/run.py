@@ -577,8 +577,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
                        timeout=left(150), check=False).stdout
         take_results(files, out, set(ids))
         # ext_video's recordings (handoff resize-videos/KIT.md): movies are hundreds of MB, fetched on their own.
-        videos = remote(host, f"cd {q(work + '/out')} && ls -d */video >/dev/null 2>&1 && tar c */video || true",
-                        timeout=left(240), check=False).stdout
+        videos = remote(host, f"cd {q(work + '/out')} && {VIDEO_FETCH}", timeout=left(240), check=False).stdout
         take_videos(videos, out, set(ids))
         if hog_started:
             hog_log = remote(host, f"tail -c 2000000 {q(work + '/hog.jsonl')}", timeout=left(60), check=False).stdout
@@ -613,6 +612,10 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
                                  ident=ident), out, ident.get("harness"), harness)
 
 
+# The films' fetch, compressed on the mini: a scan file (exact BGRA lines) shrinks 10-30x, an encoded movie does not. A lease
+# of six pixel films held about 400 MB of raw scan and its plain `tar c` timed out at 240 s (cmux22, 2026-11-03).
+# take_videos reads the compressed or the plain form (tarfile's transparent mode).
+VIDEO_FETCH = "ls -d */video >/dev/null 2>&1 && tar cz */video || true"
 VIDEO_FILE = re.compile(r"(?:\./)?([a-z0-9][a-z0-9-]*/video/(?:[a-z0-9][a-z0-9-]*\.(?:mov|mov\.frames\.json|mov\.scan|trace\.json|events\.json|meta\.json)|crash-[A-Za-z0-9_.-]+\.ips\.txt|reply-cost\.json|record-start-sample-[a-z]*\d\.txt))")
 VIDEO_MAX_BYTES = 4 << 30
 

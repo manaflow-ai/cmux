@@ -23,8 +23,9 @@ Every file of one recording goes to <journey out>/video/<name>.*:
                           window frame and screen (debug.layers), the app pid, the clock note
 
 Steps (`do`):
-  video_start  {name, rows?, columns?, codec?: hevc|prores, mbps?, seconds?: 30, require_hz?: 120}
+  video_start  {name, rows?, columns?, codec?: hevc|prores, mbps?, seconds?: 30, require_hz?: 120, start_timeout?: 8}
                require_hz: a pacing case; not run unless the app's display link runs at that rate
+               start_timeout: seconds ScreenCaptureKit may take to start (the app bounds its two calls at 10 s each)
   video_stop   {name, tail?: 0.6}  waits `tail` s (the motion's end), stops, waits for the files (30 s)
   hid_drag     {target, by: [dx, dy] | to: [x, y], duration_ms, steps?, hold_ms?: 0, mark?}
                a REAL drag (CuaDriver `drag`, desktop scope, true pixels) from the target's center. target:
@@ -162,6 +163,9 @@ def step_video_start(j, step):
         crashes = _crash_reports(j, j.video_t0_epoch - 5)
         raise D.StepError(f"video_start {name}: record_start failed ({error}); app crash reports: {crashes or 'none found'}")
     time.sleep(0.3)
+    # The app's own start error: record_read carries it (`error`) and the driver's rpc raises on it. A recorder that
+    # could not start is not run, as one that never says `capturing` (it was a step failure).
+    start_error = None
     try:
         _motion(j, "record_read")
     except OSError as error:
@@ -169,20 +173,32 @@ def step_video_start(j, step):
         crashes = _crash_reports(j, j.video_t0_epoch - 5)
         raise D.StepError(f"video_start {name}: the app stopped answering after record_start ({error}); "
                           f"app crash reports: {crashes or 'none found'}")
+    except D.StepError as error:
+        start_error = str(error)
     if not started.get("starting"):
         _motion(j, "trace_stop")
         raise D.NotRun(f"video_start {name}: the recorder did not start: {json.dumps(started)[:300]}")
-    end = time.monotonic() + 8
+    # `start_timeout` (default 8 s): how long ScreenCaptureKit may take to start. The app bounds each of its two calls
+    # (the content list, the start) at 10 s and then reports its own error, so a caller that waits past 20 s gets
+    # either the capture or the app's reason.
+    end = time.monotonic() + float(step.get("start_timeout", 8))
     counts = {}
-    while time.monotonic() < end:
-        counts = _motion(j, "record_read")
+    while start_error is None and time.monotonic() < end:
+        try:
+            counts = _motion(j, "record_read")
+        except D.StepError as error:
+            start_error = str(error)
+            break
         if counts.get("capturing") or counts.get("error"):
             break
         time.sleep(0.05)
     if not counts.get("capturing"):
-        _motion(j, "record_stop")
-        _motion(j, "trace_stop")
-        raise D.NotRun(f"video_start {name}: ScreenCaptureKit did not start: {json.dumps(counts)[:300]}")
+        for action in ("record_stop", "trace_stop"):
+            try:
+                _motion(j, action)
+            except D.StepError:  # nothing left to stop: the app ended the failed start itself
+                pass
+        raise D.NotRun(f"video_start {name}: ScreenCaptureKit did not start: {start_error or json.dumps(counts)[:300]}")
     dialog = _bypass_dialog(j)
     j.video = {"name": name, "t_start": D.now(), "hid": [], "journal_seq": seq, "start": started, "bypass_dialog": dialog,
                "trace_views": trace.get("views"), "notes": {}}
