@@ -255,75 +255,11 @@ nonisolated enum AcpmuxServerPeer {
 
     /// A strict on-disk check before a Team-signed app launches its acpmux.
     /// DEV is ad-hoc and has no team to require.
-    ///
-    /// The check reads the whole executable (every architecture), seconds on a loaded Mac, so its
-    /// verdict is kept for the file it read (``FileIdentity``: device, inode, size, mtime and
-    /// ctime): every later `AcpmuxEnvironment.resolve` of the same unchanged file costs one
-    /// `stat`. Any write, replacement or rename onto the path changes the identity and checks
-    /// again, and a file that changed while it was being checked keeps no verdict.
-    ///
-    /// A file's timestamps are only as fine as its volume's (1 s on HFS+, 2 s on FAT), so a
-    /// same-length write in the same tick as the check would leave every field unchanged. A
-    /// verdict is therefore kept only for a file last changed ``settledAge`` before the check
-    /// began: any later write gets a strictly newer ctime, which no user process can set back.
-    /// A freshly written file is checked on every call. Writes through a shared mapping update
-    /// the timestamps lazily; that race between check and use is the one base already had.
     static func executableSignedByAppTeam(_ executable: URL, team: String? = ownTeam) -> Bool {
-        executableSignedByAppTeam(executable, team: team, validate: staticCheck)
-    }
-
-    /// How long ago a file must have last changed for its verdict to be kept (above the
-    /// coarsest timestamp granularity of a macOS volume, FAT's 2 s).
-    static let settledAge: TimeInterval = 5
-
-    /// ``executableSignedByAppTeam(_:team:)`` with the on-disk check and the clock given (tests).
-    static func executableSignedByAppTeam(_ executable: URL, team: String?,
-                                          validate: (URL, String) -> Bool,
-                                          now: () -> Date = { Date() }) -> Bool {
         guard let team else { return true }
-        let path = executable.resolvingSymlinksInPath()
-        guard let before = FileIdentity(path: path.path, team: team) else { return validate(path, team) }
-        if let known = checkedExecutables.withLock({ $0[before] }) { return known }
-        let began = now().timeIntervalSince1970
-        let verdict = validate(path, team)
-        if before.changedSeconds < began - settledAge, FileIdentity(path: path.path, team: team) == before {
-            checkedExecutables.withLock { $0[before] = verdict }
-        }
-        return verdict
-    }
-
-    /// The file a verdict was given for, and the team it was checked against.
-    struct FileIdentity: Hashable {
-        var path: String
-        var team: String
-        var device: Int64
-        var inode: UInt64
-        var size: Int64
-        var modified: [Int]
-        var changed: [Int]
-
-        init?(path: String, team: String) {
-            var info = Darwin.stat()
-            guard fstatat(AT_FDCWD, path, &info, 0) == 0 else { return nil }
-            self.path = path
-            self.team = team
-            device = Int64(info.st_dev)
-            inode = UInt64(info.st_ino)
-            size = Int64(info.st_size)
-            modified = [info.st_mtimespec.tv_sec, info.st_mtimespec.tv_nsec]
-            changed = [info.st_ctimespec.tv_sec, info.st_ctimespec.tv_nsec]
-        }
-
-        /// The last status change (ctime), in seconds since 1970.
-        var changedSeconds: TimeInterval { TimeInterval(changed[0]) + TimeInterval(changed[1]) / 1e9 }
-    }
-
-    /// This process's verdicts (memory only: nothing on disk can vouch for a binary).
-    private static let checkedExecutables = Mutex<[FileIdentity: Bool]>([:])
-
-    private static func staticCheck(_ path: URL, team: String) -> Bool {
         guard let requirement = requirement(team: team) else { return false }
         var code: SecStaticCode?
+        let path = executable.resolvingSymlinksInPath()
         guard SecStaticCodeCreateWithPath(path as CFURL, [], &code) == errSecSuccess, let code else { return false }
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
         return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess
