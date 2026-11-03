@@ -18,6 +18,9 @@ public protocol PaneTabRowSharing: AnyObject {
     /// The row the view may draw its tools in: the top `height` points (0: it does not share the
     /// row now), less `trailingInset` points at the trailing end, where the pane's own toolbar is.
     func setTabRow(height: CGFloat, trailingInset: CGFloat)
+    /// Whether the row the view shares is a one-tab pane's (`TabStripModel.holdsOneTab`): the row has no band
+    /// of its own, so the view may draw under all of it. Set before ``setTabRow(height:trailingInset:)``.
+    func setTabRowSolo(_ solo: Bool)
 }
 
 extension PaneTabRowSharing {
@@ -29,13 +32,18 @@ extension PaneTabRowSharing {
     /// the leading tools. Tools that never reported are offered the row once, to learn their width.
     public func fitsTabRow(room: CGFloat) -> Bool { (tabRowToolsNeed ?? 0) <= max(0, room / 2) }
 
-    /// Offers the view the row (`height` 0: none); a change in its tools' width lays `pane` out
-    /// again while the view is still in it (a view another pane took gets its row from that pane).
-    public func offerTabRow(height: CGFloat, trailingInset: CGFloat, in pane: NSView) {
+    /// No solo row by default: a view that draws nothing under the row has nothing to change.
+    public func setTabRowSolo(_ solo: Bool) {}
+
+    /// Offers the view the row (`height` 0: none), a one-tab pane's when `soloTab`; a change in its
+    /// tools' width lays `pane` out again while the view is still in it (a view another pane took gets
+    /// its row from that pane).
+    public func offerTabRow(height: CGFloat, trailingInset: CGFloat, soloTab: Bool = false, in pane: NSView) {
         onTabRowToolsChange = { [weak self, weak pane] in
             guard let pane, let view = self as? NSView, view.isDescendant(of: pane) else { return }
             pane.needsLayout = true
         }
+        setTabRowSolo(height > 0 && soloTab)
         setTabRow(height: height, trailingInset: height > 0 ? trailingInset : 0)
     }
 }
@@ -56,6 +64,7 @@ extension PaneTabRowForwarding {
         set { tabRowSharer?.onTabRowToolsChange = newValue }
     }
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { tabRowSharer?.setTabRow(height: height, trailingInset: trailingInset) }
+    public func setTabRowSolo(_ solo: Bool) { tabRowSharer?.setTabRowSolo(solo) }
 }
 
 extension NSView {

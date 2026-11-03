@@ -15,7 +15,9 @@ import CmuxNextSettings
     /// Called when ``toolsWidth`` changes, or the page loads again (the pane lays out again).
     public var onChange: (() -> Void)?
     /// The row last pushed to the page, nil before the first.
-    private(set) var offered: (height: CGFloat, trailingInset: CGFloat)?
+    private(set) var offered: (height: CGFloat, trailingInset: CGFloat, soloTab: Bool)?
+    /// The pane holds this one tab (`PaneTabRowSharing.setTabRowSolo`): the page runs its transcript up under the row.
+    var soloTab = false
     /// Native chrome holes, in page coordinates; Session Info adds its own overlay hole.
     var holes: [CGRect] = []
     private var offeredNativeRowTools: Bool?
@@ -42,7 +44,10 @@ import CmuxNextSettings
     }
 
     /// The `tabRow` event for the row last offered (a page that subscribes again gets it first).
-    var event: AgentPageEvent { .tabRow(height: offered?.height ?? 0, trailingInset: offered?.trailingInset ?? 0, nativeRowTools: offeredNativeRowTools ?? false) }
+    var event: AgentPageEvent {
+        .tabRow(height: offered?.height ?? 0, trailingInset: offered?.trailingInset ?? 0,
+                nativeRowTools: offeredNativeRowTools ?? false, soloTab: offered?.soloTab ?? false)
+    }
 
     /// The tools' width in points at `zoom` (points per CSS pixel); nil while the setting is off or
     /// the page draws no tools in the row.
@@ -64,7 +69,7 @@ import CmuxNextSettings
         let on = ChromeTunables.tabRowTools.value && height > 0
         let nativeRowTools = view.model.tabRow.nativeToolsEnabled
         let row = view.model.tabRow
-        let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0)
+        let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0, soloTab: on && row.soloTab)
         let shares = on && row.toolsWidth > 0
         view.setTabRowCover(shares ? height : 0) // the pane lays the view under the strip only then
         if let page = view.page {
@@ -97,9 +102,11 @@ private func nativeHoles(width: CGFloat, height: CGFloat, trailingInset: CGFloat
 }
 
 extension AgentPageEvent {
-    /// The tab row the chat header's tools may sit in (`tabRow`): `{height, trailingInset}`.
-    static func tabRow(height: CGFloat, trailingInset: CGFloat, nativeRowTools: Bool) -> AgentPageEvent {
-        AgentPageEvent(kind: "tabRow", value: ["height": .number(Double(height)), "trailingInset": .number(Double(trailingInset)), "nativeRowTools": .bool(nativeRowTools)])
+    /// The tab row the chat header's tools may sit in (`tabRow`): `{height, trailingInset, nativeRowTools, soloTab}`;
+    /// `soloTab`: the pane holds this one tab, and the page runs its transcript up under the row (header/tabRow.ts).
+    static func tabRow(height: CGFloat, trailingInset: CGFloat, nativeRowTools: Bool, soloTab: Bool = false) -> AgentPageEvent {
+        AgentPageEvent(kind: "tabRow", value: ["height": .number(Double(height)), "trailingInset": .number(Double(trailingInset)),
+                                               "nativeRowTools": .bool(nativeRowTools), "soloTab": .bool(soloTab)])
     }
 }
 
@@ -109,4 +116,5 @@ extension PaneTabRowSharing where Self: AgentPaneView {
     public var tabRowToolsNeed: CGFloat? { model.tabRow.sharedNeed(zoom: webView.pageZoom) }
     public var onTabRowToolsChange: (() -> Void)? { get { model.tabRow.onChange } set { model.tabRow.onChange = newValue } }
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { AgentPaneTabRow.offer(points: height, trailingInset: trailingInset, to: self) }
+    public func setTabRowSolo(_ solo: Bool) { model.tabRow.soloTab = solo }
 }

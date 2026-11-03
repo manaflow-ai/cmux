@@ -128,7 +128,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         agentTagObservation = observeAgentTag(stripModel)
         themeDidChange()
         tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value, ChromeTunables.nativeRowTools.value) }) {
+            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value, ChromeTunables.nativeRowTools.value, stripModel.holdsOneTab) }) {
                 self?.needsLayout = true
                 self?.refreshBandHeight()
             }
@@ -218,7 +218,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         }
         layoutParked()
         layoutAgentTag()
-        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, in: self) }
+        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, soloTab: stripView.model.holdsOneTab, in: self) } // one tab: no band
         if hostChanged { onResize?() }
     }
 
