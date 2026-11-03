@@ -1496,6 +1496,16 @@ class CheckPiecesTests(unittest.TestCase):
             "a zip on sys.path": "sys.path.insert(0, os.path.join(HERE, 'lib.zip'))\nimport zipped\n",
             "a tree program": "import subprocess\nsubprocess.run([os.path.join(HERE, 'run.sh')])\n",
             "os.execv": "os.execv(os.path.join(HERE, 'run.sh'), ['run.sh'])\n",
+            # Review of 37b91f10452: a bare name found through PATH, a shell, and a path relative to the start folder.
+            "a bare name on PATH": "import subprocess\nsubprocess.run(['run.sh'], env={'PATH': HERE})\n",
+            "os.execvp on PATH": "os.environ['PATH'] = HERE\nos.execvp('run.sh', ['run.sh'])\n",
+            "shell=True": "import subprocess\nsubprocess.run('run.sh', shell=True, cwd=HERE)\n",
+            "os.system": "os.system(os.path.join(HERE, 'run.sh'))\n",
+            "os.popen": "os.popen(os.path.join(HERE, 'run.sh')).read()\n",
+            "a relative path from its cwd": "import subprocess\nsubprocess.run(['./run.sh'], cwd=HERE)\n",
+            "an interpreter on a tree script": "import subprocess\n"
+                                              "subprocess.run([sys.executable, os.path.join(HERE, 'helper.py')])\n",
+            "os.posix_spawnp": "os.posix_spawnp('run.sh', ['run.sh'], {'PATH': HERE})\n",
         }
         for way, body in ways.items():
             with self.subTest(way=way):
@@ -1504,7 +1514,8 @@ class CheckPiecesTests(unittest.TestCase):
                           "rootmod.py": "open(MARKER, 'w').close()\n"}
                 result, marker, tree = self.run_trusted("import os, sys\n" + sibling + body, pushed)
                 (tree / "scripts/cmux-next/run.sh").chmod(0o755)
-                if way in ("a tree program", "os.execv"):
+                if way in ("a tree program", "os.execv", "a bare name on PATH", "os.execvp on PATH", "shell=True",
+                           "os.system", "os.popen", "a relative path from its cwd", "os.posix_spawnp"):
                     result = subprocess.run(result.args, cwd=tree / "webviews", text=True, capture_output=True)
                 if way == "a zip on sys.path":
                     import zipfile
@@ -1512,14 +1523,14 @@ class CheckPiecesTests(unittest.TestCase):
                         archive.writestr("zipped.py", f"open({str(marker)!r}, 'w').close()\n")
                     result = subprocess.run(result.args, cwd=tree / "webviews", text=True, capture_output=True)
                 self.assertNotEqual(result.returncode, 0, result.stdout)
-                self.assertIn("is in the pushed tree", result.stderr)
+                self.assertRegex(result.stderr, r"is in the pushed tree|refused to start")
                 self.assertFalse(marker.exists(), "pushed code ran")
 
     def test_the_trusted_runner_still_reads_data_files_in_the_tree(self):
-        # And runs a program from outside the tree on it, as check-xcstrings-keys runs `git -C <tree>`.
+        # And runs git from outside the tree on it, as check-xcstrings-keys runs `git -C <tree> ls-files`.
         result, _, _ = self.run_trusted(
             "import json, os, subprocess, sys\nHERE = os.path.dirname(__file__)\n"
-            "subprocess.run([sys.executable, '-c', 'pass', HERE], check=True)\n"
+            "subprocess.run(['git', '-C', HERE, '--version'], check=True, capture_output=True)\n"
             "print(json.load(open(os.path.join(HERE, 'data.json')))['ok'])\n",
             {"scripts/cmux-next/data.json": '{"ok": "yes"}'})
         self.assertEqual((result.returncode, result.stdout), (0, "yes\n"), result.stderr)

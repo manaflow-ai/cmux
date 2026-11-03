@@ -453,23 +453,28 @@ def trusted_pieces(repo: Path, package: ScriptPackage, files: list[str], risky: 
 #   names the tree or a folder in it;
 # * the `open` audit event refuses to open a code file in the tree (.py, .pyc, .so, .zip, .pth ...), which is how
 #   runpy, spec_from_file_location/exec_module and zipimport read one; `ctypes.dlopen` of a tree path is refused;
-# * subprocess, os.exec* and os.posix_spawn are refused when the program they start is in the tree (judged by the
-#   program, never its arguments: check-xcstrings-keys runs `git -C <tree>`).
+# * a check may start only the programs in TRUSTED_PROGRAMS, found outside the tree: every subprocess, os.exec*,
+#   os.spawn*, os.posix_spawn* and os.system is resolved (a bare name through the PATH it runs with, a relative path
+#   from the folder it starts in, symlinks followed) and refused unless it is one of them. A shell (shell=True,
+#   os.system, os.popen) or an interpreter is never one, so neither a tree program nor a tree script can start.
 # Out of reach for any in-process guard: a reviewed check that execs text it reads (open() and io.open_code() raise
 # the same audit event). That is a review rule: a check never executes what it reads.
 # The reviewed script is read and compiled before the guards go in: the hook's copy lives in the checkout's git
 # directory, which is inside the tree when the lint runs in place. A refusal is an ImportError that fails the check
 # loudly; a check reads data files in the tree (not files with a code suffix) as it likes.
+# The programs a reviewed check run from the hook's copy may start (check-xcstrings-keys lists files with git).
+TRUSTED_PROGRAMS = ("git",)
 TRUSTED_RUNNER = (
     "import sys\n"
     "sys.path[:] = [p for p in sys.path if p not in ('', '.')]\n"
     "import os\n"
     "sys.path[:] = [p for p in sys.path if os.path.abspath(p) != os.getcwd()]\n"
-    "import importlib.machinery\n"
+    "import importlib.machinery, shutil\n"
     "root, script, path, *args = sys.argv[1:]\n"
     "with open(script, encoding='utf-8') as handle:\n"
     "    code = compile(handle.read(), path, 'exec')\n"
     "inside = os.path.realpath(root)\n"
+    f"ALLOWED = {TRUSTED_PROGRAMS!r}\n"
     "CODE = ('.py', '.pyc', '.pyo', '.pyw', '.so', '.pyd', '.dylib', '.zip', '.egg', '.whl', '.pth')\n"
     "def in_tree(entry):\n"
     "    real = os.path.realpath(os.fsdecode(entry) or '.')\n"
@@ -493,10 +498,28 @@ TRUSTED_RUNNER = (
     "            no(name)\n"
     "    elif event == 'ctypes.dlopen' and details[0] and in_tree(details[0]):\n"
     "        no(details[0])\n"
+    "    elif event == 'os.system':\n"
+    "        raise ImportError(f'web lint: refused to start a shell ({os.fsdecode(details[0])!r}): a check run from the '\n"
+    "                          'hook\\'s reviewed copy may start only ' + ', '.join(ALLOWED) + ', from outside the tree')\n"
     "    elif event in ('subprocess.Popen', 'os.exec', 'os.posix_spawn', 'os.spawn'):\n"
-    "        program = details[0] if event != 'os.spawn' else details[1]\n"
-    "        if isinstance(program, (str, bytes, os.PathLike)) and os.sep in os.fsdecode(program) and in_tree(program):\n"
-    "            no(os.fsdecode(program))\n"
+    "        if event == 'subprocess.Popen':\n"
+    "            program, args, cwd, env = details\n"
+    "            if program is None:\n"
+    "                program = args if isinstance(args, (str, bytes, os.PathLike)) else list(args)[0]\n"
+    "        elif event == 'os.spawn':\n"
+    "            program, cwd, env = details[1], None, details[3]\n"
+    "        else:\n"
+    "            program, cwd, env = details[0], None, details[2]\n"
+    "        name = os.fsdecode(program)\n"
+    "        if os.sep in name:\n"
+    "            found = os.path.join(os.fsdecode(cwd) if cwd else os.getcwd(), name)\n"
+    "        else:\n"
+    "            path = (env or {}).get('PATH', (env or {}).get(b'PATH')) if env else os.environ.get('PATH')\n"
+    "            found = shutil.which(name, path=os.fsdecode(path) if path is not None else os.defpath)\n"
+    "        real = os.path.realpath(found) if found else None\n"
+    "        if real is None or in_tree(real) or os.path.basename(found) not in ALLOWED:\n"
+    "            raise ImportError(f'web lint: refused to start {name!r} (found at {found}): a check run from the '\n"
+    "                              'hook\\'s reviewed copy may start only ' + ', '.join(ALLOWED) + ', from outside the tree')\n"
     "sys.meta_path.insert(0, TreeFinder)\n"
     "sys.addaudithook(refuse)\n"
     "sys.argv = [path, *args]\n"
