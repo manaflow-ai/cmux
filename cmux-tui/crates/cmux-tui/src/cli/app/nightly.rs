@@ -128,8 +128,8 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
                 );
             }
             let number = build.get("build").cloned().unwrap_or(Value::Null);
-            let params = json!({ "build": number.clone() });
-            let switching = || json!({ "switching_to": number.clone() });
+            let params = json!({ "build": number });
+            let switching = || json!({ "switching_to": number });
             match switch_build(&mut stream, params) {
                 Switched::Answer(Ok(value)) => match global.output {
                     OutputMode::Human => 0,
