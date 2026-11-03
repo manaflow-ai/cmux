@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { startScrollCoverage, type ScrollCoverage } from "./scrollCoverage";
+import { startScrollCoverage, type ScrollCoverage } from "../bench/scrollCoverage";
 
 type PaintedSample = {
   read: (time: number) => boolean | void;
