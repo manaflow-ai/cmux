@@ -825,8 +825,12 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(panel.hitTest(clear) != nil)
         let pieces = panel.uncoveredRects()
         #expect(!pieces.contains { $0.intersects(hole.rect.insetBy(dx: 1, dy: 1)) })
+        // The panel ends after its content (#32661), so it may be shorter than the card: what leaves it
+        // is the card's part inside it, 80 px wide.
+        let cut = hole.rect.intersection(panel.bounds)
+        #expect(abs(cut.width - 80) < 1 && cut.height > 0)
         #expect(abs(pieces.reduce(0) { $0 + $1.width * $1.height }
-            - (panel.bounds.width * panel.bounds.height - 80 * 100)) < 2)
+            - (panel.bounds.width * panel.bounds.height - cut.width * cut.height)) < 2)
 
         _ = await view.model.respond(to: .sessionInfoOverlays([]))
         #expect(panel.holes.isEmpty)
