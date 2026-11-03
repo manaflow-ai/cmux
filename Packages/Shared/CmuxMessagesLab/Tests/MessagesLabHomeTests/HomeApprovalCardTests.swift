@@ -232,9 +232,12 @@ import Testing
     }
 
     @Test func theAppMustClassifyTheNativeEventAsThePersonsInput() throws {
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: -10_000, y: -10_000, width: 100, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
+        window.orderFront(nil)
+        try #require(NSApp.window(withWindowNumber: window.windowNumber) === window)
         // AppKit may quantize the supplied timestamp; keep this event safely in the past.
         let stamp = ProcessInfo.processInfo.systemUptime - 0.05
         let event = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: .zero, modifierFlags: [],
