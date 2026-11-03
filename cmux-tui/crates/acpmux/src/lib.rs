@@ -164,7 +164,7 @@ pub mod watch_delta;
 pub mod web_modes;
 pub mod wire_size;
 pub mod wireguard;
-pub mod worktree_sessions;
 pub mod workflow_reply;
+pub mod worktree_sessions;
 
 pub mod model_catalog;
