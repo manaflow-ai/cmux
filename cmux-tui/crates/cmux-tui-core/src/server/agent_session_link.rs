@@ -104,7 +104,14 @@ impl AcpmuxLink {
         socket: &Path,
         on_inbound: impl FnMut(Inbound) + Send + 'static,
     ) -> std::io::Result<Arc<Self>> {
-        let stream = UnixStream::connect(socket)?;
+        // A live daemon can stop accepting while its backlog is full. Bound connection
+        // admission as well as writes/replies so callers cannot hold work indefinitely.
+        let address = socket2::SockAddr::unix(socket)?;
+        let stream = socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None)?;
+        stream.connect_timeout(&address, CONNECT_TIMEOUT)?;
+        // AF_UNIX backlog exhaustion can report writable without establishing a peer.
+        stream.peer_addr()?;
+        let stream: UnixStream = stream.into();
         stream.set_write_timeout(Some(CONNECT_TIMEOUT))?;
         let reader = stream.try_clone()?;
         let link = Arc::new(Self {
