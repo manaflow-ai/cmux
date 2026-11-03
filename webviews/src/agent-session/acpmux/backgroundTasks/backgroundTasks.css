@@ -293,6 +293,22 @@
   border-radius: 8px;
   color: var(--agent-muted);
 }
+/* The list's two headings, "Running N" and "Finished N" (BackgroundTasksPanel.tsx `panelSections`),
+   as Claude Desktop's panel splits it: muted, each folding its blocks; its hover covers the heading's
+   words alone, never the row. */
+.acpmux-bg__section + .acpmux-bg__section {
+  margin-top: 16px;
+}
+.acpmux-bg__fold.acpmux-bg__section-head {
+  width: fit-content;
+  max-width: 100%;
+}
+.acpmux-bg__section-head + .acpmux-bg__group {
+  margin-top: 4px;
+}
+.acpmux-bg__section-count {
+  font-variant-numeric: tabular-nums;
+}
 .acpmux-bg__list[hidden] {
   display: none;
 }

@@ -8,7 +8,7 @@ import type { Env } from "./env.ts"
  * service (launchd on macOS; systemd --user, else nohup, on Linux). No root, no inbound port.
  *
  *   curl -fsSL <api>/hand/install.sh | sh -s -- --pair <code> [--profile sandbox|mac] [--root DIR]...
- *   (a server-provisioned machine uses --configured after writing ~/.cmux-hand/hand.json itself)
+ *   (a server-provisioned machine uses --configured after writing $CMUX_HAND_HOME/hand.json)
  *        [--agent-policy P] [--name N] [--binary PATH (a local file, for development)] [--no-service]
  */
 
@@ -138,7 +138,7 @@ if [ "$(uname -s)" = Darwin ]; then
 PLIST
   launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
   launchctl bootstrap "gui/$(id -u)" "$PLIST"
-  echo "cmux-hand: running (launchd dev.cmux.hand); log $LOG"
+  echo "cmux-hand: running (launchd $LABEL); log $LOG"
 elif command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
   UNIT_DIR="$HOME/.config/systemd/user"
   mkdir -p "$UNIT_DIR"
@@ -163,7 +163,7 @@ else
   if [ "$CONFIGURED" = 1 ]; then
     # A retry after a lost exec response does not start a second persistent hand.
     command -v flock >/dev/null 2>&1 || { echo "cmux-hand: configured service needs flock" >&2; exit 1; }
-    env -u ACPMUX_HOME -u ACPMUX_SOCKET CMUX_HAND_HOME="$HOME_DIR" CMUX_CLAUDE_AUTH=own CMUX_CODEX_AUTH=own nohup flock -n "$HOME_DIR/run.lock" "$BIN" hand run >>"$LOG" 2>&1 &
+    env -u ACPMUX_HOME -u ACPMUX_SOCKET CMUX_HAND_HOME="$HOME_DIR" CMUX_CLAUDE_AUTH=own CMUX_CODEX_AUTH=own nohup flock --close -n "$HOME_DIR/run.lock" "$BIN" hand run >>"$LOG" 2>&1 &
   else
     env -u ACPMUX_HOME -u ACPMUX_SOCKET CMUX_HAND_HOME="$HOME_DIR" nohup "$BIN" hand run >>"$LOG" 2>&1 &
   fi

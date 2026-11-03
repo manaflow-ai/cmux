@@ -74,6 +74,7 @@ extension SidebarListViewComponents {
         o.pullRequests = SidebarSessionTree.shared.pullRequests
         if let tree = SidebarSessionTree.shared.drawn {
             (o.sessionTree, o.keycaps) = (tree, model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation))
+            o.parentTitles = SidebarLayout.parentTitles(tree.parents, workspaces: model.allWorkspaces)
             o.chatHistory = SidebarChatHistory.shared.state
         }
         o.excludedWorkspaces.formUnion(leaving)
