@@ -11,7 +11,7 @@ import Testing
 private typealias SidebarStrings = CmuxNextSidebar.Strings
 
 /// A Cloud machine's cost line (pilot blocker 1b): the rate of its size,
-/// how long it has run and the estimate so far, from server facts only, and
+/// how long its current run has lasted and that interval's compute estimate, from server facts only, and
 /// the account's cap from `limits` (null is no cap, zero is closed; never
 /// inferred from the machine list, #16012).
 @MainActor @Suite(.serialized) struct CloudMachineCostTests {
@@ -49,6 +49,21 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
         let cost = try #require(CloudCreationRows.cost(Self.machine(.running, runningFor: 60), limits: nil))
         #expect(cost.usage(now: Self.now, locale: Self.enUS)
             == [SidebarStrings.costRate("$0.26"), SidebarStrings.costRunning("1m"), SidebarStrings.costUnderSoFar("$0.01")].joined(separator: " · "))
+    }
+
+    @Test func pauseThenResumeLabelsOnlyTheCurrentRun() throws {
+        let first = try #require(CloudCreationRows.cost(Self.machine(.running, runningFor: 7_200), limits: nil))
+        #expect(first.usage(now: Self.now, locale: Self.enUS)
+            == "$0.26/h · Running 2h · Est. $0.53 this run")
+
+        let paused = try #require(CloudCreationRows.cost(Self.machine(.paused), limits: nil))
+        #expect(paused.estimatedCostUsd(now: Self.now) == nil)
+
+        let resumed = try #require(CloudCreationRows.cost(Self.machine(.running, runningFor: 300), limits: nil))
+        #expect(abs((resumed.estimatedCostUsd(now: Self.now) ?? 0) - 0.022_041_67) < 0.000_01)
+        // A previous two-hour run is intentionally absent; the copy names that limitation.
+        #expect(resumed.usage(now: Self.now, locale: Self.enUS)
+            == "$0.26/h · Running 5m · Est. $0.02 this run")
     }
 
     @Test func aMachineWithoutARateShowsOnlyItsTime() throws {

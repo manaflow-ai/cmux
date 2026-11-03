@@ -1,7 +1,7 @@
 public import Foundation
 
 /// A Cloud machine's cost in words, for its sidebar header's tooltip and
-/// Cloud Machine Status: "$0.26/h · Running 2h 14m · About $0.58 so far",
+/// Cloud Machine Status: "$0.26/h · Running 2h 14m · Est. $0.58 this run",
 /// then the account's cap ("2 of 3 machines running"). Every number comes
 /// from the server; this only formats it.
 nonisolated extension SidebarMachine.Cost {
@@ -10,7 +10,7 @@ nonisolated extension SidebarMachine.Cost {
         [usage(now: now, locale: locale), cap?.text].compactMap { $0 }
     }
 
-    /// Rate, time running and the estimate so far; while paused only the
+    /// Rate, time running and this running interval's estimated compute; while paused only the
     /// rate, as "when running", so a paused machine shows no running cost.
     /// Nil without a rate or a running time.
     public func usage(now: Date, locale: Locale = .current) -> String? {

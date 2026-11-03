@@ -39,9 +39,9 @@ enum Strings {
         String(localized: "sidebar.machine.cost.rateWhenRunning", defaultValue: "\(price)/h when running", bundle: .module)
     }
     nonisolated static func costRunning(_ duration: String) -> String { String(localized: "sidebar.machine.cost.running", defaultValue: "Running \(duration)", bundle: .module) }
-    nonisolated static func costSoFar(_ price: String) -> String { String(localized: "sidebar.machine.cost.soFar", defaultValue: "About \(price) so far", bundle: .module) }
+    nonisolated static func costSoFar(_ price: String) -> String { String(localized: "sidebar.machine.cost.soFar", defaultValue: "Est. \(price) this run", bundle: .module) }
     nonisolated static func costUnderSoFar(_ price: String) -> String {
-        String(localized: "sidebar.machine.cost.underSoFar", defaultValue: "Under \(price) so far", bundle: .module)
+        String(localized: "sidebar.machine.cost.underSoFar", defaultValue: "Under \(price) this run", bundle: .module)
     }
     nonisolated static func capOf(_ running: Int, _ max: Int) -> String {
         String(localized: "sidebar.machine.cap.of", defaultValue: "\(running) of \(max) machines running", bundle: .module)
