@@ -41,14 +41,13 @@ enum TabCloseGuard {
         // Keys typed during the read are the close's, never the closing terminal's; a question parks them for its answer.
         // Opened while the closing tab still has the focus; with the hide, every key of the window is the close's.
         let coordinator = services.keyRouter.creationInputCoordinator, keys = coordinator.beginClose(of: tabs, in: window, hides: hides)
-        // Rolled back, an emptied pane comes back with its focus; lifted, its hold goes unshown and the close shows its own (same turn).
+        // Rolled back, an emptied pane comes back with its focus (any tab back shows a pane a later close hid: #32898); lifted, its hold goes unshown and the close shows its own (same turn).
         let hidden = !hides ? nil : HiddenTabClose.hide(parts.flatMap { part in part.ids.compactMap { part.pane.tab($0)?.surface } }, in: daemon.store,
                                                         panes: zip(parts, emptied).map { part, emptied in
             let pane = part.pane, selected = pane.stripModel.selectedID, focused = pane.isFocusedInWorkspace
             return { @MainActor restored in
                 pane.apply(pane.snapshot())
                 if emptied, !restored { _ = pane.showPaneClose() }
-                // Any tab back shows its pane again, whichever close hid it (a later close of its last other tab: review of #32898).
                 if restored, !pane.stripModel.tabs.isEmpty, let workspace = pane.workspace, workspace.layoutModel.withdrawPaneClose(pane.layoutPaneID) {
                     workspace.applyCurrent()
                     if focused { workspace.layoutModel.focus(pane.layoutPaneID, notify: false); PaneHandlers.focus(pane.layoutPaneID, in: workspace) }

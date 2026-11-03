@@ -33,9 +33,11 @@ final class AgentPaneSessionInfoPanel: NSView {
         store.redraw = { [weak self] in
             draw()
             self?.updateBacking()
+            self?.applyEdge()
         }
         content.onHeightChange = { [weak store] in store?.relayout() }
         updateBacking()
+        applyEdge()
         edge.onDrag = { [weak self] delta, ended in self?.store.drag(by: delta, ended: ended) }
         edge.onDoubleClick = { [weak self] in self?.store.act("width:reset") }
         store.rectForView = { [weak self] view in
@@ -66,6 +68,24 @@ final class AgentPaneSessionInfoPanel: NSView {
             glass.removeFromSuperview()
             backing = nil
         }
+    }
+
+    /// The panel's edge: a hairline in the theme's separator color on the panel's rounded corners, over
+    /// the gutter and over the chat alike, with no fill of its own (Leo, 2026-11-03: "maybe it's ok...?
+    /// to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better").
+    /// A layer's border draws over its sublayers, so it shows over the glass under the content too.
+    private func applyEdge() {
+        wantsLayer = true
+        guard let layer else { return }
+        layer.backgroundColor = nil
+        layer.cornerRadius = Metrics.panelCornerRadius
+        layer.borderWidth = 1 / max(window?.backingScaleFactor ?? 2, 1)
+        layer.borderColor = store.colors.separator.cgColor
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        applyEdge()
     }
 
     override func layout() {

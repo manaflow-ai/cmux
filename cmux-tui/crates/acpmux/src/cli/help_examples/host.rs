@@ -150,6 +150,34 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         )],
     ),
     (
+        "machine vault",
+        &[
+            ("Pull this machine's vault now", "acpmux machine vault pull"),
+            ("See which vault env vars this machine holds", "acpmux machine vault status"),
+        ],
+    ),
+    (
+        "machine vault pull",
+        &[
+            ("Pull the vault with this machine's join credential", "acpmux machine vault pull"),
+            (
+                "Pull for a script: state and env names, never values",
+                "acpmux machine vault pull --json",
+            ),
+        ],
+    ),
+    (
+        "machine vault status",
+        &[(
+            "Show vault env names, the last pull and whether Claude and Codex are signed in",
+            "acpmux machine vault status --json",
+        )],
+    ),
+    (
+        "machine vault forget",
+        &[("Remove this machine's vault env values and state", "acpmux machine vault forget")],
+    ),
+    (
         "machine setup",
         &[
             (
