@@ -343,6 +343,8 @@ const stripMachines = {
   peers: ["studio-mini", "gpu-box", "Cloud machine"],
   peerKinds: { "studio-mini": "ssh", "gpu-box": "ssh", "Cloud machine": "cloud" } as Record<string, "ssh" | "cloud">,
   peerConnected: { "studio-mini": true, "gpu-box": true, "Cloud machine": false },
+  // Signed in, so Where shows its three rows (signed out adds Sign in for Cloud under Cloud).
+  cloudSignedIn: true,
   runMode: { mode: "persistent" as const, onMode: () => undefined },
 };
 const onMachine = (peer: string) => ({
