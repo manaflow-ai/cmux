@@ -13,7 +13,8 @@ type Json = Record<string, unknown>;
 function owner(cloud = false) {
   const messages = new Map<string, Json>();
   const blobs = new Map<string, Buffer>();
-  const uploads = new Map<string, { hash: string; size: number; chunks: Buffer[] }>();
+  const records = new Map<string, { mime_type: string; byte_count: number }>();
+  const uploads = new Map<string, { hash: string; size: number; mimeType: string; chunks: Buffer[] }>();
   const chunks: number[] = [];
   const commands: string[] = [];
   let interrupt = false;
@@ -30,9 +31,14 @@ function owner(cloud = false) {
         if (params.op === "begin") {
           begins += 1;
           const hash = String(params.sha256);
-          if (blobs.has(hash)) return {};
+          if (blobs.has(hash)) return { stored: records.get(hash) };
           const upload = `upload-${begins}`;
-          uploads.set(upload, { hash, size: Number(params.byte_count), chunks: [] });
+          uploads.set(upload, {
+            hash,
+            size: Number(params.byte_count),
+            mimeType: String(params.mime_type),
+            chunks: [],
+          });
           return { upload, needs: ["original"] };
         }
         const pending = uploads.get(String(params.upload))!;
@@ -47,6 +53,7 @@ function owner(cloud = false) {
           expect(bytes.length).toBe(pending.size);
           expect(createHash("sha256").update(bytes).digest("hex")).toBe(pending.hash);
           blobs.set(pending.hash, bytes);
+          records.set(pending.hash, { mime_type: pending.mimeType, byte_count: pending.size });
           uploads.delete(String(params.upload));
         } else if (params.op === "cancel") uploads.delete(String(params.upload));
         return {};
@@ -61,6 +68,13 @@ function owner(cloud = false) {
         64 * 1024,
       );
       if (op.kind === "message.send") expect(op.client_msg_id).toBe(key);
+      for (const part of parts) {
+        const record = records.get(String(part.hash));
+        if (record) {
+          expect(part.mime_type).toBe(record.mime_type);
+          expect(part.byte_count).toBe(record.byte_count);
+        }
+      }
       if (messages.has(key)) {
         expect(op).toEqual(messages.get(key)!);
         return { rev: messages.size, replayed: true };
@@ -82,6 +96,12 @@ function owner(cloud = false) {
     blobs,
     chunks,
     commands,
+    seed(text: string, mimeType: string) {
+      const bytes = Buffer.from(text);
+      const hash = createHash("sha256").update(bytes).digest("hex");
+      blobs.set(hash, bytes);
+      records.set(hash, { mime_type: mimeType, byte_count: bytes.length });
+    },
     interrupt: () => (interrupt = true),
   };
 }
@@ -200,4 +220,12 @@ test("an aborted long send commits no message", async () => {
   ).rejects.toThrow();
   expect(state.messages.size).toBe(0);
   expect(state.chunks.length).toBe(0);
+});
+
+test("long text reuses an identical uploaded file's kept type without resending bytes", async () => {
+  const state = owner();
+  state.seed(largeText, "text/markdown");
+  await state.client.call(HomeOps.send, { conversation: "conv_test", text: largeText, idempotencyKey: "existing" });
+  expect((state.messages.get("existing")!.parts as Json[])[0]!.mime_type).toBe("text/markdown");
+  expect(state.chunks).toEqual([]);
 });

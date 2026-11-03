@@ -578,11 +578,20 @@ export class AttachmentService {
 /** The part as the owner keeps it: a hash it already held keeps its first record's derived image. */
 function kept(part: HomeAttachment, stored: unknown): HomeAttachment {
   if (!stored || typeof stored !== "object") return part;
-  const record = stored as { poster?: Record<string, unknown>; preview?: Record<string, unknown> };
+  const record = stored as {
+    mime_type?: string;
+    byte_count?: number;
+    poster?: Record<string, unknown>;
+    preview?: Record<string, unknown>;
+  };
   const image = (raw?: Record<string, unknown>): HomeDerivedImage | undefined =>
     raw ? { hash: String(raw.hash), mimeType: String(raw.mime_type), byteCount: Number(raw.byte_count) } : undefined;
   const { poster: _poster, preview: _preview, ...rest } = part;
   const result: HomeAttachment = { ...rest };
+  // The first record of identical bytes may have another declared type (for example a Markdown
+  // file later sent as long text). References must use the owner's kept metadata too.
+  if (typeof record.mime_type === "string") result.mimeType = record.mime_type;
+  if (typeof record.byte_count === "number") result.byteCount = record.byte_count;
   const poster = image(record.poster);
   const preview = image(record.preview);
   if (poster) result.poster = poster;
