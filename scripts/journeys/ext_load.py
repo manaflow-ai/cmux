@@ -168,6 +168,13 @@ def step_load_stop(j, step):
         except (OSError, ValueError) as error:
             m = {"missing": str(error)[:120]}
         parts[name] = {k: m.get(k) for k in ("focus_changed", "stopped_by", "missing")}
+        if name == "L1":  # the storm's tab cap and the most tabs it held at once go into each row (lead 00:4xZ)
+            try:
+                summary = json.loads((path.parent / "storm-summary.json").read_text())
+            except (OSError, ValueError):
+                summary = {}
+            parts[name]["storm_max_tabs"] = m.get("storm_max_tabs")
+            parts[name]["max_live_tabs"] = summary.get("max_live_tabs", m.get("max_live_tabs"))
         if m.get("stopped_by") in (None, "duration"):
             stopped_ok = False
     values = [p.get("focus_changed") for p in parts.values()]
@@ -181,6 +188,34 @@ def step_load_stop(j, step):
             all_ready = False
     return {"profile": load["profile"], "exit": proc.returncode, "alive_at_stop": alive and stopped_ok and all_ready,
             "focus_changed": focus_changed, "stopped_by_step": stopped_ok, "all_ready": all_ready, "parts": parts}
+
+
+def step_pty_release(j, step):
+    """{tabs?: 50, threads?: 16}: tui-kit/pty_release.py on the lease's app (one workspace of TABS terminal tabs, all
+    closed at once; the host's open PTY masters counted before, at once, and up to 10 s after). Writes
+    OUT/pty/pty-release.json. A tool that is missing or cannot reach the app: not run."""
+    tool = os.path.join(_kit(), "tui-kit", "pty_release.py")
+    if not os.path.isfile(tool):
+        raise D.NotRun(f"pty_release: the kit has no {tool}")
+    out = j.out / "pty"
+    out.mkdir(parents=True, exist_ok=True)
+    home = j.app.launch_env().get("HOME") or j.app.home
+    argv = ["/usr/bin/python3", "-I", tool, "--app-socket", str(j.app.sock), "--home", str(home), "--out", str(out),
+            "--tabs", str(step.get("tabs", 50)), "--threads", str(step.get("threads", 16))]
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=float(step.get("timeout", 300)),
+                              env=dict(os.environ, HOME=str(home)))
+    except subprocess.TimeoutExpired:
+        raise D.NotRun("pty_release: no answer within its timeout")
+    (out / "pty_release.log").write_text(done.stdout + done.stderr)
+    try:
+        result = json.loads((out / "pty-release.json").read_text())
+    except (OSError, ValueError):
+        result = {}
+    if done.returncode != 0 or not result.get("verdict"):
+        raise D.NotRun(f"pty_release: exit {done.returncode}: {(done.stderr or done.stdout)[-300:]}")
+    return {"verdict": result["verdict"], "made": result.get("made"), "burst_s": result.get("burst_s"),
+            "samples": [{k: s.get(k) for k in ("at", "t_s", "total", "daemon_tree")} for s in result["samples"]]}
 
 
 def step_typist_play(j, step):
@@ -265,6 +300,6 @@ def step_probe_mark(j, step):
     return {"as": step["as"], "hangs": len(hangs) if isinstance(hangs, list) else None, "file": f"probe-{step['as']}.json"}
 
 
-STEPS = {"probe_relaunch": step_probe_relaunch, "probe_mark": step_probe_mark, "echo_start": step_echo_start, "load_start": step_load_start, "load_stop": step_load_stop,
+STEPS = {"pty_release": step_pty_release, "probe_relaunch": step_probe_relaunch, "probe_mark": step_probe_mark, "echo_start": step_echo_start, "load_start": step_load_start, "load_stop": step_load_stop,
          "typist_play": step_typist_play}
 CONDITIONS = {}

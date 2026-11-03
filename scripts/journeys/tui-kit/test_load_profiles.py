@@ -676,6 +676,55 @@ class L6StormStart(unittest.TestCase):
         self.assertEqual(code, 1)
 
 
+class StormTabCap(unittest.TestCase):
+    """--storm-max-tabs: the Python storm never holds more tabs than the cap, all workers together, and passes the cap
+    to tk-storm and through L6 (lead 00:4xZ: the L6 load stays under 400 PTYs)."""
+
+    def test_the_cap_is_shared_and_a_full_storm_closes_or_lists(self):
+        import argparse
+        import load_profiles as lp
+        p = lp.L1.__new__(lp.L1)
+        p.a = argparse.Namespace(storm_max_tabs=2)
+        p.ws = {"workspace_id": "ws", "pane_id": "pane", "terminal_id": "term"}
+        p.mine = [[] for _ in range(4)]
+        p.lock = threading.Lock()
+        p.max_tabs, p.live_tabs = 2, 0
+        p.manifest = {"made": {"tabs": []}}
+        made = []
+
+        def cli(kind, *args, worker=0, timeout=30):
+            made.append(kind)
+            if kind == "tab.create":
+                return {"tab_id": "tab_%d" % len(made)}
+            return {}
+        p.cli = cli
+        import random
+        rng = random.Random(1)
+        for w in range(4):
+            p.call("tab.create", rng, w)
+        self.assertEqual(made.count("tab.create"), 2)
+        self.assertEqual(made.count("tab.list"), 2)  # workers 2 and 3 had no tab of their own to close
+        self.assertEqual(p.live_tabs, 2)
+        p.call("tab.close", rng, 0)
+        self.assertEqual(p.live_tabs, 1)
+        p.call("tab.create", rng, 3)
+        self.assertEqual(p.live_tabs, 2)
+        self.assertEqual(p.manifest["max_live_tabs"], 2)
+
+    def test_l6_and_tk_storm_get_the_cap(self):
+        import argparse
+        import load_profiles as lp
+        a = argparse.Namespace(app_socket="/s", seed=7, duration=1, rate=120, agent_cps=1, agents_where="hidden",
+                               heavy_shape="1,1,1", engine="auto", workers=48, storm_max_tabs=64, daemon_stats=False,
+                               home=None, keep=None, socket=None, cli=None, app=None, devtools=False, acp=False)
+        argv = lp.passthrough(a)
+        self.assertEqual(argv[argv.index("--storm-max-tabs") + 1], "64")
+        src = open(os.path.join(HERE, "load_profiles.py")).read()
+        self.assertIn('["--max-tabs", str(self.max_tabs)]', src)
+        rust = open(os.path.join(HERE, "rust", "src", "bin", "tk-storm.rs")).read()
+        self.assertIn('"max-tabs"', rust)
+
+
 class WorkersOption(unittest.TestCase):
     """--workers reaches L1 (default 8) and the L6 children get it through passthrough."""
 

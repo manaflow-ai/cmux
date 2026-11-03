@@ -38,6 +38,7 @@ const KNOWN: &[&str] = &[
     "seed",
     "calls",
     "summary",
+    "max-tabs",
 ];
 
 struct Shared {
@@ -48,6 +49,12 @@ struct Shared {
     starts: Mutex<Vec<(f64, bool)>>,
     /// f64 bits of the moment a worker first saw the quit flag (0: not yet).
     quit_at: AtomicU64,
+    /// Storm tabs alive now (made and not closed, a create in flight counts): at most `max_tabs`, so the load
+    /// never runs the host out of PTYs (macOS kern.tty.ptmx_max 511: STATUS 7860).
+    live_tabs: AtomicU64,
+    max_tabs: u64,
+    /// Highest live_tabs seen (the summary's max_live_tabs).
+    peak_tabs: AtomicU64,
 }
 
 impl Shared {
@@ -84,6 +91,8 @@ fn main() -> ExitCode {
         let rate: f64 = a.num("rate", 100.0)?;
         let duration: f64 = a.num("duration", 120.0)?;
         let seed: u64 = a.num("seed", 7)?;
+        // 0: the old rule only (at most 3 tabs a worker).
+        let max_tabs: u64 = a.num("max-tabs", 0)?;
         if workers == 0 || workers > 64 || rate.is_nan() || rate <= 0.0 {
             return Err("--workers is 1..64 and --rate above 0".into());
         }
@@ -95,9 +104,10 @@ fn main() -> ExitCode {
             seed,
             need(&a, "calls")?,
             need(&a, "summary")?,
+            max_tabs,
         ))
     });
-    let (target, workers, rate, duration, seed, calls_path, summary_path) = match parsed {
+    let (target, workers, rate, duration, seed, calls_path, summary_path, max_tabs) = match parsed {
         Ok(p) => p,
         Err(e) => {
             eprintln!("tk-storm: {e}");
@@ -118,6 +128,9 @@ fn main() -> ExitCode {
         leftover: Mutex::new(Vec::new()),
         starts: Mutex::new(Vec::new()),
         quit_at: AtomicU64::new(0),
+        live_tabs: AtomicU64::new(0),
+        max_tabs: if max_tabs == 0 { u64::MAX } else { max_tabs },
+        peak_tabs: AtomicU64::new(0),
     });
     let next = Arc::new(AtomicU64::new(0));
     let start = sys::monotonic();
@@ -173,7 +186,9 @@ fn main() -> ExitCode {
     summary.push_str(&format!(
         "\"calls\": {calls}, \"failed\": {failed}, \"drained_after_stop\": {drained}, \"load_seconds\": {span:.3}, \
          \"achieved_per_s\": {achieved:.2}, \"ok_per_s\": {ok_rate:.2}, \"asked_per_s\": {rate:.2}, \
-         \"workers\": {workers}, \"verdict\": \"{verdict}\", \"engine\": \"rust\", \"by_kind\": {{"
+         \"workers\": {workers}, \"verdict\": \"{verdict}\", \"engine\": \"rust\", \"max_tabs\": {max_tabs}, \
+         \"max_live_tabs\": {peak}, \"by_kind\": {{",
+        peak = shared.peak_tabs.load(Ordering::SeqCst)
     ));
     if let Ok(kinds) = shared.by_kind.lock() {
         let parts: Vec<String> = kinds.iter().map(|(k, v)| format!("\"{k}\": {v}")).collect();
@@ -244,6 +259,23 @@ fn run_worker(
         if kind == "tab.create" && mine.len() >= 3 {
             kind = "tab.close";
         }
+        // The shared cap: a create first reserves its place; at the cap it closes one of its own tabs instead, or
+        // (none of its own) lists the tabs.
+        let mut reserved = false;
+        if kind == "tab.create" {
+            let before = shared.live_tabs.fetch_add(1, Ordering::SeqCst);
+            if before >= shared.max_tabs {
+                shared.live_tabs.fetch_sub(1, Ordering::SeqCst);
+                kind = if mine.is_empty() {
+                    "tab.list"
+                } else {
+                    "tab.close"
+                };
+            } else {
+                reserved = true;
+                shared.peak_tabs.fetch_max(before + 1, Ordering::SeqCst);
+            }
+        }
         let close = if kind == "tab.close" && !mine.is_empty() {
             Some(mine.remove(0))
         } else {
@@ -262,6 +294,15 @@ fn run_worker(
             if kind == "tab.create" {
                 mine.push(tab);
             }
+        } else if reserved {
+            // the create made no tab: its place is free again
+            shared.live_tabs.fetch_sub(1, Ordering::SeqCst);
+        }
+        if close.is_some() && outcome.ok {
+            // only a close that worked frees a PTY; a failed one stays live (the caller's teardown retries it)
+            let _ = shared
+                .live_tabs
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
         }
         if let (Some(tab), false) = (close.as_ref(), outcome.ok) {
             // not closed: the caller's teardown tries it again; this worker makes new tabs instead of

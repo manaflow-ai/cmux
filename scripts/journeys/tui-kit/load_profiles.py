@@ -343,6 +343,12 @@ class L1(Profile):
         self.manifest["rate"] = self.a.rate
         self.calls.asked = self.a.rate
         self.manifest["workers"] = self.WORKERS
+        # --storm-max-tabs: storm tabs alive at once, all workers together (0: only 3 a worker). L6 at 120/s with
+        # 48 workers held up to 144 storm tabs on top of L5's 200 and ran the host out of PTYs (kern.tty.ptmx_max
+        # 511: 'PTY capacity exhausted', STATUS 7860); the lead's rule is 400 PTYs for the whole load.
+        self.max_tabs = int(getattr(self.a, "storm_max_tabs", 0) or 0)
+        self.live_tabs = 0
+        self.manifest["storm_max_tabs"] = self.max_tabs
         self.manifest["mix"] = dict(L1_KINDS)
         if self.a.engine != "python" and not tuikit.rust_bin("tk-storm"):
             # One command (lead 07:4xZ, the first real-app run): build the compiled storm when it is missing, with
@@ -376,7 +382,13 @@ class L1(Profile):
         if kind == "snapshot.get":
             return self.rpc(kind, "snapshot.get", worker=worker)
         if kind == "tab.create" or (kind == "tab.close" and not self.mine[worker]):
-            if len(self.mine[worker]) >= 3:
+            with self.lock:  # the shared cap reserves its place first (tk-storm --max-tabs does the same)
+                full = bool(self.max_tabs) and self.live_tabs >= self.max_tabs
+                if not full and len(self.mine[worker]) < 3:
+                    self.live_tabs += 1
+            if len(self.mine[worker]) >= 3 or full:
+                if not self.mine[worker]:
+                    return self.cli("tab.list", "tab", "list", "--pane", pane, worker=worker)
                 kind = "tab.close"
             else:
                 v = self.cli("tab.create", "tab", "create", "terminal", "--workspace", ws, "--pane", pane,
@@ -385,6 +397,10 @@ class L1(Profile):
                     self.mine[worker].append(v["tab_id"])
                     with self.lock:
                         self.manifest["made"]["tabs"].append(v["tab_id"])
+                        self.manifest["max_live_tabs"] = max(self.manifest.get("max_live_tabs", 0), self.live_tabs)
+                else:
+                    with self.lock:
+                        self.live_tabs -= 1
                 return v
         if kind == "tab.close":
             tab = self.mine[worker].pop(0)
@@ -392,6 +408,8 @@ class L1(Profile):
             with self.lock:
                 if tab in self.manifest["made"]["tabs"]:
                     self.manifest["made"]["tabs"].remove(tab)
+                if v is not None:  # only a close that worked frees its PTY
+                    self.live_tabs = max(0, self.live_tabs - 1)
             return v
         if kind == "terminal.write":
             return self.cli(kind, "terminal", term, "write", "--text", "echo storm %d %d\n" % (worker, n), worker=worker)
@@ -442,6 +460,7 @@ class L1(Profile):
         argv = [path, "--cli", self.app.cli, "--socket", self.app.daemon_sock, "--app-socket", self.app.app_sock,
                 "--home", self.app.home, "--workspace", self.ws["workspace_id"], "--pane", self.ws["pane_id"],
                 "--terminal", self.ws["terminal_id"], "--workers", str(self.WORKERS), "--rate", str(self.a.rate),
+                *(["--max-tabs", str(self.max_tabs)] if self.max_tabs else []),
                 "--duration", "0", "--seed", str(self.a.seed), "--calls", os.path.join(self.dir, "storm-calls.jsonl"),
                 "--summary", summary_path]
         proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=open(os.path.join(self.dir, "tk-storm.err"), "w"))
@@ -1018,7 +1037,8 @@ def daemon_stats(app, path):
 def passthrough(a):
     out = ["--app-socket", a.app_socket, "--seed", str(a.seed), "--duration", str(a.duration), "--rate", str(a.rate),
            "--agent-cps", str(a.agent_cps), "--agents-where", a.agents_where, "--heavy-shape", a.heavy_shape,
-           "--engine", a.engine, "--workers", str(a.workers)] + (["--daemon-stats"] if a.daemon_stats else [])
+           "--engine", a.engine, "--workers", str(a.workers),
+           "--storm-max-tabs", str(getattr(a, "storm_max_tabs", 0) or 0)] + (["--daemon-stats"] if a.daemon_stats else [])
     for flag, value in (("--home", a.home), ("--keep", a.keep), ("--socket", a.socket), ("--cli", a.cli),
                         ("--app", a.app)):
         if value:
@@ -1159,6 +1179,8 @@ def main(argv=None):
     p.add_argument("--out", help="folder (default $TMPDIR/tk-load-SEED)")
     p.add_argument("--rate", type=int, default=100, help="L1: CLI and socket calls a second in total")
     p.add_argument("--workers", type=int, default=L1.WORKERS, help="L1: storm workers (each waits for its call)")
+    p.add_argument("--storm-max-tabs", type=int, default=0,
+                   help="L1: storm tabs alive at once, all workers together (0: 3 a worker); keeps L6 under the PTY limit")
     p.add_argument("--storm-after-ready", action="store_true",
                    help="L6: start the L1 storm only once L2..L5 are ready (their set-up is not starved by the storm)")
     p.add_argument("--daemon-stats", action="store_true",

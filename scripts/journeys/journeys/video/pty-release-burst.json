@@ -1,0 +1,40 @@
+{
+  "id": "pty-release-burst",
+  "priority": "P1",
+  "title": "PTY release: 50 terminal tabs closed at once give their PTYs back within 1 s (count of /dev/ptmx before, at once, 0.25-10 s after)",
+  "why": "Lead 2026-11-03 00:4xZ: L6 at 120/s ran the host out of PTYs ('PTY capacity exhausted', STATUS 7860); a closed tab that keeps its PTY would be a daemon leak.",
+  "source": "TYPING UNDER LOAD (lead 00:4xZ)",
+  "budget_seconds": 260,
+  "continue_not_judged": true,
+  "steps": [
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "env_windows",
+      "at": "start"
+    },
+    {
+      "do": "smoke_remember_workspaces"
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "pty_release",
+      "tabs": 50,
+      "threads": 16,
+      "timeout": 240
+    }
+  ],
+  "finally": [
+    {
+      "do": "env_windows",
+      "at": "end"
+    },
+    {
+      "do": "smoke_close_all"
+    }
+  ]
+}
