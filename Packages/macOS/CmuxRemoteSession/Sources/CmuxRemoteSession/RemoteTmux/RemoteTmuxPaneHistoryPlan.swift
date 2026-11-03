@@ -10,8 +10,9 @@ import Foundation
 ///
 /// The oldest chunk starts at `-` (the start of history) rather than at a number, so
 /// rows that scrolled into history after the plan was made are still read. When the
-/// history is longer than ``maximumRows`` the oldest chunk starts at the cap instead
-/// and ``isTruncated`` says so.
+/// history is longer than the plan reads (``maximumRows``, or fewer on a pane wide enough
+/// for ``maximumChunks`` to bind) the oldest chunk starts at the cap instead and
+/// ``isTruncated`` says so.
 ///
 /// ```swift
 /// let plan = RemoteTmuxPaneHistoryPlan(
@@ -49,6 +50,12 @@ public struct RemoteTmuxPaneHistoryPlan: Equatable, Sendable {
     public static let maximumEncodedBytesPerCell = 64
     /// The most rows in one chunk, however narrow the pane.
     public static let maximumChunkRows = 2_000
+    /// The most chunks one load reads. All of them go to tmux in one command queue, and the
+    /// control client refuses a write that would leave more than 256 KiB pending on tmux's
+    /// stdin. A chunk's command is under 64 bytes, so this keeps the queue to half of that.
+    /// On a pane so wide that this binds before ``maximumRows``, the load reads the newest
+    /// rows that fit and ``isTruncated`` says so.
+    public static let maximumChunks = 2_048
 
     /// Ranges oldest first, ending at row `-1`.
     public let chunks: [Chunk]
@@ -78,12 +85,12 @@ public struct RemoteTmuxPaneHistoryPlan: Equatable, Sendable {
         maximumCommandBlockBytes: Int,
         maximumRows: Int = Self.maximumRows
     ) {
-        let available = max(0, historySize)
-        let rows = min(available, max(0, maximumRows))
-        let truncated = available > rows
         let chunkCells = Self.maximumChunkCells(forCommandBlockBytes: maximumCommandBlockBytes)
         // No row floor: on a very wide pane even a few rows can pass the cell bound.
         let rowsPerChunk = max(1, min(Self.maximumChunkRows, chunkCells / max(1, paneWidth)))
+        let available = max(0, historySize)
+        let rows = min(available, max(0, maximumRows), Self.maximumChunks * rowsPerChunk)
+        let truncated = available > rows
         var chunks: [Chunk] = []
         var top = rows
         while top > 0 {
