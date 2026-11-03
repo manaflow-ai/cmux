@@ -585,9 +585,10 @@ body,
 /* One size whatever the search leaves: the popover opens above the composer, so a list that
    shrank as each letter filtered it pulled the search field and grid down under the caret. */
 .hc-emoji.ui-popover {
+  --hc-emoji-popover-height: 340px;
   width: 324px;
-  height: 340px;
-  max-height: 340px;
+  height: var(--hc-emoji-popover-height);
+  max-height: var(--hc-emoji-popover-height);
   display: flex;
   flex-direction: column;
   padding: 8px;
