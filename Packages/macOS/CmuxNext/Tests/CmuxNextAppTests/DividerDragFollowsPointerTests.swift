@@ -89,8 +89,13 @@ struct DividerDragFollowsPointerTests {
             var shown: [CGFloat] = []
             for dx in offsets {
                 view.mouseDragged(with: event(.leftMouseDragged, CGPoint(x: from.x + dx, y: from.y), flags))
-                // The move shows in its own turn, or (frame tick) in the next display frame.
-                if frameTick { _ = root.advanceFrame(1.0 / 120) } else { root.syncWithModel() }
+                // The move shows in its own turn, or (frame tick) in the next display frame: until then it only waits.
+                if frameTick {
+                    #expect(try screen.activeDrag?.waiting == true, "the move did not wait for the frame tick")
+                    _ = root.advanceFrame(1.0 / 120)
+                } else {
+                    root.syncWithModel()
+                }
                 shown.append(try edge())
             }
             view.mouseUp(with: event(.leftMouseUp, CGPoint(x: from.x + (offsets.last ?? 0), y: from.y), releaseFlags ?? flags))
@@ -106,6 +111,10 @@ struct DividerDragFollowsPointerTests {
         }
 
         func ratio(_ split: SplitID) -> Double? { layout.ratio(of: split) }
+
+        /// Half a device pixel at the screen's backing scale (and float slack): the farthest a divider that follows the
+        /// pointer can show from it once its edge is rounded to the pixel grid.
+        var halfPixel: CGFloat { get throws { 0.5 / max(try screen.scale, 1) + 0.01 } }
         func width(_ column: ColumnID) -> Double? { layout.columns.first { $0.id == column }?.width }
 
         /// A split's room for its two sides, in points.
@@ -128,11 +137,12 @@ struct DividerDragFollowsPointerTests {
 
     static var even: ScreenLayout { .splits(.split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))) }
 
-    /// Each shown divider position is the press position plus the pointer's move, within a pixel.
-    static func expectFollows(_ shown: [CGFloat], from start: CGFloat, offsets: [CGFloat], _ what: String,
+    /// Each shown divider position is the press position plus the pointer's move, within half a device pixel (`tolerance`):
+    /// a divider held still even for one pixel of pointer travel fails.
+    static func expectFollows(_ shown: [CGFloat], from start: CGFloat, offsets: [CGFloat], tolerance: CGFloat, _ what: String,
                               sourceLocation: SourceLocation = #_sourceLocation) {
         for (index, (x, dx)) in zip(shown, offsets).enumerated() {
-            #expect(abs(x - (start + dx)) <= 1, "\(what): move \(index) (pointer +\(dx) pt) shows the divider \(x - start) pt from the press",
+            #expect(abs(x - (start + dx)) <= tolerance, "\(what): move \(index) (pointer +\(dx) pt) shows the divider \(x - start) pt from the press",
                     sourceLocation: sourceLocation)
         }
     }
@@ -156,7 +166,7 @@ struct DividerDragFollowsPointerTests {
         defer { rig.window.closeAfterTest() }
         let start = try rig.dividerX("p1")
         let shown = try rig.drag(.split("x"), offsets: [dx / 2, dx], flags: shift ? .shift : [], releaseFlags: []) { try rig.dividerX("p1") }
-        Self.expectFollows(shown, from: start, offsets: [dx / 2, dx], shift ? "Shift" : "no modifier")
+        Self.expectFollows(shown, from: start, offsets: [dx / 2, dx], tolerance: try rig.halfPixel, shift ? "Shift" : "no modifier")
     }
 
     /// A slow drag across a half and a third: the divider never holds on a snap, never jumps to one.
@@ -169,7 +179,7 @@ struct DividerDragFollowsPointerTests {
         // From 0.3 to past 2/3, one point a move: through 1/3, the half and 2/3.
         let offsets = (1...Int(room * 0.4)).map { CGFloat($0) }
         let shown = try rig.drag(.split("x"), offsets: offsets, flags: shift ? .shift : []) { try rig.dividerX("p1") }
-        Self.expectFollows(shown, from: start, offsets: offsets, shift ? "Shift" : "no modifier")
+        Self.expectFollows(shown, from: start, offsets: offsets, tolerance: try rig.halfPixel, shift ? "Shift" : "no modifier")
     }
 
     /// No modifier: the release lands where the pointer let go, 4 pt from the half (the old soft snap took it there).
@@ -216,7 +226,7 @@ struct DividerDragFollowsPointerTests {
         // To 0.44: far from every snap, nearest the half.
         let offsets = [room * 0.07, room * 0.14]
         let shown = try rig.drag(.split("x"), offsets: offsets, flags: .shift) { try rig.dividerX("p1") }
-        Self.expectFollows(shown, from: start, offsets: offsets, "Shift")
+        Self.expectFollows(shown, from: start, offsets: offsets, tolerance: try rig.halfPixel, "Shift")
         #expect(rig.ratio("x") == 0.5)
         #expect(rig.ended.count == 1)
     }
@@ -229,8 +239,39 @@ struct DividerDragFollowsPointerTests {
         defer { rig.window.closeAfterTest() }
         let start = try rig.dividerX("p1")
         let shown = try rig.drag(.columnEdge("c0"), offsets: [30, 60], flags: .shift) { try rig.dividerX("p1") }
-        Self.expectFollows(shown, from: start, offsets: [30, 60], "Shift column edge")
+        Self.expectFollows(shown, from: start, offsets: [30, 60], tolerance: try rig.halfPixel, "Shift column edge")
         #expect(rig.width("c0") == 0.5)
+    }
+
+    /// Option takes a Shift drag over (a split in a scrolling column pushes the columns after it, resize-modifiers.md):
+    /// the push lands where the pointer is, so the drag forgets the snap Shift would land on. Shift alone again finds it
+    /// as new (its alignment haptic plays again).
+    @Test func aPushForgetsTheSnapAShiftReleaseWouldLandOn() throws {
+        let columns: ScreenLayout = .columns([LayoutColumn(id: "c0", width: 0.6, root: .split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))),
+                                              LayoutColumn(id: "c1", width: 0.4, root: .leaf("p3"))])
+        let rig = Rig(columns)
+        defer { rig.window.closeAfterTest() }
+        let room = try rig.room("x")
+        let view = try rig.handle(.split("x"))
+        let from = try rig.start(.split("x"))
+        // To 0.44 with Shift: the release would land on the half.
+        view.mouseDown(with: rig.event(.leftMouseDown, from, .shift))
+        view.mouseDragged(with: rig.event(.leftMouseDragged, CGPoint(x: from.x + room * 0.14, y: from.y), .shift))
+        let screen = try rig.screen
+        try #require(screen.activeDrag?.push != nil, "the split does not push: no scrolling column")
+        #expect(screen.activeDrag?.snapped == 0.5)
+        func flags(_ flags: NSEvent.ModifierFlags) {
+            view.flagsChanged(with: NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: flags, timestamp: 0,
+                                                     windowNumber: rig.window.windowNumber, context: nil, characters: "",
+                                                     charactersIgnoringModifiers: "", isARepeat: false, keyCode: 58)!)
+        }
+        flags([.option, .shift])
+        #expect(screen.activeDrag?.snapped == nil, "the push kept the snap of the Shift landing")
+        flags(.option)
+        flags(.shift)
+        #expect(screen.activeDrag?.snapped == 0.5)
+        view.mouseUp(with: rig.event(.leftMouseUp, CGPoint(x: from.x + room * 0.14, y: from.y), .shift))
+        #expect(rig.ratio("x") == 0.5)
     }
 
     /// Letting go of Shift before the release lands where the pointer is.
@@ -259,7 +300,8 @@ struct DividerDragFollowsPointerTests {
         var last = released
         for (index, x) in frames.enumerated() {
             #expect(x >= last - 0.5 && x <= snap + 0.5, "frame \(index): the divider at \(x) left the path \(released) -> \(snap)")
-            #expect(x - last < room * 0.06 * 0.5, "frame \(index): a jump of \(x - last) pt")
+            // The spring's largest frame step is about 13% of the travel (0.06 of the room): a quarter of it is a jump.
+            #expect(x - last < room * 0.06 * 0.25, "frame \(index): a jump of \(x - last) pt")
             last = x
         }
         #expect(abs(last - snap) <= 1, "the landing rests at \(last), want the half at \(snap)")
