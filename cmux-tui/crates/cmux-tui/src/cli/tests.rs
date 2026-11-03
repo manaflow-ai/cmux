@@ -189,7 +189,9 @@ mod remote_cli_docs {
             // Cloud verbs are app actions whose existence is checked by the
             // socket. Require a catalog match rather than generic parsing.
             // Resource commands still resolve through the CLI parser.
+            // `cmux agents` routes before the core parser; its own grammar decides.
             let parser = builtin_command(&parser_words)
+                || (parser_words[0] == "agents" && agents::command(&parser_words[1..]).is_ok())
                 || (parser_words[0] != "cloud" && parse(&parser_words, Surface::Cmux).is_ok());
             if action.is_none() && !parser {
                 missing.push(words.join(" "));
