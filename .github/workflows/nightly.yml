@@ -2699,10 +2699,11 @@ jobs:
   build-nightly-remote-daemon:
     # Pure Go (CGO_ENABLED=0), manifests and uploads do not need the app builder, so it
     # builds beside build-nightly-app (its `if`), on the Ghostty helper's owned Mac pick,
-    # else Blacksmith Linux. Resume already retained these exact assets in build-nightly-app.
+    # else the owned nightly-only Mac pool: nightlies never run on Blacksmith (user, Oct 30;
+    # run 41683652930 still took blacksmith-32vcpu-ubuntu-2404). Resume already retained these exact assets in build-nightly-app.
     needs: [decide, resolve-nightly-cmux-tui-client, pick-nightly-build-runner]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/nightly-next' && needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/nightly-next' && needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     permissions:
       contents: read
     timeout-minutes: 20
@@ -2752,8 +2753,9 @@ jobs:
     # needs this job: a quota wait must neither occupy a Mac nor delay the feed.
     needs: [build-nightly-remote-daemon]
     if: inputs.nightly_next_unsigned_run == ''
-    # Credentials stay on the validated ephemeral set until exclusive owned-Mac admission exists.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || github.run_attempt > 1 && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}
+    # The owned nightly-only Mac pool, never Blacksmith (user, Oct 30). Its OIDC token only writes
+    # provenance for these assets; the pool already builds the nightly app those assets ship in.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     permissions:
       contents: read
       attestations: write
