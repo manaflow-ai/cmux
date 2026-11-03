@@ -435,6 +435,13 @@ impl Mux {
         pane_id: Option<PanePublicId>,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
+        // A used pane id is refused before the fresh tab is made, so a refusal consumes no
+        // terminal id the caller would retry with; the commit checks it again for races.
+        if let Some(pane_id) = &pane_id {
+            let registry = self.workspace_registry.lock().unwrap();
+            let state = self.state.lock().unwrap();
+            resource_topology::ensure_client_pane_id_unused(&state, &registry, pane_id)?;
+        }
         let size = self.surface(surface).map(|runtime| runtime.size());
         let fresh = match respawn {
             SplitRespawn::Terminal(spawn) => {

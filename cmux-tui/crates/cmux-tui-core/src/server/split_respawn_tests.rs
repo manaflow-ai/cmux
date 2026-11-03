@@ -222,6 +222,17 @@ fn a_column_move_takes_the_callers_pane_id() {
     assert_eq!(reused["ok"], false, "{reused}");
     assert!(reused["error"].to_string().contains("pane_id_exists"), "{reused}");
     assert_eq!(wire.tabs(pane), vec![fresh, other]);
+
+    // With respawn, a used id is refused before the fresh tab is made: nothing is created.
+    let lone = wire.mux.new_workspace(None, Some((80, 22))).unwrap().id;
+    let alone = wire.mux.with_state(|state| state.pane_of(lone).unwrap());
+    let refused = wire.send(json!({
+        "cmd": "move-tab-to-column", "surface": lone, "pane": alone, "width": 0.5, "dock": dock,
+        "respawn": {"kind": "terminal"}, "pane_id": minted,
+    }));
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert!(refused["error"].to_string().contains("pane_id_exists"), "{refused}");
+    assert_eq!(wire.tabs(alone), vec![lone]);
 }
 
 #[test]
