@@ -106,27 +106,31 @@ fi
 # The service files below name these paths unquoted (plist XML, systemd unit): plain paths only.
 case "$HOME_DIR" in *[!A-Za-z0-9._/-]*) echo "cmux-hand: $HOME_DIR is not a plain path; start it yourself: CMUX_HAND_HOME='$HOME_DIR' '$BIN' hand run" >&2; exit 0 ;; esac
 LOG="$HOME_DIR/hand.log"
+SERVICE_NAME=cmux-hand
+[ "$CONFIGURED" != 1 ] || SERVICE_NAME=cmux-chief-hand
 if [ "$(uname -s)" = Darwin ]; then
-  PLIST="$HOME/Library/LaunchAgents/dev.cmux.hand.plist"
+  LABEL=dev.cmux.hand
+  [ "$CONFIGURED" != 1 ] || LABEL=dev.cmux.chief-hand
+  PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
   mkdir -p "$HOME/Library/LaunchAgents"
   cat > "$PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>Label</key><string>dev.cmux.hand</string>
+<key>Label</key><string>$LABEL</string>
 <key>ProgramArguments</key><array><string>$BIN</string><string>hand</string><string>run</string></array>
 <key>EnvironmentVariables</key><dict><key>CMUX_HAND_HOME</key><string>$HOME_DIR</string></dict>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
 <key>StandardOutPath</key><string>$LOG</string><key>StandardErrorPath</key><string>$LOG</string>
 </dict></plist>
 PLIST
-  launchctl bootout "gui/$(id -u)/dev.cmux.hand" 2>/dev/null || true
+  launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
   launchctl bootstrap "gui/$(id -u)" "$PLIST"
   echo "cmux-hand: running (launchd dev.cmux.hand); log $LOG"
 elif command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
   UNIT_DIR="$HOME/.config/systemd/user"
   mkdir -p "$UNIT_DIR"
-  cat > "$UNIT_DIR/cmux-hand.service" <<UNIT
+  cat > "$UNIT_DIR/$SERVICE_NAME.service" <<UNIT
 [Unit]
 Description=cmux hand
 After=network-online.target
@@ -139,11 +143,17 @@ RestartSec=5
 WantedBy=default.target
 UNIT
   systemctl --user daemon-reload
-  systemctl --user enable --now cmux-hand.service
-  echo "cmux-hand: running (systemd --user cmux-hand.service)"
+  systemctl --user enable --now "$SERVICE_NAME.service"
+  echo "cmux-hand: running (systemd --user $SERVICE_NAME.service)"
 else
   # Not the person's agent daemon: an app terminal's ACPMUX_HOME / ACPMUX_SOCKET stay out.
-  env -u ACPMUX_HOME -u ACPMUX_SOCKET CMUX_HAND_HOME="$HOME_DIR" nohup "$BIN" hand run >>"$LOG" 2>&1 &
+  if [ "$CONFIGURED" = 1 ]; then
+    # A retry after a lost exec response does not start a second persistent hand.
+    command -v flock >/dev/null 2>&1 || { echo "cmux-hand: configured service needs flock" >&2; exit 1; }
+    env -u ACPMUX_HOME -u ACPMUX_SOCKET CMUX_HAND_HOME="$HOME_DIR" nohup flock -n "$HOME_DIR/run.lock" "$BIN" hand run >>"$LOG" 2>&1 &
+  else
+    env -u ACPMUX_HOME -u ACPMUX_SOCKET CMUX_HAND_HOME="$HOME_DIR" nohup "$BIN" hand run >>"$LOG" 2>&1 &
+  fi
   echo "cmux-hand: running (nohup, pid $!); log $LOG"
 fi
 `
