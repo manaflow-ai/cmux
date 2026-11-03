@@ -365,6 +365,7 @@ struct CloudStartSession {
             let origin: CloudLinkOrigin = byPerson ? .user : .script
             if session.machine.status == .paused { session.attach(origin: origin) } else { session.connect(origin: origin) }
         }
+        session.beginLegacyAttempt()
         let daemon = session.daemon
         let up = await CloudWait.holds(within: Self.connectWait, until: {
             session.resumeFailure != nil || session.legacyLinkFailure?.definitive == true

@@ -293,6 +293,7 @@ struct CloudMove {
             try CloudHandlers.requireAttachableState(session)
             if session.machine.status == .paused { session.attach(origin: CloudHandlers.connectOrigin(for: invocation)) } else { session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
         }
+        session.beginLegacyAttempt()
         let daemon = session.daemon
         // A failed resume ends the wait at once, with its reason, and so does a legacy link start that no
         // retry can help (a refusal: signed out, a plan, the server's 4xx). Within the wait a link that

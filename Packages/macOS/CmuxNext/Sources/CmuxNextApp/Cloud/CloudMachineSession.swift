@@ -483,6 +483,14 @@ final class CloudMachineSession {
         retryNow()
     }
 
+    /// A new wait for this machine (a start, a move, its Retry) begins: a legacy link failure from an
+    /// earlier attempt is not this attempt's answer, so it is cleared and the link dialed again now.
+    func beginLegacyAttempt() {
+        guard link != nil, legacyLinkFailure != nil else { return }
+        legacyLinkFailure = nil
+        if machine.status.isLive { retryNow() }
+    }
+
     /// Retry on the record as it stands (the caller just read it): resume a paused legacy machine,
     /// else connect an app link, wake a legacy daemon that is starting, or connect it again.
     func retryNow() {
