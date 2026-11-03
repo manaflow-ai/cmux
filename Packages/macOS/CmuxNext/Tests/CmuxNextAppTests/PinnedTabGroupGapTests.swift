@@ -32,14 +32,12 @@ import Testing
             return cell.layer.convert(cell.pillFrameInCell, to: strip.layer)
         }
 
-        /// The pinned group's divider in the strip's coordinates, nil when the strip has none.
+        /// The pinned group's divider in the strip's coordinates, nil when the strip draws none.
         func divider() -> CGRect? {
-            func find(_ layer: CALayer) -> CALayer? {
-                if layer.name == "tabs.pinnedDivider" { return layer }
-                return layer.sublayers?.lazy.compactMap(find).first
-            }
-            guard let root = strip.layer, let line = find(root), !line.isHidden, line.opacity > 0, line.bounds.height > 0 else { return nil }
-            return line.superlayer?.convert(line.frame, to: root)
+            let line = strip.pinnedDivider
+            guard line.name == TabStripView.pinnedDividerName, !line.isHidden, line.opacity > 0, line.bounds.height > 0,
+                  let parent = line.superlayer else { return nil }
+            return parent.convert(line.frame, to: strip.layer)
         }
     }
 
@@ -53,7 +51,11 @@ import Testing
         let tabGap = try harness.pill("tab2").minX - harness.pill("tab1").maxX
         let pinnedGap = try harness.pill("pin1").minX - harness.pill("pin0").maxX
         #expect(abs(pinnedGap - tabGap) < 0.5, "pinned tabs \(pinnedGap) pt apart, normal tabs \(tabGap) pt")
-        let divider = try #require(harness.divider(), "no divider between the pinned tabs and the first normal tab")
+        let line = harness.strip.pinnedDivider
+        let divider = try #require(harness.divider(), """
+            no divider between the pinned tabs and the first normal tab: hidden \(line.isHidden), opacity \(line.opacity), \
+            frame \(line.frame), in a layer \(line.superlayer != nil), on \(harness.strip.metrics.showsPinnedDivider)
+            """)
         let before = divider.minX - (try harness.pill("pin1").maxX)
         let after = (try harness.pill("tab0").minX) - divider.maxX
         #expect(abs(before - tabGap) < 0.5, "last pinned tab to divider \(before) pt, between tabs \(tabGap) pt")
