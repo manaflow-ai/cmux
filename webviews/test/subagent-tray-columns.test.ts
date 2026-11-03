@@ -274,19 +274,21 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             const box = node.getBoundingClientRect();
             return { left: box.left, right: box.right, width: box.width };
           };
-          // cmux#31492: the time and the state word end the line beside its next control, Stop on a
+          // cmux#31492: the state word and the time end the line beside its next control, Stop on a
           // line that has one, else the chevron; never a Stop track and a status track's slack away.
+          // The state comes first, then the time ("Done · 36s", Leo 2026-11-02).
           const trail = (row: HTMLElement) => {
             const state = row.querySelector<HTMLElement>(".acpmux-agent-line__meta")!.getBoundingClientRect();
             const time = row.querySelector<HTMLElement>(".acpmux-agent-line__time")!;
             const range = document.createRange();
             range.selectNodeContents(time);
-            const digits = [...range.getClientRects()].at(-1);
+            const digits = [...range.getClientRects()].at(0);
             const stop = row.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot > button");
             const next = stop ?? row.querySelector<HTMLElement>(".acpmux-agent-line__chevron")!;
+            const end = digits ? time.getBoundingClientRect() : state;
             return {
-              stateToNext: next.getBoundingClientRect().left - state.right,
-              timeToState: digits ? state.left - digits.right : null,
+              stateToNext: next.getBoundingClientRect().left - end.right,
+              timeToState: digits ? digits.left - state.right : null,
             };
           };
           return {
@@ -386,13 +388,14 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                     : null,
                   stop: rect(".acpmux-agent-line__stop-slot", row),
                   hasStop: Boolean(row.querySelector(".acpmux-agent-line__stop-slot > button")),
-                  // How far the state word ends from the line's next control (Stop, else the chevron).
+                  // How far the cluster (the state word, then the time) ends from the line's next
+                  // control (Stop, else the chevron).
                   stateToNext: (() => {
-                    const state = row.querySelector<HTMLElement>(".acpmux-agent-line__meta")!.getBoundingClientRect();
+                    const end = time.getBoundingClientRect();
                     const next =
                       row.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot > button") ??
                       row.querySelector<HTMLElement>(".acpmux-agent-line__chevron")!;
-                    return next.getBoundingClientRect().left - state.right;
+                    return next.getBoundingClientRect().left - end.right;
                   })(),
                 };
               }),
@@ -470,12 +473,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         ).toBe(true);
         expect(afterTick.rows.map((row) => row.time.right)).toEqual(initial.rows.map((row) => row.time.right));
         expect(afterTick.rows.map((row) => row.time.textRight)).toEqual(initial.rows.map((row) => row.time.textRight));
-        expect(afterTick.rows.map((row) => row.time.scrollWidth)).toEqual(
-          initial.rows.map((row) => row.time.scrollWidth),
-        );
-        expect(afterTick.rows.map((row) => row.time.clientWidth)).toEqual(
-          initial.rows.map((row) => row.time.clientWidth),
-        );
+        // The time ends the cluster ("Done · 36s") and sizes to its tabular digits: a tick keeps its
+        // right edge and never clips it; only a new digit widens it, toward the state word.
+        expect(afterTick.rows.every((row) => row.time.scrollWidth <= row.time.clientWidth + 1)).toBe(true);
         expect(afterTick.rows.map((row) => row.status.left)).toEqual(initial.rows.map((row) => row.status.left));
         expect(afterTick.rows.map((row) => row.stop.left)).toEqual(initial.rows.map((row) => row.stop.left));
         expect(afterTick.rows.map((row) => row.time.height)).toEqual(initial.rows.map((row) => row.time.height));
@@ -582,10 +582,17 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           ["open", "stop"],
         );
 
-        // Running lines keep their visible state word in the fixed status track, alongside ended rows.
-        expect(await page.locator(".acpmux-running-tray__list .acpmux-summary-agent__state").count()).toBeGreaterThan(
+        // A running line with its time shows no Running word: its time and Stop say it runs (Leo,
+        // 2026-11-03: "do we really need a running symbol vs just having the time and a square stop
+        // button?"). Screen readers still hear the word.
+        expect(await page.locator(".acpmux-running-tray__list .acpmux-agent-line[data-timed]").count()).toBeGreaterThan(
           0,
         );
+        expect(
+          await page
+            .locator(".acpmux-running-tray__list .acpmux-agent-line[data-timed] .acpmux-summary-agent__state")
+            .count(),
+        ).toBe(0);
       } finally {
         await page.close();
       }
@@ -643,7 +650,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             return {
               token,
               settled: tray.hasAttribute("data-settled"),
-              card: { shadow: style.boxShadow, background: style.backgroundColor },
+              card: { shadow: style.boxShadow, background: style.backgroundColor, image: style.backgroundImage },
               rows: [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")].map((row) => {
                 const button = row.querySelector<HTMLElement>(".acpmux-agent-line__button")!;
                 const name = row.querySelector<HTMLElement>(".acpmux-summary-agent__name")!.getBoundingClientRect();
@@ -656,6 +663,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                 const slot = button.querySelector<HTMLElement>(".acpmux-lineage__icon")!.getBoundingClientRect();
                 const time = row.querySelector<HTMLElement>(".acpmux-agent-line__time")!.getBoundingClientRect();
                 const meta = row.querySelector<HTMLElement>(".acpmux-agent-line__meta")?.getBoundingClientRect();
+                const timeLeft = time.width > 0 ? time.left : undefined;
                 const visibleText = [...button.querySelectorAll<HTMLElement>("span")]
                   .filter((node) => !node.classList.contains("acpmux-agent-line__sr") && node.children.length === 0)
                   .map((node) => node.textContent?.trim() ?? "")
@@ -667,9 +675,10 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                   words: visibleText,
                   stats: row.querySelector(".acpmux-summary-text > .acpmux-agent-line__stats")?.textContent ?? null,
                   state: row.querySelector(".acpmux-summary-agent__state")?.textContent ?? null,
+                  timed: row.hasAttribute("data-timed"),
                   statsBelow: Boolean(row.querySelector(".acpmux-summary-text > .acpmux-agent-line__progress")),
-                  timeRight: time.right,
-                  metaLeft: meta?.left,
+                  timeLeft,
+                  metaRight: meta?.right,
                 };
               }),
             };
@@ -682,9 +691,15 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             expect(row.subtitle).toBe(false);
             expect(row.words).not.toContain("general-purpose");
             expect(row.words).not.toContain("Explore");
-            expect(row.state).not.toBeNull();
-            expect(row.words).toContain(row.state!);
-            if (row.metaLeft !== undefined) expect(row.timeRight).toBeLessThanOrEqual(row.metaLeft + 0.5);
+            // A running line with its time shows no state word (Leo, 2026-11-03); every other says it.
+            if (row.timed) expect(row.state).toBeNull();
+            else {
+              expect(row.state).not.toBeNull();
+              expect(row.words).toContain(row.state!);
+            }
+            // The state word, then the time ("Done · 36s").
+            if (row.metaRight !== undefined && row.timeLeft !== undefined)
+              expect(row.metaRight).toBeLessThanOrEqual(row.timeLeft + 0.5);
           }
           // Progress remains inline with the title; it cannot shift the fixed status track.
           if (variant === "running-stats") {
@@ -694,10 +709,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             expect(anatomy.rows.every((row) => !row.statsBelow)).toBe(true);
           }
           expect(anatomy.settled).toBe(variant === "done-one");
-          if (anatomy.settled) {
-            expect(anatomy.card.shadow).toBe("none");
-            expect(anatomy.card.background).toBe("rgba(0, 0, 0, 0)");
-          }
+          // Settled too, the line sits on a surface the transcript never shows through (Leo,
+          // 2026-11-02: "this running thing now looks mildly awkward").
+          expect(anatomy.card.image === "none" && anatomy.card.background === "rgba(0, 0, 0, 0)").toBe(false);
           if (variant === "mixed") {
             // A long state word stays in its fixed track, cut before Stop.
             const long = await page.evaluate(() => {

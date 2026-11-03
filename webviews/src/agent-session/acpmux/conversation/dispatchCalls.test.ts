@@ -174,3 +174,32 @@ test("dispatch cards use the compact copy and link wording", () => {
   );
   expect(briefAnchor("b:17")).toBe("brief-b-17");
 });
+
+test("dispatch lifecycle words in report prose are not acknowledgements", () => {
+  for (const output of ["Not merged yet.", "Previously reported a failure.", "The session was never steered."]) {
+    expect(dispatchCall(activity("cmux.report", { brief_id: "b-17" }, output))?.status).toBe("completed");
+  }
+});
+
+test("a requested report status is not a confirmed lifecycle transition", () => {
+  expect(dispatchCall(activity("cmux.report", { brief_id: "b-17", status: "merged" }))?.status).toBe("completed");
+  expect(
+    dispatchCall(activity("cmux.report", { brief_id: "b-17", status: "reported" }, undefined, "in_progress"))?.status,
+  ).toBe("running");
+});
+
+test("dispatch status comes from the structured acknowledgement", () => {
+  expect(
+    dispatchCall(activity("cmux.report", { status: "merged" }, { brief: { id: "b-17", status: "reported" } }))?.status,
+  ).toBe("reported");
+  expect(dispatchCall(activity("cmux.report", {}, { event: { kind: "report", status: "merged" } }))?.status).toBe(
+    "merged",
+  );
+});
+
+test("failed dispatch calls cannot show a successful requested or returned status", () => {
+  expect(dispatchCall(activity("cmux.report", { status: "reported" }, undefined, "failed"))?.status).toBe("failed");
+  const rejected = activity("acpmux report", {}, { status: "merged" });
+  rejected.tool!.exitCode = 1;
+  expect(dispatchCall(rejected)?.status).toBe("failed");
+});

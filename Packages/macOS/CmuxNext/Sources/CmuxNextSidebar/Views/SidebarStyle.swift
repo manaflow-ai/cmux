@@ -8,12 +8,15 @@ enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
     /// Every row highlight ends on the same outer inset.
     static var rowTrailingTrim: CGFloat { rowEdgeGap - horizontalInset }
-    /// Leo 2026-10-27: "one or two pixels, 1.5"; content columns do not change the fill edge.
-    static let rowEdgeGap: CGFloat = 1.5
-    /// The plain sidebar background between a row's trailing edge and the curved main-pane card.
-    /// ChatGPT's sidebar keeps five device pixels (2.5 pt at 2x) here, with no resize line or
-    /// chrome shade in the band. This is scaled with the rest of the sidebar geometry.
-    static var rowToPaneGap: CGFloat { Metrics.scale(2.5) }
+    /// The gap between a row's fill and the sidebar's trailing edge: the same as its leading inset, so a
+    /// highlight sits inside the sidebar with an even gap on both sides, as ChatGPT's does (8 pt beside its
+    /// 30 pt row; ours is 6 compact, 8 comfortable). Leo 2026-11-02: "CHATGPT HAS A SLIGHT GAP" / "WE DON'T".
+    /// Replaced Leo 2026-10-27's 1.5 pt ("one or two pixels, 1.5"). Content columns do not change the fill edge.
+    static var rowEdgeGap: CGFloat { horizontalInset }
+    /// The plain sidebar background between a row's trailing edge and the curved main-pane card: the
+    /// same gap as `rowEdgeGap`, so a selected row stops as far short of the card as of a flat
+    /// sidebar's edge, with no resize line or chrome shade in the band.
+    static var rowToPaneGap: CGFloat { rowEdgeGap }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// Height of a placeholder row's bar (about a caption's x-height).
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
@@ -39,6 +42,18 @@ enum SidebarStyle {
     /// every leading glyph (a band row's, a pinned row's pin, a workspace row's icon) centers its ink here, one
     /// `iconBox` wide, so glyphs of different shapes and margins share one center x at every density.
     static func iconColumnCenterX(leading: CGFloat) -> CGFloat { leading + iconColumnBox / 2 }
+    /// The Debug `sidebar.leadingColumn` look: where a glyph's ink sits in the icon column.
+    static var leadingColumnLook: SidebarLeadingColumnLook { SidebarLeadingColumnLook.tunable.value }
+    /// A text-only row keeps the icon column empty, so its title starts at the text x (the `slotted` look only).
+    static var textOnlyKeepsIconSlot: Bool { leadingColumnLook == .slotted }
+    /// The one rule every leading glyph takes (Lawrence msg 19643, "left alignment here is bad"): the x of a glyph
+    /// drawn with `ink` (its drawn extent, in the glyph's own coordinates) in the icon column whose box starts at
+    /// `leading`. The ink starts on the box's leading edge, the row inset, so a pin, Home's house, a favicon, an emoji
+    /// and a symbol start on the left edge text-only titles start on; the `centered` look centers it instead. Callers
+    /// snap the result to their pixel grid.
+    static func iconColumnGlyphX(leading: CGFloat, ink: CGRect) -> CGFloat {
+        leadingColumnLook == .centered ? iconColumnCenterX(leading: leading) - ink.midX : leading - ink.minX
+    }
     /// The leading icon column's box (grid.md 3: 16 compact, 20 comfortable, wider when the text size grows the
     /// glyph). Leading icon frames take this box and draw their glyph, at its own `iconBox` size, centered in it,
     /// so the text column is one 8 pt gap after the frame at both densities.
@@ -46,6 +61,17 @@ enum SidebarStyle {
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
+    /// A workspace or group icon's glyph square: the leading icon column it sits in, so the icon follows the sidebar
+    /// density (16 compact, 20 comfortable, wider with the text size) instead of one size at every density. Leo
+    /// 2026-11-03: "generally we can have stuff more dynamically sized for compact/etc rn i think it's just a one size
+    /// for these workspace icons". Compact keeps its old 16 pt glyph exactly.
+    static var workspaceGlyphSide: CGFloat { iconColumnBox }
+    /// How much a workspace icon's drawing grows with `workspaceGlyphSide`: 1 at compact.
+    static var workspaceGlyphScale: CGFloat { workspaceGlyphSide / iconBox }
+    /// A workspace icon's symbol point size: the title's, grown with its glyph square.
+    static var workspaceSymbolPointSize: CGFloat { (titleFont.pointSize * workspaceGlyphScale).rounded() }
+    /// A workspace icon's favicon side: the row glyph's, grown with its glyph square.
+    static var workspaceFaviconSide: CGFloat { (kindGlyphSize * workspaceGlyphScale).rounded() }
     /// Reserve the icon column only when a visible icon precedes the title.
     static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {
         columns(rowWidth: 0, leadingOffset: leading - titleLeading).text(hasLeadingMark: iconSide > 0)
@@ -53,7 +79,8 @@ enum SidebarStyle {
     /// Workspace title geometry shared by realized rows and virtualized parents of tab rows. A left-rail row with no
     /// symbol, emoji or favicon keeps the swatch's slot (#25705), so its title sits where the dot style draws it.
     static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int, reservesColorRail: Bool = false) -> CGFloat {
-        columns(rowWidth: 0, depth: treeDepth).text(hasLeadingMark: icon != nil || reservesColorRail) - WorkspaceRowView.labelInset
+        columns(rowWidth: 0, depth: treeDepth).text(hasLeadingMark: icon != nil || reservesColorRail || textOnlyKeepsIconSlot)
+            - WorkspaceRowView.labelInset
     }
     static func titleXAfterLeadingMark(_ x: CGFloat) -> CGFloat {
         x + WorkspaceRowView.labelInset + indicatorSize + Metrics.space1
@@ -72,10 +99,15 @@ enum SidebarStyle {
     /// A workspace row's status mark (the shared indicator, or the agent mark in its place): as
     /// tall as the unread badge beside it (Leo 2026-10-13); both read `Metrics.statusMarkSize`.
     static var statusGlyphSize: CGFloat { badgeHeight }
+    /// A color swatch or machine dot (not a status): 6 pt at compact.
     static var dotSize: CGFloat { Metrics.space3 }
-    /// The blue unread dot on a workspace row, an icon or a tile: 8 pt, as Claude's and ChatGPT's unread dot
-    /// (Leo 2026-10-31: "INCREASE THE SIZE OF THESE BLUE DOTS ON THE SIDEBAR"). The one token every unread dot reads.
-    static var unreadDotSize: CGFloat { Metrics.space4 }
+    /// Every status dot's diameter: blue unread, orange needs attention and any other status dot, in every
+    /// row kind (Home and band items, pinned, workspace and nested rows, group header roll-ups, icon and
+    /// tile corners, Priority rows). 8 pt at compact, as Claude's and ChatGPT's unread dot (Leo 2026-10-31:
+    /// "INCREASE THE SIZE OF THESE BLUE DOTS ON THE SIDEBAR"). Lawrence msg 19696 ("dots are different
+    /// size now which is very bad"): the blue dot grew and the orange one did not, so every dot path reads
+    /// this one token (`StatusIndicatorView.dotDiameter` for the indicator's dots); no view sizes its own.
+    static var statusDotSize: CGFloat { Metrics.space4 }
     /// A window rail button's glyph box and glyph (the Codex rail's 15pt
     /// glyphs on 32pt tiles), and its tile's rounding.
     static var railIconBox: CGFloat { Metrics.iconSize + Metrics.space3 }
@@ -188,8 +220,8 @@ enum SidebarStyle {
     /// The Debug `sidebar.groupLineLayout` choice.
     static var groupLineLayout: SidebarGroupLineLayout { groupChromeShape ? .joined : SidebarGroupLineLayout.tunable.value }
     /// How far inside a header's left edge Chrome sets its line (Leo 2026-10-19: about 4 to 5 pt): the line's right
-    /// edge meets the end of the bar's corner arc.
-    static var groupLineCornerInset: CGFloat { max(0, rowCornerRadius - groupBarWidth) }
+    /// edge meets the end of the app's item corner arc (the row fill's own corner is rounder since 2026-11-02).
+    static var groupLineCornerInset: CGFloat { max(0, Metrics.itemCornerRadius - groupBarWidth) }
     /// How much further left than its rail a group header's bar reaches: `inside`, the corner inset, so the line sits
     /// under the bar's rounded corner (never past the list's edge, `SidebarListView.railReach(for:)`).
     static var groupHeaderOverhang: CGFloat { groupLineLayout == .inside ? groupLineCornerInset : 0 }
@@ -203,7 +235,7 @@ enum SidebarStyle {
     /// sits this much before the edge its text aligns to.
     static var labelCellPadding: CGFloat { LayoutGrid.halfStep }
     /// A user-chosen SF Symbol at the title's point size, where symbols match the text beside them.
-    static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: titleFont.pointSize, weight: .regular) }
+    static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: workspaceSymbolPointSize, weight: .regular) }
     /// A header's disclosure chevron, filling its `Metrics.smallIconSize` box.
     static func chevron(collapsed: Bool) -> NSImage {
         NSImage.icon(collapsed ? .disclosureCollapsed : .disclosureExpanded, size: Metrics.smallIconSize)

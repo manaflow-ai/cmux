@@ -1,6 +1,15 @@
 import Foundation
 
 nonisolated extension SidebarLayout {
+    /// Each child's parent title (`SidebarLayoutOptions.parentTitles`), from one pass over the workspaces.
+    static func parentTitles(_ parents: [WorkspaceID: WorkspaceID], workspaces: [SidebarWorkspace]) -> [WorkspaceID: String] {
+        guard !parents.isEmpty else { return [:] }
+        let needed = Set(parents.values)
+        var titles: [WorkspaceID: String] = [:]
+        for ws in workspaces where needed.contains(ws.id) { titles[ws.id] = ws.title }
+        return parents.compactMapValues { titles[$0] }
+    }
+
     /// The session tree's drawn order of one list (a section's loose rows, or a group's members):
     /// each entry's model index and depth. A workspace whose `parents` entry is another workspace of
     /// the same list draws right after it, one level deeper, before the parent's next sibling, at

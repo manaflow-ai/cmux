@@ -709,6 +709,18 @@ Object.assign(variants, {
     allThemes: true,
     steps: [click("[data-theme-picker]"), input(".theme-popover input", "solarized"), wait("[data-theme-option]")],
   }),
+  "theme-picker-starred": variant("theme", {
+    allThemes: true,
+    options: {
+      values: {
+        "appearance.theme": "Rose Pine",
+        "appearance.favoriteThemes": ["Rose Pine", "Catppuccin Mocha", "Tokyo Night"],
+        "appearance.rotateFavoriteThemes": "daily",
+      },
+    },
+    steps: [click("[data-theme-picker]"), wait(".theme-popover [data-starred-row]")],
+    note: "Starred themes first under Starred, then All Themes; each starred row's star is lit. Rotate Starred Themes shows in the card.",
+  }),
   "theme-picker-empty": variant("theme", {
     allThemes: true,
     steps: [click("[data-theme-picker]"), input(".theme-popover input", "no-such-theme")],
@@ -1240,6 +1252,24 @@ Object.assign(variants, {
     }),
     note: "A team with an active subscription cannot be deleted: the confirmation says why.",
   }),
+  "accounts-team-invited": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.received = [
+        { id: "inv-1", teamId: "team-research", team: "Sample team 3", invitedBy: "Sample Person", email: "you@example.com" },
+        { id: "inv-2", teamId: "team-design", team: "Sample team 4", invitedBy: null, email: "you@example.com" },
+      ];
+    }),
+    note: "Invitations to You: teams that invited one of your verified emails, each with Join Team and Decline.",
+  }),
+  "accounts-team-joined": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.received = [
+        { id: "inv-1", teamId: "team-research", team: "Sample team 3", invitedBy: "Sample Person", email: "you@example.com" },
+      ];
+      teams.run({ action: "team.accept", team: "inv-1" });
+    }),
+    note: "Join Team: the team joins your list as a member and becomes your active team.",
+  }),
   "accounts-team-create": variant("accounts", {
     accounts: withTeams((teams) => teams.run({ action: "team.new" })),
     note: "New Team: you become its admin and it becomes your active team.",
@@ -1350,6 +1380,83 @@ const resetAnchors = Object.values(RESET_SAMPLES).flatMap((key) => [
   { selector: `${row(key)} .row-title` },
   { selector: `${row(key)} + [data-row-key] .row-title` },
 ]);
+
+const githubConnection = {
+  title: "GitHub",
+  detail: "Connected",
+  busy: false,
+  connect: "Connect GitHub",
+  disconnect: "Disconnect",
+  confirm: "Disconnect GitHub? Agents will lose access through this connection.",
+  cancel: "Cancel",
+  refresh: "Refresh",
+  canConnect: false,
+  connections: [
+    {
+      id: "sample-github",
+      canDisconnect: true,
+      account: "sample-team",
+      status: "Connected",
+      permissions: ["contents:write", "pull_requests:write"],
+    },
+  ],
+};
+for (const treatment of ["balanced", "compact", "inline"]) {
+  variants[`github-connect-${treatment}`] = variant("accounts", {
+    accounts: accounts({}, { github: githubConnection }),
+    note: `GitHub App connection: ${treatment} treatment. Balanced uses the existing Accounts spacing.`,
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector('[data-card="github-connection"]'));
+      const card = ctx.document.querySelector<HTMLElement>('[data-card="github-connection"]')!;
+      card.scrollIntoView({ block: "center" });
+      if (treatment !== "balanced") {
+        const style = ctx.document.createElement("style");
+        style.textContent =
+          treatment === "compact"
+            ? '[data-card="github-connection"] .row { padding-block: 4px; } [data-card="github-connection"] .accounts-body { margin-top: 4px; }'
+            : '[data-card="github-connection"] .row { display: flex; align-items: center; gap: 16px; } [data-card="github-connection"] .accounts-body { margin: 0; padding: 0; }';
+        card.append(style);
+      }
+    },
+  });
+}
+variants["github-connect-comparison"] = variant("accounts", {
+  accounts: accounts({}, { github: githubConnection }),
+});
+variants["github-connect-empty"] = variant("accounts", {
+  accounts: accounts(
+    {},
+    {
+      github: {
+        ...githubConnection,
+        connections: [],
+        canConnect: true,
+        detail: "Connect the cmux GitHub App. Choose repositories and review permissions in GitHub.",
+      },
+    },
+  ),
+});
+variants["github-connect-pending"] = variant("accounts", {
+  accounts: accounts(
+    {},
+    {
+      github: {
+        ...githubConnection,
+        connections: [],
+        canConnect: true,
+        detail: "Finish connecting in your browser, then refresh.",
+      },
+    },
+  ),
+});
+variants["github-connect-confirm"] = variant("accounts", {
+  accounts: accounts({}, { github: githubConnection }),
+  play: async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector('[data-github-action="disconnect"]'));
+    await ctx.click({ selector: '[data-github-action="disconnect"]' });
+    await ctx.waitFor(() => ctx.document.querySelector('[data-card="github-connection"] output'));
+  },
+});
 
 export default settingsPageEntry({
   id: "pages.settings",

@@ -9,11 +9,13 @@
 
 import { isAgentHome } from "./sessionList";
 import { pickFolder } from "./startFolder";
+import type { ComposerAttachment } from "./attachments";
 
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
 /// copied and the chat starts in the machine's own home folder (cloudStartFolder).
 export type CloudStart = {
   task: string;
+  attachments?: ComposerAttachment[];
   cwd?: string;
   home?: boolean;
   harness?: string;
@@ -56,16 +58,11 @@ export function newTabProjectPick(callNative: Native, offerable: boolean): { onP
 /// The host's answer: ok, or a code with the host's own words when it has them.
 export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message?: string };
 
-/// A page-side refusal before anything goes to the host: Cloud is picked but not offered now (Labs
-/// went off, a chat is starting here), or attachments, since a Cloud chat takes text only for now
-/// (the folder is copied; a pasted file is not). Either way the prompt stays; nothing is sent as a
-/// chat here instead.
-export function cloudPageRefusal(
-  offered: boolean,
-  attachmentCount: number,
-): "cloud_not_now" | "cloud_attachments" | undefined {
-  if (!offered) return "cloud_not_now";
-  return attachmentCount > 0 ? "cloud_attachments" : undefined;
+/// A page-side refusal before anything goes to the host: Cloud is picked but not offered now
+/// (a chat is starting here). Attachment contents go with the prompt; the native host checks them
+/// before provisioning and uploads them before opening the chat. A refused prompt stays in the composer.
+export function cloudPageRefusal(offered: boolean): "cloud_not_now" | undefined {
+  return offered ? undefined : "cloud_not_now";
 }
 
 /// Sends `start` to the host and resolves to its answer; never rejects. The host answers once the
@@ -76,6 +73,7 @@ export async function startCloudChat(
   key: string = crypto.randomUUID(),
 ): Promise<CloudStartAnswer> {
   const params: Record<string, unknown> = { task: start.task, key };
+  if (start.attachments?.length) params.attachments = start.attachments;
   if (start.cwd) params.cwd = start.cwd;
   else if (start.home) params.home = true;
   if (start.harness) params.harness = start.harness;
@@ -117,4 +115,10 @@ export function oneCloudStart(
 /// A failure the host already said in a toast (it ran the start): the page says nothing more.
 export function cloudStartToasted(answer: CloudStartAnswer): boolean {
   return !answer.ok && answer.code === "cloud_start_failed";
+}
+
+/// The host's card at the plan's machine cap answered Run on This Mac (CloudMachineCap.runHereCode): no machine was
+/// made, and the page sends the kept prompt to a chat on this Mac instead.
+export function cloudRunsHere(answer: CloudStartAnswer): boolean {
+  return !answer.ok && answer.code === "run_on_this_mac";
 }

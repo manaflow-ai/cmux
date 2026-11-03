@@ -233,6 +233,15 @@ async fn check_inner(
     {
         return Err(crate::author::origin_refused());
     }
+    // So is a tool's notice (`prompt_provenance::notice_of`): no remote text passes as a fire.
+    if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE)
+        && (crate::prompt_provenance::notice_present(params)
+            || params.get("request").is_some_and(crate::prompt_provenance::notice_present))
+        && !(origin == super::Origin::Peer
+            && control_of(origin, auth, params) == crate::hub::Control::Peer)
+    {
+        return Err(crate::prompt_provenance::notice_origin_refused());
+    }
     // What the Mac's mobile host refuses a phone by its own rule (cmux-mobile-host
     // `acpmux_policy.rs`: a mode that does not ask, a chat in one) it sends marked when the
     // phone presented its own credential: it runs only when that phone's Full-access setting
@@ -291,7 +300,7 @@ async fn check_inner(
         return Err(crate::hub::Hub::inbox_digest_origin_refused());
     }
     // A paused agent pair is the person's to resume, on this machine (`hub/agent_pairs.rs`).
-    if m == method::MUX_AGENT_PAIR_RESUME && origin.web_class() {
+    if (m == method::MUX_AGENT_PAIR_RESUME || m == method::MUX_AGENT_HOLD) && origin.web_class() {
         return Err(RpcError::invalid_params(
             "resuming agent pairs is accepted only from this machine's app or unix socket",
         ));

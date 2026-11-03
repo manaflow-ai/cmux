@@ -19,7 +19,7 @@ const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRo
 });
 const line = (id: string, background: Partial<NonNullable<AcpmuxRow["background"]>>) =>
   row(backgroundTurnRowId(id), BACKGROUND_TURN, {
-    background: { id, trigger: "task_notification", running: false, ...background },
+    background: { id, trigger: "task_notification", running: false, hasRows: true, ...background },
   });
 
 const transcript = (background: Partial<NonNullable<AcpmuxRow["background"]>>) => {

@@ -124,7 +124,7 @@ extension AppActionContext {
         explicitTarget(invocation, kinds: [.tab, .pane]) != nil
     }
 
-    private func explicitTarget(_ invocation: ActionInvocation, kinds: Set<ActionTargetKind>) -> ActionTargetRef? {
+    func explicitTarget(_ invocation: ActionInvocation, kinds: Set<ActionTargetKind>) -> ActionTargetRef? {
         for candidate in [invocation.target, invocation["tab"]?.targetValue, invocation["pane"]?.targetValue] {
             if let candidate, kinds.contains(candidate.kind) { return candidate }
         }

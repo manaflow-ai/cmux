@@ -43,6 +43,9 @@ pub(crate) struct LocalServerMessages {
     pub identity_failed: &'static str,
     /// `identify` timed out: the session is busy, not another build.
     pub identity_timeout: &'static str,
+    /// The owner answers, but its workspace registry lock has had one holder
+    /// for minutes (a deadlock): `server status` reports it not running.
+    pub wedged: &'static str,
     pub communication_failed: &'static str,
     pub invalid_response: &'static str,
     pub reload_rejected: &'static str,
@@ -179,6 +182,7 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     starting: "the local server is still starting; retry the lifecycle command",
     identity_failed: "cannot verify the local server identity; retry with the cmux build that started the session",
     identity_timeout: "the local server did not answer within 10 s; it is running but busy, so retry or check `cmux daemon status` (this is not a build mismatch)",
+    wedged: "the local server is stuck: its workspace registry has been locked for minutes; `server ensure` replaces it, and terminals keep running",
     communication_failed: "communication with the local server failed; verify that it is running and retry",
     invalid_response: "the local server returned an invalid lifecycle response; retry with the cmux build that started the session",
     reload_rejected: "the local server rejected the configuration reload; inspect its diagnostics and retry",
@@ -254,6 +258,7 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     starting: "ローカルサーバーは起動中です。ライフサイクルコマンドを再試行してください",
     identity_failed: "ローカルサーバーの識別情報を確認できません。セッションを起動した cmux ビルドで再試行してください",
     identity_timeout: "ローカルサーバーが 10 秒以内に応答しませんでした。実行中ですが混雑しています。再試行するか `cmux daemon status` で確認してください (ビルドの不一致ではありません)",
+    wedged: "ローカルサーバーが停止しています。ワークスペースレジストリが数分間ロックされたままです。`server ensure` で置き換えられ、ターミナルは動作し続けます",
     communication_failed: "ローカルサーバーとの通信に失敗しました。実行中であることを確認して再試行してください",
     invalid_response: "ローカルサーバーが無効なライフサイクル応答を返しました。セッションを起動した cmux ビルドで再試行してください",
     reload_rejected: "ローカルサーバーが設定の再読み込みを拒否しました。診断情報を確認して再試行してください",

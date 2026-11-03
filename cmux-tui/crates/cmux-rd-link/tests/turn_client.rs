@@ -100,6 +100,40 @@ fn a_success_without_valid_integrity_is_not_believed() {
     assert_eq!(only(client.poll_transmit(300_000)).tx, second.tx);
 }
 
+/// The pending request is found by transaction id, then its method is checked,
+/// then (for an authenticated request) the integrity: a stranger, a truncated
+/// header and another method's answer leave the request pending, and the
+/// genuine answer still allocates.
+#[test]
+fn a_response_matches_its_request_by_transaction_and_method() {
+    let key = key(USER, REALM_NAME, PASS);
+    let mut client = TurnClient::new(USER, PASS, [4; 32]);
+    let first = only(client.poll_transmit(0));
+    client.on_packet(&unauthorized(first.tx), 0);
+    let second = only(client.poll_transmit(0));
+
+    let mut stranger = second.tx;
+    stranger[0] ^= 0xFF;
+    assert_eq!(client.on_packet(&allocate_success(stranger, 600, &key), 0), TurnReceive::Ignored);
+    let genuine = allocate_success(second.tx, 600, &key);
+    for cut in [1, 4, 19, 20, genuine.len() - 1] {
+        assert_eq!(client.on_packet(&genuine[..cut], 0), TurnReceive::Ignored, "cut at {cut}");
+    }
+    let wrong_method = build(
+        REFRESH | SUCCESS,
+        second.tx,
+        &[(LIFETIME, 600u32.to_be_bytes().to_vec())],
+        Some(&key),
+    );
+    assert_eq!(client.on_packet(&wrong_method, 0), TurnReceive::Handled);
+    assert_eq!(client.relayed(), None);
+    assert!(client.take_events().is_empty());
+
+    assert_eq!(only(client.poll_transmit(300_000)).tx, second.tx, "still pending");
+    assert_eq!(client.on_packet(&genuine, 300_000), TurnReceive::Handled);
+    assert_eq!(client.relayed(), Some(relayed()));
+}
+
 #[test]
 fn a_401_after_credentials_fails_and_a_438_retries_with_the_new_nonce() {
     let mut client = TurnClient::new(USER, PASS, [2; 32]);

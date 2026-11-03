@@ -129,7 +129,7 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
         const element = holding(text);
         return element?.closest(`.acpmux-${kind}`) ? (lines(element)[0] ?? null) : null;
       };
-      const inboxes = everyLine("inbox thread").filter((line) =>
+      const inboxes = everyLine("Received ").filter((line) =>
         [...document.querySelectorAll(".acpmux-laneNoticeBatch")].some((row) => {
           const box = row.getBoundingClientRect();
           return line.top >= box.top && line.bottom <= box.bottom;
@@ -142,7 +142,15 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
       const sends = rowLines("Take the one-line row pitch");
       const short = paragraph("Briefs are out");
       const commands = rowLines("gh pr checks 2210").length ? rowLines("gh pr checks 2210") : rowLines("Checked #2210");
-      const live = lineIn("Sending message to", "thinking");
+      /** The first line of the shown row of kind `kind` whose words read `text`, across spans: the
+       * live line draws its verb in its own span ("Sending" | " message to …", #33241). */
+      const rowLine = (text: string, kind: string) => {
+        const row = [...document.querySelectorAll(`.acpmux-${kind}`)].find(
+          (element) => shown(element) && element.textContent?.includes(text),
+        );
+        return lines(row)[0] ?? null;
+      };
+      const live = rowLine("Sending message to", "thinking");
       const waiting = lineIn("2 messages from 2 sessions", "pendingMessages");
 
       const diff = (a: number | null | undefined, b: number | null | undefined) =>

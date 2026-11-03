@@ -20,7 +20,7 @@ API key and no app; see [headless.md](headless.md).
   are menu-only: the CLI never writes the clipboard.
 - **Results** come back in the action result's `result` object (`--json` prints it);
   nothing opens on the person's screen. `cloud exec` returns `exit_code`, `stdout` and
-  `stderr`; `new-machine` returns `machine_id` and `target` (or `pending: true` while
+  `stderr`; `cmux machine new` (the `new-machine` action) returns `machine_id` and `target` (or `pending: true` while
   the server still provisions); `ssh` and `new-terminal-on-machine` return `machine_id`,
   `workspace_id` and, when known, the new terminal's `surface_id` (see [Terminals](#terminals));
   `machine-status`, `machine-ports`, `machine-tools`, `hand-off-machine`,
@@ -40,7 +40,7 @@ API key and no app; see [headless.md](headless.md).
 
 `cmux cloud list-machines` is read only: it answers the app's own Cloud machine list,
 the one the sidebar's Cloud machines show, so an agent can check whether its machine
-already exists before it runs `new-machine`. It takes no target. Run by a person from
+already exists before it runs `cmux machine new`. It takes no target. Run by a person from
 the palette, it shows the Cloud sidebar instead.
 
 ```bash
@@ -79,7 +79,8 @@ cmux cloud list-machines --json
 ```bash
 cmux cloud list-machines                                    # the app's Cloud machines
 cmux machine new                                            # prints its target and next steps (--json: machine_id, or pending)
-cmux cloud new-workspace                                    # New Cloud Workspace
+cmux cloud new-workspace                                    # New Cloud Workspace: a new small machine of its own, never a listed one
+cmux cloud new-workspace --target machine:vm-…              # a new workspace on that machine
 cmux cloud open-machine --target machine:vm-…
 cmux cloud open-desktop --target machine:vm-…                # its desktop in a cmux browser tab, over the app's Cloud tunnel
 cmux cloud open-desktop --target machine:vm-… --viewer native # the same desktop in the native remote view pane (development builds)
@@ -223,9 +224,16 @@ authorization for the target and effect.
 ## Agent sessions on a machine
 
 ```bash
+cmux cloud start-chat --prompt 'Summarize README.md' --wait --json         # new machine, chat, prompt, reply: one command
+cmux cloud start-chat --name dev --cwd /home/cmux/work --prompt '…' --json  # on machine "dev" (created when missing); answers once sent
 cmux cloud start-session --target machine:<id> --agent claude              # start a session in that machine's acpmux
 cmux cloud start-session --name dev --agent codex --cwd /home/cmux/work     # take machine "dev", or create it
 ```
+
+`start-chat` is `start-session` plus the prompt and, with `--wait`, the reply: it
+answers `reply` (with `--wait`), `machine_id`, `session_id`, `workspace_id`, `tab_id`
+and `follow_up`, the `cloud exec` commands that send, wait and read on
+that chat in the machine's own acpmux (`cmux-tui acp send|wait|last SESSION_ID`).
 
 `start-session` answers `machine_id`, `session_id` and `host` (the machine's
 `registry:` host), plus the chat's `workspace_id` and `surface_id`. The chat's
