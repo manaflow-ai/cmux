@@ -798,6 +798,55 @@ impl Hub {
         state.restored_drains.extend(drains);
     }
 
+    /// A copied machine's first start (`clone_boot.rs`), after `restore_agent_pairs` read
+    /// `session`'s log: the messages its pairs held for it were the first machine's to deliver.
+    /// Each is dropped (`agent_pair_dropped`, `reason: clone_boot`, in its log, so no later start
+    /// holds it again), and a pair left holding nothing is forgotten, so neither a restored
+    /// resume (`resume_agent_pair_drains`) nor a later one delivers it here.
+    pub(super) fn drop_cloned_pair_holds(&self, session: &Arc<Session>, from: &str) {
+        let dropped: Vec<Held> = {
+            let mut state = self.pairs_state();
+            let mut dropped = Vec::new();
+            let mut emptied = HashSet::new();
+            for (key, pair) in &mut state.pairs {
+                let Some(paused) = pair.paused.as_mut() else { continue };
+                let before = paused.held.len();
+                let (gone, kept): (Vec<Held>, Vec<Held>) =
+                    std::mem::take(&mut paused.held).into_iter().partition(|h| h.to == session.id);
+                paused.held = kept.into();
+                if before > 0 && paused.held.is_empty() {
+                    emptied.insert(key.clone());
+                }
+                dropped.extend(gone);
+            }
+            state.pairs.retain(|key, _| !emptied.contains(key));
+            state.restored_drains.retain(|key| !emptied.contains(key));
+            dropped
+        };
+        for h in dropped {
+            self.append(
+                session,
+                "mux",
+                "agent_pair_dropped",
+                json!({"promptId": h.prompt_id, "peer": h.from, "reason": "clone_boot", "cloneOf": from}),
+            );
+        }
+    }
+
+    /// Tests: the messages the pairs hold for `session`, and the restored resumes still to run.
+    #[cfg(test)]
+    pub(super) fn pair_holds_for(&self, session: &str) -> (usize, usize) {
+        let state = self.pairs_state();
+        let held = state
+            .pairs
+            .values()
+            .filter_map(|p| p.paused.as_ref())
+            .flat_map(|p| p.held.iter())
+            .filter(|h| h.to == session)
+            .count();
+        (held, state.restored_drains.len())
+    }
+
     /// Delivers what the pairs `restore_agent_pairs` found mid-resume still hold (`queue.rs`
     /// `resume_queues`, after the daemon's startup).
     pub(super) fn resume_agent_pair_drains(self: &Arc<Self>) {
