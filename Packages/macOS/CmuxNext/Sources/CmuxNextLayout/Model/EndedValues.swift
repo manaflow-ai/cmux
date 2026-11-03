@@ -47,7 +47,7 @@ public struct EndedValues {
         model.replies.beginSending(transaction)
         for intent in intents {
             model.emit(intent)
-            if model.replies.sending?.refused == true { break }
+            if model.replies.refused(transaction) { break }
         }
         return !model.replies.endSending(transaction)
     }
