@@ -85,7 +85,8 @@ function keyboardFocused(node: HTMLElement): boolean {
 type Jump = "click" | "step" | "scrub" | "bookmark";
 /// A jump to a prompt not held yet, run once it is (ThreadMinimap `jump`). `row` is set for an
 /// unheld tick, which waits by its row; `loading` while a page it asked for is under way.
-type Waiting = { id: string; how: Jump; sessionId?: string; row?: number; loading?: boolean };
+/// `asked`: the oldest held prompt's seq when it last asked for the page before it.
+type Waiting = { id: string; how: Jump; sessionId?: string; row?: number; loading?: boolean; asked?: number };
 const EMPTY_EARLIER: readonly AcpmuxRow[] = [];
 
 /// A row the rail's state names: the index the state holds for it, and its prompt's key.
@@ -544,11 +545,19 @@ export function ThreadMinimap({
       const oldest = turns[loadedStart];
       const seq = oldest ? Number(oldest.id.slice(oldest.id.indexOf("-") + 1)) : Number.NaN;
       const load = loadThroughNow.current;
+      // Records numbered 1 or less: the log's history is all held (a native transcript's older pages
+      // are not prompts a count names), so there is nothing to page.
       if (!Number.isFinite(seq) || seq <= 1 || !load) {
         waiting.current = undefined;
         return;
       }
+      // The page this step asked for is held, but its rows have not committed yet (a snapshot renders
+      // in a later task than the read's answer): wait for the commit, which runs this again, instead of
+      // asking for the same page again. Asking again answered at once, in a microtask, and looped
+      // without ever letting the page render.
+      if (pending.asked === seq) return;
       pending.loading = true;
+      pending.asked = seq;
       const drop = () => {
         if (waiting.current === pending) waiting.current = undefined;
       };

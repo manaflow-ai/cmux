@@ -138,6 +138,56 @@ await requireBrowserLane("thread-rail-total-count.test.ts", async () => {
     await page.close();
   });
 
+  test("a click on a tick for a prompt not loaded yet pages in until it is held, then lands on it", async () => {
+    const page = await open();
+    await page.evaluate(
+      ({ all, total }) => {
+        const state = window as unknown as {
+          __loads: number[];
+          __held: number;
+          __showRows(rows: unknown, extra: unknown): void;
+          __setLoadThrough(load: (seq: number) => Promise<boolean>): void;
+        };
+        state.__loads = [];
+        state.__held = 12;
+        // Each read holds twelve more prompts and answers true, as the pane's client does once the
+        // prompt at `seq` is held. The rows reach the transcript in a later task, as a snapshot does.
+        state.__setLoadThrough((seq) => {
+          state.__loads.push(seq);
+          state.__held = Math.min(total, state.__held + 12);
+          const held = state.__held;
+          return new Promise<boolean>((done) =>
+            setTimeout(() => {
+              state.__showRows(all.slice((total - held) * 3), held < total ? { promptCount: total } : {});
+              done(true);
+            }, 0),
+          );
+        });
+      },
+      { all: heldRows(TOTAL), total: TOTAL },
+    );
+    await show(page, heldRows(12), { promptCount: TOTAL });
+    await page.waitForSelector("[data-tick]");
+    await settle(page);
+    const at = await page.evaluate(() => {
+      const rect = document.querySelector<HTMLElement>('[data-tick="4"]')!.getBoundingClientRect();
+      return { x: rect.left + 8, y: rect.top + rect.height / 2 };
+    });
+    await page.mouse.click(at.x, at.y);
+    await page.waitForSelector('.acpmux-row[data-row-id="user-5"]');
+    // One read per page: before prompt 34, then 22, then 10. None asked twice.
+    expect(await page.evaluate(() => (window as unknown as { __loads: number[] }).__loads)).toEqual([33, 21, 9]);
+    // It landed on prompt 5: its row is near the top of the view.
+    const landed = await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
+      const row = document.querySelector<HTMLElement>('.acpmux-row[data-row-id="user-5"]')!.getBoundingClientRect();
+      return row.top - scroller.top;
+    });
+    expect(landed).toBeGreaterThanOrEqual(0);
+    expect(landed).toBeLessThan(200);
+    await page.close();
+  });
+
   test("a tick for a prompt not loaded yet pages history in when clicked, and its card fills in once it arrives", async () => {
     const page = await open();
     await page.evaluate(() => {
