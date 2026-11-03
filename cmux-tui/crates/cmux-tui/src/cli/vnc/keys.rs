@@ -199,9 +199,18 @@ impl Keyboard {
 
     /// Releases every key this viewer holds (focus lost, reconnect, exit).
     pub fn release_all(&mut self) -> Vec<(u32, bool)> {
+        self.cancel_command();
+        self.release_remote()
+    }
+
+    pub fn cancel_command(&mut self) {
+        self.awaiting_command = false;
+    }
+
+    /// Deferred key releases must not cancel a newer local command prefix.
+    pub fn release_remote(&mut self) -> Vec<(u32, bool)> {
         self.synthetic.clear();
         self.pressed.clear();
-        self.awaiting_command = false;
         std::mem::take(&mut self.down).into_iter().rev().map(|sym| (sym, false)).collect()
     }
 }

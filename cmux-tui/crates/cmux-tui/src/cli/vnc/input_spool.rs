@@ -11,6 +11,14 @@ use crossterm::event::Event;
 
 const BUFFER_BYTES: usize = 16 * 1024;
 
+/// Events and mode changes share one order. A mode change must not silently
+/// suppress input which was accepted before the command arrived.
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(super) enum DeferredInput {
+    Event(Event),
+    ToggleViewOnly,
+}
+
 #[derive(Default)]
 pub(super) struct InputSpool {
     file: Option<File>,
@@ -25,7 +33,7 @@ impl InputSpool {
 
     /// Stream an event into the FIFO without a second encoded paste allocation.
     /// The length prefix is filled in only after serialization succeeds.
-    pub fn push(&mut self, event: &Event) -> io::Result<()> {
+    pub fn push(&mut self, event: &DeferredInput) -> io::Result<()> {
         if self.file.is_none() {
             self.file = Some(tempfile::tempfile()?);
         }
@@ -45,7 +53,7 @@ impl InputSpool {
         }
     }
 
-    pub fn pop(&mut self) -> io::Result<Option<Event>> {
+    pub fn pop(&mut self) -> io::Result<Option<DeferredInput>> {
         if self.is_empty() {
             return Ok(None);
         }
@@ -78,7 +86,7 @@ impl InputSpool {
     }
 }
 
-fn append(file: &mut File, start: u64, event: &Event) -> io::Result<u64> {
+fn append(file: &mut File, start: u64, event: &DeferredInput) -> io::Result<u64> {
     file.seek(SeekFrom::Start(start))?;
     file.write_all(&0u64.to_le_bytes())?;
     let body_at = file.stream_position()?;
@@ -103,17 +111,25 @@ mod tests {
         let mut spool = InputSpool::default();
         let text = "λ🙂\r\n\"".repeat(1_048_577);
         assert!(text.len() > 9 * 1024 * 1024);
-        spool.push(&Event::Paste(text.clone())).unwrap();
+        spool.push(&DeferredInput::Event(Event::Paste(text.clone()))).unwrap();
+        spool.push(&DeferredInput::ToggleViewOnly).unwrap();
         for index in 0..4097 {
-            spool.push(&Event::Resize(index, index + 1)).unwrap();
+            spool.push(&DeferredInput::Event(Event::Resize(index, index + 1))).unwrap();
         }
-        let key = Event::Key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL));
+        let key = DeferredInput::Event(Event::Key(KeyEvent::new(
+            KeyCode::Char('z'),
+            KeyModifiers::CONTROL,
+        )));
         spool.push(&key).unwrap();
         assert!(!spool.is_empty());
         assert!(spool.write_at > text.len() as u64);
-        assert_eq!(spool.pop().unwrap(), Some(Event::Paste(text)));
+        assert_eq!(spool.pop().unwrap(), Some(DeferredInput::Event(Event::Paste(text))));
+        assert_eq!(spool.pop().unwrap(), Some(DeferredInput::ToggleViewOnly));
         for index in 0..4097 {
-            assert_eq!(spool.pop().unwrap(), Some(Event::Resize(index, index + 1)));
+            assert_eq!(
+                spool.pop().unwrap(),
+                Some(DeferredInput::Event(Event::Resize(index, index + 1)))
+            );
         }
         assert_eq!(spool.pop().unwrap(), Some(key));
         assert!(spool.is_empty());
@@ -124,17 +140,17 @@ mod tests {
     #[test]
     fn append_after_partial_replay_and_cancel_release_the_fifo() {
         let mut spool = InputSpool::default();
-        spool.push(&Event::FocusLost).unwrap();
-        spool.push(&Event::FocusGained).unwrap();
-        assert_eq!(spool.pop().unwrap(), Some(Event::FocusLost));
-        spool.push(&Event::Resize(80, 24)).unwrap();
-        assert_eq!(spool.pop().unwrap(), Some(Event::FocusGained));
-        assert_eq!(spool.pop().unwrap(), Some(Event::Resize(80, 24)));
-        spool.push(&Event::Paste("cancelled".into())).unwrap();
+        spool.push(&DeferredInput::Event(Event::FocusLost)).unwrap();
+        spool.push(&DeferredInput::Event(Event::FocusGained)).unwrap();
+        assert_eq!(spool.pop().unwrap(), Some(DeferredInput::Event(Event::FocusLost)));
+        spool.push(&DeferredInput::Event(Event::Resize(80, 24))).unwrap();
+        assert_eq!(spool.pop().unwrap(), Some(DeferredInput::Event(Event::FocusGained)));
+        assert_eq!(spool.pop().unwrap(), Some(DeferredInput::Event(Event::Resize(80, 24))));
+        spool.push(&DeferredInput::Event(Event::Paste("cancelled".into()))).unwrap();
         spool.clear();
         assert!(spool.file.is_none());
         assert_eq!(spool.pop().unwrap(), None);
-        spool.push(&Event::FocusGained).unwrap();
-        assert_eq!(spool.pop().unwrap(), Some(Event::FocusGained));
+        spool.push(&DeferredInput::Event(Event::FocusGained)).unwrap();
+        assert_eq!(spool.pop().unwrap(), Some(DeferredInput::Event(Event::FocusGained)));
     }
 }

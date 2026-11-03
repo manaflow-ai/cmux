@@ -26,7 +26,7 @@ use crossterm::event::{
 };
 use crossterm::{cursor, execute, queue, terminal};
 
-use super::input_spool::InputSpool;
+use super::input_spool::{DeferredInput, InputSpool};
 use super::keys::{Command, KeyAction, Keyboard};
 use super::layout::{Pane, Placement, scale_rgb};
 use super::{Config, ResizeMode, kitty, printable};
@@ -218,7 +218,7 @@ impl Viewer {
                 recv(terminal_rx) -> msg => match msg { Ok(msg) => Some(msg), Err(_) => return Ok(()) },
                 recv(ready_input) -> _ => {
                     if let Some(event) = self.deferred_input.pop()? {
-                        self.terminal_event(event)?;
+                        self.replay_input(event)?;
                     }
                     None
                 },
@@ -432,7 +432,7 @@ impl Viewer {
     }
 
     fn release_input(&mut self) {
-        let keys = self.keyboard.release_all();
+        let keys = self.keyboard.release_remote();
         self.send_keys(&keys);
         if self.buttons != 0 {
             self.buttons = 0;
@@ -458,25 +458,39 @@ impl Viewer {
         };
         if let Some(action) = command {
             if action == KeyAction::Command(Command::SendEscape) {
-                return self.defer_or_send(term::Event::Key(term::KeyEvent::new(
-                    term::KeyCode::Char(']'),
-                    term::KeyModifiers::CONTROL,
+                return self.defer_or_send(DeferredInput::Event(term::Event::Key(
+                    term::KeyEvent::new(term::KeyCode::Char(']'), term::KeyModifiers::CONTROL),
                 )));
             }
+            if action == KeyAction::Command(Command::ToggleViewOnly) {
+                return self.defer_or_send(DeferredInput::ToggleViewOnly);
+            }
             return self.key_action(action);
+        }
+        if matches!(event, term::Event::FocusLost) {
+            self.keyboard.cancel_command();
         }
         if matches!(event, term::Event::Resize(..)) {
             return self.terminal_event(event);
         }
-        self.defer_or_send(event)
+        self.defer_or_send(DeferredInput::Event(event))
     }
 
-    fn defer_or_send(&mut self, event: term::Event) -> io::Result<bool> {
+    fn replay_input(&mut self, input: DeferredInput) -> io::Result<bool> {
+        match input {
+            DeferredInput::Event(event) => self.terminal_event(event),
+            DeferredInput::ToggleViewOnly => {
+                self.key_action(KeyAction::Command(Command::ToggleViewOnly))
+            }
+        }
+    }
+
+    fn defer_or_send(&mut self, event: DeferredInput) -> io::Result<bool> {
         if !self.deferred_input.is_empty() || !self.input_has_capacity() {
             self.deferred_input.push(&event)?;
             Ok(false)
         } else {
-            self.terminal_event(event)
+            self.replay_input(event)
         }
     }
 

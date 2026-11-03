@@ -1,6 +1,45 @@
 use super::*;
 use std::sync::{Condvar, mpsc};
 
+fn disconnected_viewer() -> Viewer {
+    let (tx, _) = crossbeam_channel::unbounded();
+    let (capacity_tx, _) = crossbeam_channel::bounded(1);
+    let config = super::super::parse(&["localhost".into()], &|_| None).unwrap().unwrap();
+    Viewer::new(config, tx, capacity_tx, false, false)
+}
+
+fn key_event(key: char, modifiers: term::KeyModifiers) -> term::Event {
+    term::Event::Key(term::KeyEvent::new(term::KeyCode::Char(key), modifiers))
+}
+
+#[test]
+fn view_only_toggle_stays_behind_already_deferred_paste() {
+    let mut viewer = disconnected_viewer();
+    let paste = DeferredInput::Event(term::Event::Paste("λ".repeat(4 * 1024 * 1024 + 1)));
+    viewer.deferred_input.push(&paste).unwrap();
+    viewer.receive_terminal(key_event(']', term::KeyModifiers::CONTROL)).unwrap();
+    viewer.receive_terminal(key_event('v', term::KeyModifiers::NONE)).unwrap();
+    assert!(!viewer.config.view_only, "the toggle must not discard the earlier paste");
+    let replay = viewer.deferred_input.pop().unwrap().unwrap();
+    assert_eq!(replay, paste);
+    viewer.replay_input(replay).unwrap();
+    assert!(!viewer.config.view_only);
+    let replay = viewer.deferred_input.pop().unwrap().unwrap();
+    assert_eq!(replay, DeferredInput::ToggleViewOnly);
+    viewer.replay_input(replay).unwrap();
+    assert!(viewer.config.view_only);
+}
+
+#[test]
+fn replaying_old_focus_loss_preserves_new_command_prefix() {
+    let mut viewer = disconnected_viewer();
+    viewer.deferred_input.push(&DeferredInput::Event(term::Event::FocusLost)).unwrap();
+    viewer.receive_terminal(key_event(']', term::KeyModifiers::CONTROL)).unwrap();
+    let replay = viewer.deferred_input.pop().unwrap().unwrap();
+    viewer.replay_input(replay).unwrap();
+    assert!(viewer.receive_terminal(key_event('q', term::KeyModifiers::NONE)).unwrap());
+}
+
 struct StalledPaste {
     closed: Arc<(Mutex<bool>, Condvar)>,
     first_key: mpsc::SyncSender<()>,
