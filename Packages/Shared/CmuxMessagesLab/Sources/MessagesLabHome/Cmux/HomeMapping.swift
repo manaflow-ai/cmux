@@ -96,6 +96,8 @@ enum HomeMapping {
         message.parent = parent(item, roots: roots)
         // Chief's first-launch welcome (CmuxNext ChiefWelcome, client ids "chief-welcome-…"): each bubble its own group.
         if item.key.rawValue.hasPrefix(welcomeKeyPrefix) { message.cmuxStandsAlone = true }
+        // The Chief's messages to its agents and their reports: asides under its reply (no avatar, no name).
+        if item.agentMessage != nil { message.cmuxAside = true }
         if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {
             // Nothing to read (a Chief turn's done marker, a work part with no preview): kept so
             // its seq still moves the read cursor, drawn as no row and counted as no reply.

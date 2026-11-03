@@ -84,6 +84,23 @@ await requireBrowserLane("composer-inline-reorder.browser.test.ts", async () => 
           expect(await page.locator(`${CHIP} img`).count(), name).toBe(2);
           expect(await page.locator(".acpmux-image-viewer, [role='dialog']").count(), name).toBe(0);
 
+          // A press on the × that moves never drags the chip: the order stays, and nothing is copied.
+          const flipped = await ids(page);
+          const lead = page.locator(CHIP).nth(0);
+          await lead.locator(".acpmux-attachment-image").hover();
+          const x = (await lead.locator(".acpmux-attachment-remove").boundingBox())!;
+          const far = (await page.locator(CHIP).nth(1).locator(".acpmux-attachment-image").boundingBox())!;
+          await page.mouse.move(x.x + x.width / 2, x.y + x.height / 2);
+          await page.mouse.down();
+          await page.mouse.move(far.x + far.width - 4, far.y + far.height / 2, { steps: 12 });
+          await page.mouse.up();
+          // A drop is handled in the event's own task: two painted frames are past it.
+          await page.evaluate(
+            () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(undefined)))),
+          );
+          expect(await ids(page), name).toEqual(flipped);
+          expect(await page.locator(`${CHIP} img`).count(), name).toBe(2);
+
           // The × still removes its attachment.
           const target = page.locator(CHIP).nth(0);
           await target.locator(".acpmux-attachment-image").hover();

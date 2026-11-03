@@ -219,9 +219,21 @@ function nodeView(node: ProseNode, view: EditorView, views: InlineViews): NodeVi
   dom.contentEditable = "false";
   dom.dataset.inlineAttachment = id;
   // A press on the × or Retry that moves never drags the chip out from under it: the press is the
-  // control's (the node is draggable, so the browser would start one from anywhere inside it).
+  // control's (the node is draggable, so the browser would start one from anywhere inside it). The
+  // drag's own target is the chip's element, never the control, so the press says where it began.
+  // Both press events: WebKit sends no pointerdown for a press right after a drag, only mousedown.
+  let pressOnControl = false;
+  const press = (event: Event) => {
+    pressOnControl = onControl(event.target, dom);
+  };
+  dom.addEventListener("pointerdown", press, true);
+  dom.addEventListener("mousedown", press, true);
   dom.addEventListener("dragstart", (event) => {
-    if (onControl(event.target, dom)) event.preventDefault();
+    if (pressOnControl || onControl(event.target, dom)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    pressOnControl = false;
   });
   views.add(id, dom);
   return {

@@ -277,6 +277,7 @@ import {
   setSessionInfoOpen as setSessionInfoPanelOpen,
   setSessionInfoSection,
   useSessionInfoOpen,
+  sessionInfoPaneKey,
 } from "./session-info/sessionInfoState";
 import { openCommand, opensProcessTerminal } from "./processTerminal";
 import {
@@ -368,6 +369,7 @@ import {
   foldHoldTarget,
   foldHolding,
   foldRoomFor,
+  opensBody,
   foldToggleAt,
   holdFold,
   keepFold,
@@ -420,6 +422,7 @@ import {
 import { UserBubble } from "./conversation/UserBubble";
 import { SkillWordsContext, useSkillWords } from "./conversation/skillWords";
 import { ChiefPromptBubble } from "./conversation/ChiefPromptBubble";
+import { TranscriptChief } from "./conversation/sentFrom";
 import {
   editableKey,
   editableSeqs,
@@ -490,6 +493,7 @@ import {
 import { uniqueArtifacts } from "./conversation/artifactDedupe";
 import { writtenArtifacts } from "./conversation/writtenArtifacts";
 import { artifactVersions } from "./conversation/artifactVersions";
+import { ArtifactLiveSource, mergeArtifactVersions } from "./conversation/artifactLive";
 import { RenderPages, renderPages, renderVersions } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
@@ -574,7 +578,13 @@ import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
-import { NewestSteerContext, PendingSteer, takeBackSteer, takesSteersBack } from "./conversation/PendingSteer";
+import {
+  markSentNow,
+  NewestSteerContext,
+  PendingSteer,
+  takeBackSteer,
+  takesSteersBack,
+} from "./conversation/PendingSteer";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
@@ -642,7 +652,7 @@ import { WatchBanner } from "./WatchBanner";
 import { ManagedBanner } from "./ManagedBanner";
 import { PaneNotices } from "./PaneNotices";
 import { setPaneNotices } from "./paneNoticeStore";
-import { isTakenOver, managedBy, takeOverManaged } from "./managedBy";
+import { chiefOf, isTakenOver, managedBy, takeOverManaged } from "./managedBy";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -1075,7 +1085,12 @@ const answerHeld = (promptId: string, approve: boolean, revision?: number): Prom
   );
 
 const editQueued = (promptId: string, edit: QueueEdit) =>
-  callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => result?.ok === true);
+  callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => {
+    const ok = result?.ok === true;
+    // Whichever control sent it now, its steer row (same promptId) offers no Send now again.
+    if (ok && edit.op === "send_now") markSentNow(promptId);
+    return ok;
+  });
 
 /// The width the header's tools take in the pane's tab row, so the App narrows the tabs (header/tabRow.ts).
 const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools", { width }).catch(() => undefined);
@@ -1451,6 +1466,8 @@ const MessageRow = memo(
         streaming={row.streaming === true}
         githubRepository={githubRepository}
         messageAt={row.at}
+        artifactIdentity={row.id}
+        artifactRevision={row.version}
       />
     );
     // A finished reply its turn's footer does not serve keeps its own action row, whatever follows
@@ -5194,9 +5211,10 @@ export function VirtualTranscript({
       setFoldRoom(end);
     };
     const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
-      // This ask is for tool/work disclosures. Message Show more/less and other controls retain
-      // their established row anchor, including the room they need when closing at the end.
-      if (!toggle.matches(".cv-tool.is-toggle, .cv-worked, .cv-subagents")) {
+      // Tool/work disclosures, and any line that opens (Leo, 2026-11-02: "YOU EXPAND UP WHILE YOUR
+      // SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE"): a thought, the edits card, a cut row.
+      // Closing other controls (Show less) keeps its established row anchor and the room it needs.
+      if (!toggle.matches(".cv-tool.is-toggle, .cv-worked, .cv-subagents") && !opensBody(toggle)) {
         stopBottomStackFold();
         return false;
       }
@@ -5217,7 +5235,7 @@ export function VirtualTranscript({
       // Reopening at the physical bottom consumes any room retained by a prior collapse. The
       // expanded body itself supplies the height; keeping the old blank room would add a second,
       // jarring gap while the stack moves up.
-      if (!stickyFoldRoom.current || toggle.getAttribute("aria-expanded") === "false") dropFoldRoom();
+      if (!stickyFoldRoom.current || opensBody(toggle)) dropFoldRoom();
       const stack: BottomStackFold = { toggle: line, row, beforeTop: layoutScrollTop(node), delta: 0, from: 0 };
       bottomStackFold.current = stack;
       row.setAttribute("data-bottom-fold", "");
@@ -6184,6 +6202,23 @@ function AcpmuxPane() {
   const artifactSession = snapshot.sessionId;
   // Its versions (cx-ncc.64): the chat's finished replies' documents of its kind and title.
   const artifactRows = artifact ? snapshot.rows : undefined;
+  const artifactRowsRef = useRef(snapshot.rows);
+  artifactRowsRef.current = snapshot.rows;
+  const artifactLive = useRef<ArtifactLiveSource | undefined>(undefined);
+  if (!artifact) {
+    artifactLive.current?.dispose();
+    artifactLive.current = undefined;
+  }
+  useEffect(() => () => artifactLive.current?.dispose(), []);
+  // A pinned preview from another chat does not follow this chat's rows.
+  const liveDocument = useMemo(
+    () =>
+      artifact?.identity && artifactRows && artifact.sessionId === snapshot.sessionId
+        ? artifactLive.current?.read(artifactRows)
+        : undefined,
+    [artifact, artifactRows, snapshot.sessionId],
+  );
+  const liveArtifact = liveDocument?.artifact ?? artifact;
   // Render cards by id (cx-ncc.94): a render that names an earlier one's id shows in that card.
   const pages = useMemo(() => renderPages(snapshot.rows), [snapshot.rows]);
   const artifactVersionList = useMemo(() => {
@@ -6191,25 +6226,32 @@ function AcpmuxPane() {
     // A pinned preview from another chat must not use this chat's rows: two unrelated documents
     // can have the same <title>. Preserve the source's versions captured at Pin instead.
     if (artifact.sessionId !== snapshot.sessionId) return artifactVersionsForSession(artifact, snapshot.sessionId);
-    const versions = artifactRows
-      ? artifact.path
-        ? uniqueArtifacts(writtenArtifacts(artifactRows).filter((item) => item.path === artifact.path))
-        : (renderVersions(pages, artifact) ??
+    const current = liveArtifact ?? artifact;
+    const scanned = artifactRows
+      ? current.path
+        ? uniqueArtifacts(writtenArtifacts(artifactRows).filter((item) => item.path === current.path))
+        : (renderVersions(pages, current) ??
           artifactVersions(
             artifactRows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : [])),
-            artifact,
+            current,
           ))
       : undefined;
+    // The live source holds the opened fence's streamed slot; versions finished after opening (a
+    // later reply's rewrite, a newly paged reply) still join it.
+    const versions = liveDocument ? mergeArtifactVersions(liveDocument.versions, scanned) : scanned;
     return artifactVersionsForSession(artifact, snapshot.sessionId, versions);
-  }, [artifact, artifactRows, pages, snapshot.sessionId]);
+  }, [artifact, liveArtifact, artifactRows, pages, snapshot.sessionId, liveDocument]);
   const openArtifact = useCallback(
-    (next: Artifact) =>
+    (next: Artifact) => {
+      artifactLive.current?.dispose();
+      artifactLive.current = next.identity ? new ArtifactLiveSource(next, artifactRowsRef.current) : undefined;
       setArtifact((current) => ({
         ...next,
         sessionId: artifactSession,
         sourceTitle: snapshot.summary?.title || snapshot.summary?.name,
         opened: (current?.opened ?? 0) + 1,
-      })),
+      }));
+    },
     [artifactSession, snapshot.summary?.title, snapshot.summary?.name],
   );
   // Repository context follows the selected session, connection origin and cwd. A reconnect
@@ -6814,6 +6856,8 @@ function AcpmuxPane() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [shownSessionId, snapshot.sessions, takenOverAt],
   );
+  // The Chief whose prompts this chat draws "Sent from" (conversation/sentFrom.ts).
+  const chatChief = useMemo(() => chiefOf(shownSessionId, snapshot.sessions), [shownSessionId, snapshot.sessions]);
   const freshAgents = useMemo(
     () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
     [snapshot.rows, snapshot.subagentViews],
@@ -7435,7 +7479,13 @@ function AcpmuxPane() {
     [transcriptTasks],
   );
   const sessionInfoOn = useHeaderState().sessionInfo;
-  const sessionInfoOpened = useSessionInfoOpen(shownSessionId);
+  // A pane opened beside another chat (a subagent's pane, a chat its agent started) has Session Info
+  // of its own, closed until the person opens it there (sessionInfoState.ts `sessionInfoPaneKey`).
+  const shownEntry = shownSessionId
+    ? snapshot.sessions?.find((entry) => entry.sessionId === shownSessionId)
+    : undefined;
+  const sessionInfoSplit = ownSubagentPane || !!(shownEntry?.startedBy || shownEntry?.spawnedBy);
+  const sessionInfoOpened = useSessionInfoOpen(sessionInfoPaneKey(shownSessionId, sessionInfoSplit));
   const processRegistry = useProcessRegistry(
     processSource,
     shownSessionId,
@@ -8346,8 +8396,9 @@ function AcpmuxPane() {
   foregroundNow.current = foreground;
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
-  /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`) once the
-  /// summary card's switch is on, else in this pane (subagents/subagentPanes.ts).
+  /// Shows subagent `id`: a person's open in a pane of its own right of the chat, focused; a new
+  /// subagent's own open (`focus` false) only while the summary card's switch is on
+  /// (subagents/subagentPanes.ts).
   const showSubagent = useCallback(
     (id: string, focus = true) =>
       void showSubagentIn(callNative, id, focus, {
@@ -8658,6 +8709,7 @@ function AcpmuxPane() {
   );
   const sessionInfo = useSessionInfo({
     snapshot: sessionInfoSnapshot,
+    split: sessionInfoSplit,
     machineName,
     repository: githubRepository,
     cloudRepositoryAvailable,
@@ -12867,153 +12919,155 @@ function AcpmuxPane() {
     silent: snapshot.silentTurn,
   });
   const transcriptContent = (
-    // Quick Chat's panel has no room beside it: its fences have no Open preview.
-    <ArtifactContext.Provider value={quick ? undefined : openArtifact}>
-      <RenderPages.Provider value={pages}>
-        <ImageViewerContext.Provider value={openImage}>
-          <ShellActionsContext.Provider value={shellActions}>
-            <TurnActionsContext.Provider value={turnActions}>
-              <SkillWordsContext.Provider value={skillWords}>
-                <NewestSteerContext.Provider value={snapshot.newestOwnSteer}>
-                  <RunInBackgroundContext.Provider value={backgroundHint}>
-                    <TurnCountsContext.Provider value={turnCountsFor}>
-                      <SessionEditsContext.Provider value={editRows}>
-                        <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
-                          <SubagentNavContext.Provider value={setSubagentView}>
-                            <SubagentPaneContext.Provider value={showSubagent}>
-                              <WorkingCountsContext.Provider value={workingCounts}>
-                                <WaitingOnContext.Provider value={waiting}>
-                                  <SubagentStopContext.Provider value={stopSubagent}>
-                                    <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-                                      <SubagentHarnessContext.Provider
-                                        value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
-                                      >
-                                        <SessionHoverContext.Provider value={sessionHover}>
-                                          <SubsessionContext.Provider value={subsessions}>
-                                            <StartedMentionsContext.Provider value={startedMentions}>
-                                              <FailedSendsContext.Provider value={failedSends}>
-                                                <ChatFindScope
-                                                  rows={
-                                                    chatPresentation === "messages"
-                                                      ? transcriptRows
-                                                      : (childRows ?? findRows)
-                                                  }
-                                                  shown={childRows ? undefined : transcriptRows}
-                                                  openFold={openFold}
-                                                  findRef={findRef}
-                                                >
-                                                  {(find) => (
-                                                    <VirtualTranscript
-                                                      key={chatPresentation}
-                                                      rows={transcriptRows}
-                                                      earlier={!childRows ? snapshot.earlierPrompts : undefined}
-                                                      promptCount={!childRows ? snapshot.promptCount : undefined}
-                                                      loadThrough={
-                                                        !childRows
-                                                          ? (seq) =>
-                                                              directClient.current?.loadThrough(seq) ??
-                                                              Promise.resolve(false)
-                                                          : undefined
-                                                      }
-                                                      sourceRows={childRows ? undefined : sourceRows}
-                                                      endReserve={previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0}
-                                                      working={snapshot.isWorking}
-                                                      // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                                                      jumpButton={!quick}
-                                                      needsYou={needsYou.pill}
-                                                      focusComposer={() => composerHandle.current?.focus()}
-                                                      // Quick Chat's panel stacks its composer below the transcript.
-                                                      dock={quick ? undefined : dock}
-                                                      queueWithdrawn={snapshot.queueWithdrawn}
-                                                      queueIds={quick ? undefined : queueIds}
-                                                      queuedTail={queuedRows}
-                                                      find={quick ? undefined : find}
-                                                      sessionId={
-                                                        childRows
-                                                          ? `${shownSessionId}:subagent:${subagentView}`
-                                                          : shownSessionId
-                                                      }
-                                                      canLoadOlder={
-                                                        workflowTranscript.rows
-                                                          ? workflowTranscript.canLoadOlder
-                                                          : !childRows && snapshot.canLoadOlder
-                                                      }
-                                                      historyFrom={
-                                                        workflowTranscript.rows
-                                                          ? workflowTranscript.historyFrom
-                                                          : childRows
-                                                            ? undefined
-                                                            : snapshot.historyFrom
-                                                      }
-                                                      onLoadOlder={
-                                                        workflowTranscript.rows
-                                                          ? workflowTranscript.loadOlder
-                                                          : !childRows
-                                                            ? () =>
-                                                                directClient.current?.loadOlder() ?? Promise.resolve()
+    <TranscriptChief.Provider value={chatChief}>
+      {/* Quick Chat's panel has no room beside it: its fences have no Open preview. */}
+      <ArtifactContext.Provider value={quick ? undefined : openArtifact}>
+        <RenderPages.Provider value={pages}>
+          <ImageViewerContext.Provider value={openImage}>
+            <ShellActionsContext.Provider value={shellActions}>
+              <TurnActionsContext.Provider value={turnActions}>
+                <SkillWordsContext.Provider value={skillWords}>
+                  <NewestSteerContext.Provider value={snapshot.newestOwnSteer}>
+                    <RunInBackgroundContext.Provider value={backgroundHint}>
+                      <TurnCountsContext.Provider value={turnCountsFor}>
+                        <SessionEditsContext.Provider value={editRows}>
+                          <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
+                            <SubagentNavContext.Provider value={setSubagentView}>
+                              <SubagentPaneContext.Provider value={showSubagent}>
+                                <WorkingCountsContext.Provider value={workingCounts}>
+                                  <WaitingOnContext.Provider value={waiting}>
+                                    <SubagentStopContext.Provider value={stopSubagent}>
+                                      <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+                                        <SubagentHarnessContext.Provider
+                                          value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
+                                        >
+                                          <SessionHoverContext.Provider value={sessionHover}>
+                                            <SubsessionContext.Provider value={subsessions}>
+                                              <StartedMentionsContext.Provider value={startedMentions}>
+                                                <FailedSendsContext.Provider value={failedSends}>
+                                                  <ChatFindScope
+                                                    rows={
+                                                      chatPresentation === "messages"
+                                                        ? transcriptRows
+                                                        : (childRows ?? findRows)
+                                                    }
+                                                    shown={childRows ? undefined : transcriptRows}
+                                                    openFold={openFold}
+                                                    findRef={findRef}
+                                                  >
+                                                    {(find) => (
+                                                      <VirtualTranscript
+                                                        key={chatPresentation}
+                                                        rows={transcriptRows}
+                                                        earlier={!childRows ? snapshot.earlierPrompts : undefined}
+                                                        promptCount={!childRows ? snapshot.promptCount : undefined}
+                                                        loadThrough={
+                                                          !childRows
+                                                            ? (seq) =>
+                                                                directClient.current?.loadThrough(seq) ??
+                                                                Promise.resolve(false)
                                                             : undefined
-                                                      }
-                                                      openAt={
-                                                        !childRows &&
-                                                        shownSessionId &&
-                                                        scrollAnchor?.sessionId === shownSessionId
-                                                          ? scrollAnchor
-                                                          : undefined
-                                                      }
-                                                      anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                                                      // A prompt goes to the chat, not to the subagent shown in its place.
-                                                      sends={childRows ? undefined : sends}
-                                                      onFollowingChange={
-                                                        childRows ? undefined : onTranscriptFollowingChange
-                                                      }
-                                                      onAnchor={
-                                                        quick || childRows || !shownSessionId
-                                                          ? undefined
-                                                          : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                                                      }
-                                                      expanded={folds}
-                                                      showMinimap={minimapVisible}
-                                                      reveal={childRows ? undefined : revealRow}
-                                                      coldOpen={!childRows && opened.cold ? opened.open : undefined}
-                                                      onColdOpenShown={coldOpenShown}
-                                                      afterLatest={
-                                                        !childRows && trayPlacement === "after-latest-message"
-                                                          ? trayNode
-                                                          : undefined
-                                                      }
-                                                      registry={registry}
-                                                      githubRepository={githubRepository}
-                                                      fallbackRepository={
-                                                        pullRequestRef(headerPullRequest?.url ?? "")?.repo
-                                                      }
-                                                      // The Quick Composer has no room for the changes view; its file rows stay plain.
-                                                      onOpenDiff={quick ? undefined : openDiff}
-                                                      onToggleActivity={toggleActivity}
-                                                    />
-                                                  )}
-                                                </ChatFindScope>
-                                              </FailedSendsContext.Provider>
-                                            </StartedMentionsContext.Provider>
-                                          </SubsessionContext.Provider>
-                                        </SessionHoverContext.Provider>
-                                      </SubagentHarnessContext.Provider>
-                                    </SubagentClockContext.Provider>
-                                  </SubagentStopContext.Provider>
-                                </WaitingOnContext.Provider>
-                              </WorkingCountsContext.Provider>
-                            </SubagentPaneContext.Provider>
-                          </SubagentNavContext.Provider>
-                        </SessionCwdContext.Provider>
-                      </SessionEditsContext.Provider>
-                    </TurnCountsContext.Provider>
-                  </RunInBackgroundContext.Provider>
-                </NewestSteerContext.Provider>
-              </SkillWordsContext.Provider>
-            </TurnActionsContext.Provider>
-          </ShellActionsContext.Provider>
-        </ImageViewerContext.Provider>
-      </RenderPages.Provider>
-    </ArtifactContext.Provider>
+                                                        }
+                                                        sourceRows={childRows ? undefined : sourceRows}
+                                                        endReserve={previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0}
+                                                        working={snapshot.isWorking}
+                                                        // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                                        jumpButton={!quick}
+                                                        needsYou={needsYou.pill}
+                                                        focusComposer={() => composerHandle.current?.focus()}
+                                                        // Quick Chat's panel stacks its composer below the transcript.
+                                                        dock={quick ? undefined : dock}
+                                                        queueWithdrawn={snapshot.queueWithdrawn}
+                                                        queueIds={quick ? undefined : queueIds}
+                                                        queuedTail={queuedRows}
+                                                        find={quick ? undefined : find}
+                                                        sessionId={
+                                                          childRows
+                                                            ? `${shownSessionId}:subagent:${subagentView}`
+                                                            : shownSessionId
+                                                        }
+                                                        canLoadOlder={
+                                                          workflowTranscript.rows
+                                                            ? workflowTranscript.canLoadOlder
+                                                            : !childRows && snapshot.canLoadOlder
+                                                        }
+                                                        historyFrom={
+                                                          workflowTranscript.rows
+                                                            ? workflowTranscript.historyFrom
+                                                            : childRows
+                                                              ? undefined
+                                                              : snapshot.historyFrom
+                                                        }
+                                                        onLoadOlder={
+                                                          workflowTranscript.rows
+                                                            ? workflowTranscript.loadOlder
+                                                            : !childRows
+                                                              ? () =>
+                                                                  directClient.current?.loadOlder() ?? Promise.resolve()
+                                                              : undefined
+                                                        }
+                                                        openAt={
+                                                          !childRows &&
+                                                          shownSessionId &&
+                                                          scrollAnchor?.sessionId === shownSessionId
+                                                            ? scrollAnchor
+                                                            : undefined
+                                                        }
+                                                        anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                                        // A prompt goes to the chat, not to the subagent shown in its place.
+                                                        sends={childRows ? undefined : sends}
+                                                        onFollowingChange={
+                                                          childRows ? undefined : onTranscriptFollowingChange
+                                                        }
+                                                        onAnchor={
+                                                          quick || childRows || !shownSessionId
+                                                            ? undefined
+                                                            : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                                        }
+                                                        expanded={folds}
+                                                        showMinimap={minimapVisible}
+                                                        reveal={childRows ? undefined : revealRow}
+                                                        coldOpen={!childRows && opened.cold ? opened.open : undefined}
+                                                        onColdOpenShown={coldOpenShown}
+                                                        afterLatest={
+                                                          !childRows && trayPlacement === "after-latest-message"
+                                                            ? trayNode
+                                                            : undefined
+                                                        }
+                                                        registry={registry}
+                                                        githubRepository={githubRepository}
+                                                        fallbackRepository={
+                                                          pullRequestRef(headerPullRequest?.url ?? "")?.repo
+                                                        }
+                                                        // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                                        onOpenDiff={quick ? undefined : openDiff}
+                                                        onToggleActivity={toggleActivity}
+                                                      />
+                                                    )}
+                                                  </ChatFindScope>
+                                                </FailedSendsContext.Provider>
+                                              </StartedMentionsContext.Provider>
+                                            </SubsessionContext.Provider>
+                                          </SessionHoverContext.Provider>
+                                        </SubagentHarnessContext.Provider>
+                                      </SubagentClockContext.Provider>
+                                    </SubagentStopContext.Provider>
+                                  </WaitingOnContext.Provider>
+                                </WorkingCountsContext.Provider>
+                              </SubagentPaneContext.Provider>
+                            </SubagentNavContext.Provider>
+                          </SessionCwdContext.Provider>
+                        </SessionEditsContext.Provider>
+                      </TurnCountsContext.Provider>
+                    </RunInBackgroundContext.Provider>
+                  </NewestSteerContext.Provider>
+                </SkillWordsContext.Provider>
+              </TurnActionsContext.Provider>
+            </ShellActionsContext.Provider>
+          </ImageViewerContext.Provider>
+        </RenderPages.Provider>
+      </ArtifactContext.Provider>
+    </TranscriptChief.Provider>
   );
   const transcript = (
     <PresentationContext.Provider value={chatPresentation}>{transcriptContent}</PresentationContext.Provider>
@@ -14661,10 +14715,10 @@ function AcpmuxPane() {
           summaryPanel}
         {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
         {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && sessionInfo.panel}
-        {artifact && (
+        {artifact && liveArtifact && (
           <ArtifactPanel
             key={artifact.opened}
-            artifact={artifact}
+            artifact={liveArtifact}
             versions={artifactVersionList}
             pinned={!!artifact.pinned}
             sourceTitle={artifact.sourceTitle}

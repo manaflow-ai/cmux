@@ -65,7 +65,7 @@ extension ActionDescriptor {
         "palette.restartSocketListener", "palette.restartServer", "palette.attemptUpdate", "openDebugSettings",
         "help.featureFlags", "help.showCrashLogs", "ghostty.showDiagnostics", "home.saveFlightRecording",
         "taskManager.killProcess", "palette.installCLI", "palette.uninstallCLI", "palette.makeDefaultBrowser",
-        "palette.makeDefaultTerminal", "palette.switchAppChannel", "updates.rollback", "palette.shortcutKeymap",
+        "palette.makeDefaultTerminal", "palette.switchAppChannel", "updates.rollback", "updates.installEarlierBuild", "palette.shortcutKeymap",
         "workspace.importClassic", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
         "palette.vscodeServeWebStop", "palette.vscodeServeWebRestart", "palette.disableBrowser", "palette.enableBrowser",
         "server.makeThisMacAServer", "server.stopServing", "sendCtrlFToTerminal", "toggleReactGrab",

@@ -1,5 +1,5 @@
-# The mux brain host's bun test suite (mux/). Any branch push that touches mux/
-# runs it, and a lane can dispatch it on any pushed ref:
+# The mux brain host's bun test suite (mux/). A pull request or a main push
+# that touches mux/ runs it, and a lane can dispatch it on any pushed ref:
 #   gh workflow run mux.yml --repo manaflow-ai/cmux --ref <branch>
 # Bun is pinned to the version CI and the fleet hosts use; the lockfile is frozen.
 
@@ -12,7 +12,9 @@ on:
       - .github/workflows/mux.yml
   push:
     # feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10).
-    branches-ignore: [feat-cmux-next]
+    # Other branches get it from their pull request: a push to a branch with
+    # no pull request starts nothing (the 2026-10-27 push flood).
+    branches: [main]
     paths:
       - mux/**
       - .github/workflows/mux.yml
