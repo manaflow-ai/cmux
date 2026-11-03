@@ -8,12 +8,14 @@ struct SidebarStatesPlaygroundFavicons {
     /// The side of each favicon in pixels: a 2x 16 pt favicon.
     let side = 32
 
-    /// A near-black disc with a white ring cut out of it: a one-color mark.
+    /// A near-black disc with a ring cut out of it (transparent, as GitHub's mark cuts its cat out of the disc): a
+    /// one-color mark. A ring painted white would make it a two-tone icon, which `sidebar.faviconStyle`'s adaptive
+    /// tint leaves as fetched.
     var mono: CGImage? {
         draw { ctx, rect in
             ctx.setFillColor(CGColor(srgbRed: 0.09, green: 0.09, blue: 0.1, alpha: 1))
             ctx.fillEllipse(in: rect.insetBy(dx: 1, dy: 1))
-            ctx.setStrokeColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            ctx.setBlendMode(.clear)
             ctx.setLineWidth(3)
             ctx.strokeEllipse(in: rect.insetBy(dx: 9, dy: 9))
         }
