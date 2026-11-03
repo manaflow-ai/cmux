@@ -24,7 +24,12 @@ await requireBrowserLane("cloud-menu-highlight-browser.test.ts", async () => {
   ] as const;
 
   beforeAll(async () => {
-    vite = await createServer({ root, configFile: path.join(root, "vite.config.ts"), server: { port: 0, host: "127.0.0.1" }, logLevel: "error" });
+    vite = await createServer({
+      root,
+      configFile: path.join(root, "vite.config.ts"),
+      server: { port: 0, host: "127.0.0.1" },
+      logLevel: "error",
+    });
     await vite.listen();
     for (const [entry, variant] of scenes) await warmGalleryFrame(vite, entry, { params: { variant } });
     browser = await chromium.launch({ headless: true });
@@ -57,7 +62,10 @@ await requireBrowserLane("cloud-menu-highlight-browser.test.ts", async () => {
             return {
               neutral,
               highlighted: [...popup.querySelectorAll("[data-highlighted]")].map((row) => ({ background: getComputedStyle(row).backgroundColor, shadow: getComputedStyle(row).boxShadow })),
-              selected: [...popup.querySelectorAll('[aria-checked="true"]:not([data-highlighted])')].map((row) => getComputedStyle(row).backgroundColor),
+              selected: [...popup.querySelectorAll('[aria-checked="true"], [data-current]')]
+                .map((row) => row.closest('[role="option"], [role="menuitemradio"], [role="menuitemcheckbox"]'))
+                .filter((row): row is Element => row !== null && !row.hasAttribute("data-highlighted"))
+                .map((row) => getComputedStyle(row).backgroundColor),
             };
           });
           if (!automatic) expect(paints.highlighted.length).toBeGreaterThan(0);

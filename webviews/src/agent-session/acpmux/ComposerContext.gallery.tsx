@@ -50,6 +50,10 @@ const baseProps = {
 
 /// 21 machines, as `acpmux host ls` lists them on a Mac with a fleet.
 const fleetProps = { ...baseProps, ...fleetPeers() };
+const folderMenuProps = {
+  ...baseProps,
+  summary: { sessionId: "gallery-folder", harness: "claude", cwd: projects[1]!.cwd, host: "This Mac", hostKind: "local" as const },
+};
 /// The account's Cloud machines acpmux does not list (cloudMachines.ts): paused, ready and booting.
 const accountMachines = [
   { id: "vm-build", name: "build box", stage: "paused" },
@@ -409,12 +413,12 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "folder-menu": {
       note: "Project actions stay directly below search, above the recent projects (paths on hover).",
-      props: baseProps,
+      props: folderMenuProps,
       play: openFolder,
     },
     "folder-menu-hover": {
       note: "Hover uses the neutral menu wash; the current folder keeps only its check.",
-      props: baseProps,
+      props: folderMenuProps,
       play: async (ctx) => {
         await openFolder(ctx);
         await ctx.hover({ role: "option", name: /atlas-web/ });
@@ -422,7 +426,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "folder-menu-keyboard": {
       note: "Arrow navigation uses the same neutral wash as hover.",
-      props: baseProps,
+      props: folderMenuProps,
       play: async (ctx) => {
         await openFolder(ctx);
         await ctx.press("ArrowDown");
