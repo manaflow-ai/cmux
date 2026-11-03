@@ -368,6 +368,109 @@ mod tests {
             .unwrap()
     }
 
+    /// A customised sidebar on `session`'s machine section: renamed, with a
+    /// group holding the workspace's item. Returns the group's id.
+    fn customize_sidebar(root: &Path, session: &str) -> String {
+        use cmux_layout_reducer::sidebar_doc::{
+            Body, NewItem, Op, Patch, SectionPatch, Target, WorkspaceRef, machine_section_id,
+            reduce,
+        };
+        let connection = Connection::open(registry_file(root)).unwrap();
+        let tx = connection.unchecked_transaction().unwrap();
+        let section = machine_section_id(session);
+        let workspace: String = tx
+            .query_row(
+                "SELECT public_id FROM resource_workspaces WHERE workspace_key = 'one'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let group = "itm_custom_group".to_string();
+        crate::state::sidebar_doc_store::with_doc_mut(&tx, |doc| {
+            assert!(doc.section(&section).is_some(), "the machine section exists");
+            let placed = doc.items_unordered().find_map(|item| match &item.body {
+                Body::Workspace { reference } if reference.session_id == session => {
+                    Some(item.id.clone())
+                }
+                _ => None,
+            });
+            let mut ops = Vec::new();
+            let item = placed.unwrap_or_else(|| {
+                let id = format!("itm_w_{session}_{workspace}");
+                ops.push(Op::ItemAdd {
+                    item: NewItem {
+                        id: Some(id.clone()),
+                        body: Body::Workspace { reference: WorkspaceRef::new(session, &workspace) },
+                        shows_label: true,
+                        span: None,
+                        extra: Default::default(),
+                    },
+                    to: Target::end(&section),
+                });
+                id
+            });
+            ops.push(Op::SectionUpdate {
+                id: section.clone(),
+                patch: SectionPatch { title: Patch::Set("Renamed".into()), ..Default::default() },
+            });
+            ops.push(Op::GroupCreate {
+                id: Some(group.clone()),
+                name: "Custom".into(),
+                color: None,
+                icon: None,
+                profile: None,
+                items: vec![item],
+                to: Some(Target::end(&section)),
+            });
+            let previous = doc.revision;
+            let applied = reduce::apply_in_place(
+                doc,
+                &ops,
+                &mut crate::state::sidebar_doc_legacy::mint_item_id,
+            )
+            .map_err(|refusal| anyhow::anyhow!("{}", refusal.as_str()))?;
+            crate::state::sidebar_doc_store::write_changes(
+                &tx,
+                previous,
+                doc.revision,
+                &applied.changes,
+                None,
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        tx.commit().unwrap();
+        group
+    }
+
+    /// The machine section of `session` after an open: (title, the group's
+    /// section, the sessions of the workspaces under the group).
+    fn sidebar_of(
+        root: &Path,
+        session: &str,
+        group: &str,
+    ) -> (Option<String>, String, Vec<String>) {
+        use cmux_layout_reducer::sidebar_doc::machine_section_id;
+        drop(WorkspaceRegistry::open(root, SESSION).unwrap());
+        let connection = Connection::open(registry_file(root)).unwrap();
+        crate::state::sidebar_doc_store::with_doc(&connection, |doc| {
+            let section = doc
+                .section(&machine_section_id(session))
+                .unwrap_or_else(|| panic!("no machine section for {session}"));
+            let group_item = doc
+                .items_unordered()
+                .find(|item| item.id == group)
+                .unwrap_or_else(|| panic!("group {group} is gone"));
+            let members = doc
+                .items_unordered()
+                .filter(|item| item.parent.as_deref() == Some(group))
+                .filter_map(|item| item.body.workspace().map(|r| r.session_id.clone()))
+                .collect();
+            Ok((section.title.clone(), group_item.section.clone(), members))
+        })
+        .unwrap()
+    }
+
     /// A registry in use: a workspace and a terminal, so the session journal
     /// and its append-only triggers hold rows naming the session.
     fn seed(root: &Path) {
@@ -396,6 +499,10 @@ mod tests {
         seed(&original);
         let made = ids(&original);
         plant(&original, &made.0);
+        let group = customize_sidebar(&original, &made.0);
+        let (title, _, members) = sidebar_of(&original, &made.0, &group);
+        assert_eq!(title.as_deref(), Some("Renamed"));
+        assert_eq!(members.len(), 1, "the group holds the workspace");
         assert_eq!(ids(&original), made, "the same machine keeps its ids");
 
         // VMs made from one image: the whole state root, under another machine id.
@@ -412,6 +519,15 @@ mod tests {
         assert_eq!(command, format!("cd /srv/{} && ls", made.0), "free text is kept");
         assert_eq!(record["command"], format!("echo {}", made.0), "free text in JSON is kept");
         assert_eq!(record["ref"]["session_id"], cloned.0, "a JSON session ref moves");
+        // The customised sidebar survives the rehome and the open's repair.
+        let (title, group_section, members) = sidebar_of(&clone, &cloned.0, &group);
+        assert_eq!(title.as_deref(), Some("Renamed"), "the section keeps its name");
+        assert_eq!(
+            group_section,
+            cmux_layout_reducer::sidebar_doc::machine_section_id(&cloned.0),
+            "the group stays in the machine section"
+        );
+        assert_eq!(members, vec![cloned.0.clone()], "the placement moves with the session");
         let reopened = WorkspaceRegistry::open(&clone, SESSION).unwrap();
         assert_eq!(reopened.snapshot().unwrap().workspaces[0].key, "one", "the workspaces stay");
         drop(reopened);
