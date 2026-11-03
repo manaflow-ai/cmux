@@ -173,6 +173,65 @@ struct WindowLiveResizeFrameTickTests {
         #expect(window.frame.width == startWidth + 72, "the window ended \(window.frame.width - startWidth) pt wider")
     }
 
+    /// `motion.frameOwner.liveResize` (Debug Settings): the switch the films compare. `body` runs with it set to `on`,
+    /// in the shared tunable store (no file), and the override goes after it.
+    static func withSwitch(_ on: Bool, _ body: () throws -> Void) throws {
+        let key = "motion.frameOwner.liveResize"
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(DesignTunables.all)
+        try #require(TunableStore.shared.set(key, .bool(on)) == .bool(on), "Debug Settings has no \(key)")
+        defer { TunableStore.shared.set(key, nil) }
+        try body()
+    }
+
+    /// The switch off is today's path: each live-resize drag reaches the window's resize in its own turn.
+    @Test func theSwitchOffDeliversEachLiveResizeDragInItsOwnTurn() throws {
+        try Self.withSwitch(false) {
+            let rig = Rig()
+            defer { rig.close() }
+            let window = rig.window
+            let startWidth = window.frame.width
+            let press = try rig.pressPoint()
+            window.sendEvent(rig.event(.leftMouseDown, press))
+            Motion.liveResizeOverride = true
+            defer { Motion.liveResizeOverride = nil }
+            for step in 1...3 {
+                window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 12 * CGFloat(step), y: press.y)))
+            }
+            #expect(rig.edge.events == [.drag(press.x + 12), .drag(press.x + 24), .drag(press.x + 36)], "\(rig.edge.events)")
+            #expect(window.frame.width == startWidth + 36)
+            window.sendEvent(rig.event(.leftMouseUp, CGPoint(x: press.x + 36, y: press.y)))
+        }
+    }
+
+    /// The switch is read once per resize, at its first held drag: a flip mid-resize applies from the next resize,
+    /// so one resize never mixes the two paths.
+    @Test func theSwitchIsLatchedForTheWholeResize() throws {
+        try Self.withSwitch(true) {
+            let rig = Rig()
+            defer { rig.close() }
+            let window = rig.window
+            let press = try rig.pressPoint()
+            window.sendEvent(rig.event(.leftMouseDown, press))
+            Motion.liveResizeOverride = true
+            defer { Motion.liveResizeOverride = nil }
+            window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 12, y: press.y)))
+            #expect(rig.edge.events.isEmpty, "the first drag of a resize with the switch on waits for the frame tick: \(rig.edge.events)")
+            // Off mid-resize: this resize keeps waiting for the frame tick.
+            TunableStore.shared.set("motion.frameOwner.liveResize", .bool(false))
+            window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 24, y: press.y)))
+            #expect(rig.edge.events.isEmpty, "a flip mid-resize changed the path: \(rig.edge.events)")
+            rig.frameTick()
+            #expect(rig.edge.events == [.drag(press.x + 24)], "\(rig.edge.events)")
+            window.sendEvent(rig.event(.leftMouseUp, CGPoint(x: press.x + 24, y: press.y)))
+            // The next resize reads the switch again: off, each drag in its own turn.
+            window.sendEvent(rig.event(.leftMouseDown, CGPoint(x: press.x + 24, y: press.y)))
+            window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 36, y: press.y)))
+            #expect(rig.edge.events == [.drag(press.x + 24), .up, .drag(press.x + 36)], "\(rig.edge.events)")
+            window.sendEvent(rig.event(.leftMouseUp, CGPoint(x: press.x + 36, y: press.y)))
+        }
+    }
+
     /// Scope: outside a live resize a drag reaches its view in its own turn, as before (a text selection, a tab drag).
     @Test func outsideALiveResizeEachDragReachesItsViewInItsOwnTurn() throws {
         let rig = Rig()
