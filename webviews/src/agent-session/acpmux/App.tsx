@@ -7499,6 +7499,14 @@ function AcpmuxPane() {
     workflowSideTabOpener.current = undefined;
     setWorkflowSideTabId(undefined);
   }, []);
+  // The Background tasks panel opens from the chat's ⋯ menu and from the running tray's header
+  // (SubagentTray.tsx `onOpenPanel`). A workflow's side tab would cover it (a full-height overlay):
+  // it closes. Already open, it stays as it is (expanded, cleared and drilled in alike).
+  const panelSession = snapshot.sessionId;
+  const openBackgroundPanel = useCallback(() => {
+    clearWorkflowSideTab();
+    setBackgroundPanel((panel) => panel ?? { sessionId: panelSession, expanded: false, dismissed: new Set<string>() });
+  }, [clearWorkflowSideTab, panelSession]);
   const closeWorkflowSideTab = useCallback(() => {
     workflowSideTabFocusOnClose.current = true;
     setWorkflowSideTabId(undefined);
@@ -9507,6 +9515,7 @@ function AcpmuxPane() {
                 backgroundTaskOutput !== undefined
               }
               onOpenSession={openOfferChat}
+              onOpenPanel={quick ? undefined : openBackgroundPanel}
               stop={stopSubagent}
               stopProcess={stopProcess}
               placement={trayPlacement}
@@ -12789,10 +12798,7 @@ function AcpmuxPane() {
               label: t("backgroundTasks.title"),
               icon: "task.status.backlog",
               // A workflow's side tab would cover the panel (a full-height overlay): it closes.
-              onSelect: () => {
-                clearWorkflowSideTab();
-                setBackgroundPanel({ sessionId: snapshot.sessionId, expanded: false, dismissed: new Set() });
-              },
+              onSelect: openBackgroundPanel,
             },
           ]),
       ...(checkpoints.supported
