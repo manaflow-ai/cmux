@@ -253,3 +253,17 @@ fn native_workflow_host_journals_large_activity_results_without_mcp_preview_trun
     }
     assert_eq!(server.backend.effects.get(), 1);
 }
+
+#[test]
+fn native_workflow_host_drops_a_disabled_upstream_before_another_call() {
+    let mut server = Server::new(Fake::default(), None);
+    server.upstreams.push(upstream::Proxied::new(upstream::Upstream::new(upstream::Spec {
+        name: "turned-off-server".into(),
+        command: "/unused".into(),
+        args: Vec::new(),
+        env: Vec::new(),
+        call_timeout: Duration::from_secs(1),
+    })));
+    refresh_tools(&mut server, &json!({"allowedTools":null,"upstreamNames":[]})).unwrap();
+    assert!(server.upstreams.is_empty());
+}
