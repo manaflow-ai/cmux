@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import Foundation
@@ -38,6 +40,38 @@ struct BrowserTabCloseLeavesAtOnceTests {
             try await PinnedPageTests.until({ store.liveTreeLists(tab: id) == false }, within: .seconds(10),
                                             report: { "the page's close did not close its tab: \(store.pane(handle)?.tabs.map(\.id) ?? [])" })
             #expect(!pane.orderedIDs.map(\.rawValue).contains(id))
+            #expect(store.tab(surface: kept.surface) != nil, "the other tab closed")
+        }
+    }
+
+    /// The page's own close comes as its `.close` request (`BrowserPageRequests`, as `CEFTab.browserDidClose`
+    /// sends it), not a `closeTab` on the tab: the hidden tab is found and closed then, at once, not at the deadline.
+    /// Review of #32876 at 9b3becab797: the hidden tab was out of the store's index, so the request was dropped.
+    @Test func thePagesOwnCloseRequestClosesItsHiddenTabAtOnce() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let pane = try #require(services.windows.active?.focusedPane)
+            let handle = pane.pane.handle
+            let kept = try await connection.newFrontendBrowserTab(url: "https://example.com/kept", engine: .webkit, in: handle, activate: false)
+            let closed = try await connection.newFrontendBrowserTab(url: "https://example.com/form", engine: .webkit, in: handle, activate: true)
+            try await PinnedPageTests.until({ [kept, closed].allSatisfy { store.tab(surface: $0.surface).map { pane.orderedIDs.map(\.rawValue).contains($0.id) } == true } })
+            let id = try #require(store.tab(surface: closed.surface)).id
+            pane.select(StripTabID(id))
+            try await PinnedPageTests.until({ services.cache.browsers[id] != nil }, report: { "the page of \(id) was never made" })
+            let page = try #require(services.cache.browsers[id]?.tab)
+            let undo = try #require(services.closedTabs?.undoToasts)
+            var deciding: Set<String> = [id]
+            undo.pageDecidesClose = { _, tab in deciding.contains(tab.rawValue) }
+
+            #expect(services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user)))
+            try #require(!pane.orderedIDs.map(\.rawValue).contains(id) && undo.hiddenPages.contains(id))
+            deciding.remove(id)
+            let start = ContinuousClock.now
+            services.cache.pageRequests.browserTab(page, didRequest: .close)
+            #expect(!undo.hiddenPages.contains(id), "the page's close request left its tab hidden")
+            try await PinnedPageTests.until({ store.liveTreeLists(tab: id) == false }, within: .seconds(4),
+                                            report: { "the page's close request did not close its tab: \(store.pane(handle)?.tabs.map(\.id) ?? [])" })
+            #expect(start.duration(to: .now) < .seconds(4), "closed only at the hide's deadline")
             #expect(store.tab(surface: kept.surface) != nil, "the other tab closed")
         }
     }
