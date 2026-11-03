@@ -257,7 +257,7 @@ function linkEnd(line: string, from: number): number {
 /// Merged`), which the card's chip says already: a record read before the signature was taken out
 /// on every path, or a queued one, may still start with it.
 export function unsigned(text: string, name: string): string {
-  const signed = namedFirst(text) ?? fromFirst(text);
+  const signed = namedFirst(text) ?? fromFirst(text) ?? colonFirst(text);
   return signed && namesSender(signed.name, [name]) ? signed.text : text;
 }
 
@@ -461,6 +461,16 @@ const AGENT_NAME = /^[\w.@/:-]+(?: [\w.@/:-]+){0,3}$/;
 /// Brackets that are not a sender: Claude Code's interruption note and a subagent's hand-back,
 /// cmux's own message header.
 const NOT_A_NAME = /^(?:Request interrupted|Subagent hand-back|cmux agent message)/;
+
+/// A sender's name then a colon before its message, `merge-timeout: please deploy …`: one word,
+/// which `unsigned` drops only when it names the sender, so the line never names the sender twice
+/// (Leo, 2026-11-02, on "lane-vm-01/merge-timeout · lane-v… merge-timeout: please deploy …": "wtf these tool
+/// call spacing things are still weird").
+const COLON_PREFIX = /^([\w.@/-]+):\s+(\S[\s\S]*)$/;
+function colonFirst(text: string): { name: string; text: string } | undefined {
+  const prefixed = COLON_PREFIX.exec(text);
+  return prefixed ? { name: prefixed[1]!, text: prefixed[2]!.trim() } : undefined;
+}
 
 /// The agent named first in brackets in `text`, and its message after the name.
 function namedFirst(text: string): { name: string; text: string } | undefined {
