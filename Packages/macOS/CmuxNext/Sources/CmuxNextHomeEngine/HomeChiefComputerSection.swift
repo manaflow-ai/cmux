@@ -100,7 +100,11 @@ public final class HomeChiefComputerSection: NSStackView {
         row.spacing = Metrics.space2
         row.setAccessibilityElement(true)
         row.setAccessibilityIdentifier("cmux.home.chief.computer.state")
-        for view in [header, screen, row] as [NSView] {
+        // Says plainly that this is the Chief's own machine, which it uses for computer-use tasks (34263).
+        let note = HomeChiefSettingsView.footnote(HomeEngineStrings.computerNote)
+        note.preferredMaxLayoutWidth = HomeChiefSettingsView.width - 2 * HomeChiefSettingsView.inset
+        note.setAccessibilityIdentifier("cmux.home.chief.computer.note")
+        for view in [header, screen, row, note] as [NSView] {
             addArrangedSubview(view)
             view.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
         }
