@@ -300,6 +300,15 @@ def snapshot(repo: Path, sha: str | None):
 INPUTS_NAME = "INPUTS"
 
 
+def module_binding(statement) -> str | None:
+    """The name a module-level `NAME = value` or `NAME: type = value` binds, or None."""
+    if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name):
+        return statement.targets[0].id
+    if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+        return statement.target.id
+    return None
+
+
 def declared_inputs(source: str) -> tuple[str, ...]:
     """The paths a check script declares it reads: its module-level `INPUTS` tuple, read with `ast`, never run.
     An entry is a string literal, a module-level string constant's name, an f-string or `+` of those, or `*NAME`
@@ -341,10 +350,10 @@ def declared_inputs(source: str) -> tuple[str, ...]:
         return tuple(entries)
 
     for statement in module.body:
-        if not (isinstance(statement, ast.Assign) and len(statement.targets) == 1
-                and isinstance(statement.targets[0], ast.Name)):
+        target = module_binding(statement)
+        if target is None or statement.value is None:
             continue
-        name = statement.targets[0].id
+        name = target
         if name == INPUTS_NAME:
             return strings(statement.value) or ()
         found = text(statement.value)
@@ -417,30 +426,41 @@ def trusted_reader(trusted: Path, read):
 def trusted_pieces(repo: Path, package: ScriptPackage, files: list[str], risky: list[str], trusted: Path | None,
                    read) -> tuple[list[str], list[str]]:
     """(the declared source-check pieces the hook runs from its reviewed copy TRUSTED for a package it can't lint,
-    the ones left out because the push changes their script). Only when every executed file the push changes
-    (RISKY) is under scripts/cmux-next/, the one folder the copy holds; their INPUTS are the copy's."""
+    the ones left out: the push changes their script, or the copy has none). Only when every executed file the push
+    changes (RISKY) is under scripts/cmux-next/, the one folder the copy holds; their INPUTS are the copy's, and
+    only pieces whose script is in that folder qualify."""
     if trusted is None or not trusted.is_dir() or not all(path.startswith(TRUSTED_FOLDER) for path in risky):
         return [], []
     run, skipped = [], []
     for piece in input_pieces(repo, package, files, trusted_reader(trusted, read)):
         script = piece_script(package, piece)
-        if script in risky:
+        if not script.startswith(TRUSTED_FOLDER):
+            continue  # input_pieces read no INPUTS for it from the copy: trusted_reader reads other paths as pushed
+        if script in risky or not (trusted / script[len(TRUSTED_FOLDER):]).is_file():
             skipped.append(piece)
-        elif (trusted / script[len(TRUSTED_FOLDER):]).is_file():
+        else:
             run.append(piece)
     return run, skipped
 
 
-# Runs a reviewed check script (argv[2]) as if it sat at its own path in the tree argv[1], so it reads that tree
-# (each check finds its repository from __file__). -I keeps the environment out; '' and the working directory (the
-# pushed package) leave sys.path before anything is imported, so no pushed module can stand in for the stdlib.
+# Runs a reviewed check script (argv[2]) as if it sat at its own path (argv[3]) in the tree argv[1], so it reads
+# that tree (each check finds its repository from __file__). -I keeps the environment out; '' and the working
+# directory (the pushed package) leave sys.path before anything is imported, so no pushed module can stand in for
+# the stdlib; and an audit hook refuses any import while sys.path names a folder in the tree (a check that put its
+# own folder on sys.path would load the pushed siblings), which fails the check loudly instead.
 TRUSTED_RUNNER = (
     "import sys\n"
     "sys.path[:] = [p for p in sys.path if p not in ('', '.')]\n"
     "import os\n"
     "sys.path[:] = [p for p in sys.path if os.path.abspath(p) != os.getcwd()]\n"
-    "root, script, *args = sys.argv[1:]\n"
-    "path = os.path.join(root, 'scripts', 'cmux-next', os.path.basename(script))\n"
+    "root, script, path, *args = sys.argv[1:]\n"
+    "inside = os.path.realpath(root) + os.sep\n"
+    "def refuse(event, details):\n"
+    "    if event == 'import' and any(os.path.realpath(str(entry) or '.').startswith(inside)\n"
+    "                                 for entry in (details[2] or ())):\n"
+    "        raise ImportError(f'web lint: {details[0]} would import from the pushed tree; the hook runs only its '\n"
+    "                          'reviewed copy, so this check must import nothing beside itself')\n"
+    "sys.addaudithook(refuse)\n"
     "with open(script, encoding='utf-8') as handle:\n"
     "    code = compile(handle.read(), path, 'exec')\n"
     "sys.argv = [path, *args]\n"
@@ -454,7 +474,8 @@ def trusted_check_argv(tree: Path, trusted: Path, package: ScriptPackage, piece:
     argv = light_argv(piece)
     script = piece_script(package, piece)
     args = argv[argv.index(next(word for word in argv[1:] if not word.startswith("-"))) + 1:]
-    return [sys.executable, "-I", "-c", TRUSTED_RUNNER, str(tree), str(trusted / script[len(TRUSTED_FOLDER):]), *args]
+    return [sys.executable, "-I", "-c", TRUSTED_RUNNER, str(tree), str(trusted / script[len(TRUSTED_FOLDER):]),
+            str(tree / script), *args]
 
 
 def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None, read=None,
@@ -1153,7 +1174,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{mode}: {directory}: still run, from the hook's reviewed copy of {TRUSTED_FOLDER} on the "
                       f"pushed files: {', '.join(plan.trusted_pieces[directory])}.", file=sys.stderr)
             if plan.trusted_skipped.get(directory):
-                print(f"{mode}: {directory}: not run, because this push changes its script: "
+                print(f"{mode}: {directory}: not run, because this push changes its script or the hook's copy has "
+                      "none: "
                       f"{', '.join(plan.trusted_skipped[directory])}.", file=sys.stderr)
         if not (plan.script_packages or plan.script_pieces or plan.trusted_pieces or plan.eslint_files):
             if args.dry_run:

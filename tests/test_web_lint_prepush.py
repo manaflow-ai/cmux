@@ -7,6 +7,7 @@ BAD), installs the hooks with scripts/install-git-hooks.sh, and pushes to a
 bare `origin` through the real `git push`, so the installed trusted hook copy is
 what runs.
 """
+import ast
 import io
 import json
 import os
@@ -384,7 +385,7 @@ class WebLintPrePushTests(unittest.TestCase):
         result = self.push()
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("not run, because this push changes its script: "
+        self.assertIn("not run, because this push changes its script or the hook's copy has none: "
                       "python3 ../scripts/cmux-next/check-text-focus-rings.py", result.stderr)
         self.assertNotIn(f"{self.SWIFT_SOURCE}:3", result.stderr)
 
@@ -1435,7 +1436,8 @@ class CheckPiecesTests(unittest.TestCase):
                 continue
             script = next(word for word in argv[1:] if not word.startswith("-"))
             source = read(lint.posixpath.normpath(lint.posixpath.join(webviews.directory, script)))
-            if f"\n{lint.INPUTS_NAME} =" not in f"\n{source}":
+            # Any module-level binding of INPUTS (plain, typed, any spacing), found with ast, not by its text.
+            if not [s for s in ast.parse(source).body if lint.module_binding(s) == lint.INPUTS_NAME]:
                 continue
             inputs = lint.declared_inputs(source)
             with self.subTest(piece=piece):
@@ -1445,6 +1447,44 @@ class CheckPiecesTests(unittest.TestCase):
                                     f"{pattern!r} matches no tracked file")
             declared += 1
         self.assertGreaterEqual(declared, 9, "the source checks that read outside webviews/ declare INPUTS")
+
+    def test_a_typed_inputs_declaration_counts(self):
+        lint = load_lint(SOURCE)
+        self.assertEqual(lint.declared_inputs('TREE: str = "a/b"\nINPUTS: tuple[str, ...] = (TREE,)\n'), ("a/b",))
+
+    def run_trusted(self, check_source, pushed):
+        """The runner on a tree holding PUSHED (path: text) and the reviewed CHECK_SOURCE; returns (result, marker)."""
+        lint = load_lint(SOURCE)
+        holder = Path(tempfile.mkdtemp(prefix="cmux-trusted-runner-"))
+        self.addCleanup(shutil.rmtree, holder, True)
+        tree, marker = holder / "tree", holder / "pushed-code-ran"
+        for relative, text in pushed.items():
+            (tree / relative).parent.mkdir(parents=True, exist_ok=True)
+            (tree / relative).write_text(text.replace("MARKER", repr(str(marker))))
+        (tree / "webviews").mkdir(exist_ok=True)
+        (holder / "copy").mkdir()
+        (holder / "copy/check.py").write_text(check_source)
+        argv = [sys.executable, "-I", "-c", lint.TRUSTED_RUNNER, str(tree), str(holder / "copy/check.py"),
+                str(tree / "scripts/cmux-next/check.py"), "--flag"]
+        return subprocess.run(argv, cwd=tree / "webviews", text=True, capture_output=True), marker, tree
+
+    def test_the_trusted_runner_reads_the_tree_and_never_imports_from_it(self):
+        shadow = "open(MARKER, 'w').close()\n"
+        result, marker, tree = self.run_trusted(
+            "import argparse, json, os, sys\nprint(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "
+            "sys.argv[1:])\n",
+            {"webviews/argparse.py": shadow, "webviews/json.py": shadow, "scripts/cmux-next/argparse.py": shadow})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, f"{tree} ['--flag']\n", "it must see the tree as its repository")
+        self.assertFalse(marker.exists(), "a module in the pushed tree was imported")
+
+    def test_the_trusted_runner_refuses_a_check_that_puts_the_tree_on_sys_path(self):
+        result, marker, _ = self.run_trusted(
+            "import os, sys\nsys.path.insert(0, os.path.dirname(__file__))\nimport helper\n",
+            {"scripts/cmux-next/helper.py": "open(MARKER, 'w').close()\n"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("would import from the pushed tree", result.stderr)
+        self.assertFalse(marker.exists(), "the pushed sibling module ran")
 
     def test_a_check_that_only_warns_declares_no_inputs(self):
         # check:system-blue and check:attachment-caps can't fail; running them alone for a push could only cost time.
