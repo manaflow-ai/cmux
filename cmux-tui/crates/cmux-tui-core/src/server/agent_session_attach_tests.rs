@@ -953,9 +953,13 @@ fn a_content_prompt_preserves_order_bytes_and_pasted_metadata_on_the_pinned_sess
     let mux = mux_with(&fake, "asa-prompt-content");
     let surface = agent_tab(&mux, Some(SESSION));
     let identity = run(&mux, json!({"cmd":"identify"}));
-    assert!(identity["capabilities"].as_array().unwrap().iter().any(|value| {
-        value == agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY
-    }));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| { value == agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY })
+    );
     let mut client = Client::connect(&mux, "prompt-content");
     assert_eq!(attach(&mut client, surface)["ok"], true);
     let _ = fake.frame();
@@ -973,17 +977,21 @@ fn a_content_prompt_preserves_order_bytes_and_pasted_metadata_on_the_pinned_sess
         {"type":"text", "text":" "}, image, {"type":"text", "text":" "}, image,
         {"type":"text", "text":"\n"}
     ]);
-    for (id, content) in [
-        ("mixed", mixed), ("attachment-only", json!([image])), ("spaced-images", spaced)
-    ] {
+    for (id, content) in
+        [("mixed", mixed), ("attachment-only", json!([image])), ("spaced-images", spaced)]
+    {
         let reply = client.request(json!({"cmd":"agent-session-prompt", "surface":surface,
             "prompt_id":id, "content":content}));
         assert_eq!(reply["ok"], true, "{reply}");
-        assert_eq!(fake.frame()["params"], json!({"sessionId":SESSION, "prompt":content,
-            "_meta":{"acpmux":{"promptId":id}}}));
+        assert_eq!(
+            fake.frame()["params"],
+            json!({"sessionId":SESSION, "prompt":content,
+            "_meta":{"acpmux":{"promptId":id}}})
+        );
     }
     for invalid in [
-        json!({"content":[]}), json!({"content":[null]}),
+        json!({"content":[]}),
+        json!({"content":[null]}),
         json!({"content":[{"type":"text", "text":" "}]}),
         json!({"content":[{"type":"text", "text":""}, {"type":"text", "text":" \n"}]}),
         json!({"text":"legacy", "content":[{"type":"text", "text":"other"}]}),

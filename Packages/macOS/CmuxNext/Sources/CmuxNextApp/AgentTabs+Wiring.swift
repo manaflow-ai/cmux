@@ -122,6 +122,10 @@ extension AgentTabStore {
             guard let services else { throw DaemonError.notConnected }
             return try await services.daemon.cloudRepositoryLocal()
         }
+        tabs.imessage = { [weak services] action, view in
+            guard let services else { return AgentPaneReply.failure(code: "unavailable", message: "unavailable") }
+            return await services.imessage.respond(action, view: view)
+        }
         tabs.machineTargets = { [weak services] in
             // Only the machines of the account signed in now, from a list loaded for it (as the
             // Cloud machine picker, AgentPaneCloudMachines+App.swift): never a previous account's or

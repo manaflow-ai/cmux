@@ -1365,7 +1365,8 @@ fn setting(
 /// Only content fields, never ACP routing or provenance. Preserve the ordered blocks verbatim.
 fn valid_prompt_block(block: &Value) -> bool {
     let Some(object) = block.as_object() else { return false };
-    let nonempty = |key| block.get(key).and_then(Value::as_str).is_some_and(|s| !s.trim().is_empty());
+    let nonempty =
+        |key| block.get(key).and_then(Value::as_str).is_some_and(|s| !s.trim().is_empty());
     let allowed: &[&str] = match block.get("type").and_then(Value::as_str) {
         Some("text") if block.get("text").is_some_and(Value::is_string) => {
             if block.get("_meta").is_some_and(|meta| meta != &json!({"cmux": {"pasted": true}})) {
@@ -1401,12 +1402,13 @@ fn prompt(
         (Some(text), None) if !text.trim().is_empty() && text.len() <= MAX_PROMPT_BYTES => {
             vec![json!({"type": "text", "text": text})]
         }
-        (None, Some(blocks)) if !blocks.is_empty() && blocks.iter().all(valid_prompt_block) => blocks,
+        (None, Some(blocks)) if !blocks.is_empty() && blocks.iter().all(valid_prompt_block) => {
+            blocks
+        }
         _ => return Err(Refusal::BadRequest),
     };
     if blocks.iter().all(|block| {
-        block["type"] == "text"
-            && block["text"].as_str().is_some_and(|text| text.trim().is_empty())
+        block["type"] == "text" && block["text"].as_str().is_some_and(|text| text.trim().is_empty())
     }) {
         return Err(Refusal::BadRequest);
     }

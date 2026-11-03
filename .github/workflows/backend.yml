@@ -72,8 +72,11 @@ on:
 permissions:
   contents: read
 
+# Independent NEXT pushes must not wait for another run's tests or promotion gates.
+# Environment job groups still serialize each complete deployment/smoke/rollback sequence.
+# Retain pending jobs: a slower older test run must not replace a newer pending deployment.
 concurrency:
-  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action || 'run' }}
+  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('-{0}', github.sha) || '' }}
   cancel-in-progress: false
 
 env:
@@ -185,6 +188,12 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     environment: cmux-next-vitess-ci
+    # These suites clean up fixed test keys on one shared branch. Keep the serialization
+    # formerly provided by the workflow group while independent pushes verify in parallel.
+    concurrency:
+      group: cmux-next-vitess-development
+      queue: max
+      cancel-in-progress: false
     # A stuck connection to the shared branch must not hold a runner for the 6 h default.
     timeout-minutes: 10
     defaults:
@@ -311,12 +320,16 @@ jobs:
     environment: cmux-next-staging
     concurrency:
       group: cmux-next-deploy-staging
+      queue: max
       cancel-in-progress: false
     defaults:
       run:
         working-directory: backend
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          filter: blob:none
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -324,9 +337,20 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
+      # Read-only source fence runs while the environment lock is held, before any mutation.
+      - name: Refuse older source before migrations or deployment
+        id: source
+        if: github.event_name == 'push'
+        run: >-
+          bun ../scripts/cmux-next/release/worker-release.ts advance --branch feat-cmux-next
+          --source-dir . --github-output "$GITHUB_OUTPUT"
+      - name: Newer deployment inputs already queued; skip
+        if: steps.source.outputs.deploy == 'false'
+        run: echo "::notice::A newer backend push supersedes this deployment."
       # Visible refusal: a migration pushed without the label flow (or a database ahead of this
       # tree) stops the deploy here with an annotation naming the commit, before anything ships.
       - name: Staging schema matches this commit
+        if: github.event_name != 'push' || steps.source.outputs.deploy == 'true'
         working-directory: backend/db
         env:
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
@@ -345,6 +369,7 @@ jobs:
       # survives them); contract files apply after the smoke (the new code no longer uses what they drop).
       # Without the staging credential the deploy is refused when this push changes drizzle-mysql.
       - name: "Vitess staging: expand migrations before the deploy"
+        if: github.event_name != 'push' || steps.source.outputs.deploy == 'true'
         working-directory: backend/db
         env:
           VITESS_STAGING_URL: ${{ secrets.CMUX_NEXT_VITESS_STAGING_ADMIN_URL }}
@@ -363,6 +388,7 @@ jobs:
       # deploy-worker.sh records the serving version, deploys, smokes apps/api/release-smoke.json and
       # runs `wrangler rollback` on red (plans/cmux-next/release-rails.md).
       - name: Deploy API Worker (records the rollback target)
+        if: github.event_name != 'push' || steps.source.outputs.deploy == 'true'
         id: deploy-api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -373,7 +399,7 @@ jobs:
         run: bash scripts/deploy-worker.sh staging
       # Separate step so it also runs when the deploy step failed, was cancelled or timed out.
       - name: Smoke the API Worker; roll back on red
-        if: ${{ always() && steps.deploy-api.outcome != 'skipped' }}
+        if: ${{ always() && (github.event_name != 'push' || steps.source.outputs.deploy == 'true') && steps.deploy-api.outcome != 'skipped' }}
         working-directory: backend/apps/api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -384,6 +410,7 @@ jobs:
           --routes release-smoke.json --previous-file "$RUNNER_TEMP/cmux-api-previous-version"
           --changed-since "$BEFORE" --source-dir . --wrangler ./node_modules/.bin/wrangler
       - name: "Vitess staging: contract migrations after the smoke, then verify the history"
+        if: github.event_name != 'push' || steps.source.outputs.deploy == 'true'
         working-directory: backend/db
         env:
           VITESS_STAGING_URL: ${{ secrets.CMUX_NEXT_VITESS_STAGING_ADMIN_URL }}
@@ -393,18 +420,21 @@ jobs:
           bun migrate-mysql.ts --url-env VITESS_STAGING_URL --phase all
           bun migrate-mysql.ts --url-env VITESS_STAGING_URL --verify
       - name: Deploy dashboard (console-staging.cmux.dev)
+        if: github.event_name != 'push' || steps.source.outputs.deploy == 'true'
         working-directory: backend/apps/dashboard
         env:
           VERCEL_PROJECT_ID: ${{ env.DASHBOARD_PROJECT_STAGING }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: NITRO_PRESET=vercel bun run build && bunx vercel@58.8.0 deploy --prebuilt --prod --scope manaflow --token "$VERCEL_TOKEN"
       - name: Smoke
+        if: github.event_name != 'push' || steps.source.outputs.deploy == 'true'
         run: curl -fsS https://cloud-api-staging.cmux.dev/v1/health && curl -fsS -o /dev/null https://console-staging.cmux.dev/
       # cmux-platform-staging serves NEXT Cloud for staging (cmux#29488) and signs and checks the same
       # tokens as this Worker, so it needs the same JWT_PRIVATE_JWK. This environment holds the only
       # copy, so every staging deploy puts it there too (stdin, never logged); a rotation here reaches
       # both Workers. Runs from $RUNNER_TEMP so wrangler reads no wrangler.jsonc.
       - name: Keep cmux-platform-staging's JWT_PRIVATE_JWK equal to this Worker's
+        if: github.event_name != 'push' || steps.source.outputs.deploy == 'true'
         working-directory: ${{ runner.temp }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -427,12 +457,16 @@ jobs:
     environment: cmux-next-development
     concurrency:
       group: cmux-next-deploy-development
+      queue: max
       cancel-in-progress: false
     defaults:
       run:
         working-directory: backend
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          filter: blob:none
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -440,7 +474,17 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
+      # Read-only source fence runs while the environment lock is held, before any mutation.
+      - name: Refuse older source before migrations or deployment
+        id: source
+        run: >-
+          bun ../scripts/cmux-next/release/worker-release.ts advance --branch feat-cmux-next
+          --source-dir . --github-output "$GITHUB_OUTPUT"
+      - name: Newer deployment inputs already queued; skip
+        if: steps.source.outputs.deploy == 'false'
+        run: echo "::notice::A newer backend push supersedes this deployment."
       - name: Development schema matches this commit
+        if: steps.source.outputs.deploy == 'true'
         working-directory: backend/db
         env:
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
@@ -458,6 +502,7 @@ jobs:
       # of band: refused). Then the repo is the source: a var the pushed commits change (an image
       # promotion, CLOUD_ALLOWED_TEAMS) deploys, and the step logs each change by name and value.
       - name: Worker vars match the previous commit (drift refused; changes in this push logged)
+        if: steps.source.outputs.deploy == 'true'
         working-directory: backend/apps/api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -486,6 +531,7 @@ jobs:
           bun ../../../scripts/cmux-next/release/worker-release.ts vars --worker cmux-api-development \
             --config wrangler.jsonc "${bases[@]}" --env development --wrangler ./node_modules/.bin/wrangler
       - name: Deploy API Worker (no secrets; records the rollback target)
+        if: steps.source.outputs.deploy == 'true'
         id: deploy-api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -495,7 +541,7 @@ jobs:
         run: bash scripts/deploy-worker.sh development
       # Separate step so it also runs when the deploy step failed, was cancelled or timed out.
       - name: Smoke the API Worker; roll back on red
-        if: ${{ always() && steps.deploy-api.outcome != 'skipped' }}
+        if: ${{ always() && steps.source.outputs.deploy == 'true' && steps.deploy-api.outcome != 'skipped' }}
         working-directory: backend/apps/api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
