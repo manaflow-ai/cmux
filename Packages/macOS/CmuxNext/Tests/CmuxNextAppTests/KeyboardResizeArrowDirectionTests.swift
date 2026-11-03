@@ -291,6 +291,58 @@ struct KeyboardResizeShownStepTests {
         #expect(abs(after.minX - before.minX - step) <= 1, "the dock's inner edge moved \(after.minX - before.minX), want \(step)")
     }
 
+    /// Claude review of #34123: on a strip of an odd number of device pixels, 0.5 of it is an exact half pixel, and the
+    /// last column is cut back to the strip's end when the columns fill it (`ColumnStripGeometry.frames`): a trade made of
+    /// whole pixels on each stored width rounded the two columns different ways or left the cut, so a press moved the
+    /// last column's right edge by a pixel; the daemon keeps a width as `f32`, and its echo moved it again. Every press of
+    /// a walk across the strip, at 1x and 2x, moves only the divider, by whole pixels toward the arrow, before and after
+    /// the echo (or is refused).
+    @Test(arguments: [(CGFloat(1201), CGFloat(1), true), (1963, 1, true), (1453.5, 2, true), (1201, 1, false), (1453.5, 2, false)])
+    func everyPressOnAnOddPixelStripMovesOnlyTheDivider(width: CGFloat, scale: CGFloat, atEnd: Bool) throws {
+        // The app's default strip: edge to edge, no gap (`Metrics.stripColumnGap`).
+        var style = LayoutStyle()
+        style.columnGap = 0
+        try #require(style.stripGap == 0)
+        let viewport = CGSize(width: width, height: 800)
+        var layout = ScreenLayout.columns([LayoutColumn(id: "c0", width: 0.5, root: .leaf("p0")),
+                                           LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1")),
+                                           LayoutColumn(id: "c2", width: 0.5, root: .leaf("p2"))])
+        /// The daemon's echo of a width: the `f32` it keeps.
+        func echoed(_ layout: ScreenLayout) -> ScreenLayout {
+            layout.columns.reduce(layout) { $0.settingWidth(Double(Float($1.width)), for: $1.id) }
+        }
+        // The camera at the strip's start (c0 and c1 show) or at its end (c1 and c2 show), where the press keeps it.
+        let presses: [(LayoutPaneID, LayoutDirection)] = atEnd
+            ? [("p2", .right), ("p2", .left), ("p2", .left), ("p1", .right), ("p0", .right), ("p2", .right)]
+            : [("p0", .right), ("p1", .left), ("p0", .left), ("p0", .right), ("p1", .right), ("p0", .left)]
+        let offset = atEnd ? ScreenGeometry.compute(layout, viewport: viewport, style: style, scale: scale).maxOffset : 0
+        var moved = 0
+        for (pane, direction) in presses {
+            let before = ScreenGeometry.compute(layout, viewport: viewport, style: style, scale: scale)
+            let shown = ShownResizeRange(geometry: before, style: style, scale: scale, stripOffset: offset)
+            guard case let .columnTrade(left, leftWidth, right, rightWidth)? = PaneResize.change(for: pane, direction: direction, in: layout,
+                                                                                                    shown: shown) else { continue }
+            let next = layout.settingWidth(leftWidth, for: left).settingWidth(rightWidth, for: right)
+            for (when, after) in [("at the press", next), ("after the echo", echoed(next))] {
+                let placed = ScreenGeometry.compute(after, viewport: viewport, style: style, scale: scale)
+                let l0 = try #require(before.columns[left]), r0 = try #require(before.columns[right])
+                let l1 = try #require(placed.columns[left]), r1 = try #require(placed.columns[right])
+                let step = l1.maxX - l0.maxX
+                #expect(direction == .right ? step > 0 : step < 0, "\(pane) \(direction) \(when): the divider moved \(step)")
+                #expect(r1.minX - r0.minX == step, "\(pane) \(direction) \(when): the divider's sides moved \(step) and \(r1.minX - r0.minX)")
+                #expect(l1.minX == l0.minX && r1.maxX == r0.maxX,
+                        "\(pane) \(direction) \(when): an outer edge moved (\(l0.minX) -> \(l1.minX), \(r0.maxX) -> \(r1.maxX))")
+                for (id, frame) in before.columns where id != left && id != right {
+                    #expect(placed.columns[id] == frame, "\(pane) \(direction) \(when): column \(id) moved")
+                }
+                #expect((step * scale).rounded() == step * scale, "\(pane) \(direction) \(when): a step of \(step) is no whole pixel")
+            }
+            layout = echoed(next)
+            moved += 1
+        }
+        #expect(moved >= 4, "only \(moved) of \(presses.count) presses moved a divider")
+    }
+
     /// A screen whose only column is a dock shows it full width (`DockStripGeometry.docks`): no press moves it, so none
     /// changes its stored width.
     @Test(arguments: [LayoutDirection.left, .right])
@@ -298,6 +350,59 @@ struct KeyboardResizeShownStepTests {
         let layout = ScreenLayout.columns([LayoutColumn(id: "d", width: 0.3, root: .leaf("pd"), dock: DockColumn(edge: .right, mode: .docked))])
         let change = Self.change("pd", direction, layout, scale: 2)
         #expect(change == nil, "\(direction) on a lone dock made \(String(describing: change)): it moves nothing")
+    }
+}
+
+/// Claude review of #34123: a trade sends two widths, one daemon command each, under one transaction. The first
+/// command's reply settled the whole transaction, so a daemon snapshot that came before the second command's event
+/// (the store applies events once per display frame) dropped the second width's override, and for a frame that column
+/// showed its old width and every column after it jumped. The transaction settles when its last value is answered.
+@MainActor
+struct KeyboardResizeTradeSettleTests {
+    @Test func aTradeSettlesWhenItsLastWidthIsAnswered() throws {
+        let columns = [LayoutColumn(id: "c0", width: 0.5, root: .leaf("p0")), LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1"))]
+        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: "p0")
+        model.intentHandler = { _ in } // the app sends each width as its own command, and settles it at its reply
+        func width(_ column: LayoutColumnID) -> Double? { model.screens.first?.layout.columns.first { $0.id == column }?.width }
+        func daemon(_ c0: Double, _ c1: Double) -> [LayoutScreen] {
+            [LayoutScreen(id: "s", name: "s", layout: .columns([LayoutColumn(id: "c0", width: c0, root: .leaf("p0")),
+                                                                 LayoutColumn(id: "c1", width: c1, root: .leaf("p1"))]))]
+        }
+        let press = LayoutTransactionID.make()
+        model.setColumnWidth("c0", width: 0.55, transaction: press, phase: .ended)
+        model.setColumnWidth("c1", width: 0.45, transaction: press, phase: .ended)
+        // c0's reply, then a daemon snapshot with c0's change only (c1's event comes in the next frame).
+        model.settleTransaction(press)
+        model.apply(screens: daemon(0.55, 0.5))
+        #expect(width("c0") == 0.55)
+        #expect(width("c1") == 0.45, "the first reply let a snapshot without the second width show c1 at \(String(describing: width("c1")))")
+        // c1's reply and its event: the daemon's widths, nothing held over them.
+        model.settleTransaction(press)
+        model.apply(screens: daemon(0.55, 0.45))
+        model.apply(screens: daemon(0.6, 0.4))
+        #expect(width("c0") == 0.6 && width("c1") == 0.4, "a settled trade still held its widths over the daemon's")
+    }
+}
+
+/// Claude review of #34123: a press whose widths the app refused at once (a pane with no daemon handle yet, such as a
+/// column still being made) changed nothing, so its own sync never ran, and the column it kept in place stayed for the
+/// next sync, which then skipped its reveal: the column focused next did not scroll into view.
+@MainActor
+@Suite(.closesItsWindows)
+struct KeyboardResizeRefusedPressTests {
+    @Test func aRefusedPressLeavesTheNextRevealAlone() throws {
+        let rig = KeyboardResizeArrowDirectionTests.Rig(KeyboardResizeArrowDirectionTests.columns([0.5, 0.5, 0.5]), focus: "p0")
+        defer { rig.window.closeAfterTest() }
+        rig.model.intentHandler = { [model = rig.model] intent in
+            if case let .setColumnWidth(_, _, _, transaction, .ended) = intent { model.rejectTransaction(transaction) }
+        }
+        let screen = try rig.screen
+        #expect(screen.scroll.target == 0)
+        _ = rig.press("p0", .right)
+        // A key focus on the column past the window's edge scrolls it into view.
+        rig.model.focus("p2", source: .keyboard)
+        rig.root.syncWithModel()
+        #expect(screen.scroll.target > 0, "the focus after a refused press did not reveal p2")
     }
 }
 
@@ -315,12 +420,12 @@ struct KeyboardResizeOneUndoStepTests {
         let content = try #require(shown.content)
         let (left, right) = (LayoutPaneID(try shown.key(1)), LayoutPaneID(try shown.key(2)))
         let press = LayoutTransactionID.make()
-        let first = content.nextGestureTransaction
+        let first = content.gestureTransactions.latest
         content.handle(.setColumnWidth(LayoutColumnID("column:10"), anyPane: left, width: 0.55, transaction: press, phase: .ended))
         content.handle(.setColumnWidth(LayoutColumnID("column:11"), anyPane: right, width: 0.45, transaction: press, phase: .ended))
-        #expect(content.nextGestureTransaction == first + 1, "one press took \(content.nextGestureTransaction - first) daemon transactions")
+        #expect(content.gestureTransactions.latest == first + 1, "one press took \(content.gestureTransactions.latest - first) daemon transactions")
         // The next press is its own undo step.
         content.handle(.setColumnWidth(LayoutColumnID("column:10"), anyPane: left, width: 0.6, transaction: .make(), phase: .ended))
-        #expect(content.nextGestureTransaction == first + 2)
+        #expect(content.gestureTransactions.latest == first + 2)
     }
 }
