@@ -182,9 +182,15 @@ struct NewTabRapidPairTests {
             pool.prewarm()
             pool.start()
             try await PasswordManagerRouteTests.until({ !rig.made.isEmpty }, within: .seconds(5), report: { "no spare was made" })
+            // The person clicks another window first (a restored multi-window launch): the pool follows it, still one page.
+            let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+            other.isReleasedWhenClosed = false
+            defer { other.close() }
+            pool.retarget(other)
             // Past the quiet-input warm (750 ms) with no input: still one page.
             try await Task.sleep(for: .seconds(2))
             #expect(rig.made.count == 1, "the launch made \(rig.made.count) spares before any open")
+            pool.retarget(window)
             NewTabPage.open(in: pane, seed: nil)
             try await PasswordManagerRouteTests.until({ rig.made.count >= 3 }, within: .seconds(5), report: { "\(rig.made.count - 1) spares after the first open" })
         }
