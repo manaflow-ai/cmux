@@ -74,8 +74,9 @@ struct MotionClockFrameTimeTests {
     }
 
     /// Fires one frame per entry of `frames` (the link's timestamp and the period until the frame shows) and returns
-    /// each frame the spring showed off its curve at the time the frame shows.
-    static func misses(_ frames: [(vsync: CFTimeInterval, refresh: Double)]) -> [String] {
+    /// each frame the spring showed off its curve at the time the frame shows, less the time the motion `paused` for
+    /// before that frame (a hang: none by default).
+    static func misses(_ frames: [(vsync: CFTimeInterval, refresh: Double)], paused: (Int) -> Double = { _ in 0 }) -> [String] {
         let window = Self.window()
         defer { window.closeAfterTest() }
         let probe = Probe()
@@ -89,7 +90,7 @@ struct MotionClockFrameTimeTests {
         for (index, frame) in frames.enumerated() {
             scheduler.frameDidFire(timestamp: frame.vsync, refreshInterval: frame.refresh)
             let shows = frame.vsync + frame.refresh
-            let curve = probe.curve(at: shows - origin)
+            let curve = probe.curve(at: shows - origin - paused(index))
             let shown = probe.spring.value
             if abs(shown - curve) > 0.001 {
                 let at = String(format: "%.2f", (shows - origin) * 1_000)
@@ -131,6 +132,24 @@ struct MotionClockFrameTimeTests {
             }
             let misses = Self.misses(frames)
             #expect(misses.isEmpty, "\(late.testDescription): frames off the spring's curve at the time they show:\n\(misses.joined(separator: "\n"))")
+        }
+    }
+
+    /// A frame after a gap longer than `FrameScheduler.catchUpLimit` (0.1 s: a main-thread hang, since a frame comes at
+    /// least that often while the main thread runs) moves the motion by that limit: not the whole gap (a jump), not
+    /// 1/30 s (behind). The motion pauses for the rest of the gap and goes on along its curve from there.
+    @Test func aFrameAfterAHangMovesTheMotionByTheCatchUpLimit() throws {
+        try Self.withTiming {
+            let refresh = 1.0 / 120, gap = 0.5, limit = 0.1
+            // Three frames on time, one `gap` after the frame before it, three on time again.
+            var frames = Self.backToBack(Array(repeating: refresh, count: 3))
+            var vsync = (frames.last?.vsync ?? 1_000) + gap
+            for _ in 0..<4 {
+                frames.append((vsync: vsync, refresh: refresh))
+                vsync += refresh
+            }
+            let misses = Self.misses(frames) { $0 >= 3 ? gap - limit : 0 }
+            #expect(misses.isEmpty, "a \(gap) s gap: frames off the spring's curve paused for \(gap - limit) s:\n\(misses.joined(separator: "\n"))")
         }
     }
 }
