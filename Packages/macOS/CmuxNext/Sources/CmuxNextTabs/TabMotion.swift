@@ -31,14 +31,7 @@ struct TabStripMove {
     var isScroll = false
     /// The media time every animation of the change starts at (set on each, so `MotionPath` sums the
     /// moves in flight exactly; Core Animation would otherwise start them at the commit).
-    var begin = CACurrentMediaTime()
-
-    /// When a move of `view`'s strip starts. Inside a frame tick (a pane motion lays the strip out
-    /// there) it is that frame's time, the time its pane springs step from, so a tab move that
-    /// overlaps a pane motion shares its time base (FRAME OWNER S1); else now.
-    static func begin(in view: NSView) -> CFTimeInterval {
-        (DesignTunables.frameOwnerTabStrip.value ? MotionClock.forView(view).frameTimestamp : nil) ?? CACurrentMediaTime()
-    }
+    let begin = CACurrentMediaTime()
 
     /// Key prefix of every animation a strip move adds (`cancel(_:)`).
     static let keyPrefix = "tab.move."

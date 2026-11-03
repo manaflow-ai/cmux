@@ -140,8 +140,7 @@ extension TabStripView {
     func stripMove(_ token: MotionTween) -> TabStripMove? {
         guard let motion = MotionMove.tween(token, in: Motion.tabs), Motion.canAnimate(in: self) else { return nil }
         moveGeneration += 1
-        return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose, in: Motion.tabs),
-                            begin: TabStripMove.begin(in: self))
+        return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose, in: Motion.tabs))
     }
 
     /// Runs `work` once no strip move is in flight (at once when none is): a tab's open has ended its motion.
@@ -201,7 +200,7 @@ extension TabStripView {
         var move: TabStripMove?
         if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll, in: Motion.tabs) {
             moveGeneration += 1
-            move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil, isScroll: true, begin: TabStripMove.begin(in: self))
+            move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil, isScroll: true)
         }
         applyFrames(move: move, scrollFrom: from)
     }

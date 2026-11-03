@@ -136,6 +136,7 @@ final class PaneHostView: NSView, RestingPlacement {
         guard holdsUntilAfterLanding else { return }
         guard isOnLayoutSpring else { return releaseHeldContent() }
         (holdsUntilAfterLanding, heldPin) = (false, nil)
+        // The held size, not the content's frame: with only its area held (FRAME OWNER S1) the content is already at the pane's size.
         heldContentSize = holdsContentInMotion() ? heldContentSize ?? content.frame.size : nil
         layOutLetGoContent() // the structural spring's start measures the content's live size (`announceRest`)
     }
