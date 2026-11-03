@@ -187,7 +187,7 @@ await requireBrowserLane("chief-web-contract-browser.test.ts", async () => {
       await fixture.page.getByRole("button", { name: "Retry", exact: true }).click();
       const reply = fixture.page.getByRole("link", { name: "Open your page" });
       await reply.waitFor();
-      expect(await reply.getAttribute("href")).toBe("https://hello.preview-development.cmux.dev");
+      expect(await reply.getAttribute("href")).toBe("https://hello.preview-development.cmux.dev/");
       expect(fixture.messages.map(({ body }) => body)).toEqual([fixture.messages[0]!.body, fixture.messages[0]!.body]);
       expect(fixture.tickets).toEqual([{ method: "POST", body: null }]);
       expect(fixture.errors).toEqual([]);
