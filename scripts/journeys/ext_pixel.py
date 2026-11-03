@@ -54,6 +54,12 @@ Steps (`do`):
                once more; each attempt's reason and each idle wait are in the note (`recorder`).
   px_film also records each film's movie and scan bytes (`bytes`), so a round whose fetch fails still says how big
   its films were.
+  px_agent     {pane, timeout?: 20}
+               An agent chat in the named pane: `action.run palette.newAgentChat` with target pane:<id> and no focus, the
+               app's targeted path (AgentHandlers.openTargetedChat) that opens the chat tab in that pane. With no target,
+               a script's chat goes to a new left chat dock (NewChatPlacement .newDock) and leaves the pane a terminal;
+               with focus the targeted path is not taken. Waits until debug.surfaces shows the pane's selected tab as
+               the chat (kind conversation), then focuses the pane (`cmux pane focus`) for the next set-up step.
   px_window_frame {by: [dx, dy], ms?: 600, mark?}
                A live resize of the window from its bottom-right corner through ext_window's window_drag: debug.mouse down,
                drags at 120 events a second and up, which AppKit's own resize tracking reads as a person's drag (the path
@@ -504,6 +510,22 @@ def film_bytes(j, name):
     return out
 
 
+def step_px_agent(j, step):
+    rec = W.named(j, step["pane"])
+    opened = j.app.rpc("action.run", {"action": "palette.newAgentChat", "target": f"pane:{rec['pane']}", "args": {}})
+    timeout = float(step.get("timeout", 20))
+    t0 = D.now()
+    row = {}
+    while D.now() < t0 + timeout:
+        row = _surface_row(j, rec["pane"]) or {}
+        if row.get("kind") == "conversation":
+            focus = j.app.cmux("pane", rec["pane"], "focus")
+            return {"pane": rec["pane"], "kind": row.get("kind"), "tab": row.get("selected_tab"), "opened": opened, "focus": focus}
+        time.sleep(0.1)  # orchestration poll of the app's own report
+    raise D.StepError(f"px_agent {step['pane']}: the pane shows no agent chat within {timeout:.0f} s "
+                      f"(pane {json.dumps(row)[:300]}; palette.newAgentChat: {json.dumps(opened)[:300]})")
+
+
 def step_px_window_frame(j, step):
     ms = float(step.get("ms", 600))
     events = max(2, int(round(ms / 1000.0 * 120)))
@@ -517,7 +539,7 @@ def step_px_window_frame(j, step):
     return out
 
 
-STEPS = {"px_window_frame": step_px_window_frame, "px_film": step_px_film, "px_springs": step_px_springs, "px_tunable": step_px_tunable, "px_page": step_px_page,
+STEPS = {"px_agent": step_px_agent, "px_window_frame": step_px_window_frame, "px_film": step_px_film, "px_springs": step_px_springs, "px_tunable": step_px_tunable, "px_page": step_px_page,
          "px_agent_css": step_px_agent_css, "px_record_start": step_px_record_start}
 CONDITIONS = {}
 

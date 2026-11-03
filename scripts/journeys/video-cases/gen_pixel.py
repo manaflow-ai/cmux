@@ -119,11 +119,14 @@ def settings_back():
 def after_check():
     """The kit's after check on the fixture: p0 focused by the app (`cmux pane focus`; a click at p0's left edge, the
     sidebar boundary, did not focus it on cmux22), the fixture colors off (text recognition did not read the echo on the
-    #00FFFF ground), then gen_cases' check: a real HID Ctrl-C ends p0's fixture, p0 echoes a line, read by the app, the
-    daemon and a frame."""
+    #00FFFF ground), then gen_cases' check: a real HID Ctrl-C ends p0's fixture; the line is typed once the daemon and
+    the app show the bare prompt again (typed 0.28 s after the Ctrl-C, zsh lost its first key on cmux22: "J> cho
+    rv-done-..."); p0 echoes it, read by the app, the daemon and a frame."""
     check = G.after_check_hid()
-    assert check[0]["do"] == "use_pane", check[0]
-    return [focus("p0"), settings_back()] + check[1:]
+    assert [st["do"] for st in check] == ["use_pane", "hid_key", "type", "expect"], check
+    ready = {"do": "expect", "title": "after: the shell's prompt is back (the fixture ended)", "since": "ctrlc", "timeout": 10,
+             "all": [{"daemon_prompt": True}, {"app_prompt": True}]}
+    return [focus("p0"), settings_back(), check[1], ready] + check[2:]
 
 
 def start_tui(name, fill):
@@ -152,8 +155,8 @@ def make_kind(name, kind, fill):
     if kind == "page":
         return [{"do": "px_page", "pane": name, "bg": fill, "label": name, "title": f"set-up: page.html in a browser tab of {name} ({fill})"}]
     if kind == "agent":
-        return [{"do": "action", "action": "palette.newAgentChat", "title": f"set-up: an agent chat in {name}"},
-                {"do": "wait", "seconds": 2.0, "title": "set-up: the chat shows (nothing observable to wait on)"}]
+        # Aimed at the pane (ext_pixel px_agent): a script's untargeted chat docks in a new left column instead.
+        return [{"do": "px_agent", "pane": name, "title": f"set-up: an agent chat in {name}, in that pane (target pane:<id>)"}]
     raise ValueError(kind)
 
 
@@ -196,9 +199,14 @@ class Layout:
 
 
 T2 = Layout("2", "p0 T | p1 P", [("p0", "tui", YELLOW, None), ("p1", "page", GREEN, ("splitRight", None))])
-T4 = Layout("4", "p0 T | p1 P | (p2 A / p3 T)",
-            [("p0", "tui", YELLOW, None), ("p1", "page", GREEN, ("splitRight", None)), ("p2", "agent", AGENT_FILL, ("splitRight", None)),
-             ("p3", "tui", YELLOW, ("splitDown", None))])
+# Strip columns (newColumn; p3 a row under p2, newRow), every pane a fixture pane, the window at the screen's full width.
+# As splits of one 1153 pt pane area, p1 and p2 get 191.5 pt each (cmux22, sweep c7cef08: the strip squeezes splits),
+# so no divider had 150 pt of room. As columns sharing 1304 pt (layout.newColumnWidth fitScreen) each is about 435 pt:
+# divider 0, the column edge between p0 and p1, moves 150 pt either way (235 pt above the 200 pt minimum).
+T4 = Layout("4", "columns p0 T | p1 P | (p2 A / p3 T)",
+            [("p0", "tui", YELLOW, None), ("p1", "page", GREEN, ("newColumn", None)), ("p2", "agent", AGENT_FILL, ("newColumn", None)),
+             ("p3", "tui", YELLOW, ("newRow", "p2"))],
+            window=[0.0, 0.05, 1.0, 0.9])
 T3R = Layout("3r", "p0 T | (p1 P / p2 T)",
              [("p0", "tui", YELLOW, None), ("p1", "page", GREEN, ("splitRight", None)), ("p2", "tui", YELLOW, ("splitDown", None))])
 T3K = Layout("3k", "p0 T | (p1 T / p2 P)",
@@ -315,8 +323,8 @@ def window_play(speed):
 
 def cases():
     out = []
-    # T4: divider 0 is the column edge between the stacked column and the 3-pane column (a column-edge drag that
-    # pushes the strip). Divider 1 sat between two panes at their minimum width: it could not move (S2 A/B 13:4xZ).
+    # T4: divider 0 is the column edge between p0's and p1's columns (a column-edge drag that pushes the strip; 235 pt of
+    # room each way). Before, as splits, divider 1 sat between two panes at their minimum width (S2 A/B 13:4xZ).
     for layout, divider in ((T2, 0), (T4, 0)):
         play, secs = col_drag_play(divider)
         what = "the column edge" if layout is T4 else f"divider {divider}"

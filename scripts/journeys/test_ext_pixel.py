@@ -679,11 +679,17 @@ class PixelCasesTests(unittest.TestCase):
             t4 = next(s for s in specs if s["id"] == "px-col-drag-4-s1r")
             agents = [st for st in t4["steps"] if st["do"] == "px_agent"]
             self.assertEqual([st["pane"] for st in agents], ["p2"])
-            # T4's build: p3 splits p2 (focused first), so p2 and p3 share the third column.
+            # T4's build: strip columns p0 | p1 | p2, and p3 a row under p2 (focused first), in a full-width window, so
+            # every pane is a fixture pane and the column edge between p0 and p1 has 150 pt of room each way.
             names = [(st["do"], st.get("action") or st.get("as") or st.get("pane")) for st in t4["steps"]
                      if st["do"] in ("action", "adopt_pane", "rk_focus", "px_agent", "px_page")]
             i = names.index(("adopt_pane", "p3"))
-            self.assertEqual(names[i - 2:i + 1], [("rk_focus", "p2"), ("action", "splitDown"), ("adopt_pane", "p3")], names)
+            self.assertEqual(names[i - 2:i + 1], [("rk_focus", "p2"), ("action", "newRow"), ("adopt_pane", "p3")], names)
+            self.assertEqual([a for d, a in names if d == "action" and a != "workspace.newAtBottom"], ["newColumn", "newColumn", "newRow"])
+            self.assertEqual(next(st for st in t4["steps"] if st["do"] == "window_place")["fraction"], [0.0, 0.05, 1.0, 0.9])
+            for jid in ("px-col-drag-4-s1r", "px-window-resize-4-s1r"):
+                spec = next(s for s in specs if s["id"] == jid)
+                self.assertEqual([st["pane"] for st in spec["steps"] if st["do"] == "px_agent"], ["p2"], jid)
             # The window resize is the app's own window frame, animated (ext_pixel px_window_frame): a CuaDriver drag never
             # reached the window's corner on cmux22.
             wr = next(s for s in specs if s["id"] == "px-window-resize-4-s1r")

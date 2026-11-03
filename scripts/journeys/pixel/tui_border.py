@@ -240,11 +240,13 @@ def quiet_tty(fd):
 
 
 def restore_tty(fd, old):
+    """The tty's modes back, with TCSAFLUSH: input typed while the fixture ended is dropped, so the shell never reads
+    keys that arrived with its echo off."""
     if old is None:
         return
     try:
         import termios
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        termios.tcsetattr(fd, termios.TCSAFLUSH, old)
     except (ImportError, OSError, ValueError):
         pass
 
