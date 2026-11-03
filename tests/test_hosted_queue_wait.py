@@ -57,6 +57,9 @@ class Wiring(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertIn(route, JOBS[name]["runs-on"])
                 self.assertIn("pick-nightly-sign-runner", JOBS[name]["needs"])
+        # cmux#34164: signer-build, before the pick, reads decide's answer (run 41683652930: 327 s on hosted).
+        self.assertIn("(github.run_attempt > 1 || needs.decide.outputs.hosted_slow == 'true') "
+                      "&& 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04'", JOBS["signer-build"]["runs-on"])
         pick = JOBS["pick-nightly-sign-runner"]
         self.assertIn("(github.run_attempt > 1 || needs.decide.outputs.hosted_slow == 'true') "
                       "&& fromJSON(vars.RUNNER_POOLS).linux_4", pick["runs-on"])
