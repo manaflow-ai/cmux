@@ -113,14 +113,18 @@ fn osascript_failures_map_to_codes() {
 
 #[test]
 fn the_terminal_error_code_decides_not_codes_quoted_earlier() {
-    let quoted = "execution error: Messages got an error: Can’t get chat id \"iMessage;-;(-1743)\". (-1728)";
+    let quoted =
+        "execution error: Messages got an error: Can’t get chat id \"iMessage;-;(-1743)\". (-1728)";
     assert_eq!(
-        send(&request("iMessage;-;(-1743)", "hi"), &FakeRunner::failing(quoted)).map_err(|e| e.code()),
+        send(&request("iMessage;-;(-1743)", "hi"), &FakeRunner::failing(quoted))
+            .map_err(|e| e.code()),
         Err("invalid_chat")
     );
-    let denied_then_newline = "execution error: Not authorized to send Apple events to Messages. (-1743)\n";
+    let denied_then_newline =
+        "execution error: Not authorized to send Apple events to Messages. (-1743)\n";
     assert_eq!(
-        send(&request("iMessage;-;+1", "hi"), &FakeRunner::failing(denied_then_newline)).map_err(|e| e.code()),
+        send(&request("iMessage;-;+1", "hi"), &FakeRunner::failing(denied_then_newline))
+            .map_err(|e| e.code()),
         Err("not_permitted")
     );
 }
