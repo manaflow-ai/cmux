@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4155084601701",
+  "notes": "notes/4155084601701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32665,
+      "title": "Context window: the smaller of /context's and acpmux's; a model switch drops the stale /context",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32696,
+      "title": "Cloud Native: start the Native child from bin/cmux, the real cmux-tui binary",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32651,
+      "title": "Agent chat: a merged pull request is purple in every theme, never the theme's red-looking magenta",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32648,
+      "title": "cmux NEXT Cloud: machine updates repair a daemon left on a replaced binary and a lost start, instead of a failure toast",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32685,
+      "title": "sidebar: a group nobody colored draws no bar in the theme's color",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32673,
+      "title": "Session Info: native panel close reaches the page on every host, so the header toggle clears",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32687,
+      "title": "Agent pane header: no background behind the top-right icons at rest",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32666,
+      "title": "Session Info (native): one icon, title and trailing column for every header and row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32668,
+      "title": "fix(sidebar): Chief-operated rows draw no Chief avatar",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32659,
+      "title": "Session Info's palette actions no longer answer to inspector",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32577,
+      "title": "Agent chat: Jump to latest is a glass fisheye lens over the transcript",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27595,
+      "title": "Give Find and Import buttons immediate pressed feedback",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
