@@ -15,8 +15,8 @@ nonisolated struct PaletteNavigationGroup: Hashable {
 }
 
 /// Go to Workspace's group, pane and tab entries (pure; the tests call it).
-/// Panes are listed only in a workspace with more than one: a lone pane is
-/// its workspace, as is a lone tab. Tabs closing now are left out, as in Search Tabs.
+/// Panes are listed only in a workspace with more than one: a lone pane is its workspace, as is a
+/// lone tab (not in a Home, `WorkspaceModel.isAnyHome`). Tabs closing now are left out, as in Search Tabs.
 nonisolated enum PaletteNavigationEntries {
     static func entries(_ topology: ControlTopology, groups: [PaletteNavigationGroup], lastActive: [String: Date],
                         closing: Set<String> = []) -> [PaletteNavigationEntry] {
@@ -30,9 +30,8 @@ nonisolated enum PaletteNavigationEntries {
         for workspace in topology.workspaces {
             let groupTitle = groupOfWorkspace[workspace.id]
             let panes = workspace.panes
-            // A window's own Home is a Home too (`WorkspaceModel.isAnyHome`): its tabs stay listed.
-            let isHome = workspace.kind == "home" || panes.contains { $0.tabs.first?.page == WorkspaceModel.homeDockPage }
-            let folds = !isHome && workspace.panes.flatMap(\.tabs).count { !closing.contains($0.id) } == 1
+            let folds = workspace.kind != "home" && !panes.contains { $0.tabs.first?.page == WorkspaceModel.homeDockPage } // window Home
+                && workspace.panes.flatMap(\.tabs).count { !closing.contains($0.id) } == 1
             for pane in panes {
                 let tabs = pane.tabs.filter { !closing.contains($0.id) }
                 if panes.count > 1, workspace.kind != "home" {
