@@ -1193,7 +1193,13 @@ machine to an ssh peer for good (`src/cli/run/session_move.rs`): a chat's worktr
 and checked out there as a fresh worktree (a plain folder under the home maps to the same path
 under the peer's home), the chat is moved with its history, queue and draft through the peer
 daemon's own socket (an `ssh -L` forward), and the copy here records `movedTo`, never runs again,
-and `resolve` and agent links lead to the peer. `auto` never picks a reserved host.
+and `resolve` and agent links lead to the peer. `auto` never picks a reserved host. With
+`--from PEER` the chats are on that peer and this machine drives the move over ssh to it and to
+the target (the source's checkout is read and its branch pushed there), so two machines that
+cannot reach each other trade chats; `--machine local` makes this machine the target. The bundle
+carries the agent's own store (`src/native.rs`): Claude Code's project file and Codex's rollout
+for any profile of those families, pi's session file (refiled under the target folder), and
+OpenCode's session as `opencode export`, imported in the chat's folder there.
 
 **Peer snapshots: a paused or offline peer's chat paints at once.** The daemon keeps a bounded,
 durable copy of each peer session's events as it saw them (its clients' `_acpmux/attach` and
@@ -1442,10 +1448,16 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
 
 - `permissionPolicy`: `ask` routes `session/request_permission` to attached clients and waits.
   `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), and `deny-all` answer locally. Per-session override with
-  `acpmux set NAME policy=...`. A session an agent starts from inside its own session (`acpmux new|run`, a local `dispatch`,
-  `--parent`, the `start_session` tool), with no policy or mode of its own, inherits that session's policy (or a narrower
-  family default) and mode (on another family, the same level: full access, asking, or the harness's own), never wider;
-  a start with no proven session (no caller token) is unchanged (`hub/start_mode.rs`, "Inherit").
+  `acpmux set NAME policy=...`. A chat an agent starts from inside its own session (`acpmux new|run`,
+  `cmux agents chat new`, a local `dispatch`) with no policy or mode of its own starts at the person's configured default
+  (`defaultPermissionMode`, the daemon policy), as a start with no proven session does; a starter in full access passes
+  its full access on. Set `holdAgentStartsToStarter: true` to give such a chat its starter's policy and mode instead,
+  never wider. A sub-session (`--parent`, the `start_session` tool) always inherits its parent's policy (or a narrower
+  family default) and mode (on another family, the same level: full access, asking, or the harness's own), never wider
+  (`hub/start_mode.rs`, "Inherit").
+- The person's pick of a mode that does not ask (bypass, full access) on a chat whose own policy is narrower than
+  approve-all sets that chat's policy to approve-all first, so the chat stops asking at once (`hub/policy_mode.rs`); an
+  agent or script still gets the `policy_mode` refusal, and a deny-all policy still holds.
 - `store.mode`: `local` (default) or `memory`. Local writes `sessions/<id>/session.json` and
   append-only `events/NNNNNN.ndjson` segments.
 - `store.closedLogDays`: days a closed chat's event log is kept whole (default 14; 0 keeps every

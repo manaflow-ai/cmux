@@ -99,10 +99,15 @@ enum SidebarStyle {
     /// A workspace row's status mark (the shared indicator, or the agent mark in its place): as
     /// tall as the unread badge beside it (Leo 2026-10-13); both read `Metrics.statusMarkSize`.
     static var statusGlyphSize: CGFloat { badgeHeight }
+    /// A color swatch or machine dot (not a status): 6 pt at compact.
     static var dotSize: CGFloat { Metrics.space3 }
-    /// The blue unread dot on a workspace row, an icon or a tile: 8 pt, as Claude's and ChatGPT's unread dot
-    /// (Leo 2026-10-31: "INCREASE THE SIZE OF THESE BLUE DOTS ON THE SIDEBAR"). The one token every unread dot reads.
-    static var unreadDotSize: CGFloat { Metrics.space4 }
+    /// Every status dot's diameter: blue unread, orange needs attention and any other status dot, in every
+    /// row kind (Home and band items, pinned, workspace and nested rows, group header roll-ups, icon and
+    /// tile corners, Priority rows). 8 pt at compact, as Claude's and ChatGPT's unread dot (Leo 2026-10-31:
+    /// "INCREASE THE SIZE OF THESE BLUE DOTS ON THE SIDEBAR"). Lawrence msg 19696 ("dots are different
+    /// size now which is very bad"): the blue dot grew and the orange one did not, so every dot path reads
+    /// this one token (`StatusIndicatorView.dotDiameter` for the indicator's dots); no view sizes its own.
+    static var statusDotSize: CGFloat { Metrics.space4 }
     /// A window rail button's glyph box and glyph (the Codex rail's 15pt
     /// glyphs on 32pt tiles), and its tile's rounding.
     static var railIconBox: CGFloat { Metrics.iconSize + Metrics.space3 }
