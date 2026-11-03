@@ -64,6 +64,13 @@ public final class CreationInputBuffer {
         return Ticket(id: nextID, owner: ObjectIdentifier(self))
     }
 
+    /// Whether the page the person left keeps no keys (P0 INVERSE-KEY): the focus is on its way to another tab
+    /// (`awaitsOtherTab`) and a creation of this hold, asked under their newest intent `generation`, owns the keyboard.
+    /// The focused tab `focusedTab` is never one this hold makes (a new browser tab's own page takes the keys).
+    public func keepsKeysFromLeftPage(awaitsOtherTab: Bool, generation: UInt64, focusedTab: String?) -> Bool {
+        awaitsOtherTab && holdsCreation && newestGeneration == generation && focusedTab.map { !isCreating(tab: $0) } != false
+    }
+
     /// The workspace the newest new-workspace creation of this hold made: the window shows it before the keys go on.
     /// Nil when the hold has none, or its reply has not come (``hasPendingCreation`` holds the keys then).
     public var awaitedWorkspace: String? { workspaceTickets.max().flatMap { madeWorkspaces[$0] } }

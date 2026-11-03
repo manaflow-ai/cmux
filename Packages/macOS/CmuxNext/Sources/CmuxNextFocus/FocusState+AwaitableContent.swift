@@ -8,4 +8,15 @@ extension FocusState {
         default: nil
         }
     }
+
+    /// The focus is on its way to a tab other than the focused one (a creation's new tab the window does not show
+    /// yet): the person left the focused content. `cmux-focus-core`'s `awaits_other_tab`, whose change re-applies the
+    /// responder (P0 INVERSE-KEY).
+    public var awaitsOtherTab: Bool {
+        switch expectation?.key {
+        case .tab(let tab)?: resolved.tab != tab
+        case .surface?: true
+        case nil: false
+        }
+    }
 }

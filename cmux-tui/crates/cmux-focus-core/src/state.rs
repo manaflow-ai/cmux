@@ -355,6 +355,20 @@ impl FocusState {
         }
     }
 
+    /// The focus is on its way to a tab other than the focused one (a
+    /// creation's new tab the window does not show yet): the person left the
+    /// focused content, so its page gives the keys back (P0 INVERSE-KEY).
+    /// False when the wait is for the focused tab itself (a dragged tab).
+    pub fn awaits_other_tab(&self) -> bool {
+        match &self.expectation {
+            Some(Expectation { key: ExpectationKey::Tab { id }, .. }) => {
+                self.derived.resolved.tab() != Some(id.as_str())
+            }
+            Some(Expectation { key: ExpectationKey::Surface { .. }, .. }) => true,
+            None => false,
+        }
+    }
+
     /// The focused page is in browser focus mode.
     pub fn is_browser_focus_mode_active(&self) -> bool {
         match self.resolved() {

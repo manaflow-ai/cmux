@@ -133,8 +133,12 @@ final class CreationInputCoordinator {
     func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil) -> CreationInputBuffer.Ticket? {
         guard let window, let generation, ActionRunScope.viewChangeAllowed() else { return nil }
         defer { router?.newTabInputCoordinator.creationTookKeys(in: window) } // the newer intent: a New Tab hold's keys come here, in order
+        defer { if let focus = router?.focus(for: window).0?.focus, focus.state.awaitsOtherTab, let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) } } // the page the person left gives this hold the keys now (P0 INVERSE-KEY)
         return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab)
     }
+
+    /// ``CreationInputBuffer/keepsKeysFromLeftPage(awaitsOtherTab:generation:focusedTab:)`` for `window`'s hold.
+    func keepsKeysFromLeftPage(_ state: FocusState, in window: NSWindow) -> Bool { buffers[window.windowNumber]?.keepsKeysFromLeftPage(awaitsOtherTab: state.awaitsOtherTab, generation: state.generation, focusedTab: state.resolved.tab) == true }
 
     /// Opens the window's buffer for a new workspace with a terminal that `window` will show (`newTab` with focus),
     /// under a new user intent of that window's focus; nil when the run may not move focus. Resolve it with
@@ -461,7 +465,8 @@ final class CreationInputCoordinator {
         }
         // The window's focus applies again, so the responder matches the focus model. The person's claim on the keyboard
         // stays until their next intent, so a primary input (Home's message box) still does not take it.
-        if unshown, let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
+        // So does a hold that kept the page the person left from the keys while the focus still waits (P0 INVERSE-KEY).
+        if unshown || controller.focus.state.awaitsOtherTab, let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
         for (index, event) in pending.enumerated() {
             runAgain(event, in: window, router: router)
             // A replayed key started another creation: the rest wait for that one, in order.
