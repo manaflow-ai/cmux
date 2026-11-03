@@ -32,6 +32,13 @@ public final class LinkHintController {
     /// The bound of the page's answer: a page that never answers (a hung renderer) never keeps the keys typed meanwhile.
     private let bound = DemandTimer(owner: "LinkHintController.answer")
 
+    /// The page's answer to whether a text field has the keyboard (nil: the call failed); a test answers instead.
+    var focusAnswer: @MainActor (CEFTab) async -> Bool? = LinkHintController.pageFocus
+    /// The page's hint targets (nil: the call failed); a test answers instead.
+    var targetsAnswer: @MainActor (CEFTab) async -> [LinkHintTarget]? = LinkHintController.pageTargets
+    /// Gives keys to the page they were typed into, in order; a test records them instead.
+    var send: @MainActor ([NSEvent]) -> Void = LinkHintController.dispatch
+
     public init() {}
 
     public var isActive: Bool { session != nil }
@@ -42,13 +49,17 @@ public final class LinkHintController {
         session = Session(keys: LinkHintSession(mode: mode), tab: tab, window: window, isFocused: isFocused,
                           openInSplit: openInSplit, noLinks: noLinks)
         work = Task { [weak self] in
-            let answer = await Self.answer(of: tab)
+            guard let self else { return }
+            let answer = await answer(of: tab)
             guard !Task.isCancelled else { return }
-            self?.collected(answer, from: tab)
+            collected(answer, from: tab)
         }
-        bound.schedule(after: .milliseconds(500)) { @MainActor [weak self, weak tab] in
-            if let tab { self?.collected(nil, from: tab) }
-        }
+        bound.schedule(after: .milliseconds(500)) { @MainActor [weak self] in self?.answerTimedOut() }
+    }
+
+    /// The page did not answer within the bound.
+    func answerTimedOut() {
+        if let tab = session?.tab { collected(nil, from: tab) }
     }
 
     /// Every key-down of the process, first (``KeyRouter``): whether the app dispatched it before. Chromium sends a key
@@ -120,18 +131,32 @@ public final class LinkHintController {
         Task { _ = try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated, gesture: .cmux) }
     }
 
-    /// The page's answer: whether a text field has the keyboard (the focused element only, ``LinkHintSession/focusScript``),
-    /// then, only when none has, the targets. Nil when a call failed. The input journal gets each call's time.
-    private static func answer(of tab: CEFTab) async -> (editing: Bool, targets: [LinkHintTarget])? {
+    /// The page's answer: whether a text field has the keyboard (``focusAnswer``), then, only when none has, the targets
+    /// (``targetsAnswer``). Nil when a call failed.
+    private func answer(of tab: CEFTab) async -> (editing: Bool, targets: [LinkHintTarget])? {
+        guard let editing = await focusAnswer(tab) else { return nil }
+        guard !editing else { return (true, []) }
+        guard let targets = await targetsAnswer(tab) else { return nil }
+        return (false, targets)
+    }
+
+    /// Whether a text field of `tab`'s page has the keyboard: the focused element only (``LinkHintSession/focusScript``).
+    /// The input journal gets the call's time.
+    private static func pageFocus(_ tab: CEFTab) async -> Bool? {
         let clock = ContinuousClock(), began = clock.now
         guard let focus = try? await tab.evaluate(LinkHintSession.focusScript, world: .isolated, gesture: .cmux) else { return nil }
-        let editing = LinkHintSession.editing(from: focus), checked = clock.now
-        tab.host.lifecycleTrace.record(tab.id, "link-hints focus-check \(Self.ms(checked - began)) editing=\(editing)")
-        guard !editing else { return (true, []) }
+        let editing = LinkHintSession.editing(from: focus)
+        tab.host.lifecycleTrace.record(tab.id, "link-hints focus-check \(Self.ms(clock.now - began)) editing=\(editing)")
+        return editing
+    }
+
+    /// `tab`'s page's hint targets (``LinkHintSession/collectScript``). The input journal gets the call's time.
+    private static func pageTargets(_ tab: CEFTab) async -> [LinkHintTarget]? {
+        let clock = ContinuousClock(), began = clock.now
         guard let value = try? await tab.evaluate(LinkHintSession.collectScript, world: .isolated, gesture: .cmux) else { return nil }
         let targets = LinkHintSession.targets(from: value)
-        tab.host.lifecycleTrace.record(tab.id, "link-hints targets \(Self.ms(clock.now - checked)) count=\(targets.count)")
-        return (false, targets)
+        tab.host.lifecycleTrace.record(tab.id, "link-hints targets \(Self.ms(clock.now - began)) count=\(targets.count)")
+        return targets
     }
 
     private static func ms(_ duration: Duration) -> String { String(format: "%.1fms", Double(duration.components.attoseconds) / 1e15 + Double(duration.components.seconds) * 1000) }
@@ -157,6 +182,11 @@ public final class LinkHintController {
     /// Gives `keys` to the page they were typed into, once each, in order; a session never takes them again.
     private func deliver(_ keys: [NSEvent]) {
         replays.mark(keys)
+        send(keys)
+    }
+
+    /// Each key through the app's dispatch, to the window it was typed into.
+    private static func dispatch(_ keys: [NSEvent]) {
         for key in keys { if let window = key.window, window !== NSApp.keyWindow { window.sendEvent(key) } else { NSApp.sendEvent(key) } }
     }
 
