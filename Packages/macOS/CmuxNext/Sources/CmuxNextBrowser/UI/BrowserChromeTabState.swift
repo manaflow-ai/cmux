@@ -9,7 +9,7 @@ public import AppKit
 /// The host writes a tab's hooks and per-tab presentation here, never on a chrome it does not show: each write
 /// reaches the chrome while it shows this tab (`chrome`), and the chrome takes all of them when it binds the tab.
 @MainActor
-public final class BrowserChromeTabState {
+public final class BrowserChromeTabState: Sendable {
     /// The chrome showing this tab now; nil while the tab does not show (its pane shows another tab, or none).
     public internal(set) weak var chrome: BrowserChromeView?
     /// Design mode and the forced color scheme (the toolbar's buttons read them).
@@ -50,6 +50,10 @@ public final class BrowserChromeTabState {
 
     public var profileName: String? { didSet { chrome?.toolbarButtons.profileName = profileName } }
     public var onToolbarPress: ((BrowserToolbarButton) -> Void)? { didSet { chrome?.toolbarButtons.onPress = onToolbarPress } }
+    /// The toolbar's other per-tab sources (shortcut hints, the tab's downloads, media, pins), set on each bind.
+    public var configureToolbar: ((BrowserToolbarButtonsView) -> Void)? {
+        didSet { if let chrome { configureToolbar?(chrome.toolbarButtons) } }
+    }
 
     // MARK: Per-tab presentation
 

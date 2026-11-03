@@ -22,8 +22,9 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        entry.chrome.frame = window.contentLayoutRect
-        window.contentView = entry.chrome
+        let chrome = BrowserPaneChrome().bind(entry.tab, state: entry.state)
+        chrome.frame = window.contentLayoutRect
+        window.contentView = chrome
         return (entry, window)
     }
 

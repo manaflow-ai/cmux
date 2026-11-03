@@ -108,6 +108,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// Browsers this pane showed before, kept in place and hidden, oldest
     /// first (`PaneContentView+Parking`).
     var parked: [ParkedContent] = []
+    let browserChrome = BrowserPaneChrome()  // the pane's browser tabs' one chrome
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
     ///   the content until the first terminal frame (launch load-in).

@@ -351,8 +351,9 @@ public final class BrowserChromeView: NSView {
         // Another page in this toolbar: the held address was the old page's (a tab switch put back its own).
         if let old, old !== tab, !parksLeavingPage { wakingAddress = nil }
         siteZoom.follow(tab)
-        if let old, old !== tab {
-            // A switch hides the leaving page first (a Chromium page conceals itself), then shows this one.
+        // A switch hides the leaving page first (a Chromium page conceals itself), then shows this one; a page another
+        // pane's chrome took meanwhile is not touched.
+        if let old, old !== tab, old.contentView.superview === contentContainer {
             if parksLeavingPage { old.contentView.isHidden = true } else { old.contentView.removeFromSuperview() }
         }
         pageInfoIfMade?.tabDidChange()

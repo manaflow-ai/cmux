@@ -25,7 +25,7 @@ enum TabContent {
     var view: NSView {
         switch self {
         case .terminal(let entry): entry.session.view
-        case .browser(let entry): entry.chrome
+        case .browser(let entry): entry.chrome ?? entry.tab.contentView  // bound by its pane before it shows
         case .agent(let view): view
         case .page(let view): view
         case .placeholder(let view): view
@@ -137,27 +137,24 @@ final class TerminalEntry {
     }
 }
 
-/// A live browser page with its chrome.
+/// A live browser page and its `BrowserChromeTabState` (#32909 step B): a pane's browser tabs share one chrome
+/// (`BrowserPaneChrome`). Write a tab's hooks and per-tab presentation to `state`, never to a chrome.
 final class BrowserEntry {
     let tab: any BrowserTab
-    let chrome: BrowserChromeView
+    let state = BrowserChromeTabState()
+    @MainActor var chrome: BrowserChromeView? { state.chrome }
     /// Owns the chrome's (weak) Extensions menu handler.
     var extensionMenuHandler: (any ExtensionMenuHandling)?
 
-    // No isolated-deinit hop inside an action's task-local scope (cx-t7hu).
-    nonisolated deinit {
-        BrowserPageRetirement(tab: tab, chrome: chrome).retire()
-    }
+    nonisolated deinit { BrowserTabRetirement(tab: tab, state: state).retire() }  // no isolated-deinit hop (cx-t7hu)
 
-    init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil) {
+    @MainActor init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil) {
         self.tab = tab
-        chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine)
-        chrome.history = history
-        // Shortcuts route through the action registry (browser* actions).
-        chrome.handlesDefaultShortcuts = false
+        state.suggestionEngine = suggestionEngine
+        state.history = history
     }
 
     func close() {
-        BrowserPageRetirement(tab: tab, chrome: chrome).retire()
+        BrowserTabRetirement(tab: tab, state: state).retire()
     }
 }

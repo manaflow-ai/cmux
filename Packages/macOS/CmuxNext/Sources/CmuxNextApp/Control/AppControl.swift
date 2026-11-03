@@ -428,8 +428,8 @@ final class AppControl {
                 guard let services else { return .null }
                 do {
                     let result = try await BrowserRetirementProbe(engine: services.cache.cef).run { page in
-                        let entry = BrowserEntry(tab: page)
-                        return (entry, entry.chrome)
+                        let entry = BrowserEntry(tab: page), pane = BrowserPaneChrome()
+                        return ((entry, pane) as AnyObject, pane.bind(page, state: entry.state))
                     }
                     return .object(result.mapValues(JSONValue.bool))
                 } catch {

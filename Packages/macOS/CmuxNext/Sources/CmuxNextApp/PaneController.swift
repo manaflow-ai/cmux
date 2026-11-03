@@ -134,6 +134,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.forget(self)
         view.dropParked()
         view.detachContent()
+        view.browserChrome.drop()
         services.surfaceInvariant.noteChange()
     }
 
@@ -449,6 +450,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "withdraw")
         // May replace a stale surface, displacing the view shown here.
         let content = BenchSpans.measure("switch.content") { key.flatMap(content(for:)) }
+        if case .browser(let entry) = content { _ = BenchSpans.measure("switch.bindChrome") { view.browserChrome.bind(entry.tab, state: entry.state) } }
         DebugTabSwitch.mark(self, "content")
         if let content { DebugTabSwitch.kind(self, content.switchKind) }
         currentTabKey = key

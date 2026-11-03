@@ -33,6 +33,7 @@ struct BrowserChromeTabHooks {
         let buttons = chrome.toolbarButtons
         if buttons.profileName != state.profileName { buttons.profileName = state.profileName }
         buttons.onPress = state.onToolbarPress
+        state.configureToolbar?(buttons)
         chrome.showsFocusModeIndicator = state.showsFocusModeIndicator
         chrome.focusModeExitArmed = state.focusModeExitArmed
         if chrome.accessoryView !== state.accessory?.view {
