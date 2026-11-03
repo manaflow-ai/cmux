@@ -1159,6 +1159,9 @@ fn agent_ask(line: &str) -> Option<Ask> {
     if let Some(ask) = msg.get(super::github_repos::REQUEST_KEY) {
         return Some(super::github_repos::ReposAsk::from_json(ask).into());
     }
+    if let Some(ask) = msg.get(super::github_status::REQUEST_KEY) {
+        return Some(Ask::GithubStatus(super::github_status::check_ask(ask)));
+    }
     let report = msg.get(handoff::REQUEST_KEY)?;
     Some(HandoffReport::from_json(report).into())
 }
