@@ -24,6 +24,7 @@ import type { ChatPresence, Participant } from "./multiplayer/participants";
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
+import type { NextStepAsk } from "./conversation/nextStepAsk";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
@@ -133,6 +134,39 @@ export type AcpmuxBackgroundTurn = {
   /// A row of its own draws something, so its line opens to it. A turn whose events only update
   /// rows that are not its own (a call an earlier turn started, a subagent's work) has none.
   hasRows?: true;
+  /// What started it, when acpmux knows: the background task that ended and whether that is worth
+  /// a response (acpmux hub/background_cause.rs). A log from before acpmux said so has none.
+  cause?: AcpmuxBackgroundCause;
+  /// Its reply went onto the call that started the task (`AcpmuxBackgroundReaction`), so the
+  /// transcript draws no line for it.
+  attached?: true;
+};
+
+/// How much a background task's end is worth (Leo, 2026-11-03: "there's like... background tasks
+/// worth responding to and not worth responding to"), decided by acpmux from the task's own event
+/// in one table keyed by the task's kind and status: `silent` (an interim stop, a subagent's step,
+/// a stop, a monitor tick), `result` (a final report, a command that exited), `failure`.
+export type AcpmuxBackgroundWeight = "silent" | "result" | "failure";
+
+/// The task a background turn answered: its kind (`subagent`, `subagent_step`, `monitor`,
+/// `shell`, `unknown`), the notification's status, its weight, the tool call that started it
+/// (`origin`) and the notification's own summary.
+export type AcpmuxBackgroundCause = {
+  kind: string;
+  status: string;
+  weight: AcpmuxBackgroundWeight;
+  origin?: string;
+  summary?: string;
+};
+
+/// What a background turn left on the call that started its task: the agent's reply, which the
+/// opened call shows under its output, and `fresh` for a final result the person has not seen
+/// (a small mark at the row's edge until their next prompt).
+export type AcpmuxBackgroundReaction = {
+  turn: string;
+  weight: AcpmuxBackgroundWeight;
+  text?: string;
+  fresh?: true;
 };
 
 /// What a run of background-task notifications' line counts (conversation/backgroundRuns.ts): quiet
@@ -224,6 +258,8 @@ export type QueuedPrompt = {
   images?: QueuedPromptImage[];
   /// Not acpmux's: the pane holds it until the folder is trusted (trustHeld.ts).
   held?: boolean;
+  /// A held prompt that waits for the chat's Cloud machine to wake instead (cloudWake.ts).
+  waking?: boolean;
   inlineParts?: PromptContentPart[];
   /// Another agent's message waiting here (direct.ts `queuedMessage`): it draws in the transcript
   /// as the message's received card (conversation/queuedMessages.ts), never as a queue row.
@@ -426,6 +462,9 @@ export type AcpmuxRow = {
   permission?: AcpmuxPermission;
   /// A `questionRecord` row's question, answered or cancelled (question/record.ts).
   question?: AgentQuestion;
+  /// A `nextStep` row's tagged ask and, once a prompt answered it, the answer
+  /// (conversation/nextStepAsk.ts, NextStepCard.tsx).
+  nextStep?: { ask: NextStepAsk; answer?: string };
   /// A `permissionRecord` row's answer, its ask in `permission` (permissions/record.ts).
   decision?: PermissionDecision;
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
@@ -595,6 +634,8 @@ export type AcpmuxActivity = {
     images?: string[];
     /// A shell that went on in the background: running there, then how it ended.
     background?: AcpmuxBackgroundState;
+    /// The agent's reaction to its background task ending (`AcpmuxBackgroundReaction`).
+    reaction?: AcpmuxBackgroundReaction;
     /// The person approved this call's permission ask (Allow, Always allow, or a switch to the
     /// harness's highest mode while its card was open): the row says "Approved" at its edge
     /// instead of a receipt line of its own (direct.ts `markApproved`).
@@ -967,6 +1008,13 @@ export type AcpmuxSnapshot = {
   chatRead?: true;
   sessionId?: string;
   isWorking: boolean;
+  /**
+   * The agent's guess at the person's next prompt (acpmux's `prompt_suggestion` update, Claude
+   * Code's prompt suggestions), for the composer's ghost text: set only between turns, while no
+   * newer prompt or turn start came after it, and never during a replay. `seq` is its record's, so
+   * the composer can tell one suggestion from the next. An older acpmux never sends one.
+   */
+  promptSuggestion?: { text: string; seq: number };
   /// How many of the shown chat's turns this client saw end: it only grows, so an end is seen even
   /// when React draws a turn's start and end as one render (App.tsx `pane.tabState`).
   turnsEnded?: number;
@@ -1705,6 +1753,18 @@ function fallbackRowHeight(
   // The preview card mounts unloaded: one compact row, and 6px below (PreviewCard.tsx). Once the
   // reader clicks Load preview, the transcript's ResizeObserver measures the head over its frame.
   if (row.kind === PREVIEW) return finish(previewCardHeight(row.text, false));
+  // A tagged ask's card (conversation/NextStepCard.tsx): waiting, 12px padding over the question
+  // and its muted line, then a 36px row of answers; answered, the question over the answer in 8px.
+  if (row.kind === NEXT_STEP && row.nextStep) {
+    const { ask, answer } = row.nextStep;
+    const perLine = Math.max(120, width - 32) / 7.5;
+    const lines = (text: string | undefined) => (text ? Math.max(1, Math.ceil(text.length / perLine)) : 0);
+    return finish(
+      answer === undefined
+        ? 24 + 2 + (lines(ask.question) + lines(ask.detail)) * 20 + 8 + 36
+        : 16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4,
+    );
+  }
   // The render card: its 36px head over the frame before it reports a height, and 6px below.
   if (row.kind === RENDER) return finish(36 + RENDER_FRAME_MIN_HEIGHT + 6);
   // Card padding and border, title, button row.
@@ -2546,6 +2606,7 @@ import {
   DATE,
   isEmptyFooter,
   isFoldedCopy,
+  NEXT_STEP,
   PREVIEW,
   RENDER,
   THINKING,

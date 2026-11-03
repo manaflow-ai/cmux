@@ -814,8 +814,20 @@ fn fake_cloud() -> (String, Calls) {
                     messages.push(serde_json::json!({"seq": history + 2, "author": "agent_01TEST", "parts": [{"type": "text", "text": "MARIGOLD-77"}]}));
                 }
                 (200, serde_json::json!({"value": {"messages": messages}}))
+            } else if path.contains("/brain")
+                && method == "PUT"
+                && body["model"]
+                    .as_str()
+                    .is_some_and(|m| m.starts_with("claude-"))
+            {
+                (
+                    409,
+                    serde_json::json!({"ok": false, "error": {"code": "chief_claude_unavailable", "message": "not for this account"}}),
+                )
             } else if path.contains("/brain") && method == "PUT" {
-                brain = body["enabled"] == true;
+                if body.get("enabled").is_some() {
+                    brain = body["enabled"] == true;
+                }
                 (200, serde_json::json!({"ok": true}))
             } else if path.contains("/brain") {
                 (
@@ -853,15 +865,14 @@ fn fake_cloud() -> (String, Calls) {
     (base, seen)
 }
 
-#[test]
-fn a_move_to_the_cloud_copies_history_and_memory_and_turns_the_brain_on() {
-    let dir = tempfile::tempdir().unwrap();
-    let src = new_home(dir.path(), "src");
+/// A home ready for a cloud move: a real memory store and the owner-shaped conversation.
+fn cloud_ready_home(dir: &Path) -> PathBuf {
+    let src = new_home(dir, "src");
     let mem = chief_home(&src);
     drop(mem);
     // A real memory store: the cloud copy reads the memory's text export.
     std::fs::remove_file(src.join("optchat/memory.sqlite3")).unwrap();
-    let seed = dir.path().join("seed.jsonl");
+    let seed = dir.join("seed.jsonl");
     write(
         &seed,
         "{\"text\":\"the code word is PERIWINKLE-42\",\"kind\":\"user\"}\n{\"text\":\"noted\",\"kind\":\"talk\"}\n",
@@ -890,6 +901,13 @@ fn a_move_to_the_cloud_copies_history_and_memory_and_turns_the_brain_on() {
     )
     .unwrap();
     drop(conv);
+    src
+}
+
+#[test]
+fn a_move_to_the_cloud_copies_history_and_memory_and_turns_the_brain_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = cloud_ready_home(dir.path());
     let (base, seen) = fake_cloud();
     let token = dir.path().join("session");
     std::fs::write(&token, "test-session\n").unwrap();
@@ -992,4 +1010,53 @@ fn a_move_to_the_cloud_copies_history_and_memory_and_turns_the_brain_on() {
         .find(|c| c.0 == "PUT" && c.1.contains("/brain"))
         .unwrap();
     assert_eq!(last_brain.2["enabled"], false);
+}
+
+#[test]
+fn a_cloud_model_the_account_may_not_run_stops_the_move_before_any_copy() {
+    let dir = tempfile::tempdir().unwrap();
+    let token = dir.path().join("session");
+    std::fs::write(&token, "test-session\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&token, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let mv = |src: &Path, base: &str, model: &str| {
+        Command::new(BIN)
+            .args([
+                "move",
+                "--to",
+                &format!("cloud:{base}"),
+                "--session-token-file",
+                token.to_str().unwrap(),
+                "--home",
+                src.to_str().unwrap(),
+                "--cloud-model",
+                model,
+            ])
+            .output()
+            .unwrap()
+    };
+
+    let refused = cloud_ready_home(&dir.path().join("a"));
+    let (base, seen) = fake_cloud();
+    let out = mv(&refused, &base, "claude-opus-5-5");
+    assert!(!out.status.success());
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert!(text.contains("paid plan"), "{text}");
+    assert!(!refused.join("state/moved.json").exists(), "nothing moved");
+    let calls = seen.lock().unwrap().clone();
+    assert!(
+        !calls.iter().any(
+            |c| c.2["op"] == "conversation.import" || (c.0 == "PUT" && c.1.contains("/memory"))
+        ),
+        "nothing was copied before the model check"
+    );
+
+    let allowed = cloud_ready_home(&dir.path().join("b"));
+    let (base, seen) = fake_cloud();
+    let report = ok_json(&mv(&allowed, &base, "@cf/meta/llama-4-scout"));
+    assert_eq!(report["moved"], true, "{report}");
+    let calls = seen.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.0 == "PUT"
+        && c.1.contains("/brain")
+        && c.2["model"] == "@cf/meta/llama-4-scout"));
 }

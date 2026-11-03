@@ -5967,3 +5967,24 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
 }
 .cv-repo-recovery button:hover { background: color-mix(in srgb, var(--agent-text) 15%, transparent); }
+/* A background task's result the person has not seen (ReactionMark.tsx): a 6px accent dot at the
+   row's edge, before its check and time, until the next prompt. It never pulses. */
+.cv-reaction-mark {
+  position: relative;
+  flex: none;
+  /* A dot, not a control: its size is the glyph's, and an aspect ratio keeps it round. */
+  width: 6px;
+  aspect-ratio: 1;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--agent-accent);
+  align-self: center;
+}
+/* The agent's reply to that result, under the opened call's output (ReactionReply). */
+.cv-reaction-reply {
+  margin: 4px 0 6px;
+  padding-left: var(--cv-tool-text-inset);
+  color: var(--cv-text-dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
