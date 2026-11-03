@@ -26,9 +26,9 @@ public struct McpConnectCardFlow: Equatable, Sendable {
         case approve(scope: McpConnectCard.Scope)
         /// `_acpmux/mcp_connect_answer {approve: false}`.
         case decline
-        /// `_acpmux/mcp_key_submit`: the key goes to the daemon only, never into this state.
+        /// `_acpmux/mcp_set_key`: the key goes to the daemon only, never into this state.
         case submitKey(McpConnectKey)
-        /// `_acpmux/mcp_auth_begin`, then open the URL it returns in a cmux browser tab.
+        /// `_acpmux/mcp_sign_in`, then open the `authorizeUrl` it returns in a cmux browser tab.
         case beginSignIn
     }
 

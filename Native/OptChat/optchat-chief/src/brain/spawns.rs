@@ -973,7 +973,13 @@ impl Brain {
         let Some((_, sub)) = self.state.sub(id) else {
             return;
         };
-        if self.approval_shown(sub) || sub.policy.as_deref() == Some(crate::approval::ASK) {
+        if self.approval_shown(sub)
+            || sub.policy.as_deref() == Some(crate::approval::ASK)
+            || sub
+                .permission
+                .as_ref()
+                .is_some_and(|p| super::home_mcp_connect::is_mcp_connect(&p.id))
+        {
             return;
         }
         let (Some(session_id), Some(p)) = (sub.session_id.clone(), sub.permission.clone()) else {
@@ -1055,12 +1061,18 @@ impl Brain {
         let Some(status) = self.state.sub(&id).map(|(_, s)| s.status) else {
             return true;
         };
-        if session.pending_permissions == 0 {
+        // A connect card is not a permission: acpmux says when it closes (home_mcp_connect.rs).
+        let connect_card = self.state.sub(&id).is_some_and(|(_, s)| {
+            s.permission
+                .as_ref()
+                .is_some_and(|p| super::home_mcp_connect::is_mcp_connect(&p.id))
+        });
+        if session.pending_permissions == 0 && !connect_card {
             self.end_home_approval(&id, true);
         }
         if let Some(sub) = self.state.sub_mut(&id) {
             sub.active_ms = now_ms();
-            if session.pending_permissions == 0 {
+            if session.pending_permissions == 0 && !connect_card {
                 sub.permission = None;
             }
         }

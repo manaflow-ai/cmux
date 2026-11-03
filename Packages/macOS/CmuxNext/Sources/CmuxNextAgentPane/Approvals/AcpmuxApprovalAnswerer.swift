@@ -78,6 +78,34 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
         await answer(approval, allow: allow, once: true, through: gate) { true }
     }
 
+    /// Home's answer to an MCP connect card (`mcp-connect:<requestId>`, brain/home_mcp_connect.rs):
+    /// `_acpmux/mcp_connect_answer` with the card's own scope, on a person-proven line only, for a
+    /// chat this daemon holds. acpmux takes the answer only while that card is open.
+    public func answerMcpConnect(session: String, requestJSON: String, approve: Bool,
+                                 through gate: @escaping @Sendable (() -> Void) -> Bool) async -> Bool {
+        guard let connect = Self.mcpConnect(requestJSON) else { return false }
+        guard let line = await AcpmuxPersonLine.open(environment) else { return false }
+        defer { line.close() }
+        guard line.isPerson else {
+            logger.error("mcp connect card: acpmux refused this app's person proof; nothing answered")
+            return false
+        }
+        var params: [String: Any] = ["sessionId": session, "requestId": connect.requestID, "approve": approve]
+        if approve { params["scope"] = connect.scope }
+        return await line.call("_acpmux/mcp_connect_answer", params, through: gate) != nil
+    }
+
+    /// The connect card's request id and scope from its Home request, when it is one.
+    nonisolated static func mcpConnect(_ requestJSON: String) -> (requestID: String, scope: String)? {
+        guard let request = (try? JSONSerialization.jsonObject(with: Data(requestJSON.utf8))) as? [String: Any],
+              let call = request["toolCall"] as? [String: Any], let meta = call["_meta"] as? [String: Any],
+              let acpmux = meta["acpmux"] as? [String: Any], let connect = acpmux["mcpConnect"] as? [String: Any],
+              let id = connect["requestId"] as? String, !id.isEmpty, id.utf8.count <= 128,
+              let scope = connect["scope"] as? String,
+              ["chat", "chief", "allChiefs", "agents", "everywhere"].contains(scope) else { return nil }
+        return (id, scope)
+    }
+
     private func answer(_ approval: AgentApproval, allow: Bool, once: Bool,
                         through gate: (@Sendable (() -> Void) -> Bool)? = nil,
                         spend: @MainActor () -> Bool) async -> Bool {

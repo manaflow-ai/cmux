@@ -26,6 +26,7 @@ use cmux_mcp_connect::registry::{AuthKind, Registry};
 use cmux_mcp_connect::resolve::{Resolved, resolve};
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -111,7 +112,7 @@ impl Hub {
     /// `{status: approved, name, scope}`, `{status: declined|cancelled, name}`, or
     /// `{status: unknown, near}` with no card.
     pub async fn request_mcp_connect(
-        &self,
+        self: &Arc<Self>,
         session: &Session,
         input: &str,
         proposed_scope: &str,
@@ -189,6 +190,17 @@ impl Hub {
         let mut reply = json!({"status": status, "name": name, "scope": scope});
         if let (Value::Object(extra), Some(out)) = (connected, reply.as_object_mut()) {
             out.extend(extra);
+        }
+        // An OAuth server: the sign-in starts now, so the agent can hand its page to the person
+        // (Chief's `escalate_auth`) and the card's Sign in is not the only way. The page only
+        // asks the person; the verifier and the token stay here (`mcp_oauth.rs`).
+        if reply["connect"] == "signInNeeded"
+            && let Some(id) = reply["connectionId"].as_str().map(str::to_owned)
+        {
+            match self.mcp_sign_in(&id).await {
+                Ok(started) => reply["signInUrl"] = started["authorizeUrl"].clone(),
+                Err(e) => reply["signInError"] = json!(e.message),
+            }
         }
         Ok(reply)
     }
