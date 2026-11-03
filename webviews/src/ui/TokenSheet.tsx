@@ -98,9 +98,9 @@ export function TokenSheet({ only = "all" }: TokenSheetProps) {
       </div>
     </Section>
   );
-  if (only === "colors") return <div className="ui-token-sheet">{colors}</div>;
+  if (only === "colors") return <div className="ui-token-sheet" data-gallery-capture="">{colors}</div>;
   return (
-    <div className="ui-token-sheet">
+    <div className="ui-token-sheet" data-gallery-capture="">
       <Section title="Spacing" note="Tailwind's unit is the grid base: p-N is N x 4 px.">
         {SPACING.map((step) => (
           <Row key={step.variable} name={step.variable} value={`${step.px}px`}>
