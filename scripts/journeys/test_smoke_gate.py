@@ -537,6 +537,26 @@ class RealKeySteps(unittest.TestCase):
         j.app = self.journal_app([])
         done = self.ext.step_smoke_key(j, key)
         self.assertEqual(done["landed"]["seen"], False)  # the gap judges this key, not the wait
+        # The build's binding comes back as "cmd+ctrl+d" (cmd first): the gap still names the key (review FIX 0fa9b388b1f).
+        bound = {"do": "smoke_key", "command": "newColumn", "key": "d", "modifiers": ["control", "cmd"], "mark": "r3b-first",
+                 "land_timeout": 0.05}
+        j.spec["steps"] += [bound, {"do": "expect", "known_gap": gap}]
+        journal = j.app
+
+        class Bound:
+            pid = 7
+
+            def rpc(self_, method, params=None):
+                if method == "keybinding.list":
+                    return {"bindings": [{"command": "newColumn", "key": "cmd+ctrl+d", "when": None, "source": "default"}]}
+                if method == "keybinding.resolve":
+                    return {"outcome": "run", "winner": {"command": "newColumn", "source": "default"}}
+                return journal.rpc(method, params)
+        j.app = Bound()
+        done = self.ext.step_smoke_key(j, bound)
+        self.assertEqual(sorted(done["modifiers"]), ["cmd", "control"])
+        self.assertEqual(done["landed"]["seen"], False)
+        j.app = journal
         esc = {"do": "smoke_key", "key": "escape", "optional": True, "land_timeout": 0.05}
         self.assertEqual(self.ext.step_smoke_key(j, esc)["landed"]["seen"], False)
         other = {"do": "smoke_key", "key": "n", "modifiers": ["cmd"], "land_timeout": 0.05}

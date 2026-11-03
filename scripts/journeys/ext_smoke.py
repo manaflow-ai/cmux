@@ -334,7 +334,7 @@ def _landing_optional(j, step):
         if s_ is step or (s_.get("do") == step.get("do") and s_.get("mark") and s_.get("mark") == step.get("mark")):
             gap = steps[i + 1].get("known_gap") if i + 1 < len(steps) else None
             return bool(gap) and gap.get("key_path", "real_hid") == "real_hid" and gap.get("key") == step.get("key") \
-                and list(gap.get("modifiers") or []) == list(step.get("modifiers") or [])
+                and sorted(gap.get("modifiers") or []) == sorted(step.get("modifiers") or [])  # as known_gap_of
     return False
 
 
