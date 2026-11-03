@@ -1,6 +1,7 @@
 import CmuxNextDaemon
 public import CmuxNextFeed
 public import CmuxNextHome
+import CmuxNextSettings
 
 extension HomeNativeTranscriptView: FeedPinnedSectionHost {}
 
@@ -11,7 +12,10 @@ extension HomeHostView {
         needsYouWatch = nil
         guard isChief else { return transcript.setPinnedSection(nil) }
         let services = control.services, model = services.feed.model, store = services.daemon.store
-        let pin = FeedNeedsYouPin(model: model, prepare: { [weak services] in
+        // Off by default (`feed.needsYouInChief`): the Feed always lists the requests; the pinned card is opt-in.
+        let pin = FeedNeedsYouPin(model: model, isEnabled: { [weak services] in
+            services?.settings?.snapshot.homeNeedsYouInChief ?? HomeNeedsYouSetting.fallback
+        }, prepare: { [weak services] in
             guard let services else { return }
             // Once: the Inbox page installs the same hooks when it is made.
             if model.onOpenItem == nil { FeedGitHubActions.install(on: model, services: services) }

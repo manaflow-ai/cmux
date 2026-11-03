@@ -56,11 +56,6 @@ final class LayoutViewContext {
     /// The window's frame tick applies its input now (`LayoutFrameInput`): a screen's presentation and the overlay
     /// sync wait for the frame's one pass, after its springs step.
     var holdsPresentations = false
-    /// Pins `motion.frameOwner.timing` for this view's drags only (tests), as ``reduceMotionOverride`` pins Reduce
-    /// Motion: the process-wide switch leaks into every test that runs while an async test is suspended.
-    var frameTimingOverride: Bool?
-    /// A divider, column-edge or row-edge drag event waits for the window's frame tick (`motion.frameOwner.timing`).
-    var dragsOnFrameTick: Bool { frameTimingOverride ?? MotionTunables.frameOwnerTiming.value }
     /// Pane hosts or dividers moved: the overlay plane follows them.
     var overlayNeedsSync: () -> Void = {}
     /// A user gesture moves the layout (a strip, row or scroll-area pan with the finger down): the root reads
