@@ -714,6 +714,18 @@ test("an interim stop goes onto its call: no line, no new mark, its reply inside
       weight: "silent",
       text: "Still waiting on the suite.",
     });
+    // A second end of the same call keeps the first one's words before its own.
+    daemon.push(
+      record(
+        [
+          weighed("bg-i2", { kind: "shell", status: "interim", weight: "silent", origin: "sh1" }),
+          say("Still waiting."),
+          ended("bg-i2", true),
+        ],
+        20,
+      ),
+    );
+    expect(callOf(rows(), "sh1")?.reaction?.text).toBe("Still waiting on the suite.\n\nStill waiting.");
   } finally {
     client.close();
   }
@@ -838,6 +850,38 @@ test("a subagent's final report marks its done line new; its quiet reply goes wi
     const view = drawn(rows());
     expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
     expect(view.some((row) => row.text === "Reviewer says SHIP.")).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
+// Review follow-up on #33283: a done line already drawn takes its reaction's mark when it comes, and
+// drops it after the next prompt.
+test("a subagent's done line draws its reaction's mark as it comes and goes", async () => {
+  const daemon = fakeDaemon(
+    record([...personTurn("Review it", "Started a reviewer.", "t1"), spawned("rev"), spawned("rev", "completed")]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const cache = new Map();
+    const done = () => withSubagentLines(rows(), cache).find((row) => row.kind === SUBAGENT_DONE)!;
+    const before = done();
+    expect(before.subagents?.[0]?.reaction).toBeUndefined();
+    daemon.push(
+      record(
+        [
+          weighed("bg-rev", { kind: "subagent", status: "completed", weight: "result", origin: "rev-call" }),
+          say("Reviewer says SHIP."),
+          ended("bg-rev", true),
+        ],
+        20,
+      ),
+    );
+    const marked = done();
+    expect(marked.version).not.toBe(before.version);
+    expect(marked.subagents?.[0]?.reaction).toMatchObject({ fresh: true, text: "Reviewer says SHIP." });
+    daemon.push(record(personTurn("Merge it", "Merging.", "t2"), 40));
+    expect(done().subagents?.[0]?.reaction?.fresh).toBeUndefined();
   } finally {
     client.close();
   }

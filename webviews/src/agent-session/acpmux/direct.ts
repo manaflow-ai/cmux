@@ -5338,8 +5338,9 @@ export class AcpmuxDirectClient {
     if (!origin || reaction?.turn !== turn) return;
     const line = this.rows.get(backgroundTurnRowId(turn))?.background;
     if (line?.quiet !== true && reaction.weight !== "silent") return;
-    const text = this.rows.backgroundReply(turn);
-    if (text) this.react(origin, { ...reaction, text });
+    // An earlier end of the same call left its words (`attachReaction` carried them): these follow.
+    const reply = this.rows.backgroundReply(turn);
+    if (reply) this.react(origin, { ...reaction, text: reaction.text ? `${reaction.text}\n\n${reply}` : reply });
   }
 
   /// Puts `reaction` on call `origin`: an activity row's tool call, or the subagent it started

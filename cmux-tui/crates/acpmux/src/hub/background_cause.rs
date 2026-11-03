@@ -125,14 +125,20 @@ impl Causes {
                 if self.pending_weight.is_some_and(|p| p > w) {
                     return;
                 }
-                let mut cause = json!({"kind": kind, "status": status, "weight": w.name()});
+                let mut cause = serde_json::Map::new();
+                cause.insert("kind".into(), json!(kind));
+                cause.insert("status".into(), json!(status));
+                cause.insert("weight".into(), json!(w.name()));
                 if let Some(origin) = text("tool_use_id") {
-                    cause["origin"] = json!(origin);
+                    cause.insert("origin".into(), json!(origin));
                 }
                 if !summary.is_empty() {
-                    cause["summary"] = json!(summary.chars().take(240).collect::<String>());
+                    cause.insert(
+                        "summary".into(),
+                        json!(summary.chars().take(240).collect::<String>()),
+                    );
                 }
-                self.pending = Some(cause);
+                self.pending = Some(Value::Object(cause));
                 self.pending_weight = Some(w);
             }
             _ => {}
