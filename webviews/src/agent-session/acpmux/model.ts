@@ -595,6 +595,10 @@ export type AcpmuxActivity = {
     images?: string[];
     /// A shell that went on in the background: running there, then how it ended.
     background?: AcpmuxBackgroundState;
+    /// The person approved this call's permission ask (Allow, Always allow, or a switch to the
+    /// harness's highest mode while its card was open): the row says "Approved" at its edge
+    /// instead of a receipt line of its own (direct.ts `markApproved`).
+    approved?: true;
   };
 };
 
