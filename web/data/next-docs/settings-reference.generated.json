@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 559,
+  "count": 563,
   "sections": [
     {
       "id": "general",
@@ -215,6 +215,14 @@
           "group": "Chats"
         },
         {
+          "key": "agents.chats.sessionRecap",
+          "title": "Session Recap",
+          "help": "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Chats"
+        },
+        {
           "key": "agents.defaultPermissionMode",
           "title": "Permission Mode for New Chats",
           "help": "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",
@@ -239,6 +247,18 @@
             "deepseek/deepseek-v4.1-flash",
             "deepseek/deepseek-v4-flash",
             "deepseek/deepseek-v4-pro"
+          ]
+        },
+        {
+          "key": "agents.promptCache",
+          "title": "Prompt Cache",
+          "help": "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more.",
+          "kind": "choice",
+          "default": "1h",
+          "group": "Agent Chat",
+          "values": [
+            "1h",
+            "5m"
           ]
         },
         {
@@ -5963,6 +5983,14 @@
           "group": "Machine Colors"
         },
         {
+          "key": "cloud.agentsStartWithoutAsking",
+          "title": "Let Agents Start Cloud Sessions Without Asking",
+          "help": "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
           "key": "cloud.newWorkspaceFolder",
           "title": "New Cloud Workspaces Start In",
           "help": "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
@@ -5978,6 +6006,14 @@
           "key": "cloud.newWorkspacesInCloud",
           "title": "Run New Workspaces in Cloud",
           "help": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
+          "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
+          "title": "Use My Claude Login on My Own Cloud Machines",
+          "help": "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
           "kind": "toggle",
           "default": false,
           "group": "Cloud Workspaces"

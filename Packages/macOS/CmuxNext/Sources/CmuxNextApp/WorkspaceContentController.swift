@@ -400,8 +400,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // So does the App Store (S22: never a window of its own).
         if panes.count == 1, services.apps.isStoreWaiting { Task { [apps = services.apps] in apps.windowDidShowContent() } }
         // So does a link from another app that waited for a workspace made to hold it (#27897):
-        // the workspace shows before its first pane mounts.
+        // the workspace shows before its first pane mounts. And a Dock menu row picked with no window open.
         if panes.count == 1, !services.externalOpen.pending.isEmpty { Task { [open = services.externalOpen] in open.flush() } }
+        if panes.count == 1, services.dockMenu.isWaiting { Task { [dockMenu = services.dockMenu] in dockMenu.windowDidShowContent() } }
         return controller.view
     }
 

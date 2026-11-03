@@ -114,7 +114,7 @@ fn literal_value(text: &str) -> Option<(String, &str)> {
     }
 }
 
-fn allowed_name(name: &str) -> bool {
+pub(super) fn allowed_name(name: &str) -> bool {
     let bytes = name.as_bytes();
     let valid = bytes.len() <= 128
         && bytes.first().is_some_and(|b| b.is_ascii_alphabetic() || *b == b'_')

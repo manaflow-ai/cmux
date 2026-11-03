@@ -3026,7 +3026,7 @@
             "zh-TW": "在右側新增欄"
           },
           "shortcut": {
-            "key": "d",
+            "key": "x",
             "modifiers": [
               "ctrl",
               "cmd"
@@ -3061,7 +3061,7 @@
             "zh-TW": "新增列"
           },
           "shortcut": {
-            "key": "d",
+            "key": "x",
             "modifiers": [
               "ctrl",
               "shift",
@@ -6284,7 +6284,7 @@
             "zh-TW": "向右分割瀏覽器"
           },
           "shortcut": {
-            "key": "d",
+            "key": "x",
             "modifiers": [
               "opt",
               "cmd"
@@ -6319,7 +6319,7 @@
             "zh-TW": "向下分割瀏覽器"
           },
           "shortcut": {
-            "key": "d",
+            "key": "x",
             "modifiers": [
               "opt",
               "shift",

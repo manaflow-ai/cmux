@@ -119,6 +119,8 @@ final class SidebarListView: NSView {
     var openDoneFolds: Set<SidebarDoneFoldID> = []
     /// The lists whose "Show N more" row the person opened: view state, kept for this list only.
     var openShowMore: Set<SidebarDoneFoldID> = []
+    /// The brief highlight Reveal Workspace in Sidebar draws over the row it revealed (`SidebarListView+RevealInSidebar`).
+    var revealFlash: SidebarRevealFlash?
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
     let inlineRename = SidebarInlineRename()
     /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.

@@ -40,16 +40,19 @@ struct DividerDrag {
             guard screen.activeDrag != nil else { return }
             screen.activeDrag?.modifiers = DividerDragModifiers(flags)
             screen.activeDrag?.lastWindowPoint = windowPoint
-            screen.activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: CACurrentMediaTime())
+            let point = contentPoint(fromWindow: windowPoint, kind: kind)
+            screen.activeDrag?.sample(point, at: CACurrentMediaTime())
             screen.resizeGestureMoved()
-            apply(at: windowPoint, phase: .changed)
+            // Control's trail follows every event, with the keys held at it; the frame tick writes the newest point.
+            _ = screen.activeDrag?.effective(point)
+            waitForFrame()
         case let .modifiersChanged(flags):
             let modifiers = DividerDragModifiers(flags)
             guard let drag = screen.activeDrag, modifiers != drag.modifiers else { return }
             screen.activeDrag?.modifiers = modifiers
             // A press that has not moved yet stays a click: nothing to re-apply.
             guard drag.pointer != nil else { return }
-            apply(at: drag.lastWindowPoint, phase: .changed)
+            waitForFrame()
         case .cancelled:
             cancel(redraw: true)
         case let .ended(windowPoint, flags):
@@ -100,9 +103,27 @@ struct DividerDrag {
         }
     }
 
+    /// A move or a key change only keeps the pointer and keys for the window's next frame tick, and asks for it: that
+    /// tick writes the newest ones once (``applyWaiting()``), so a burst of events in one display frame costs one model
+    /// write and one layout pass (Chrome aligns input to the begin-frame). The release (`ended`) still applies in its
+    /// own turn, at its own point; a cancel drops what waits.
+    private func waitForFrame() {
+        screen.activeDrag?.waiting = true
+        screen.activeDrag?.ticksLeft = ScreenContentView.panTickTail
+        screen.context.requestFrames()
+    }
+
+    /// The frame tick (`LayoutFrameInput`): writes the pointer and keys the drag's events left waiting, once.
+    func applyWaiting() { // perf-hot: 4ms motion-frame
+        guard let drag = screen.activeDrag, drag.waiting else { return }
+        screen.activeDrag?.waiting = false
+        apply(at: drag.lastWindowPoint, phase: .changed)
+    }
+
     /// Writes this frame's values. A split or column the drag set before and does not set now goes
     /// back to its start first. The model's observation lays each value out (one sync per turn: events that arrive
-    /// together show once); a still pointer asks for no frames.
+    /// together show once), or in the frame tick its own sync does (`LayoutFrameInput`); a still pointer asks for no
+    /// frames.
     func apply(at windowPoint: NSPoint, phase: LayoutGesturePhase) {
         guard var drag = screen.activeDrag else { return }
         let point = drag.effective(contentPoint(fromWindow: windowPoint, kind: drag.kind))
@@ -111,7 +132,7 @@ struct DividerDrag {
         case let .split(id):
             targets = splitTargets(id, drag: &drag, point: point, phase: phase)
         case let .columnEdge(id):
-            targets = columnTargets(id, drag: drag, point: point)
+            targets = columnTargets(id, drag: &drag, point: point, phase: phase)
         case let .rowEdge(column, upper):
             screen.activeDrag = drag
             return applyRowEdge(column, upper: upper, drag: drag, windowPoint: windowPoint, phase: phase)
@@ -133,16 +154,12 @@ struct DividerDrag {
     private func splitTargets(_ id: SplitID, drag: inout DividerDragState, point: CGPoint, phase: LayoutGesturePhase) -> [DividerDragValue] {
         let style = screen.context.style
         if drag.modifiers.push, let push = drag.push {
+            // A push lands where the pointer is (Option-Shift too, resize-modifiers.md): no Shift landing to keep.
+            drag.snapped = nil
             return push.targets(delta: (drag.axis == .horizontal ? point.x : point.y) - drag.pressAt)
         }
-        // A fling that would carry the divider onto a snap within the spring's reach lands there
-        // (not with Control or Shift: those land where the pointer put them).
-        let flings = phase == .ended && screen.context.animatesPaneLayout && !drag.modifiers.fine && !drag.modifiers.snap
-        let reach = flings ? (screen.releasedDivider?.velocity ?? 0) * CGFloat(Motion.panes.dividerReleaseProjection) : 0
-        let projected = drag.axis == .horizontal ? CGPoint(x: point.x + reach, y: point.y) : CGPoint(x: point.x, y: point.y + reach)
-        var probe = drag
-        let flung = reach != 0 ? probe.splitRatio(at: projected, style: style, phase: phase) : nil
-        let ratio = flung.flatMap { drag.snaps.contains($0) ? $0 : nil } ?? drag.splitRatio(at: point, style: style, phase: phase)
+        // Where the pointer is, a fling's release too; Shift's release on the nearest snap, where its spring carries it.
+        let ratio = drag.splitRatio(at: point, style: style, phase: phase)
         var targets = [DividerDragValue.ratio(id, ratio)]
         if drag.modifiers.all, let node = drag.tree?.node(for: id) {
             let even = EvenSplitRatios.changes(equalizing: node.a, axis: node.axis) + EvenSplitRatios.changes(equalizing: node.b, axis: node.axis)
@@ -151,7 +168,7 @@ struct DividerDrag {
         return targets
     }
 
-    private func columnTargets(_ id: ColumnID, drag: DividerDragState, point: CGPoint) -> [DividerDragValue] {
+    private func columnTargets(_ id: ColumnID, drag: inout DividerDragState, point: CGPoint, phase: LayoutGesturePhase) -> [DividerDragValue] {
         // Strip widths are shares of the strip's viewport; a side dock's
         // width is a share of the whole view's width, a top or bottom
         // dock's height a share of its height (same formula).
@@ -169,12 +186,15 @@ struct DividerDrag {
         }
         let gap = screen.context.style.stripGap
         var fraction = ColumnStripGeometry.fraction(forPixelWidth: extent, viewportWidth: viewport, gap: gap)
-        if drag.modifiers.snap, !drag.modifiers.fine {
-            // Shift: the nearest preset the column fits at (thirds, half, full).
+        if drag.landsOnSnap {
+            // Shift: the release lands on the nearest preset the column fits at (thirds, half, full); the drag follows the pointer.
             let fits = ColumnWidthPreset.allCases.filter {
                 ColumnStripGeometry.pixelWidth(fraction: $0.rawValue, viewportWidth: viewport, gap: gap) >= drag.minimumA
             }
-            if let nearest = fits.min(by: { abs($0.rawValue - fraction) < abs($1.rawValue - fraction) }) { fraction = nearest.rawValue }
+            let nearest = fits.min(by: { abs($0.rawValue - fraction) < abs($1.rawValue - fraction) })
+            if let landing = drag.land(on: nearest?.rawValue, phase: phase) { fraction = landing }
+        } else {
+            drag.snapped = nil
         }
         guard drag.dockEdge == nil, let strip = drag.strip else { return [.width(id, fraction)] }
         if drag.modifiers.all { return strip.uniform(fraction) }

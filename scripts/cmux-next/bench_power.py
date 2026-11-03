@@ -400,7 +400,10 @@ def measure_processes(app_pid: int, bundle: str, label: str, seconds: float, rol
                      "wakeups_per_s": round((u1[2] - u0[2] + u1[3] - u0[3]) / span, 2),
                      "mw": round((u1[0] - u0[0]) / 1e6 / span, 3),
                      "main_thread_pct": round(100 * (m1 - m0) / 1e9 / span, 3) if m0 is not None and m1 is not None else None,
-                     "command": cmd[:160]})
+                     "command": cmd[:160],
+                     # The renderer flags that say which renderer it is, kept whole: a long bundle path
+                     # pushes them past the truncated command.
+                     "flags": " ".join(arg for arg in cmd.split() if arg.startswith(RENDERER_FLAGS))})
         steps_by_role.setdefault(role, []).append(steps)
         steps_by_role.setdefault("total", []).append(steps)
     rows.sort(key=lambda row: -row["cpu_pct"])
@@ -463,6 +466,8 @@ IDLE_COST_PRESETS = {
     "idle-chats": {"load_remote": 0, "load_local": 40, "load_streaming": 0, "load_tabs": 0, "settle": 60, "measure": 120},
 }
 IDLE_COST_LABELS = tuple(IDLE_COST_PRESETS)
+# Command-line flags that name a Chromium renderer when no page map does (process_rows).
+RENDERER_FLAGS = ("--renderer-client-id", "--extension-process", "--type=")
 # Leo's budget for an idle app: no process above this CPU % (the idle-chats verdict).
 PROCESS_BUDGET_PCT = 5.0
 
@@ -488,8 +493,9 @@ def process_rows(result: dict, budget: float) -> tuple[list[str], dict]:
         if proc["kind"] == "cef-renderer" and not role.startswith("cef-renderer:"):
             # No page map for this renderer (a build without debug.cef_pages): its command line says
             # which kind it is (--extension-process, --renderer-client-id).
-            role += " `" + " ".join(arg for arg in proc.get("command", "").split()
-                                    if arg.startswith(("--renderer-client-id", "--extension-process", "--type=")))[:80] + "`"
+            flags = proc.get("flags") or " ".join(arg for arg in proc.get("command", "").split()
+                                                  if arg.startswith(RENDERER_FLAGS))
+            role += f" `{flags[:80]}`" if flags else ""
         flag = proc["cpu_pct"] > budget
         if flag:
             over.append({"pid": proc["pid"], "role": proc["role"], "cpu_pct": proc["cpu_pct"]})
@@ -497,7 +503,8 @@ def process_rows(result: dict, budget: float) -> tuple[list[str], dict]:
                     f"{num(proc.get('wakeups_per_s'), 1)} | {num(proc.get('main_thread_pct'))} | "
                     f"{num(proc.get('footprint_mb'), 1)} | {'OVER' if flag else ''} |")
     busiest = max(result["processes"], key=lambda row: row["cpu_pct"], default=None)
-    verdict = {"budget_pct": budget, "verdict": "OVER" if over else "PASS", "over": over,
+    # No process measured (a zero-second window, or every process gone) is no evidence: never PASS.
+    verdict = {"budget_pct": budget, "verdict": "OVER" if over else "PASS" if busiest else "UNMEASURED", "over": over,
                "max_cpu_pct": busiest["cpu_pct"] if busiest else None,
                "max_role": busiest["role"] if busiest else None, "max_pid": busiest["pid"] if busiest else None}
     return rows, verdict

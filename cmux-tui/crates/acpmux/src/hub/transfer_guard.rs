@@ -178,6 +178,14 @@ pub(super) fn bundle_path_kind(path: &str) -> Option<bool> {
         {
             Some(true)
         }
+        ["native", "pi-session", ".pi", "agent", "sessions", dir, f]
+            if !dir.is_empty() && jsonl(f) =>
+        {
+            Some(true)
+        }
+        ["native", "opencode-export", f] if f.len() > ".json".len() && f.ends_with(".json") => {
+            Some(true)
+        }
         ["native", "codex-rollout", ".codex", "sessions", rest @ ..]
             if (1..=5).contains(&rest.len())
                 && rest.iter().all(|p| !p.is_empty())
