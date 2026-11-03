@@ -218,7 +218,7 @@ def step_video_stop(j, step):
         trace = json.loads(trace_path.read_text())
     else:
         trace = {"samples": []}
-    keep_journal(j)
+    keep_journal(j, rec)  # video_stop has taken the recording off the journey already: pass it
     entries = sorted(rec.get("journal_kept", {}).values(), key=lambda e: int(e.get("seq") or 0))
     (base.parent / f"{rec['name']}.events.json").write_text(json.dumps({"hid": rec["hid"], "journal": entries}))
     layers = R._layers_window(j)
@@ -262,9 +262,9 @@ def _latest_sample(j):
     return samples[-1] if samples else {}
 
 
-def keep_journal(j):
+def keep_journal(j, rec=None):
     """Keeps the app's input-journal entries since the recording started (the app holds only its last 400), by seq."""
-    rec = getattr(j, "video", None)
+    rec = rec if rec is not None else getattr(j, "video", None)
     if rec is None:
         return
     kept = rec.setdefault("journal_kept", {})
