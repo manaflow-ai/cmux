@@ -312,24 +312,12 @@ def bisect(args, run=subprocess.run) -> int:
                 got = json.loads(out.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 return {f: None for f in files}
-            # Red only when one of the file's new red tests is red here: a test already red at BASE, red in the same
-            # file, says nothing about where the new one broke. A file-level red (no test named) counts any red in
-            # the file. A file the commit does not have yet cannot fail there: green.
-            def verdict(f: str) -> bool | None:
-                mine = {name: ok for name, ok in got.items() if name == f or name.startswith(f + " > ")}
-                wanted = names[f]
-                if f in wanted:
-                    return (not all(mine.values())) if mine else (None if exists(sha, f) else False)
-                if any(mine.get(name) is False for name in wanted):
-                    return True
-                if mine and all(name in mine for name in wanted):
-                    return False  # every new red test ran here and passed
-                if mine and all(mine.values()):
-                    return False  # the file passed whole: the new tests are not in it yet
-                if mine:
-                    return None  # the file failed (a timeout, a load error) before the new tests gave a verdict
-                return None if exists(sha, f) else False
-            return {f: verdict(f) for f in files}
+            try:
+                ran = json.loads(Path(f"{out}.states").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                ran = {}
+            ran = ran if isinstance(ran, dict) else {}
+            return {f: probe_verdict(f, names[f], got, ran.get(f), lambda f=f: exists(sha, f)) for f in files}
 
         # BASE's verdict is known for a file only when the run before ran it.
         # A file red whole at BASE (a timeout, a load error) gave no verdict for the tests in it.
@@ -339,6 +327,33 @@ def bisect(args, run=subprocess.run) -> int:
     report["skipped"] = skipped
     report["lines"] = report_lines(found, commits, subjects, names, skipped, args.base)
     return finish()
+
+
+def probe_verdict(file: str, wanted: set[str], got: dict, state, present) -> bool | None:
+    """FILE's verdict at a probed commit: True red, False green, None unknown. GOT is the probe's results in the
+    shards' shape (webviews_test_results.py: `FILE: true` for a passing file, each named failure as `FILE > TEST:
+    false`, `FILE: false` for one red with no test named), STATE its run state (`{"result", "completed"}`) or None,
+    PRESENT() whether the commit has the file. WANTED are the file's new red names.
+
+    Red only when one of the new red tests is red here: a test already red at BASE, red in the same file, says
+    nothing about where the new one broke. A file-level red (no test named) counts any red in the file. A file that
+    ran to its end (passed, or failed naming only other tests) is green for the new tests: the results name no
+    passing test, so this is where a test red at BASE beside them still gives a verdict. A file that timed out or
+    died before its end is no verdict, and a file the commit does not have yet cannot fail there: green."""
+    mine = {name: ok for name, ok in got.items() if name == file or name.startswith(file + " > ")}
+    state = state if isinstance(state, dict) else {}
+    completed = state.get("completed") is True or got.get(file) is True
+    if file in wanted:
+        if mine:
+            return not all(mine.values())
+        return None if present() else False
+    if any(mine.get(name) is False for name in wanted):
+        return True
+    if mine and completed:
+        return False  # the file ran to its end and none of the new red tests failed
+    if mine or state:
+        return None  # it failed (a timeout, a crash, a load error) before the new tests gave a verdict
+    return None if present() else False
 
 
 def exists(sha: str, file: str) -> bool:
