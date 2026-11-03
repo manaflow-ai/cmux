@@ -93,7 +93,10 @@ fn it_covers_send_retry_and_approve_only() {
     let mut state = ActAsMe::default();
     state.turn_on(GrantSource::PersonClick).unwrap();
     assert_eq!(decide(state, "session/prompt", false), Verdict::ActsAsPerson(Holder::Person));
-    assert_eq!(decide(state, "_acpmux/queue_approve", false), Verdict::ActsAsPerson(Holder::Person));
+    assert_eq!(
+        decide(state, "_acpmux/queue_approve", false),
+        Verdict::ActsAsPerson(Holder::Person)
+    );
     // Every other method that needs a gesture stays the person's alone.
     for method in policy().gesture_rules.keys() {
         if method == "session/prompt" || method == "_acpmux/queue_approve" {
@@ -102,7 +105,8 @@ fn it_covers_send_retry_and_approve_only() {
         assert!(!covers(method), "{method}");
         assert_eq!(decide(state, method, false), Verdict::Refused, "{method}");
     }
-    for method in ["_acpmux/permission_respond", "acp.trust.set", "session/set_mode", "session/new"] {
+    for method in ["_acpmux/permission_respond", "acp.trust.set", "session/set_mode", "session/new"]
+    {
         assert_eq!(decide(state, method, false), Verdict::Refused, "{method}");
     }
 }
