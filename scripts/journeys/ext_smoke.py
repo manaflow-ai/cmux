@@ -155,12 +155,31 @@ def _diagnostic(j):
     return (j.spec.get("options") or {}).get("smoke_mode") == "diagnostic"
 
 
+def _input_tail(j, last=80):
+    """The app's input journal tail (debug.journal: key lines, windowKey, page and focus entries in order) and
+    debug.focus, for a failed key-window check: the order of the key, the key-window change and the check
+    (INVERSE-KEY owner's request, 2026-11-03). Never raises."""
+    out = {}
+    try:
+        out["journal"] = (j.app.rpc("debug.journal", {"last": last}) or {}).get("entries")
+    except (D.StepError, OSError, ValueError) as error:
+        out["journal_error"] = str(error)[:200]
+    try:
+        out["focus"] = j.app.rpc("debug.focus")
+    except (D.StepError, OSError, ValueError) as error:
+        out["focus_error"] = str(error)[:200]
+    return out
+
+
 def step_smoke_type_now(j, step):
     key_now, windows = _main_key(j)
     other = [w for w in windows if w["key"] is True and w["kind"] != "main"]
     if not key_now and other:
         # Another window of the app took the keys (a New Tab page's child window, a panel): the app's bug.
-        raise D.StepError(f"the keys would go to a window that is not a main window: {json.dumps(other)[:300]}")
+        error = D.StepError(f"the keys would go to a window that is not a main window: {json.dumps(other)[:300]}")
+        error.detail = dict(_input_tail(j), windows=windows,
+                            last_key_landed=getattr(j, "smoke_last_key_landed", None))
+        raise error
     waited = None
     if not (getattr(j, "smoke_key_ok", False) and key_now):
         if not any(w["kind"] == "main" for w in windows):
@@ -283,10 +302,84 @@ def step_smoke_key(j, step):
     _realkey().require_front(j)
     if step.get("mark"):
         j.marks[step["mark"]] = D.now()
+    seq0 = _journal_seq(j)
     t = D.now()
     effect = _realkey().press(j, step["key"], step.get("modifiers", []))
+    sent_ms = round((D.now() - t) * 1000, 1)
+    # A real key returns when CuaDriver posted it, not when the app handled it: wait until the app's input journal
+    # has the key-down, so the next step's check never runs before the app saw the key (INVERSE-KEY owner,
+    # 2026-11-03: a key-window check 7 ms after a posted Ctrl-` saw the page window still key).
+    landed = _await_key_down(j, seq0, step["key"], step.get("modifiers", []), float(step.get("land_timeout", 2.0)), t)
+    j.smoke_last_key_landed = landed
     return {"key": step["key"], "modifiers": step.get("modifiers", []), "key_path": "real_hid", "cua_effect": effect,
-            "send_ms": round((D.now() - t) * 1000, 1), "waited_out_hold_s": held, "key_source": source}
+            "send_ms": sent_ms, "landed": landed, "waited_out_hold_s": held, "key_source": source}
+
+
+# Named keys (Carbon kVK_*) a smoke_key step may press, beside the characters of _KEYCODES.
+_NAMED_KEYCODES = {"return": 36, "tab": 48, "space": 49, "delete": 51, "escape": 53, "left": 123, "right": 124,
+                   "down": 125, "up": 126}
+_MOD_BITS = {"cmd": 1, "command": 1, "shift": 2, "option": 4, "alt": 4, "control": 8, "ctrl": 8}
+
+
+def _journal_seq(j):
+    """The input journal's last seq now, or None when the build has no journal (then a key's landing is not waited for)."""
+    rpc = getattr(j.app, "rpc", None)
+    if rpc is None:
+        return None
+    try:
+        reply = rpc("debug.journal", {"last": 5}) or {}
+    except (D.StepError, OSError, ValueError):
+        return None
+    entries = reply.get("entries") if isinstance(reply, dict) else None
+    if not isinstance(entries, list):
+        return None
+    return max([int(e.get("seq") or 0) for e in entries if isinstance(e, dict)] or [0])
+
+
+def _key_entry(entry):
+    """{phase, keyCode, modifiers (bits)} of a journal key entry (Swift Codable: {"key": {"_0": {...}}}), or None."""
+    kind = entry.get("kind") if isinstance(entry, dict) else None
+    key = kind.get("key") if isinstance(kind, dict) else None
+    if isinstance(key, dict) and isinstance(key.get("_0"), dict):
+        key = key["_0"]
+    if not isinstance(key, dict) or "phase" not in key:
+        return None
+    mods = key.get("modifiers")
+    if isinstance(mods, list):
+        mods = sum(_MOD_BITS.get(str(m).lower(), 0) for m in mods)
+    return {"phase": key.get("phase"), "keyCode": key.get("keyCode"), "modifiers": int(mods or 0)}
+
+
+def _await_key_down(j, seq0, key, modifiers, timeout, t_sent):
+    """{seq, uptime_ns, wait_ms} of the first key-down in the app's input journal after SEQ0 that is KEY with at
+    least MODIFIERS (key code when the journal keeps it: always for shortcuts and named keys). Raises StepError
+    when it never comes within TIMEOUT s (the app never saw the key). {"journal": "none"} on a build without one."""
+    if seq0 is None:
+        return {"journal": "none"}
+    code = _NAMED_KEYCODES.get(key, _KEYCODES.get(key) if len(key) == 1 else None)
+    want = sum(_MOD_BITS.get(m, 0) for m in modifiers)
+    end = D.now() + timeout
+    while True:
+        try:
+            entries = (j.app.rpc("debug.journal", {"last": 80}) or {}).get("entries") or []
+        except (D.StepError, OSError, ValueError):
+            entries = []
+        for e in entries:
+            if not isinstance(e, dict) or int(e.get("seq") or 0) <= seq0:
+                continue
+            k = _key_entry(e)
+            if not k or k["phase"] != "down" or (k["modifiers"] & want) != want:
+                continue
+            if code is not None and k["keyCode"] is not None and int(k["keyCode"]) != code:
+                continue
+            return {"seq": e.get("seq"), "uptime_ns": e.get("uptimeNanos"), "window": e.get("window"),
+                    "wait_ms": round((D.now() - t_sent) * 1000, 1)}
+        if D.now() >= end:
+            error = D.StepError(f"the real key {'+'.join(list(modifiers) + [key])} never reached the app's input "
+                                f"journal within {timeout:g} s (posted by CuaDriver; journal after seq {seq0})")
+            error.detail = _input_tail(j)
+            raise error
+        time.sleep(0.01)
 
 
 def step_smoke_type(j, step):

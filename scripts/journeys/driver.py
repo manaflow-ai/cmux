@@ -1752,6 +1752,8 @@ class Journey:
                             self.known_views.add(view["terminal_id"])
                 except StepError as error:
                     record["ok"], record["error"] = False, str(error)[-600:]
+                    if getattr(error, "detail", None) is not None:  # what the step saw when it failed (a journal tail)
+                        record["error_detail"] = error.detail
                     gap = self.known_gap_of(step, error, self.evidence[evidence_before:])
                     if not gap:
                         raise

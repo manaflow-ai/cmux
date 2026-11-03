@@ -489,6 +489,61 @@ class RealKeySteps(unittest.TestCase):
         j.step_type = lambda step: {"typed": step["text"]}
         return j
 
+    def journal_app(self, entries_after_press):
+        """An app whose debug.journal has one old entry, then ENTRIES_AFTER_PRESS once a key was sent."""
+        sent = self.sent
+
+        class App:
+            pid = 7
+
+            def rpc(self_, method, params=None):
+                if method == "debug.journal":
+                    rows = [{"seq": 10, "uptimeNanos": 1, "kind": {"marker": {"_0": "x"}}}]
+                    if sent:
+                        rows += entries_after_press
+                    return {"entries": rows[-int((params or {}).get("last", 80)):]}
+                if method == "debug.focus":
+                    return {"windows": [{"model": {"resolved": "page"}}]}
+                if method == "debug.window_list":
+                    return {"windows": [{"id": 1, "kind": "main", "key": False, "visible": True},
+                                        {"id": 2, "kind": "CefNSWindow", "key": True, "visible": True, "parent": 1}]}
+                return {}
+        return App()
+
+    def test_a_real_key_waits_until_the_app_journal_has_its_key_down(self):
+        j = self.journey("real")
+        down = {"seq": 11, "uptimeNanos": 99, "window": "W1",
+                "kind": {"key": {"_0": {"phase": "down", "keyClass": "punctuation", "keyCode": 50, "modifiers": 8,
+                                        "isRepeat": False}}}}
+        other = {"seq": 12, "kind": {"key": {"_0": {"phase": "down", "keyCode": 45, "modifiers": 8}}}}
+        j.app = self.journal_app([other, down])
+        done = self.ext.step_smoke_key(j, {"key": "`", "modifiers": ["control"]})
+        self.assertEqual((done["landed"]["seq"], done["landed"]["uptime_ns"]), (11, 99))
+        self.assertIn("wait_ms", done["landed"])
+
+    def test_a_real_key_the_app_never_saw_fails_with_the_journal_tail(self):
+        j = self.journey("real")
+        j.app = self.journal_app([{"seq": 11, "kind": {"key": {"_0": {"phase": "up", "keyCode": 50, "modifiers": 8}}}}])
+        with self.assertRaises(self.ext.D.StepError) as caught:
+            self.ext.step_smoke_key(j, {"key": "`", "modifiers": ["control"], "land_timeout": 0.05})
+        self.assertIn("never reached the app's input journal", str(caught.exception))
+        self.assertEqual(len(caught.exception.detail["journal"]), 2)
+
+    def test_a_build_without_the_journal_does_not_wait(self):
+        done = self.ext.step_smoke_key(self.journey("real"), {"key": "n", "modifiers": ["cmd"]})
+        self.assertEqual(done["landed"], {"journal": "none"})
+
+    def test_a_page_key_window_at_type_now_records_the_journal_and_focus(self):
+        j = self.journey("real")
+        j.app = self.journal_app([])
+        with self.assertRaises(self.ext.D.StepError) as caught:
+            self.ext.step_smoke_type_now(j, {"text": "x"})
+        self.assertIn("not a main window", str(caught.exception))
+        self.assertEqual(caught.exception.detail["focus"], {"windows": [{"model": {"resolved": "page"}}]})
+        self.assertIn("journal", caught.exception.detail)
+        src = open(os.path.join(HERE, "driver.py")).read()
+        self.assertIn('record["error_detail"] = error.detail', src)
+
     def test_a_key_is_a_desktop_hid_key_event_to_the_frontmost_app(self):
         done = self.ext.step_smoke_key(self.journey("real"), {"key": "`", "modifiers": ["control"], "mark": "m"})
         self.assertEqual(done["key_path"], "real_hid")
@@ -527,6 +582,8 @@ class RealKeySteps(unittest.TestCase):
         def rpc(method, params=None):
             if method == "keybinding.list":
                 return {"bindings": rows}
+            if method == "debug.journal":  # a build without an input journal: the key's landing is not waited for
+                return {}
             return resolves.get(params["keys"], {"outcome": "none"})
         return rpc
 
