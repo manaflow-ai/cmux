@@ -4,7 +4,9 @@
 use std::io::Write;
 use std::path::Path;
 
-use cmux_host::cloud::preview::{PreviewAsk, PreviewOperation, ShareAudience, ask_agent};
+use cmux_host::cloud::preview::{
+    PreviewAsk, PreviewOperation, ShareAudience, ask_agent, plain_inventory, preview_row,
+};
 use cmux_host::cloud::wire::AGENT_SOCKET;
 use serde_json::{Value, json};
 
@@ -64,10 +66,18 @@ fn parse(args: &[String]) -> Result<Command, UsageError> {
     let mut port = None;
     let mut target = None;
     let mut audience = None;
+    let mut bootstrap = false;
     let mut words = rest.iter();
     while let Some(word) = words.next() {
         let (flag, inline) =
             word.split_once('=').map_or((word.as_str(), None), |(k, v)| (k, Some(v)));
+        if matches!(flag, "--bootstrap" | "--open") {
+            if inline.is_some() || bootstrap || operation != PreviewOperation::Url {
+                return Err(usage());
+            }
+            bootstrap = true;
+            continue;
+        }
         if matches!(flag, "--link" | "--team") {
             if inline.is_some() || audience.is_some() {
                 return Err(UsageError::new(messages().cloud_preview_audience));
@@ -106,7 +116,7 @@ fn parse(args: &[String]) -> Result<Command, UsageError> {
         PreviewOperation::Share if port.is_none() || audience.is_none() => return Err(usage()),
         _ => {}
     }
-    Ok(Command { ask: PreviewAsk { operation, port, audience }, target })
+    Ok(Command { ask: PreviewAsk { operation, port, audience, bootstrap }, target })
 }
 
 fn valid_id(id: &str) -> bool {
@@ -190,10 +200,19 @@ fn run(global: &GlobalArgs, command: &Command) -> Result<Value, Value> {
 /// The app forwards the fresh inventory; selecting the requested listener
 /// belongs in Rust, shared with the guest command's output contract.
 fn preview_result(command: &Command, value: Value) -> Result<Value, String> {
-    if command.ask.operation != PreviewOperation::Url
-        || (value.get("previews").is_none() && value.get("machine").is_none())
-    {
+    if command.ask.operation == PreviewOperation::Share {
         return Ok(value);
+    }
+    if command.ask.operation == PreviewOperation::List {
+        if let Some(target) = &command.target
+            && value.get("machine").and_then(Value::as_str) != target.strip_prefix("machine:")
+        {
+            return Err(messages().cloud_preview_wrong_machine.to_owned());
+        }
+        return plain_inventory(&value);
+    }
+    if value.get("previews").is_none() && value.get("machine").is_none() {
+        return preview_row(&value, command.ask.bootstrap);
     }
     if let Some(target) = &command.target
         && value.get("machine").and_then(Value::as_str) != target.strip_prefix("machine:")
@@ -204,10 +223,11 @@ fn preview_result(command: &Command, value: Value) -> Result<Value, String> {
         .get("previews")
         .and_then(Value::as_array)
         .ok_or_else(|| messages().cloud_preview_bad_inventory.to_owned())?;
-    rows.iter()
+    let row = rows
+        .iter()
         .find(|row| row.get("port").and_then(Value::as_u64) == command.ask.port.map(u64::from))
-        .cloned()
-        .ok_or_else(|| messages().cloud_preview_start_server.to_owned())
+        .ok_or_else(|| messages().cloud_preview_start_server.to_owned())?;
+    preview_row(row, command.ask.bootstrap)
 }
 
 fn output_text(
@@ -290,6 +310,10 @@ mod tests {
             "url --port -1",
             "url --port 80 --link",
             "ls --port 80",
+            "ls --bootstrap",
+            "share --port 80 --link --bootstrap",
+            "url --port 80 --bootstrap=true",
+            "url --port 80 --bootstrap --open",
             "share --port 80",
             "share --port 80 --link --team",
             "share --port 80 --user x --link",
@@ -330,7 +354,7 @@ mod tests {
     #[test]
     fn preview_mac_url_selects_only_the_fresh_port_on_the_target_machine() {
         let command = parse(&words("url --port 3000 --target machine:vm_selected")).unwrap();
-        let fresh = json!({"port":3000,"url":"https://fresh.preview.cmux.dev/"});
+        let fresh = json!({"port":3000,"url":"https://fresh.preview.cmux.dev", "origin":"https://fresh.preview.cmux.dev"});
         let inventory = json!({"machine":"vm_selected", "previews":[
             {"port":8080,"url":"https://other.preview.cmux.dev/"}, fresh.clone()
         ]});
@@ -353,5 +377,37 @@ mod tests {
                 .unwrap_err()
                 .contains(messages().cloud_preview_bad_inventory)
         );
+    }
+    #[test]
+    fn preview_defaults_never_print_owner_tokens_in_human_or_json_output() {
+        let fresh = json!({"port":3000, "origin":"https://fresh.preview.cmux.dev",
+            "url":"https://fresh.preview.cmux.dev/__cmux_preview_auth?token=OWNER_SECRET"});
+        let inventory = json!({"machine":"vm_selected", "previews":[fresh]});
+        for args in
+            ["url --port 3000 --target machine:vm_selected", "ls --target machine:vm_selected"]
+        {
+            let command = parse(&words(args)).unwrap();
+            let plain = preview_result(&command, inventory.clone()).unwrap();
+            for mode in [OutputMode::Human, OutputMode::Json, OutputMode::JsonLines] {
+                let text = output_text(&command.ask.operation, &plain, mode).unwrap();
+                assert!(!text.contains("OWNER_SECRET"));
+                assert!(!text.contains("token="));
+                assert!(text.contains("https://fresh.preview.cmux.dev"));
+            }
+        }
+        for flag in ["--bootstrap", "--open"] {
+            let command =
+                parse(&words(&format!("url --port 3000 --target machine:vm_selected {flag}")))
+                    .unwrap();
+            assert!(command.ask.bootstrap);
+            let value = preview_result(&command, inventory.clone()).unwrap();
+            for mode in [OutputMode::Human, OutputMode::Json] {
+                assert!(
+                    output_text(&command.ask.operation, &value, mode)
+                        .unwrap()
+                        .contains("token=OWNER_SECRET")
+                );
+            }
+        }
     }
 }

@@ -7,7 +7,9 @@ use cmux_server_core::install_key::{InstallKey, SystemRandom, verify};
 use serde_json::{Value, json};
 
 use super::client::{CloudClient, Http};
-use super::preview::{PreviewAsk, PreviewOperation, ShareAudience, answer};
+use super::preview::{
+    PreviewAsk, PreviewOperation, ShareAudience, answer, plain_inventory, preview_row,
+};
 use super::sender::Answer;
 use super::wire::{Bound, Env};
 
@@ -19,7 +21,7 @@ const REFRESH: &str = "/v1/cloud/machines/vm_preview_test/previews/refresh";
 const NOW: u64 = 1_790_000_000_000;
 
 fn ask(operation: PreviewOperation, port: Option<u16>) -> PreviewAsk {
-    PreviewAsk { operation, port, audience: None }
+    PreviewAsk { operation, port, audience: None, bootstrap: false }
 }
 
 fn preview(port: u16, suffix: &str) -> Value {
@@ -48,7 +50,7 @@ fn preview_url_refreshes_before_selecting_the_matching_port() {
             http(inventory(vec![preview(8080, "other"), fresh.clone()]))
         });
     assert_eq!(requests, vec![("POST".to_owned(), REFRESH.to_owned(), json!({}))]);
-    assert_eq!(reply, json!({"ok":true, "value":fresh}));
+    assert_eq!(reply, json!({"ok":true, "value":preview_row(&fresh, false).unwrap()}));
 }
 
 #[test]
@@ -59,7 +61,7 @@ fn preview_list_is_the_refreshed_inventory() {
         assert_eq!(path, REFRESH);
         http(current.clone())
     });
-    assert_eq!(reply, json!({"ok":true, "value":current}));
+    assert_eq!(reply, json!({"ok":true, "value":plain_inventory(&current).unwrap()}));
 }
 
 #[test]
@@ -236,7 +238,7 @@ fn preview_client_never_falls_back_to_a_cached_url_after_a_server_stops() {
     let (mut client, fake) =
         client([(200, inventory(vec![old.clone()])), (200, inventory(vec![])), (503, json!({}))]);
     let url = ask(PreviewOperation::Url, Some(3000));
-    assert_eq!(client.preview(&url, NOW)["value"], old);
+    assert_eq!(client.preview(&url, NOW)["value"], preview_row(&old, false).unwrap());
     let stopped = client.preview(&url, NOW + 1);
     assert_eq!(stopped["error"]["code"], "preview.not_listening");
     assert!(!stopped.to_string().contains("old-credential"));
@@ -249,7 +251,12 @@ fn preview_client_never_falls_back_to_a_cached_url_after_a_server_stops() {
 }
 
 fn share(audience: ShareAudience) -> PreviewAsk {
-    PreviewAsk { operation: PreviewOperation::Share, port: Some(3000), audience: Some(audience) }
+    PreviewAsk {
+        operation: PreviewOperation::Share,
+        port: Some(3000),
+        audience: Some(audience),
+        bootstrap: false,
+    }
 }
 
 #[test]
@@ -355,4 +362,36 @@ fn preview_share_never_falls_back_to_owner_bootstrap_when_shared_url_is_missing(
     assert_eq!(reply["ok"], false);
     assert!(reply.get("value").is_none());
     assert!(!reply.to_string().contains("owner-only"));
+}
+
+#[test]
+fn preview_defaults_strip_private_capabilities_and_only_url_can_opt_in() {
+    let fresh = preview(3000, "OWNER_SECRET");
+    for operation in [PreviewOperation::List, PreviewOperation::Url] {
+        let port = if operation == PreviewOperation::Url { Some(3000) } else { None };
+        let request = ask(operation, port);
+        let reply = answer(&request, MACHINE, TEAM, |_, _, _| http(inventory(vec![fresh.clone()])));
+        assert_eq!(reply["ok"], true);
+        assert!(!reply.to_string().contains("OWNER_SECRET"));
+        assert!(!reply.to_string().contains("token="));
+    }
+    let mut request = ask(PreviewOperation::Url, Some(3000));
+    request.bootstrap = true;
+    let reply = answer(&request, MACHINE, TEAM, |_, _, _| http(inventory(vec![fresh.clone()])));
+    assert_eq!(reply["value"]["url"], fresh["url"]);
+    request.operation = PreviewOperation::List;
+    request.port = None;
+    assert!(request.validate().is_err());
+}
+
+#[test]
+fn preview_list_drops_unrecognized_credential_fields_and_strips_missing_origins() {
+    let mut row = preview(3000, "OWNER_SECRET");
+    row.as_object_mut().unwrap().remove("origin");
+    row["bootstrap"] = json!("OWNER_SECRET");
+    let mut list = inventory(vec![row]);
+    list["bootstrapUrl"] = json!("OWNER_SECRET");
+    let plain = plain_inventory(&list).unwrap();
+    assert_eq!(plain["previews"][0]["url"], "https://p-3000.preview.cmux.dev");
+    assert!(!plain.to_string().contains("OWNER_SECRET"));
 }

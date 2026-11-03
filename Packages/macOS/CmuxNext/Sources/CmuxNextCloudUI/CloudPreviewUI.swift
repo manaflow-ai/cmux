@@ -39,7 +39,7 @@ public enum CloudPreviewUI {
             .choice(id: "port", label: nil,
                     options: inventory.previews.map { CmuxDialogOption(label: "\($0.port) · \($0.origin)", value: String($0.port)) },
                     selected: inventory.previews.first.map { String($0.port) }),
-        ], buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "share", title: CloudPortStrings.share, role: .normal), CmuxDialogButton(id: "open", title: CloudPortStrings.openPreview, role: .default)],
+        ], buttons: [.cancel(), CmuxDialogButton(id: "share", title: CloudPortStrings.share, role: .normal), CmuxDialogButton(id: "open", title: CloudPortStrings.openPreview, role: .default)],
         identifier: "cmux.dialog.cloud.livePreviews")
     }
 
@@ -50,8 +50,8 @@ public enum CloudPreviewUI {
                 CmuxDialogOption(label: CloudPortStrings.shareTeam, value: "team"),
                 CmuxDialogOption(label: CloudPortStrings.sharePerson, value: "user"),
             ], selected: "link"),
-            .text(id: "user_id", caption: CloudPortStrings.sharePersonID, initial: "", placeholder: CloudPortStrings.sharePersonIDPlaceholder, secure: false),
-        ], buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "share", title: CloudPortStrings.share, role: .default)],
+            .text(id: "user_id", label: CloudPortStrings.sharePersonID, initial: "", placeholder: CloudPortStrings.sharePersonIDPlaceholder, secure: false),
+        ], buttons: [.cancel(), CmuxDialogButton(id: "share", title: CloudPortStrings.share, role: .default)],
         identifier: "cmux.dialog.cloud.sharePreview")
     }
 

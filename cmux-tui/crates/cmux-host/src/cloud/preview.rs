@@ -28,6 +28,9 @@ pub struct PreviewAsk {
     pub operation: PreviewOperation,
     pub port: Option<u16>,
     pub audience: Option<ShareAudience>,
+    /// Include the private owner bootstrap capability only by explicit request.
+    #[serde(default)]
+    pub bootstrap: bool,
 }
 
 impl PreviewAsk {
@@ -42,10 +45,13 @@ impl PreviewAsk {
 
     pub fn validate(&self) -> Result<(), String> {
         let valid = match self.operation {
-            PreviewOperation::List => self.port.is_none() && self.audience.is_none(),
+            PreviewOperation::List => {
+                self.port.is_none() && self.audience.is_none() && !self.bootstrap
+            }
             PreviewOperation::Url => self.port.is_some_and(|p| p > 0) && self.audience.is_none(),
             PreviewOperation::Share => {
                 self.port.is_some_and(|p| p > 0)
+                    && !self.bootstrap
                     && match &self.audience {
                         Some(ShareAudience::Link | ShareAudience::Team) => true,
                         Some(ShareAudience::User(id)) => {
@@ -106,7 +112,10 @@ pub fn answer(
         );
     }
     if ask.operation == PreviewOperation::List {
-        return json!({"ok": true, "value": inventory});
+        return match plain_inventory(&inventory) {
+            Ok(value) => json!({"ok": true, "value": value}),
+            Err(why) => refusal("preview.bad_answer", &why),
+        };
     }
     let preview = inventory.get("previews").and_then(Value::as_array).and_then(|rows| {
         rows.iter().find(|row| row.get("port").and_then(Value::as_u64) == ask.port.map(u64::from))
@@ -118,7 +127,10 @@ pub fn answer(
         );
     };
     if ask.operation == PreviewOperation::Url {
-        return json!({"ok": true, "value": preview});
+        return match preview_row(preview, ask.bootstrap) {
+            Ok(value) => json!({"ok": true, "value": value}),
+            Err(why) => refusal("preview.bad_answer", &why),
+        };
     }
     let (Some(port), Some(audience)) = (ask.port, ask.audience.as_ref()) else {
         return refusal("request.invalid", "A port and audience are required.");
@@ -174,6 +186,69 @@ pub fn answer(
         }
     }
     json!({"ok":true, "value":value})
+}
+
+/// A plain address never carries a private bootstrap capability, even in JSON.
+pub fn preview_row(row: &Value, bootstrap: bool) -> Result<Value, String> {
+    let source = row
+        .get("origin")
+        .or_else(|| row.get("url"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| "The preview has no address.".to_owned())?;
+    if source.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Err("The preview has an invalid address.".to_owned());
+    }
+    let parsed =
+        url::Url::parse(source).map_err(|_| "The preview has an invalid address.".to_owned())?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err("The preview has an invalid address.".to_owned());
+    }
+    let origin = parsed.origin().ascii_serialization();
+    let address = if bootstrap {
+        row.get("url")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "The preview has no bootstrap URL.".to_owned())?
+    } else {
+        &origin
+    };
+    if bootstrap {
+        let parsed = url::Url::parse(address)
+            .map_err(|_| "The preview has an invalid bootstrap URL.".to_owned())?;
+        if address.chars().any(|c| c.is_control() || c.is_whitespace())
+            || parsed.origin().ascii_serialization() != origin
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+        {
+            return Err("The preview has an invalid bootstrap URL.".to_owned());
+        }
+    }
+    let mut result = json!({"port":row.get("port"), "url":address, "origin":origin});
+    for key in ["expiresAt", "expires_at"] {
+        if let Some(value) = row.get(key) {
+            result[key] = value.clone();
+        }
+    }
+    Ok(result)
+}
+
+/// Lists never expose owner bootstrap URLs or unrecognized credential fields.
+pub fn plain_inventory(inventory: &Value) -> Result<Value, String> {
+    let rows = inventory
+        .get("previews")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "The preview service returned an invalid inventory.".to_owned())?;
+    let rows = rows.iter().map(|row| preview_row(row, false)).collect::<Result<Vec<_>, _>>()?;
+    let mut result = json!({"machine":inventory.get("machine"), "previews":rows});
+    for key in ["listening", "unavailable"] {
+        if let Some(value) = inventory.get(key) {
+            result[key] = value.clone();
+        }
+    }
+    Ok(result)
 }
 
 /// One bounded request to the root agent, returning only the preview result.

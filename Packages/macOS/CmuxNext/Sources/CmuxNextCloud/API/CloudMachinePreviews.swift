@@ -48,7 +48,9 @@ public struct CloudMachinePreviewUnavailable: Decodable, Sendable, Equatable {
 extension CloudAPIClient {
     /// Preview ingress lives at cmux-platform, while the existing guest API keeps its Worker.
     public func previewClient(baseURL: URL) -> CloudAPIClient {
-        CloudAPIClient(baseURL: baseURL, tokens: tokens, teamID: teamID, session: session, appVersion: appVersion)
+        var client = CloudAPIClient(baseURL: baseURL, tokens: tokens, teamID: teamID, session: session, appVersion: appVersion)
+        client.machineIO = machineIO
+        return client
     }
 
     /// New Cloud only: discovers current listeners and reconciles their private preview routes.
@@ -63,32 +65,20 @@ extension CloudAPIClient {
 }
 
 extension CloudAPIClient {
-    /// Thin account-session adapter to the same endpoints used by the guest agent.
+    /// The native app forwards its account session to Rust's shared preview operation.
     public func sharePreview(_ id: String, port: Int, audience: String, userID: String? = nil) async throws -> CloudMachinePreviewShare {
-        guard (1...65535).contains(port), ["link", "team", "user"].contains(audience) else {
-            throw CloudAPIError.decoding("machine.preview_invalid_share")
+        guard let machineIO else {
+            throw CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil)
         }
-        let current = try await refreshPreviews(id)
-        guard current.machine == id, let preview = current.previews.first(where: { $0.port == port }) else {
-            throw CloudAPIError.decoding("machine.preview_not_listening")
-        }
-        let path = "\(machinePath)/\(pathSegment(id))/previews/\(port)"
-        if audience == "link" {
-            let shared = try await send("POST", "\(path)/links", body: [:], as: CloudMachinePreviewShare.self)
-            _ = try CloudMachinePreview(port: port, url: shared.url, origin: preview.origin, expiresAt: 0).browserURL()
-            return shared
-        }
-        let recipient: String
-        if audience == "team", let team = await teamID(), !team.isEmpty {
-            recipient = team
-        } else if audience == "user", let userID, !userID.isEmpty {
-            recipient = userID
-        } else {
-            throw CloudAPIError.decoding("machine.preview_invalid_share")
-        }
-        _ = try await send("PUT", "\(path)/grants", body: ["kind": audience, "id": recipient], as: Ignored.self)
-        // Recipients authenticate with their own session; never copy the owner's token.
-        _ = try CloudMachinePreview(port: port, url: preview.origin, origin: preview.origin, expiresAt: 0).browserURL()
-        return CloudMachinePreviewShare(url: preview.origin)
+        let access: String
+        do { access = try await tokens().access } catch { throw CloudAPIError.notSignedIn }
+        let recipient: any Sendable
+        if audience == "user" { recipient = ["user": userID ?? ""] } else { recipient = audience }
+        let request: [String: any Sendable] = [
+            "api": baseURL.absoluteString, "credential": access, "team": await teamID() ?? "", "machine": id,
+            "ask": ["operation": "share", "port": port, "audience": recipient, "bootstrap": false] as [String: any Sendable],
+            "app_version": appVersion,
+        ]
+        return try await machineIO.preview(request)
     }
 }

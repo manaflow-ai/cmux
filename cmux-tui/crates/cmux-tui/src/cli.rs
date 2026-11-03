@@ -49,6 +49,8 @@ mod cloud_machines;
 #[cfg(unix)]
 mod cloud_preview;
 #[cfg(unix)]
+mod cloud_preview_account;
+#[cfg(unix)]
 mod cloud_repo;
 #[cfg(unix)]
 mod cloud_secret;
@@ -508,6 +510,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
+        .or_else(|| cloud_preview_account::run_if_requested(args))
         .or_else(|| cloud_preview::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
