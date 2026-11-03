@@ -442,6 +442,8 @@ impl Translator {
                             });
                             if is_err {
                                 self.failed_with(&mut update, tool, &child, agent, &text).await;
+                            } else if let Some(agent) = agent {
+                                update.set("agentId", json!(agent));
                             }
                             out.push(upd(update));
                         }
@@ -575,6 +577,8 @@ impl Translator {
                             ),
                         ));
                     }
+                } else if let Some(acp) = rid.strip_prefix("psp-") {
+                    out.extend(self.suggestions_set(acp, &sid).await);
                 } else if let Some(acp) = rid.strip_prefix("stop-") {
                     // A stop_task's answer (`subagent_stop`, `STOP_TASK`); the
                     // task's end is its own event.
@@ -879,6 +883,9 @@ impl Translator {
             }
             // The account's plan usage limits, newest per window (`usage_limits.rs`).
             "rate_limit_event" => out.extend(self.usage_limits_update(line).await),
+            "prompt_suggestion" if parent.is_none() => {
+                out.extend(self.suggestion_update(line).map(upd))
+            }
             "system" if sub.starts_with("task_") => {
                 if let Some(update) = self.background_shell_task(sub, line, &sid).await {
                     out.push(update);
@@ -1091,11 +1098,15 @@ impl Translator {
         if status == "paused" {
             update.set("reason", json!("paused"));
         }
+        // A workflow resumes by its run id, never by SendMessage: it names no agent.
+        let agent = (!workflow && !task.is_empty()).then(|| task.to_owned());
         if state == "failed" {
-            // A workflow resumes by its run id, never by SendMessage: it names no agent.
-            let agent = (!workflow && !task.is_empty()).then(|| task.to_owned());
             let error = line.get("summary").and_then(Value::as_str).unwrap_or_default();
             self.failed_with(&mut update, &tool, &child, agent, error).await;
+        } else if let Some(agent) = agent {
+            // Any end says which agent it was, so a page holding only the end names it
+            // (cmux#33292); only a failed one is kept to resume.
+            update.set("agentId", json!(agent));
         }
         Some((update, Some(tool)))
     }

@@ -115,11 +115,22 @@ pub struct BodySteps {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BodyChiefDestination {
+    pub r#type: LitSlack,
+    #[serde(rename = "slackTeamId")]
+    pub slack_team_id: String,
+    #[serde(rename = "channelId")]
+    pub channel_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BodyChief {
     pub r#type: LitChief,
     pub chief: String,
     pub conversation: ConversationId,
     pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination: Option<BodyChiefDestination>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -890,15 +901,3 @@ wire_enum! {
         PerSession = "per_session",
     }
 }
-
-wire_enum! {
-    GrantCreatedFrom {
-        Install = "install",
-        Ui = "ui",
-        Automation = "automation",
-        StandingRule = "standing_rule",
-    }
-}
-
-/// A server-side grant; tokens carry only its id.
-pub type GrantId = String;
