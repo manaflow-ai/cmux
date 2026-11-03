@@ -1716,6 +1716,19 @@ def cond_sidebar_changed(j, want, cache):
     return a is not None and b is not None and a != b, {"before": a, "now": b}
 
 
+def step_frame_text_probe(j, step):
+    """Evidence: whether the frame shows TEXT now (a snapshot to probe-NAME.png and OCR); records the result and the
+    lines read, never fails the journey."""
+    name = re.sub(r"[^a-z0-9-]", "-", step["name"].lower())
+    try:
+        image = j.app.snapshot(Path(j.out) / f"probe-{name}.png")
+        lines = j.app.read_text(image)
+    except (D.StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+        return {"error": str(error)[:200]}
+    want = j.sub(step["text"])
+    return {"text": want, "shown": D.ocr_contains(lines, want), "lines": [l for l in lines if l.strip()][:20]}
+
+
 def step_focus_probe(j, step):
     """Records focus_probe (no check): evidence for a key check that follows."""
     return focus_probe(j)
@@ -1820,7 +1833,7 @@ def cond_terminal_in_other_workspace(j, want, cache):
     return wa != wb, {"workspace": pa[0].get("name"), "other_workspace": pb[0].get("name")}
 
 
-STEPS = {"key_state": step_key_state, "app_keys": step_app_keys, "cua_page_input": step_cua_page_input, "rpc_try": step_rpc_try, "cua_schema": step_cua_schema, "textedit_control": step_textedit_control, "window_probe": step_window_probe, "focus_probe": step_focus_probe, "hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
+STEPS = {"frame_text_probe": step_frame_text_probe, "key_state": step_key_state, "app_keys": step_app_keys, "cua_page_input": step_cua_page_input, "rpc_try": step_rpc_try, "cua_schema": step_cua_schema, "textedit_control": step_textedit_control, "window_probe": step_window_probe, "focus_probe": step_focus_probe, "hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
 CONDITIONS = {"sidebar_changed": ("app", cond_sidebar_changed), "key_window_focus": ("app", cond_key_window_focus),
               "terminal_in_other_workspace": ("app", cond_terminal_in_other_workspace),
               "reopen_window_frame_within": ("app", cond_reopen_window_frame_within),
