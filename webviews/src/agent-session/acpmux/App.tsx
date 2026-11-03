@@ -80,6 +80,7 @@ import {
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
+import { readHostTail } from "./tailCache";
 import { failedRowOf, failedRowTrustRetry } from "./failedRowTrustRetry";
 import {
   authBlocksSend,
@@ -10514,6 +10515,9 @@ function AcpmuxPane() {
           else pendingWake.current = wake.composer;
         }
         if (!reconnect && host.sessionId) {
+          // The chat's kept tail is asked for now, beside the reading place: the client draws it
+          // while its socket connects, and this read is the one it waits on (#32735, tailCache.ts).
+          if (host.transport !== "mock") void readHostTail(host.sessionId).catch(() => undefined);
           // The released page's place is newer than the kept one: a scroll that settled while
           // hidden was never reported. Keep it for a relaunch too.
           const woken = wake?.scrollAnchor;
