@@ -1355,8 +1355,8 @@ test("with only started chats Subagents is still drawn, and the running line's c
     root = createRoot(container);
     root.render(<Pane snapshot={localChat} onOpenOutput={noop} sessions={sessions} />);
   });
-  // What it made (Outputs) comes before what it runs (Subagents): SessionInfo.tsx RAIL_LAYOUT.
-  expect(sectionIds(container)).toEqual(["environment", "context", "outputs", "subagents"]);
+  // What it runs (Subagents) comes before what it made (Outputs): sectionOrder.ts DEFAULT_ORDER.
+  expect(sectionIds(container)).toEqual(["environment", "context", "subagents", "outputs"]);
   expect(meta(section(container, "subagents"))).toBe("1 running · 1 done");
   // Closed, with Subagents folded: the running line's "2 subagents" opens it at Subagents.
   await click(head(section(container, "subagents")!));
