@@ -61,6 +61,9 @@ import { useTranscriptReadOnly } from "./readOnly";
 import { Face } from "../multiplayer/Faces";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import { isGuest, type Participant } from "../multiplayer/participants";
+import type { AgentNotice } from "./agentNotice";
+import { NoticeMark, noticeMarkdown, SEVERITY_LABEL } from "./NoticeMark";
+import { useNoticeLook, type NoticeLook } from "./noticeLook";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -136,7 +139,19 @@ export function senderLabel(name: string, host: string | undefined): string {
 
 /// The sender's mark and name at a received line's start (and a waiting group's sender head,
 /// PendingMessagesCard.tsx): the name opens the sender's chat when there is one to open.
-export function SenderName({ message, onOpen }: { message: IncomingMessage; onOpen(sessionId: string): void }) {
+export function SenderName({
+  message,
+  onOpen,
+  toolNotice,
+  look = "mark",
+}: {
+  message: IncomingMessage;
+  onOpen(sessionId: string): void;
+  /// A tool's notice: its severity's mark in the icon column (not in the `tag` look, which keeps
+  /// the sender's), and the machine it names after its name.
+  toolNotice?: AgentNotice;
+  look?: NoticeLook;
+}) {
   const t = useT();
   // A Chief's message names the Chief and draws its avatar (chiefFace.ts); its turn session is no
   // chat of the list, so no listed chat with its name stands in for it, and it is no chat to open.
@@ -152,7 +167,9 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
       ? [...new Set((notice.threads ?? []).map(({ sender }) => sender).filter(Boolean))].join(", ")
       : "";
   const from = inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
-  const icon = <SenderMark message={message} />;
+  const icon =
+    toolNotice && look !== "tag" ? <NoticeMark severity={toolNotice.severity} /> : <SenderMark message={message} />;
+  const host = toolNotice?.host ?? sender.host;
   // The harness, model and effort it runs on, under the name's tooltip and on the mark's.
   const about = message.chief
     ? undefined
@@ -163,7 +180,7 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
   return (
     // Its own part of the line: the name opens the sender's chat or nothing, never the message.
     <span className="cv-received__sender" data-own-click="">
-      <span className="cv-received__mark" aria-hidden="true" title={about}>
+      <span className="cv-received__mark" aria-hidden={toolNotice && look !== "tag" ? undefined : "true"} title={about}>
         {icon}
       </span>
       {sessionId ? (
@@ -180,7 +197,7 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
       {/* The other machine the sender's chat runs on, on the line itself, not only in the name's
           tooltip (Leo, 2026-10-27, on a lane's message: "Is this, like, from another machine? But
           even if they're from another machine, what's going on here?"). This Mac's chats name none. */}
-      {sender.host && <span className="cv-received__host">{sender.host}</span>}
+      {host && <span className="cv-received__host">{host}</span>}
     </span>
   );
 }
@@ -247,6 +264,9 @@ export function IncomingMessageLine({
   // A person's message (drawn whole) is never a lane notice: what it looks like never hides any of
   // the text the owner approves.
   const notice = whole || person ? undefined : laneNotice(message);
+  // A tool's notice (agentNotice.ts): its title is the line, its body and links the panel.
+  const agentNotice = whole || person ? undefined : message.notice;
+  const look = useNoticeLook();
   const session = useContext(PromptMarksSession);
   const key = `${session ?? ""}\u0000${id}`;
   // Whether the person opened it lasts while the page does (incomingOpened.ts), and the row
@@ -274,7 +294,12 @@ export function IncomingMessageLine({
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === id ? reveal.needle : "";
   const inText = Boolean(
-    needle && foldFind(notice?.body ?? (whole ? message.text : unsigned(message.text, message.name))).includes(needle),
+    needle &&
+    foldFind(
+      agentNotice
+        ? `${agentNotice.title}\n${message.text}`
+        : (notice?.body ?? (whole ? message.text : unsigned(message.text, message.name))),
+    ).includes(needle),
   );
   const inRaw = Boolean(needle && !inText && foldFind(message.raw).includes(needle));
   useLayoutEffect(() => {
@@ -295,13 +320,18 @@ export function IncomingMessageLine({
   const place = useSenderPlace(sender.sessionId);
   // The sender's words without a signature that only repeats its name (incomingMessage.ts reads
   // it on every path; a record from before that, or a queued one, may still have it).
-  const text = notice?.body ?? (whole ? message.text : unsigned(message.text, message.name));
+  const text = agentNotice
+    ? noticeMarkdown(message.text, agentNotice.links)
+    : (notice?.body ?? (whole ? message.text : unsigned(message.text, message.name)));
   // The machine the sender's files are on, when it is another (a peer's relayed message names none).
   const host = message.remote ? (place?.host ?? "") : place?.host;
   const repository = githubRepository ?? mentionedRepository(text);
   const body = useMemo(() => (whole ? text : dedupeReferences(text, repository)), [whole, text, repository]);
   const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
-  const preview = useMemo(() => notice?.preview ?? messagePreview(body), [body, notice]);
+  const preview = useMemo(
+    () => agentNotice?.title ?? notice?.preview ?? messagePreview(body),
+    [agentNotice, body, notice],
+  );
   // A sub-session family's sender says who it is to this chat.
   const from = person
     ? isGuest(person)
@@ -344,16 +374,33 @@ export function IncomingMessageLine({
   };
   return (
     <DisclosureRow
-      className={notice ? "cv-received cv-lane-notice" : "cv-received"}
+      className={
+        agentNotice
+          ? `cv-received cv-notice is-${agentNotice.severity} look-${look}`
+          : notice
+            ? "cv-received cv-lane-notice"
+            : "cv-received"
+      }
       open={open}
       onOpenChange={toggled}
       animates={() => !notice && played.current}
-      leading={person ? <PersonName person={person} /> : <SenderName message={message} onOpen={onOpen} />}
+      leading={
+        person ? (
+          <PersonName person={person} />
+        ) : (
+          <SenderName message={message} onOpen={onOpen} toolNotice={agentNotice} look={look} />
+        )
+      }
       lineClassName="cv-agent-activity-row"
       toggleLabel={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
       label={
         // Find counts the panel's whole text, not the line's first-line copy of it.
-        <span className="cv-received__preview" data-find-skip="">
+        <span className={`cv-received__preview${agentNotice ? " cv-notice__title" : ""}`} data-find-skip="">
+          {agentNotice && look === "tag" && agentNotice.severity !== "info" && (
+            <span className="cv-notice__tag" data-severity={agentNotice.severity}>
+              {t(SEVERITY_LABEL[agentNotice.severity])}
+            </span>
+          )}
           {preview || t("message.noText")}
         </span>
       }
@@ -373,7 +420,7 @@ export function IncomingMessageLine({
       }
     >
       {/* The sender's words, as written, from the card's corner. */}
-      <CardCopy text={text} />
+      <CardCopy text={agentNotice ? `${agentNotice.title}\n\n${text}`.trim() : text} />
       {/* The chips read whose files these are (chips/messageScope.ts). */}
       <MessageScopeContext.Provider value={scope}>
         <div className="cv-received__text selectable">

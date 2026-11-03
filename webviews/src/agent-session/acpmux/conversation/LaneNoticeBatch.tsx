@@ -8,6 +8,8 @@ import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { FindReveal } from "./chatFind";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { messageRunSummary } from "./messageRuns";
+import { NoticeMark } from "./NoticeMark";
+import type { NoticeSeverity } from "./agentNotice";
 import "./LaneNoticeBatch.css";
 
 /// A received message waits for the agent (in the waiting group, PendingMessagesCard.tsx).
@@ -16,6 +18,19 @@ const isWaiting = (row: AcpmuxRow) => row.kind === "queuedMessage" || row.steer 
 /// A sender's short name for the row's hover: its name after the last `/` ("gcp-agent-lane-1/ux-owner"
 /// reads "ux-owner").
 const senderShortName = (name: string) => (name.split("/").at(-1) ?? "").trim();
+
+/// The strongest severity among a fold's tools' notices (agentNotice.ts) that its head shows: a fire
+/// whenever one is in it, else, when every member is a notice, the strongest of theirs; undefined
+/// for a fold whose head keeps the sender's mark. Also whether every member is a notice.
+export function foldSeverity(rows: readonly AcpmuxRow[]): { severity?: NoticeSeverity; allNotices: boolean } {
+  const severities = rows.map((row) =>
+    row.incoming?.kind === "message" ? row.incoming.message.notice?.severity : undefined,
+  );
+  const allNotices = severities.length > 0 && severities.every(Boolean);
+  if (severities.includes("fire")) return { severity: "fire", allNotices };
+  if (!allNotices) return { allNotices };
+  return { severity: severities.includes("warn") ? "warn" : "info", allNotices };
+}
 
 /// Reports that arrived together keep their own message controls behind one disclosure.
 export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; renderMessage(row: AcpmuxRow): ReactNode }) {
@@ -45,16 +60,23 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
   // the senders' short names are its hover (Leo, 2026-11-02: "can't we simply just display most of
   // these as recieved x messages and all of them get revealed then we can expand the messages").
   const received = batch.kind === "inbox" && !batch.rows.some(isWaiting);
-  const count = received
-    ? messageRunSummary(t, { sent: 0, received: batch.rows.length, work: [], failed: 0, running: false, rows: [] })
-    : batch.kind === "report"
-      ? t(
-          Object.values(batch.verdicts).reduce((n, count) => n + (count ?? 0), 0) === batch.rows.length
-            ? "message.reviewsEnded"
-            : "message.reportsEnded",
-          { n: batch.rows.length },
-        )
-      : t("message.inboxThreads", { n: batch.threads.length || batch.rows.length });
+  // Tools' notices alone read "Received N notices"; mixed with messages, they count as messages.
+  const folded = foldSeverity(batch.rows);
+  const count =
+    received && folded.allNotices
+      ? batch.rows.length === 1
+        ? t("notice.received.one")
+        : t("notice.received.other", { n: batch.rows.length })
+      : received
+        ? messageRunSummary(t, { sent: 0, received: batch.rows.length, work: [], failed: 0, running: false, rows: [] })
+        : batch.kind === "report"
+          ? t(
+              Object.values(batch.verdicts).reduce((n, count) => n + (count ?? 0), 0) === batch.rows.length
+                ? "message.reviewsEnded"
+                : "message.reportsEnded",
+              { n: batch.rows.length },
+            )
+          : t("message.inboxThreads", { n: batch.threads.length || batch.rows.length });
   const detail = batch.kind === "report" ? verdicts : names && t("message.inboxFrom", { names });
   const shortNames = received
     ? [...new Set(batch.threads.map(({ sender }) => senderShortName(sender)).filter(Boolean))].join(", ")
@@ -75,6 +97,7 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
           onToggle={() => show(!open)}
           className="cv-lane-batch__toggle"
           ariaLabel={[count, received ? shortNames : detail].filter(Boolean).join(". ")}
+          mark={folded.severity && <NoticeMark severity={folded.severity} />}
         />
       ) : (
         <TranscriptActivityRow
