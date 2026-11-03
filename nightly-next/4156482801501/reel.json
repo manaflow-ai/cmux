@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4156482801501",
+  "notes": "notes/4156482801501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32807,
+      "title": "Chief: typing dots and Stop end when the Chief's brain dies",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32840,
+      "title": "cmux-tui: a remote chat opens on its newest records, not after the daemon's log restore (\"im not seeing anything from them\")",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32844,
+      "title": "Agent chat: Send now with an earlier steer waiting leaves no second Send now or stray X",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32839,
+      "title": "Agent chat: received messages keep one tone under hover and focus",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
