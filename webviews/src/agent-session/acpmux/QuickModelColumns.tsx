@@ -181,6 +181,19 @@ export function QuickModelColumns(props: QuickSurfaceProps) {
   return <Columns {...props} menu={{ ...props.menu, families }} />;
 }
 
+/// Whether `chip` sits in a row packed to its end (justify-content flex-end), where its start
+/// moves with its width. Rows drawn as display: contents pass to their parent.
+function rowPackedToEnd(chip: HTMLElement): boolean {
+  const view = chip.ownerDocument.defaultView;
+  for (let row = chip.parentElement; row && view; row = row.parentElement) {
+    const style = view.getComputedStyle(row);
+    if (style.display === "contents") continue;
+    if (!style.display.includes("flex")) return false;
+    return ["flex-end", "end", "right"].includes(style.justifyContent);
+  }
+  return false;
+}
+
 function Columns({
   open,
   onOpenChange,
@@ -197,8 +210,15 @@ function Columns({
   // Where the keyboard goes as the menu closes: a close that lands a pick leaves it to the picker,
   // which focuses the prompt; any other close gives it to the chip, once the popup has gone (after
   // a pointerup's own focus), unless the press put it somewhere else (the prompt, another control).
+  // Each open counts one: a menu reopened before the chip takes the keyboard (⌘⌃M right after
+  // Escape) keeps it in its search field.
+  const opens = useRef(0);
+  useLayoutEffect(() => {
+    if (open) opens.current += 1;
+  }, [open]);
   const returnToChip = () => {
     const chip = button.current ?? trigger.current;
+    const closedAt = opens.current;
     const doc = chip?.ownerDocument;
     const view = doc?.defaultView;
     if (!chip || !doc || !view) return;
@@ -207,6 +227,7 @@ function Columns({
       typeof view.requestAnimationFrame === "function" ? view.requestAnimationFrame(run) : view.setTimeout(run, 0);
     frame(() =>
       frame(() => {
+        if (opens.current !== closedAt) return;
         const active = doc.activeElement;
         if (!active || active === doc.body || active.closest(".acpmux-cols")) chip.focus({ preventScroll: true });
       }),
@@ -230,6 +251,14 @@ function Columns({
   // row as the menu opens, and an element read once at render then has no box (the menu went to
   // the page's top left on New Tab).
   const button = useRef<HTMLButtonElement | null>(null);
+  // The chip's edge that stays put as its name changes: in a row packed to its end (the chat's quiet
+  // row) a longer or shorter name moves the chip's start, so the menu lines up with its end and never
+  // jumps as a model, a level or Fast changes the chip.
+  const [align, setAlign] = useState<"start" | "end">("start");
+  useLayoutEffect(() => {
+    const chip = button.current ?? trigger.current;
+    if (open && chip) setAlign(rowPackedToEnd(chip) ? "end" : "start");
+  }, [open, trigger]);
   const anchor = useMemo<UiVirtualAnchor>(
     () => ({
       getBoundingClientRect: () => (button.current ?? trigger.current)?.getBoundingClientRect() ?? new DOMRect(),
@@ -429,11 +458,7 @@ function Columns({
   const level =
     picked?.effort ??
     mine?.effort ??
-    (focus
-      ? focusRuns
-        ? effort?.current
-        : (focus.effort ?? carriedLevel(focus))
-      : undefined);
+    (focus ? (focusRuns ? effort?.current : (focus.effort ?? carriedLevel(focus))) : undefined);
   // A level shows a check when it is really chosen: the session's, or one picked here.
   const levelChosen = focusRuns || !!picked?.effort;
   const canLandEffort = focusRuns ? !!effort : menu.inlineEffort === true;
@@ -982,6 +1007,7 @@ function Columns({
         label={t("picker.model")}
         className="acpmux-cols"
         side={side}
+        align={align}
         flip={false}
         initialFocus={field}
         finalFocus={false}

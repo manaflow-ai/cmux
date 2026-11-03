@@ -154,10 +154,11 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 25%, transparent);
 }
 
-/* The columns. The settings column is as wide as its rows, never narrower than a full ladder. */
+/* The columns, each a fixed width: a model with longer level or provider names never widens the
+   menu, so it never moves as the shown model changes. A longer name ends in an ellipsis. */
 .acpmux-cols-body {
   display: grid;
-  grid-template-columns: 48px 149px minmax(100px, max-content);
+  grid-template-columns: 48px 149px 153px;
   flex: 1 1 auto;
   min-height: 0;
 }

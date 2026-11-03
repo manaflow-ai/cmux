@@ -45,7 +45,9 @@ export function composerStatePlays(field: string): Record<ComposerStateName, { n
         await ctx.click(MODEL);
         // A menu with a harness rail (New Tab) opens the columns; a started chat's, the list.
         await ctx.waitFor(() =>
-          ctx.document.querySelector('.acpmux-quick-menu [role="menuitemradio"], .acpmux-cols [role="listbox"] [role="option"]'),
+          ctx.document.querySelector(
+            '.acpmux-quick-menu [role="menuitemradio"], .acpmux-cols [role="listbox"] [role="option"]',
+          ),
         );
       },
     },
