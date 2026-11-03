@@ -61,22 +61,23 @@ export function AmbientWidgets({
         <section className="nt-ambient-machines" aria-label={nt("widgets.machines")}>
           {list.map((machine) => {
             // A paused Cloud machine is a calm state, never "offline": its first use resumes it.
-            const paused = machine.kind === "cloud" && !machine.online && cloudMachineAsleep(machine.label, shownMachines);
+            const paused =
+              machine.kind === "cloud" && !machine.online && cloudMachineAsleep(machine.label, shownMachines);
             const status = machine.online ? "widgets.online" : paused ? "widgets.paused" : "widgets.offline";
             return (
-            <Tooltip key={machine.id} label={`${machine.label}: ${nt(status)}`}>
-              <span
-                className="nt-ambient-machine"
-                data-online={machine.online || undefined}
-                data-paused={paused || undefined}
-              >
-                <span className="nt-ambient-machine-icon" style={machine.color ? { color: machine.color } : undefined}>
-                  <Icon name={MACHINE_ICONS[machine.kind]} size={14} />
+              <Tooltip key={machine.id} label={`${machine.label}: ${nt(status)}`}>
+                <span
+                  className="nt-ambient-machine"
+                  data-online={machine.online || undefined}
+                  data-paused={paused || undefined}
+                >
+                  <span className="nt-ambient-machine-icon" style={machine.color ? { color: machine.color } : undefined}>
+                    <Icon name={MACHINE_ICONS[machine.kind]} size={14} />
+                  </span>
+                  <span className="nt-ambient-machine-name">{machine.label}</span>
+                  <span className="nt-ambient-dot" aria-hidden="true" />
                 </span>
-                <span className="nt-ambient-machine-name">{machine.label}</span>
-                <span className="nt-ambient-dot" aria-hidden="true" />
-              </span>
-            </Tooltip>
+              </Tooltip>
             );
           })}
         </section>
