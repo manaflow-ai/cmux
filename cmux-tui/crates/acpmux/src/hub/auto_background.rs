@@ -124,7 +124,7 @@ impl Hub {
                     return disarm();
                 }
                 match hub.background_session(&chat, Some(&tool), true).await {
-                    Ok(answer) if answer["backgrounded"] == Value::Bool(false) => {}
+                    Ok(answer) if answer.get("backgrounded") == Some(&Value::Bool(false)) => {}
                     Ok(_) => return disarm(),
                     Err(e) => {
                         tracing::debug!(tool, error = %e.message, "auto-background refused");
