@@ -15,7 +15,7 @@ public struct HomeDebugActions {
     }
 
     /// Binds `home.saveFlightRecording` and, in DEV builds, `home.agentMessagePlayground` (its `style`,
-    /// `expanded` and `team` arguments switch the playground; none opens it as it is).
+    /// `expanded`, `team`, `open`, `peer` and `dark` arguments switch the playground; none opens it as it is).
     public func bind(into registry: ActionRegistry) {
         let off = flightRecorderOff
         // Both run on the input's turn and finish there (a dump written, a window shown): nothing to wait for.
@@ -25,7 +25,8 @@ public struct HomeDebugActions {
         #if DEBUG
         registry.bindEffect("home.agentMessagePlayground", effect: { invocation in
             HomeAgentMessagePlayground.show(style: invocation["style"]?.intValue, expanded: invocation["expanded"]?.boolValue,
-                                            team: invocation["team"]?.boolValue)
+                                            team: invocation["team"]?.boolValue, open: invocation["open"]?.intValue,
+                                            peer: invocation["peer"]?.stringValue, dark: invocation["dark"]?.boolValue)
             return .done
         })
         #endif
