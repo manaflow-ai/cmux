@@ -42,9 +42,8 @@ struct ParkedContent {
 /// evicted each view 8 switches before its turn came back (pane-tab-switch-fast).
 extension PaneContentView {
 
-    /// Puts `view` on screen as the pane's content: unhides it when it is
-    /// parked here, else adds it (also from another pane, a moved tab).
-    /// `leaving`, retired right after, does not count as content above it.
+    /// Puts `view` on screen as the pane's content: unhides it when it is parked here, else adds it (also from another
+    /// pane, a moved tab). `leaving`, retired right after, does not count as content above it.
     func install(_ view: NSView, replacing leaving: NSView? = nil) {
         guard view.superview === contentHost else {
             view.frame = contentHost.contentBounds
@@ -56,11 +55,13 @@ extension PaneContentView {
             return
         }
         parked.removeAll { $0.view == nil || $0.view === view }
-        if let frame = parkedFrame(of: view), contentHost.isHolding || (view.frame == frame && frame != contentHost.bounds) {
+        // A top-held key hold keeps a row-sharing chat's parked frame to the landing; bottom-held, it joins the held rect rowless (S1B).
+        let topHeld = contentHost.hold?.bottom == false, held = contentHost.isHolding
+        if held, !topHeld, let row = view as? PaneTabRowSharing { row.setTabRow(height: 0, trailingInset: 0) }
+        if let frame = parkedFrame(of: view), held ? topHeld : view.frame == frame && frame != contentHost.bounds {
             // A chat parked at the size it shows at (`layoutParked`) keeps it: the pane's next layout moves the host under
             // the tab row and puts the chat at its origin, at the same size. Sized to the host here first, its page drew a
-            // frame at the strip's height less and then grew back: the chat jumped as it showed. In a key resize's hold it
-            // keeps its parked frame, held with the area, and takes its rest frame once at the landing (FRAME OWNER S1B).
+            // frame at the strip's height less and then grew back: the chat jumped as it showed.
             view.autoresizingMask = []
             needsLayout = true
         } else {
@@ -138,8 +139,7 @@ extension PaneContentView {
         guard view is PaneParkableContent, let row = view as? PaneTabRowSharing else { return nil }
         let strip = stripHeight
         let room = bounds.width - toolbarWidth(shown: strip)
-        let shares = barPosition == .top && !hidesStrip && strip > 0 && row.fitsTabRow(room: room)
-            && row.tabRowWidth(room: room) > 0
+        let shares = barPosition == .top && !hidesStrip && strip > 0 && row.drawsInTabRow(room: room)
         let shown = shares ? bounds : NSRect(x: 0, y: barPosition == .top ? strip : 0, width: bounds.width,
                                              height: max(0, bounds.height - strip))
         return contentHost.convert(shown, from: self)
