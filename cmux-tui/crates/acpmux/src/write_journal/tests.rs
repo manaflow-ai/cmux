@@ -197,6 +197,16 @@ fn a_corrupt_middle_line_is_an_error_not_a_silent_drop() {
 }
 
 #[test]
+fn a_stored_path_outside_the_folder_is_refused_on_open() {
+    let f = fixture(&[]);
+    let path = f.store.path_for("m1");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let line = serde_json::json!({"entry": {"seq": 1, "path": "../x", "op": {"kind": "delete"}, "base": {"kind": "absent"}, "atMs": 0}});
+    std::fs::write(&path, format!("{line}\n")).unwrap();
+    assert!(WriteJournal::open(f.store.clone(), "m1").is_err());
+}
+
+#[test]
 fn flush_applies_in_order_on_the_machine() {
     let f = fixture(&[("a.txt", "one"), ("gone.txt", "x")]);
     let mut j = open(&f);

@@ -140,6 +140,15 @@ impl WriteJournal {
             state.entries.into_iter().filter(|e| e.seq > state.cleared_through).collect();
         entries.sort_by_key(|e| e.seq);
         entries.dedup_by_key(|e| e.seq);
+        // A stored path is checked again: a flush must never write outside the folder, whatever
+        // the store hands back.
+        if let Some(e) = entries.iter().find(|e| rel_path(&e.path).ok().as_deref() != Some(&e.path))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("journal entry {} has a path outside the folder: {:?}", e.seq, e.path),
+            ));
+        }
         let last =
             entries.last().map_or(state.cleared_through, |e| e.seq.max(state.cleared_through));
         Ok(Self { machine: machine.to_owned(), store, entries, next_seq: last.saturating_add(1) })
