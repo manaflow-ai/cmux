@@ -1262,8 +1262,8 @@ export type GitRoute = "native" | "daemon";
 /// fallback did before.
 const HIDDEN_DRAW_MS = 50;
 
-/// What hidden pages left for their first frame once shown (`nextFrame`): at most one per client,
-/// since a client waits for one frame at a time and cancels it on close.
+/// What hidden pages left for their first frame once shown: a client's snapshot and deferred
+/// prompt index each wait once and cancel on close. All waits share one visibility listener.
 const waitingForShow = new Set<() => void>();
 function waitForShow(wait: () => void): void {
   if (waitingForShow.size === 0) document.addEventListener("visibilitychange", drawShown);

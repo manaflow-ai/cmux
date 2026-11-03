@@ -264,8 +264,9 @@ test("a cold tail draws before the full prompt index is read, then fills its lab
     expect(text(last())).toContain("Tail ready.");
     expect(indexReads()).toHaveLength(0);
     expect(last().promptCount).toBe(1);
-    for (const [id, callback] of [...frames]) {
-      frames.delete(id);
+    const due = Array.from(frames.values());
+    frames.clear();
+    for (const callback of due) {
       callback(performance.now());
     }
     // rAF still precedes the frame: even an immediate daemon must not parse history here.
