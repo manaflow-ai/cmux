@@ -83,7 +83,7 @@ extension TabContentCache {
         // Kept compressed, once per tab, for the tab's life (Chrome's ThumbnailImage): a hibernated Chromium tab wakes
         // to this picture (fork API 24 pictures no hidden page), and decoded 640 px pictures in the 16 MB budget kept
         // only about 14 pages' (fleet e2fb152d, 05f0ba3c).
-        let kept = await HibernationSnapshots.compress(fitted)
+        let kept = await HibernationSnapshots.compress(fitted, priority: .utility)  // nobody waits for it, as ThumbnailStats
         guard accepts() else { return nil }
         if let kept, let bytes = kept.data?.count { pageThumbnails.insert(kept.image, for: key, cost: bytes) } else { pageThumbnails.insert(fitted, for: key) }
         pageThumbnailVersions[key] = blank ? nil : version

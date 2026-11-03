@@ -62,8 +62,8 @@ final class HibernationSnapshots {
     /// `image` as a JPEG at most `maxPixels` large (same aspect and color space), encoded on a
     /// background task; a PNG when it has transparent pixels, which JPEG would turn black (a page
     /// with a transparent background); nil when ImageIO cannot encode it.
-    nonisolated static func compress(_ image: CGImage, quality: Double = 0.8) async -> Picture? {
-        await Task.detached(priority: .userInitiated) { compressed(image, quality: quality) }.value
+    nonisolated static func compress(_ image: CGImage, quality: Double = 0.8, priority: TaskPriority = .userInitiated) async -> Picture? {
+        await Task.detached(priority: priority) { compressed(image, quality: quality) }.value
     }
 
     nonisolated static func compressed(_ image: CGImage, quality: Double) -> Picture? {

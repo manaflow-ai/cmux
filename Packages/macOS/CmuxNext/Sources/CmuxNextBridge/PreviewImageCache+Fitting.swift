@@ -15,11 +15,14 @@ extension PreviewImageCache {
     /// `image` scaled to fit `maxPixelSize` and drawn into a bitmap on a background task: an image that decodes from
     /// compressed data is never decoded on the main thread by the view that shows it.
     public static func decoded(_ image: CGImage, _ maxPixelSize: CGSize) async -> CGImage {
-        await Task.detached(priority: .userInitiated) { redrawn(fitted(image, maxPixelSize)) }.value
+        await Task.detached(priority: .userInitiated) {
+            let scaled = fitted(image, maxPixelSize)
+            return scaled === image ? redrawn(image) : scaled  // a scaled image is already a bitmap of its own
+        }.value
     }
 
     /// `image` drawn once into a bitmap of its own size.
-    public nonisolated static func redrawn(_ image: CGImage) -> CGImage {
+    private nonisolated static func redrawn(_ image: CGImage) -> CGImage {
         guard let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
