@@ -41,9 +41,20 @@ extension CMUXCLI {
             if let agentPID = AgentHookDeliveryPolicy().hookAgentPID(
                 environmentPID: environment[pidEnvironmentKey].flatMap(Int.init),
                 invocationAgentPID: runsInHookProcess ? inferredAgentPID() : recordedInvokerPID,
-                controllingTerminal: controllingTerminalDevice(of:)
+                controllingTerminal: controllingTerminalDevice(of:),
+                // A background worker inherits the exported PID from the
+                // process that started its session; that process exits once
+                // the worker owns the conversation. Keep the exported identity
+                // only while it still names a live same-user process.
+                processIsAlive: { ClaudeViewerProcessIdentity(pid: $0) != nil }
             ) {
                 environment[pidEnvironmentKey] = String(agentPID)
+            } else {
+                // No trustworthy identity remains (for example a dead exported
+                // PID and no live invocation agent). A dead PID must not reach
+                // admission as if it named the hook's pane, so fail closed by
+                // clearing it rather than forwarding the stale value.
+                environment.removeValue(forKey: pidEnvironmentKey)
             }
         } else if environment[pidEnvironmentKey].flatMap(Int.init).map({ $0 > 0 }) != true,
            let inferredPID = inferredAgentPID() {

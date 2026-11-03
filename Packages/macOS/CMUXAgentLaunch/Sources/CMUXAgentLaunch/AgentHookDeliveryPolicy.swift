@@ -117,6 +117,7 @@ public struct AgentHookDeliveryPolicy: Sendable {
     ///     process, which is the agent that ran the hook.
     ///   - controllingTerminal: Returns a live process's controlling terminal
     ///     device, or `nil` when the process has none or no longer exists.
+    ///   - processIsAlive: Reports whether a PID still names a live process.
     /// - Returns: The PID whose terminal identifies the hook's pane.
     ///
     /// The exported PID is inherited by everything the agent starts, so a
@@ -126,13 +127,23 @@ public struct AgentHookDeliveryPolicy: Sendable {
     /// the hook, it names another pane, and the hook's own agent wins. On the
     /// same terminal, or without terminal evidence, the exported PID is kept:
     /// a launcher shim may export its own PID while the agent runs as its child.
+    ///
+    /// A PID that no longer exists is never kept. A background Claude worker
+    /// inherits the exported PID from the process that started its session and
+    /// outlives it; because a detached worker has no controlling terminal,
+    /// terminal evidence cannot separate the dead inherited PID from the live
+    /// worker, so the agent that ran the hook is the only identity left.
     public func hookAgentPID(
         environmentPID: Int?,
         invocationAgentPID: Int?,
-        controllingTerminal: (Int) -> Int64?
+        controllingTerminal: (Int) -> Int64?,
+        processIsAlive: (Int) -> Bool = { _ in true }
     ) -> Int? {
         let invocationAgentPID = invocationAgentPID.flatMap { $0 > 1 ? $0 : nil }
         guard let environmentPID, environmentPID > 0 else {
+            return invocationAgentPID
+        }
+        guard processIsAlive(environmentPID) else {
             return invocationAgentPID
         }
         guard let invocationAgentPID,
