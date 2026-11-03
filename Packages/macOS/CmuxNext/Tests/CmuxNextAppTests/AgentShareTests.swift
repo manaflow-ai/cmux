@@ -58,7 +58,9 @@ struct AgentShareTests {
         #expect(invite.cliName == "share invite" && invite.isPaletteVisible && invite.surfacePlan.mcp?.isOffered == true)
         #expect(invite.waitsForPerson && invite.waitsForResult)
         #expect(invite.arguments.map(\.name) == ["account", "role", "surface", "ttl"])
-        #expect(invite.arguments.filter(\.isRequired).map(\.name) == ["account"])
+        // A person's own run with no account opens the Invite People sheet, so none is required.
+        #expect(invite.arguments.filter(\.isRequired).isEmpty)
+        #expect(invite.surfacePlan.contextMenus.map(\.context) == [.tab])
         for (id, name) in [(AgentShareActions.list, "share list"), (AgentShareActions.revoke, "share revoke"), (AgentShareActions.kick, "share kick"),
                            (AgentShareActions.uninvite, "share uninvite")] {
             let descriptor = try #require(registry.descriptor(for: id))
@@ -69,9 +71,11 @@ struct AgentShareTests {
 
     @Test func aStartedChatsTabMenuOffersItAndOtherTabsDoNot() {
         let f = Self.fixture()
-        #expect(Self.runs(Self.tabMenu(f.chat, f.services)).contains(AgentShareActions.share))
-        #expect(!Self.runs(Self.tabMenu(f.newChat, f.services)).contains(AgentShareActions.share))
-        #expect(!Self.runs(Self.tabMenu(f.terminal, f.services)).contains(AgentShareActions.share))
+        for id in [AgentShareActions.share, AgentShareActions.invite] {
+            #expect(Self.runs(Self.tabMenu(f.chat, f.services)).contains(id), "\(id)")
+            #expect(!Self.runs(Self.tabMenu(f.newChat, f.services)).contains(id), "\(id)")
+            #expect(!Self.runs(Self.tabMenu(f.terminal, f.services)).contains(id), "\(id)")
+        }
     }
 
     @Test func aRunNamesTheChatBySurfaceOrTarget() {
@@ -275,5 +279,102 @@ struct AgentShareTests {
         #expect(missing.code == "share.not_invited" && missing.message.contains("@theo"))
         #expect(AgentShareStrings.failure(AgentShareDeclined(invite: true)).message == AgentShareStrings.inviteDeclined)
         #expect(AgentShareStrings.failure(AgentShareDeclined()).message == AgentShareStrings.declined)
+    }
+
+    /// The sheet lists every account still invited on a live share of the chat, once (its latest
+    /// invite), oldest first, and whether a device of it is in the chat now.
+    @Test func theSheetListsWhoIsInvited() {
+        let theo = AgentSessionShareInvitee(account: "@theo", role: "view", invitedAt: 2, state: "invited")
+        let theoAgain = AgentSessionShareInvitee(account: "@theo", role: "talk", invitedAt: 6, state: "invited")
+        let ana = AgentSessionShareInvitee(account: "ana@cmux.com", role: "talk", invitedAt: 4, state: "invited")
+        let gone = AgentSessionShareInvitee(account: "gone@cmux.com", role: "talk", invitedAt: 1, state: "removed")
+        let shares = [
+            AgentSessionShare(shareId: "a", state: "active", session: Self.session, surface: 1,
+                              guests: [AgentSessionShareGuest(guestId: "g", name: "Ana", joinedAt: 5, state: "active", account: "ana@cmux.com", role: "talk")],
+                              invitees: [theo, gone]),
+            AgentSessionShare(shareId: "b", state: "provisioning", session: Self.session, surface: 1, invitees: [theoAgain, ana]),
+            AgentSessionShare(shareId: "c", state: "expired", session: Self.session, surface: 1,
+                              invitees: [AgentSessionShareInvitee(account: "old@cmux.com", role: "talk", invitedAt: 1, state: "invited")]),
+        ]
+        #expect(AgentShareInvites.rows(of: Self.session, in: shares) == [
+            AgentShareInviteSheetModel.Row(account: "ana@cmux.com", role: "talk", joined: true),
+            AgentShareInviteSheetModel.Row(account: "@theo", role: "talk", joined: false),
+        ])
+        #expect(AgentShareInvites.rows(of: "another-chat", in: shares).isEmpty)
+    }
+
+    /// The sheet runs the op's own work: Invite sends the field's account with the role, clears the
+    /// field and reads the list again; a refusal stays on the sheet as its status, the field kept.
+    @Test func theSheetInvitesAndRemovesThroughTheWork() async {
+        @MainActor final class Daemon {
+            var shares: [AgentSessionShare] = []
+            var calls: [String] = []
+            var refuse = false
+        }
+        let daemon = Daemon()
+        let model = AgentShareInviteSheetModel(chat: "Fix the build", session: Self.session, work: .init(
+            list: { daemon.shares },
+            invite: { account, role in
+                daemon.calls.append("invite \(account) \(role)")
+                if daemon.refuse { throw DaemonError.command(cmd: "agent-session-share-invite", message: "uninvite it first", code: "share.invited") }
+                daemon.shares = [AgentSessionShare(shareId: "s", state: "active", session: Self.session, surface: 1,
+                                                   invitees: [AgentSessionShareInvitee(account: account, role: role, invitedAt: 1, state: "invited")])]
+            },
+            remove: { account in
+                daemon.calls.append("remove \(account)")
+                daemon.shares = []
+            }))
+        #expect(!model.canInvite, "Invite is off with an empty field")
+        model.account = "  @theo "
+        model.role = "view"
+        #expect(model.canInvite)
+        await model.invite()
+        #expect(daemon.calls == ["invite @theo view"])
+        #expect(model.account.isEmpty && model.status == nil)
+        #expect(model.rows == [AgentShareInviteSheetModel.Row(account: "@theo", role: "view", joined: false)])
+        daemon.refuse = true
+        model.account = "@theo"
+        model.role = "talk"
+        await model.invite()
+        #expect(model.status == AgentShareStrings.alreadyInvited)
+        #expect(model.account == "@theo", "a refused invite keeps what was typed")
+        await model.remove("@theo")
+        #expect(daemon.calls.last == "remove @theo")
+        #expect(model.rows.isEmpty && model.status == nil)
+    }
+
+    /// Invite People… with no account: the owner's own run opens the sheet and makes nothing; an
+    /// agent's or script's run must name the account.
+    @Test func invitePeopleWithNoAccountOpensTheSheetForTheOwnerOnly() {
+        @MainActor final class Host: AgentShareHost {
+            let services: AppServices
+            var shown: [AgentShareInviteSheetModel] = []
+            init(_ services: AppServices) { self.services = services }
+            func shareTab(surface: SurfaceID) -> TabModel? { services.shareTab(surface: surface) }
+            func shareTab(id: String) -> TabModel? { services.shareTab(id: id) }
+            func shareTabID(showing session: String) -> String? { nil }
+            var shareFocusedTabID: String? { nil }
+            func shareConnection(holding tab: TabModel) -> DaemonConnection? { nil }
+            func shareIsOnThisMac(_ tab: TabModel) -> Bool { true }
+            var shareLocalConnection: DaemonConnection? { nil }
+            func shareOwnerToken(api: URL?) async -> String? { nil }
+            func shareCopy(_ text: String) {}
+            func shareNotice(_ message: String) {}
+            func shareShowInvites(_ model: AgentShareInviteSheetModel) { shown.append(model) }
+        }
+        let f = Self.fixture()
+        let host = Host(f.services)
+        let registry = ActionRegistry.standard()
+        AgentShareActions(host: host).bind(into: registry)
+        let mine = registry.capturingTypedRefusal {
+            _ = registry.perform(AgentShareActions.invite, invocation: ActionInvocation(target: nil, arguments: ["surface": .int(1)], origin: .user))
+        }
+        #expect(mine == nil, "the owner's own Invite People… was refused: \(mine?.reason ?? "")")
+        #expect(host.shown.map(\.chat) == ["Fix the build"])
+        var agent = ActionInvocation(target: nil, arguments: ["surface": .int(1)], origin: .mcp)
+        agent.viaControlSocket = true
+        let refusal = registry.capturingTypedRefusal { _ = registry.perform(AgentShareActions.invite, invocation: agent) }
+        #expect(refusal?.reason == AgentShareStrings.needsAccount)
+        #expect(host.shown.count == 1, "an agent's run opened the owner's sheet")
     }
 }
