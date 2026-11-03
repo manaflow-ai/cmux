@@ -21,6 +21,7 @@ import {
 } from "../src/agent-session/acpmux/conversation/turns";
 import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
+import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
 import { OrderedRows } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
@@ -882,6 +883,90 @@ test("a subagent's done line draws its reaction's mark as it comes and goes", as
     expect(marked.subagents?.[0]?.reaction).toMatchObject({ fresh: true, text: "Reviewer says SHIP." });
     daemon.push(record(personTurn("Merge it", "Merging.", "t2"), 40));
     expect(done().subagents?.[0]?.reaction?.fresh).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
+
+// #33375: a later update of the call keeps its reaction; a task that ends after a newer prompt
+// still finds its call.
+test("a background reaction survives the call's later updates and a newer prompt", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Run the suite", turnId: "t1" }],
+      ["mux", "turn_started", { turnId: "t1" }],
+      shellCall("sh9"),
+      ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      ...personTurn("Meanwhile, what's next?", "The bench.", "t2"),
+      weighed("bg-late", { kind: "shell", status: "completed", weight: "result", origin: "sh9" }),
+      say("All 412 tests passed."),
+      ended("bg-late", true),
+      ["in", "tool_call_update", update({ sessionUpdate: "tool_call_update", toolCallId: "sh9", status: "completed" })],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(callOf(rows(), "sh9")?.reaction).toMatchObject({ weight: "result", text: "All 412 tests passed." });
+    expect(drawn(rows()).some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
+// #33319: a failure that ended with something to say keeps its named line over its rows, so a long
+// reply never hides what failed. The line heads rows that already show, so it opens nothing.
+test("a failure with a long reply keeps its named line over the reply", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Run the suite", turnId: "t1" }],
+      ["mux", "turn_started", { turnId: "t1" }],
+      shellCall("sh4"),
+      ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      weighed("bg-fl", {
+        kind: "shell",
+        status: "failed",
+        weight: "failure",
+        origin: "sh4",
+        summary: "Background command failed (exit code 101)",
+      }),
+      say("The suite failed in three crates.\n\nHere is what broke, crate by crate, and what I would try first."),
+      ended("bg-fl", false),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const view = drawn(rows());
+    const at = view.findIndex((row) => row.kind === BACKGROUND_TURN);
+    expect(at).toBeGreaterThanOrEqual(0);
+    const line = view[at]!;
+    expect(lineHtml(line)).toContain("Background command failed (exit code 101)");
+    expect(lineHtml(line)).not.toContain("aria-expanded");
+    expect(lineHtml(line)).toContain('data-background-turn="failed"');
+    expect(view.slice(at + 1).some((row) => row.text?.includes("Here is what broke"))).toBe(true);
+  } finally {
+    client.close();
+  }
+});
+
+// #33538: a subagent's quiet reply to its end is text under its done line, which Find reads, not
+// only its tooltip.
+test("a subagent done line's reply is text under the line, not only a tooltip", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Review it", "Started a reviewer.", "t1"),
+      spawned("rev2"),
+      spawned("rev2", "completed"),
+      weighed("bg-rev2", { kind: "subagent", status: "completed", weight: "result", origin: "rev2-call" }),
+      say("Reviewer says SHIP at the head."),
+      ended("bg-rev2", true),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const row = withSubagentLines(rows(), new Map()).find((row) => row.kind === SUBAGENT_DONE)!;
+    const html = renderToStaticMarkup(createElement(SubagentDoneLine, { row }));
+    expect(html).toContain('<p class="cv-reaction-reply">Reviewer says SHIP at the head.</p>');
+    expect(html).not.toMatch(/title="[^"]*Reviewer says SHIP/);
   } finally {
     client.close();
   }
