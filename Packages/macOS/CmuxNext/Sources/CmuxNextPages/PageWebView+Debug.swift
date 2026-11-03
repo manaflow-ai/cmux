@@ -237,7 +237,26 @@ extension PageWebView {
     /// A left click at `x`,`y` in CSS pixels. Chromium receives trusted DevTools
     /// input; WebKit receives native AppKit mouse events in its own view, including
     /// in a non-key capture window. No router gesture is granted directly.
-    public func debugPress(x: Double, y: Double) async -> Bool {
+    public func debugPress(x: Double, y: Double, native: Bool = false) async -> Bool {
+        if native, let content = chromiumSession?.page.contentView {
+            guard x.isFinite, y.isFinite, let window = content.window,
+                  !content.isHiddenOrHasHiddenAncestor, let frame = content.superview else { return false }
+            let zoom = max(pageZoom, 0.01)
+            let local = NSPoint(x: x * zoom, y: content.isFlipped ? y * zoom : content.bounds.height - y * zoom)
+            guard content.bounds.contains(local) else { return false }
+            let point = content.convert(local, to: nil)
+            let now = ProcessInfo.processInfo.systemUptime
+            guard let target = frame.hitTest(frame.convert(point, from: nil)),
+                  let down = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: now,
+                                                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1),
+                  let up = NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: now + 0.001,
+                                              windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0) else { return false }
+            // The CEF view's ordinary input tracker observes native delivery.
+            // DevTools input alone does not authorize a person-only page call.
+            target.mouseDown(with: down)
+            target.mouseUp(with: up)
+            return true
+        }
         guard x.isFinite, y.isFinite else { return false }
         guard let page = chromiumSession?.page else {
             guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
@@ -285,13 +304,15 @@ extension PageWebView {
           const leave = () => finish({matched:false, error:'page left'});
           const check = () => {
             try {
-              const element = document.querySelector(selector);
-              if (!element || !element.getClientRects().length) return;
-              for (let parent = element; parent; parent = parent.parentElement) {
-                const style = getComputedStyle(parent);
-                if (style.visibility === 'hidden' || Number(style.opacity) === 0) return;
-              }
-              finish({matched:true, text:(element.innerText || '').slice(0,400)});
+              const element = [...document.querySelectorAll(selector)].find(element => {
+                if (!element.getClientRects().length) return false;
+                for (let parent = element; parent; parent = parent.parentElement) {
+                  const style = getComputedStyle(parent);
+                  if (style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+                }
+                return true;
+              });
+              if (element) finish({matched:true, text:(element.innerText || '').slice(0,400)});
             } catch (error) { finish({matched:false, error:String(error)}); }
           };
           waits.set(id, () => finish({matched:false, error:'cancelled'}));

@@ -112,7 +112,7 @@ enum DebugPages {
         case "press":
             let numbers = ["x", "y"].compactMap { params[$0]?.doubleValue }
             guard numbers.count == 2 else { return ["error": "x, y (CSS pixels) are required"] }
-            return ["pressed": .bool(await page.debugPress(x: numbers[0], y: numbers[1]))]
+            return ["pressed": .bool(await page.debugPress(x: numbers[0], y: numbers[1], native: params["native"]?.boolValue == true))]
         case "hover":
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
             return await page.debugHover(selector)
