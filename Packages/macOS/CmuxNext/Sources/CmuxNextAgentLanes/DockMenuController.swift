@@ -152,7 +152,7 @@ public nonisolated struct DockMenuChoices: Equatable, Sendable {
 
     /// Harnesses with no known problem, by id; machines that are ready, listed only when there
     /// is one besides this Mac.
-    public static func make(harnesses: [AcpmuxHarnessRow], machines: [AgentChatDestinations.Destination]) -> DockMenuChoices {
+    @MainActor public static func make(harnesses: [AcpmuxHarnessRow], machines: [AgentChatDestinations.Destination]) -> DockMenuChoices {
         let usable = harnesses.filter { $0.problem == nil }.sorted { $0.id < $1.id }
             .map { Choice(id: $0.id, title: $0.name ?? harnessTitle($0.id)) }
         let ready = machines.filter { $0.isReady && $0.route != .pending }.map { Choice(id: $0.id, title: $0.title) }
