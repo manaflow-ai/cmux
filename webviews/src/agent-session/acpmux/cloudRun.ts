@@ -112,6 +112,113 @@ export function oneCloudStart(
   };
 }
 
+/// Where a Cloud start's key is kept between sends: `localStorage` in the page, so a relaunch keeps it.
+export type CloudStartKeyStore = {
+  getItem(name: string): string | null;
+  setItem(name: string, value: string): void;
+};
+
+const CLOUD_START_KEYS = "cmux.cloudStart.keys";
+/// A kept key older than this is a new send: the host's ledger has long settled that start.
+const CLOUD_START_KEY_TTL_MS = 24 * 60 * 60 * 1000;
+
+/// What makes two sends the same start: the prompt, its chips (by id, name and size, never their
+/// bytes), the folder, the agent, the model and the environment. An edited prompt is a new start.
+export function cloudStartFingerprint(start: CloudStart): string {
+  const chips = (start.attachments ?? []).map((chip) => [chip.id, chip.kind, chip.name, chip.size]);
+  const text = JSON.stringify([
+    start.task,
+    chips,
+    start.cwd ?? null,
+    start.home === true,
+    start.harness ?? null,
+    start.model ?? null,
+    start.environment ?? null,
+  ]);
+  // FNV-1a, two 32-bit lanes: a short stable name for the entry, never the prompt itself.
+  let a = 0x811c9dc5;
+  let b = 0x01000193;
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    a = Math.imul(a ^ code, 0x01000193) >>> 0;
+    b = Math.imul(b ^ code, 0x811c9dc5) >>> 0;
+  }
+  return `${a.toString(16).padStart(8, "0")}${b.toString(16).padStart(8, "0")}`;
+}
+
+/// The page's store, or none (a page with no `localStorage`, or one that throws): keys then live
+/// only as long as the page.
+function pageKeyStore(): CloudStartKeyStore | undefined {
+  try {
+    return typeof localStorage === "undefined" ? undefined : localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+/// One key per start the person asked for (#33493). A retry of a start whose answer was lost or
+/// failed (the same prompt sent again from the composer, also after a relaunch) reuses its first
+/// key, so the host's ledger (cmux-tui `link/start_chat_cli.rs`, keyed by it) reaches the machine
+/// that start made or is making instead of creating a second one. The key is forgotten once the
+/// start opened its chat, or the cap card sent the prompt here instead; a changed prompt, folder,
+/// agent, model or environment is a new start with a new key.
+export function cloudStartKeys(
+  store: CloudStartKeyStore | undefined = pageKeyStore(),
+  now: () => number = Date.now,
+  newKey: () => string = () => crypto.randomUUID(),
+) {
+  type Kept = Record<string, { key: string; at: number }>;
+  const read = (): Kept => {
+    if (!store) return {};
+    try {
+      const value = JSON.parse(store.getItem(CLOUD_START_KEYS) ?? "{}") as unknown;
+      return value && typeof value === "object" && !Array.isArray(value) ? (value as Kept) : {};
+    } catch {
+      return {};
+    }
+  };
+  const write = (kept: Kept) => {
+    if (!store) return;
+    try {
+      store.setItem(CLOUD_START_KEYS, JSON.stringify(kept));
+    } catch {
+      // A full or refused store keeps nothing: the key still holds for this page's retries below.
+    }
+  };
+  // This page's own keys, so a store that refuses writes still dedupes the retries made here.
+  const local: Kept = {};
+  const fresh = (entry: { key: string; at: number } | undefined, at: number) =>
+    entry && typeof entry.key === "string" && typeof entry.at === "number" && at - entry.at < CLOUD_START_KEY_TTL_MS
+      ? entry
+      : undefined;
+  return {
+    /// The key for `start`: the kept one while its start has not opened a chat, else a new one, kept.
+    keyFor(start: CloudStart): string {
+      const at = now();
+      const name = cloudStartFingerprint(start);
+      const kept = read();
+      const found = fresh(kept[name], at) ?? fresh(local[name], at);
+      const key = found?.key ?? newKey();
+      for (const [other, entry] of Object.entries(kept)) if (!fresh(entry, at)) delete kept[other];
+      kept[name] = { key, at: found?.at ?? at };
+      local[name] = kept[name];
+      write(kept);
+      return key;
+    },
+    /// The start sent with `start` ended in `answer`: one that opened its chat, or whose prompt goes
+    /// to a chat on this Mac, is done, and the next send of the same prompt is a new start. A failure
+    /// keeps the key: the start may have made its machine, and the retry must reach it.
+    ended(start: CloudStart, answer: CloudStartAnswer) {
+      if (!answer.ok && !cloudRunsHere(answer)) return;
+      const name = cloudStartFingerprint(start);
+      const kept = read();
+      delete kept[name];
+      delete local[name];
+      write(kept);
+    },
+  };
+}
+
 /// A failure the host already said in a toast (it ran the start): the page says nothing more.
 export function cloudStartToasted(answer: CloudStartAnswer): boolean {
   return !answer.ok && answer.code === "cloud_start_failed";

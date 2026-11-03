@@ -561,6 +561,7 @@ import {
   cloudStartToasted,
   newTabProjectPick,
   oneCloudStart,
+  cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
@@ -8602,6 +8603,7 @@ function AcpmuxPane() {
   const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
   const [startCloud] = useState(() => oneCloudStart(callNative));
+  const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
   /// host closes this tab with only the sent prompt, so text or files added meanwhile would be lost;
@@ -8618,8 +8620,10 @@ function AcpmuxPane() {
     const refused = cloudPageRefusal(sandboxOffered);
     if (refused === "cloud_not_now")
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
-    const key = crypto.randomUUID();
-    const started = startCloud({ task: text, attachments, ...start }, key);
+    const request: CloudStart = { task: text, attachments, ...start };
+    // A retry of the same start reuses its first key, so the host reaches the machine it made (#33493).
+    const key = cloudStartKeys.keyFor(request);
+    const started = startCloud(request, key);
     // Another Return while a start waits starts nothing, and the card keeps that start.
     if (!started) return false;
     cloudStartPending.current = true;
@@ -8627,6 +8631,7 @@ function AcpmuxPane() {
       cloudStartBegun(key, text, start.cwd, start.harness ? harnessLabel(start.harness) : undefined, start.home),
     );
     void started.then((answer) => {
+      cloudStartKeys.ended(request, answer);
       cloudStartPending.current = false;
       setCloudStartsEnded((count) => count + 1);
       if (cloudRunsHere(answer)) {
