@@ -87,3 +87,30 @@ test("with no leaders there is no Leads list", async () => {
   );
   expect(container.querySelector(".nt-all-leads")).toBeNull();
 });
+
+test("a leader is shown once, with its machine and direct-report attention, without hiding a same-id local chat", async () => {
+  const active: ActiveChat[] = [
+    { id: "owner", peer: "huge-blue", title: "owner", state: "running", label: "Working" },
+    { id: "owner", title: "local-owner", state: "running", label: "Working" },
+    { id: "other", title: "other", state: "input", label: "Needs input" },
+  ];
+  await act(async () =>
+    root!.render(
+      <AllChatsList
+        load={async () => ({ chats: [], ready: true })}
+        onOpen={() => {}}
+        leads={[{ ...leads[0]!, peer: "huge-blue", location: "huge-blue", needsInput: 2 }]}
+        active={active}
+        onOpenActive={() => {}}
+        now={0}
+      />,
+    ),
+  );
+  expect(container.querySelectorAll(".nt-all-leads .nt-all-row")).toHaveLength(1);
+  const lead = container.querySelector(".nt-all-leads .nt-all-row");
+  expect(lead?.querySelector(".nt-all-project")?.textContent).toBe("huge-blue");
+  expect(lead?.querySelector(".nt-all-state")?.textContent).toContain("Needs input (2)");
+  expect(lead?.getAttribute("data-needs-input")).toBe("true");
+  const activeRows = [...container.querySelectorAll('.nt-all-active:not(.nt-all-leads) .nt-all-title')];
+  expect(activeRows.map((row) => row.textContent)).toEqual(["local-owner", "other"]);
+});
