@@ -486,12 +486,8 @@ pub(super) enum Request {
     /// `cmux.docs(query)`.
     Docs { query: String },
     /// Launch or reattach without waiting; the workflow runner journals it first.
-    // Production field consumers arrive with the daemon runner in PR #33785.
-    #[cfg_attr(not(test), allow(dead_code))]
     ActivityStart { kind: String, prompt: String, options: Map<String, Value> },
     /// Wait for one of the named activities; the journal records completion order.
-    // Production field consumers arrive with the daemon runner in PR #33785.
-    #[cfg_attr(not(test), allow(dead_code))]
     ActivityWait { ids: Vec<String> },
 }
 
@@ -625,8 +621,6 @@ fn exec_mode(
 }
 
 /// The daemon-owned runner uses this entry point with pinned inputs and source.
-// The daemon runner in PR #33785 is the production caller of this staged API.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn workflow_exec(
     script: &str,
     inputs: Value,
@@ -881,7 +875,7 @@ fn run_script(
             move |request: Request| -> String {
                 let mut used = count.borrow_mut();
                 // The workflow journal counts fresh activities after replay
-                // lookup. Its budget resets per resume; waits do not spend it.
+                // lookup. Its budget resets per resume; only internal waits are free.
                 if !workflow_mode && *used >= MAX_CALLS {
                     return failure(
                         "script.too_many_calls",
