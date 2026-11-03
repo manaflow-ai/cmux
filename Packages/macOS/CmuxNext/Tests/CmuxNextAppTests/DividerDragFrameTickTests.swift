@@ -177,19 +177,23 @@ struct DividerDragFrameTickTests {
         #expect(probe.screen.activeDrag == nil)
     }
 
-    /// Control moves the divider at a quarter of the pointer's speed over every event, also when several events
-    /// come in one frame (its trail follows each event, not only the one the frame writes).
+    /// Control moves the divider at a quarter of the pointer's speed for the events it is held at, also when several
+    /// events come in one frame: its trail follows each event with the keys held at it, not only the one the frame
+    /// writes. Two events with no key (40 pt) and two with Control (40 pt at a quarter) put the divider 50 pt along.
     @Test func controlKeepsAQuarterOfThePointerOverEventsInOneFrame() async throws {
         let probe = Self.probe(Self.twoPanes)
         defer { probe.close() }
         let handle = try #require(probe.screen.dividerViews[.split("x")])
         let start = try Self.handleX(probe, .split("x"))
         let y = probe.screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil).y
-        handle.mouseDown(with: probe.event(.leftMouseDown, CGPoint(x: start, y: y), .control))
-        for step in 1...4 { handle.mouseDragged(with: probe.event(.leftMouseDragged, CGPoint(x: start + CGFloat(step) * 20, y: y), .control)) }
+        handle.mouseDown(with: probe.event(.leftMouseDown, CGPoint(x: start, y: y)))
+        for step in 1...4 {
+            let keys: NSEvent.ModifierFlags = step > 2 ? .control : []
+            handle.mouseDragged(with: probe.event(.leftMouseDragged, CGPoint(x: start + CGFloat(step) * 20, y: y), keys))
+        }
         _ = probe.root.advanceFrame(1.0 / 120)
         let shown = try Self.handleX(probe, .split("x"))
-        #expect(abs(shown - (start + 20)) <= 1, "80 pt of pointer with Control moved the divider to \(shown - start) pt, not 20")
+        #expect(abs(shown - (start + 50)) <= 1, "40 pt with no key and 40 pt with Control moved the divider \(shown - start) pt, not 50")
         handle.mouseUp(with: probe.event(.leftMouseUp, CGPoint(x: start + 80, y: y), .control))
         await Self.turns()
         probe.settle()
