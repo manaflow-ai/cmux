@@ -1,5 +1,6 @@
 import CmuxNextCloudTunnel
 import Foundation
+import Network
 import NetworkExtension
 import os
 
@@ -11,7 +12,8 @@ private let logger = Logger(subsystem: "com.cmuxterm.app.tunnel", category: "pro
 final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let engine = TunnelEngine()
     // The KVO token for `defaultPath` (NEProvider exposes path changes only through KVO).
-    private var pathObservation: NSKeyValueObservation?
+    /// Follows the default network path; cancelled in stopTunnel.
+    private var pathWatch: Task<Void, Never>?
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         let completion = ProviderCompletion(completionHandler)
@@ -47,16 +49,24 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 }
             }
         }
-        pathObservation = observe(\.defaultPath, options: [.old, .new]) { _, change in
-            // Only a real change (Wi-Fi to Ethernet, wake): the first value is the current path.
-            guard let old = change.oldValue ?? nil, let new = change.newValue ?? nil, !old.isEqual(to: new) else { return }
-            Task { await engine.networkChanged() }
+        // NEProvider.defaultPath is not visible to Swift in the macOS 26 SDK (the nightly's compile
+        // failed on it); NWPathMonitor is the supported path source. Only a real change (Wi-Fi to
+        // Ethernet, wake) reaches the engine: the monitor's first value is the current path.
+        pathWatch?.cancel()
+        pathWatch = Task {
+            var previous: NWPath?
+            for await path in NWPathMonitor() {
+                defer { previous = path }
+                guard let previous, previous != path else { continue }
+                await engine.networkChanged()
+            }
         }
     }
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         logger.notice("stopping, reason \(reason.rawValue, privacy: .public)")
-        pathObservation = nil
+        pathWatch?.cancel()
+        pathWatch = nil
         let completion = ProviderCompletion { _ in completionHandler() }
         let engine = engine
         Task {
