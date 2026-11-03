@@ -11,6 +11,13 @@
   `SidebarRowsMoveOnRenderServerTests.collapsingAGroupClipsItsMembersInPlace`,
   `expandingAGroupOpensItsSlotOverTheMembersInPlace`, `aFoldWithoutMotionLeavesNoMask`.
 
+- 2026-11-02: a group nobody colored draws no bar, chip or wash: a plain row with only its hover and drop fills. Leo,
+  on an uncolored group's header: "WTF IS THIS GROUP COLOUR????" / "THE GROUP COLOUR SOMEHOW BEING THE THEME COLOUR???"
+  / "IT'S USELESS". `GroupTint.none.headerChip` and `headerWash` were the opaque `sidebarBackground`, which drew the
+  theme's color as a solid bar over the translucent sidebar (visible since #32198). Machine groups start with no
+  color, the members' line falls back to none (not grey), and the editor's first dot (spoken "No color") stores none
+  like the menu's clear item instead of a grey band. Picked colors draw as before. Regression:
+  `GroupNoChosenColorTests.noColorHeaderDrawsNoBarAndNoColorDotClears`.
 - 2026-11-02: a row's fill keeps an even gap from both sidebar edges and has a rounder corner. Leo, comparing
   ChatGPT's selected sidebar row with ours: "CHATGPT HAS A SLIGHT GAP" / "WE DON'T" / "JUST ADD A SLIGHT GAP (PADDING)
   AND SMOOTH OUT A BIT MORE OF OUR CORNERS ON THE SIDEBAR WORKSPACES". `SidebarStyle.rowEdgeGap` (the fill to the
@@ -97,6 +104,12 @@
   painted the status artwork's 6 pt dot inside its 10 pt box. Its blue unread artwork now uses the same
   `SidebarStyle.unreadDotSize` token while retaining its cell, center and stack spacing. Other status marks
   keep their sizes; red-warning sizing is a separate change. `SidebarUnreadDotSizeTests` measures ink bounds.
+
+- 2026-11-02: Leo, beside ChatGPT's "Sent from dot" line: "this is what the chatgpt dot does" / "i don't think we
+  necessarily want these chief-operated ones looking like this". Chief-operated rows no longer draw the Chief's avatar
+  at the trailing column (replaces the 2026-11-01 entry below, cmux#30243): they look like any other row, with the one
+  spinner while running and unread/status marks as normal. The ownership mapping from acpmux tags stays; who sent a
+  message moves into the transcript. `SidebarChiefAvatarTests` covers both.
 
 - 2026-11-01: Leo: "they even show chief-operated chats". Chats owned by a Chief show that Chief’s profile avatar on the shared trailing column. The existing acpmux `mux.parent` / `mux.children` / `cmux.chief.participant` tags identify the operating Chief; names never do. Existing unread and status marks stay to its left, and hover controls replace the avatar as they replace other trailing marks. No Chief execution or chat ownership changes. `SidebarChiefAvatarTests` covers tag mapping, named Chiefs and the native hover layout.
 
