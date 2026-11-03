@@ -29,6 +29,7 @@ import { MeshDeviceGroupDefinition, MeshEnrollGroupDefinition, MeshGroupDefiniti
 import { OverlayServerDeviceGroupDefinition, OverlayServersGroupDefinition } from "./api/overlay-servers.ts";
 import { InitialVmNetwork, InitialVmNetworkReceipt } from "./api/initial-network.ts";
 import { ReplaceVmHttpsProxyRequest, VmHttpsProxyReceipt } from "./api/https-proxies.ts";
+import { VmPublicEgress } from "./api/public-egress.ts";
 import { VmImage, VmImageList, VmImageSelection } from "./api/images.ts";
 import { VmCreationKey } from "./lib/ids.ts";
 import { CreatedByCaller } from "./api/common.ts";
@@ -383,6 +384,24 @@ export class VmsGroup extends HttpApiGroup.make("vms")
       .addError(BadRequest).addError(Forbidden).addError(NotFound).addError(Conflict).addError(QuotaExceeded).addError(ServiceUnavailable)
       .annotateContext(describe("Replace an HTTPS proxy", "vm:network",
         "Replaces only an existing HTTP proxy whose source is exactly this VM, never a shared-network or public rule. The destination must be approved by the deployment. Missing rules are 404; multiple matches are 409. Credentials are write-only. With an Idempotency-Key, identical retries replay the receipt; changed policy or credentials are 409. This does not install guest hosts entries or create new proxy rules.")),
+  )
+  .add(
+    HttpApiEndpoint.get("getVmPublicEgress", "/v1/vms/:vmId/public-egress")
+      .setPath(VmPath)
+      .setHeaders(TeamHeaders)
+      .addSuccess(VmPublicEgress)
+      .addError(Forbidden).addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
+      .annotateContext(describe("Read a VM's public egress", "vm:network",
+        "Whether a rule whose source is exactly this VM allows the public Internet. A create without initialNetwork, or with publicEgress false, has none until allowVmPublicEgress.")),
+  )
+  .add(
+    HttpApiEndpoint.put("allowVmPublicEgress", "/v1/vms/:vmId/public-egress")
+      .setPath(VmPath)
+      .setHeaders(TeamHeaders)
+      .addSuccess(VmPublicEgress)
+      .addError(Forbidden).addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
+      .annotateContext(describe("Allow a VM's public egress", "vm:network",
+        "Lets an existing VM reach the public Internet, as a create with initialNetwork.publicEgress does: one rule whose source is exactly this VM, deleted with the VM. Idempotent: a VM that already has such a rule gets no second one. It never turns egress off and never changes HTTPS proxies or shared-network rules. For a VM created private (a copy that resumes another VM's memory, say) that must join the Internet only once its guest is ready.")),
   )
   .add(
     HttpApiEndpoint.get("getVm", "/v1/vms/:vmId")
