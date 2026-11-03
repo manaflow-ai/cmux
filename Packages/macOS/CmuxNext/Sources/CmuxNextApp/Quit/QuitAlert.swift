@@ -4,8 +4,9 @@ import CmuxNextDesign
 /// The quit question as one cmux dialog (R96, R138: no system alerts;
 /// #17501: never a second step). "Quit cmux?" keeps the terminals by
 /// default (Keep Sessions Running, Return), Cancel (Escape), and End
-/// Sessions, Keep Layout and End Everything end them (no key). "Don't ask
-/// again" is a check box that writes `app.quitBehavior`. The dialog blocks the window `QuitCoordinator` picks, or
+/// Sessions, Keep Layout and End Everything end them (no key), drawn as quiet
+/// red text under the two (`CmuxDialogSpec.Layout.safeDefault`). "Don't ask
+/// again" is a check box under the buttons that writes `app.quitBehavior`. The dialog blocks the window `QuitCoordinator` picks, or
 /// shows app-wide when no window is open (the app host, which activates
 /// the app).
 @MainActor
@@ -57,8 +58,11 @@ final class QuitAlert {
         let ordered = rest.filter { $0.role != .cancel } + rest.filter { $0.role == .cancel } + primary
         let fields: [CmuxDialogField] = content.showsSuppression
             ? [.check(id: rememberField, title: QuitStrings.dontAskAgain, on: remember)] : []
+        // With an end choice it is laid out as a native alert: Cancel and the default on one line, the end choices
+        // as quiet red text under them, "Don't ask again" last, no key glyphs (Leo, 2026-11-03).
+        let layout: CmuxDialogSpec.Layout = buttons.contains { $0.role == .destructive } ? .safeDefault : .standard
         return CmuxDialogSpec(title: content.title, lines: content.lines, fields: fields, buttons: ordered,
-                              identifier: "cmux.dialog.quit")
+                              identifier: "cmux.dialog.quit", layout: layout)
     }
 
     /// Keep (or Quit) answers Return, Cancel answers Escape, every end choice

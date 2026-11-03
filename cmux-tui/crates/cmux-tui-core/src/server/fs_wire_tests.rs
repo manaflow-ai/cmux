@@ -256,15 +256,18 @@ fn the_contract_request_lines_get_the_answer_shapes_cmux_cloud_reads() {
 fn routed(home: &Home, line: &str, body: &[u8]) -> (Option<()>, Vec<u8>) {
     let (daemon_side, mut client) = UnixStream::pair().unwrap();
     client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let entry = home.entry();
+    let daemon = std::thread::spawn(move || {
+        route_first_line(&test_mux(), daemon_side, &FsGate, &peer(), entry).map(drop)
+    });
     let mut sent = home.map(line).into_bytes();
     sent.push(b'\n');
     sent.extend_from_slice(body);
     client.write_all(&sent).unwrap();
     client.shutdown(std::net::Shutdown::Write).unwrap();
-    let left = route_first_line(&test_mux(), daemon_side, &FsGate, &peer(), home.entry()).map(drop);
     let mut output = Vec::new();
     let _ = client.read_to_end(&mut output);
-    (left, output)
+    (daemon.join().unwrap(), output)
 }
 
 #[test]
@@ -284,6 +287,58 @@ fn a_dial_whose_first_line_is_a_stream_is_served_raw() {
     assert_eq!(lines[0]["data"]["ready"], true);
     assert_eq!(lines[1]["data"]["entry"]["size"], 5);
     assert_eq!(std::fs::read(home.path.join("up.bin")).unwrap(), b"hello");
+}
+
+#[test]
+fn file_stream_roundtrips_binary_mebibytes_and_cleans_an_interrupted_write() {
+    let home = Home::new("large-stream");
+    let bytes: Vec<u8> = (0..8 * 1024 * 1024).map(|i| (i % 251) as u8).collect();
+    let write = json!({ "id": 1, "cmd": "fs.write", "path": "/home/cmux/up.bin",
+        "mode": "create", "stream": true, "size": bytes.len() })
+    .to_string();
+    let (left, output) = routed(&home, &write, &bytes);
+    assert!(left.is_none());
+    let replies: Vec<Value> = output
+        .split(|b| *b == b'\n')
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_slice(l).unwrap())
+        .collect();
+    assert_eq!(replies[0]["data"]["ready"], true);
+    assert_eq!(replies[1]["data"]["entry"]["size"], bytes.len());
+    let (_, output) =
+        routed(&home, r#"{"id":2,"cmd":"fs.read","path":"/home/cmux/up.bin","stream":true}"#, &[]);
+    let mut output = BufReader::new(output.as_slice());
+    let mut line = String::new();
+    output.read_line(&mut line).unwrap();
+    let header: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(header["data"]["length"], bytes.len());
+    let mut received = vec![0u8; bytes.len()];
+    output.read_exact(&mut received).unwrap();
+    assert_eq!(received, bytes);
+    line.clear();
+    output.read_line(&mut line).unwrap();
+    let end: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(end["ok"], true);
+    assert_eq!(end["data"]["revision"], header["data"]["revision"]);
+
+    let interrupted = write.replace("up.bin", "partial.bin");
+    let (_, output) = routed(&home, &interrupted, &bytes[..4 * 1024 * 1024]);
+    assert!(String::from_utf8(output).unwrap().contains("\"ready\":true"));
+    assert!(!home.path.join("partial.bin").exists());
+    assert_eq!(std::fs::read_dir(&home.path).unwrap().count(), 1, "no temporary remains");
+}
+
+#[test]
+fn file_stream_above_64_gib_checks_the_write_mode_instead_of_refusing_its_size() {
+    let home = Home::new("uncapped-stream");
+    let line = json!({ "id": 1, "cmd": "fs.write", "path": "/home/cmux/up.bin",
+        "mode": "invalid", "stream": true, "size": 64u64 * 1024 * 1024 * 1024 + 1 });
+    let (left, output) = routed(&home, &line.to_string(), &[]);
+    assert!(left.is_none());
+    let answer: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(answer["error_code"], "params.invalid", "{answer}");
+    assert!(answer["error"].as_str().unwrap().contains("mode"));
+    assert!(std::fs::read_dir(&home.path).unwrap().next().is_none());
 }
 
 #[test]

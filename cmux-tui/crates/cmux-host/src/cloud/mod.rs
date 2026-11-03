@@ -11,8 +11,10 @@
 //!   deadline 1 h after the last accepted report; failures back off from
 //!   5 s to 10 min, `retry_after_ms` honored;
 //! - activity from the daemon's `subscribe-activity` stream (sessions =
-//!   attached clients + live agents), `activity` advertised only while the
-//!   stream is live;
+//!   attached clients + live agents) plus acpmux's sessions at work
+//!   (`acp_activity` socket lines, held 90 s unless renewed), `activity`
+//!   advertised only while the stream is live and `activity-turns` with it
+//!   only while acpmux's lines arrive;
 //! - resume: the supervisor's `Resumed` event (clock-set wake, id
 //!   confirmed) sends one report named `resume`.
 //!
