@@ -122,7 +122,9 @@ def unsplit_note(events):
     drags = [h for h in events.get("hid") or [] if isinstance(h, dict) and h.get("kind") == "drag"]
     if not drags:
         return None
-    return (f"{len(drags)} HID drag(s) with no host_offset_s and no mouse-down in the app journal: nothing places them "
+    missing = sum(1 for h in drags if not isinstance(h.get("host_offset_s"), (int, float)))
+    return (f"{len(drags)} HID drag(s), {missing} of them with no host_offset_s, and no mouse-down in the app journal: "
+            "nothing places them "
             "on the trace's clock, so the film is not split and is judged as one motion (two opposite drags then show "
             "as 'reverse' on the first one)")
 
@@ -248,7 +250,8 @@ def judge(trace, frames=None, scale=2.0, events=None):
     def part_of_time(t):
         k = None
         for j, (_, _, lo, _) in enumerate(parts):
-            if lo == 0 or t >= host(lo):
+            # A drag after the trace ends cuts at len(samples): its part holds no sample and no time.
+            if lo < len(samples) and (lo == 0 or t >= host(lo)):
                 k = j
         return k
     trace_owner = {}
