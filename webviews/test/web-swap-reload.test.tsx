@@ -462,6 +462,23 @@ test("hibernation retains composition, popups and queued edits, including a clea
   expect(pageReleaseHold()).toBeNull();
 });
 
+test("hibernation keeps a New Tab's uncheckpointed scroll and text selection", () => {
+  const page = fixture('<div><p>selected page text</p></div>');
+  const scroller = page.firstElementChild as HTMLElement;
+  scroller.scrollTop = 40;
+  expect(pageReleaseHold()).toBe("scroll");
+  scroller.setAttribute(WEB_SWAP_KEPT_SCROLL, "kept");
+  expect(pageReleaseHold()).toBeNull();
+  scroller.removeAttribute(WEB_SWAP_KEPT_SCROLL);
+  scroller.scrollTop = 0;
+  const range = document.createRange();
+  range.selectNodeContents(scroller.querySelector("p")!);
+  window.getSelection()!.addRange(range);
+  expect(pageReleaseHold()).toBe("selection");
+  window.getSelection()!.removeAllRanges();
+  expect(pageReleaseHold()).toBeNull();
+});
+
 test("a page's own hold (a New Tab's chips, a Home message on its way) keeps the update waiting", async () => {
   let setReason: (reason: string | null) => void = () => undefined;
   function Page() {
