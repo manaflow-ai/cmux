@@ -701,6 +701,9 @@ pub mod method {
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
     pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
+    // The person's vault on this machine (`crate::vault`, `server/vault.rs`).
+    pub const MUX_VAULT_PULL: &str = "_acpmux/vault_pull";
+    pub const MUX_VAULT_FORGET: &str = "_acpmux/vault_forget";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
     /// A persisted session-to-session message, projected separately so chat clients can render
