@@ -140,38 +140,25 @@ fn no_symlink_below(base: &Path, path: &Path) -> io::Result<bool> {
     Ok(true)
 }
 
-/// Drops the remote identity and connection state a fork inherited:
-/// `<home>/.local/state/cmux/remote/sessions/*/auth` and `connections`.
+/// Drops the remote daemon state a fork inherited: every session under
+/// `<home>/.local/state/cmux/remote/sessions` (its identity and
+/// authorization under `auth/`, and the lifecycle fence, shutdown record and
+/// runtime metadata beside it) and `connections`.
+///
+/// The whole session goes, not only `auth/`: cmux-tui refuses to start a
+/// session that holds a lifecycle fence but no `auth/` (it reads that as a
+/// pre-fence daemon whose shutdown never finished), so dropping `auth/`
+/// alone left every rebound machine's session host exiting at startup. The
+/// session host is stopped before this runs (the bind waits for it), so no
+/// live daemon owns the state.
 pub fn drop_remote_identity(home: &Path) -> io::Result<()> {
     let remote = home.join(".local/state/cmux/remote");
     if !no_symlink_below(home, &remote)? {
         return Ok(());
     }
-    let sessions = remote.join("sessions");
-    if remove_link(&sessions)? {
-        return remove_entry(&remote.join("connections"));
-    }
-    if sessions.is_dir() {
-        for entry in fs::read_dir(&sessions)? {
-            let session = entry?.path();
-            // A symlinked session is unlinked, never followed.
-            if !remove_link(&session)? && session.is_dir() {
-                remove_entry(&session.join("auth"))?;
-            }
-        }
-    }
+    // A symlinked `sessions` (or session) is unlinked, never followed.
+    remove_entry(&remote.join("sessions"))?;
     remove_entry(&remote.join("connections"))
-}
-
-/// Unlinks `path` when it is a symlink (without following it); `true`
-/// when it was one.
-fn remove_link(path: &Path) -> io::Result<bool> {
-    match fs::symlink_metadata(path) {
-        Ok(meta) if meta.file_type().is_symlink() => fs::remove_file(path).map(|()| true),
-        Ok(_) => Ok(false),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
-        Err(err) => Err(err),
-    }
 }
 
 /// Removes a directory tree, a file, or a symlink (the link only).
@@ -289,4 +276,69 @@ fn install_ssh_key(ssh_dir: &Path, key: &Path) -> io::Result<()> {
     let pub_key = PathBuf::from(format!("{}.pub", key.display()));
     fs::rename(&pub_key, ssh_dir.join("ssh_host_ed25519_key.pub"))?;
     fs::rename(key, ssh_dir.join("ssh_host_ed25519_key"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session(home: &Path) -> PathBuf {
+        home.join(".local/state/cmux/remote/sessions/Y2xvdWQ")
+    }
+
+    /// A rebind must not leave the shape cmux-tui refuses at startup: a
+    /// lifecycle fence with no `auth/`.
+    #[test]
+    fn drop_remote_identity_removes_the_whole_session_with_its_lifecycle_fence() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let session = session(home);
+        fs::create_dir_all(session.join("auth")).unwrap();
+        fs::write(session.join("auth/devices.json"), "{}").unwrap();
+        fs::write(session.join("lifecycle-fence.json"), "{}").unwrap();
+        fs::write(session.join("runtime.json"), "{}").unwrap();
+        let remote = home.join(".local/state/cmux/remote");
+        fs::create_dir_all(remote.join("connections")).unwrap();
+        fs::create_dir_all(remote.join("private")).unwrap();
+
+        drop_remote_identity(home).unwrap();
+
+        assert!(!session.join("lifecycle-fence.json").exists());
+        assert!(!remote.join("sessions").exists());
+        assert!(!remote.join("connections").exists());
+        // Client-side state beside the sessions is not the daemon's.
+        assert!(remote.join("private").is_dir());
+        // Idempotent: a second bind finds nothing to drop.
+        drop_remote_identity(home).unwrap();
+    }
+
+    /// A stranded session from an older agent (fence, no `auth/`) is
+    /// repaired by the next bind too.
+    #[test]
+    fn drop_remote_identity_clears_a_fence_left_without_auth() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = session(dir.path());
+        fs::create_dir_all(&session).unwrap();
+        fs::write(session.join("lifecycle-fence.json"), "{}").unwrap();
+
+        drop_remote_identity(dir.path()).unwrap();
+
+        assert!(!session.exists());
+    }
+
+    #[test]
+    fn drop_remote_identity_unlinks_a_symlinked_sessions_dir_without_following_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let outside = dir.path().join("outside");
+        fs::create_dir_all(outside.join("Y2xvdWQ/auth")).unwrap();
+        let remote = home.join(".local/state/cmux/remote");
+        fs::create_dir_all(&remote).unwrap();
+        std::os::unix::fs::symlink(&outside, remote.join("sessions")).unwrap();
+
+        drop_remote_identity(&home).unwrap();
+
+        assert!(fs::symlink_metadata(remote.join("sessions")).is_err());
+        assert!(outside.join("Y2xvdWQ/auth").is_dir());
+    }
 }
