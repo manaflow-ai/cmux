@@ -557,7 +557,7 @@ impl Peer {
         String,
     > {
         let (host, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
-        let mut child = tokio::process::Command::new("ssh")
+        let mut child = self.ssh_command()
             .args(tunnel_argv(&host, remote_port))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -582,7 +582,7 @@ impl Peer {
         if let (Some(t), Some(p)) = (&self.token, &self.peer_token) {
             return Ok((t.clone(), Some(p.clone())));
         }
-        let mut child = tokio::process::Command::new("ssh")
+        let mut child = self.ssh_command()
             .args(read_config_argv(&host))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
