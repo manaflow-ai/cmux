@@ -1,6 +1,6 @@
 import CmuxNextDaemon
-import CmuxNextFeed
-import CmuxNextHome
+public import CmuxNextFeed
+public import CmuxNextHome
 
 extension HomeNativeTranscriptView: FeedPinnedSectionHost {}
 
