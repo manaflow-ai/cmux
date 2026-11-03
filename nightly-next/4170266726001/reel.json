@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4170266726001",
+  "notes": "notes/4170266726001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 34148,
+      "title": "perf(panes): a pane overlay strokes a ring outline only for a shadow that can show",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34156,
+      "title": "ci(guards): clear the seven guard steps red at the feat-cmux-next tip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33629,
+      "title": "fix(perf): commit transcript rows on motion frames",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34139,
+      "title": "fix(cmux-next): the R-DAEMON-STATE input lane switch reaches the daemon (CMUX_NEXT_TUI_RDS_INPUT)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34128,
+      "title": "cmux-host: drop the whole remote session on rebind, lifecycle fence included",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
