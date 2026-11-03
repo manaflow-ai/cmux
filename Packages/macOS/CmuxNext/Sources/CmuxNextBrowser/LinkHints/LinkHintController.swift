@@ -42,9 +42,9 @@ public final class LinkHintController {
         session = Session(keys: LinkHintSession(mode: mode), tab: tab, window: window, isFocused: isFocused,
                           openInSplit: openInSplit, noLinks: noLinks)
         work = Task { [weak self] in
-            let value = try? await tab.evaluate(LinkHintSession.sessionCollectScript, world: .isolated, gesture: .cmux)
+            let answer = await Self.answer(of: tab)
             guard !Task.isCancelled else { return }
-            self?.collected(value, from: tab)
+            self?.collected(answer, from: tab)
         }
         bound.schedule(after: .milliseconds(500)) { @MainActor [weak self, weak tab] in
             if let tab { self?.collected(nil, from: tab) }
@@ -114,12 +114,28 @@ public final class LinkHintController {
         Task { _ = try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated, gesture: .cmux) }
     }
 
+    /// The page's answer: whether a text field has the keyboard (the focused element only, ``LinkHintSession/focusScript``),
+    /// then, only when none has, the targets. Nil when a call failed. The input journal gets each call's time.
+    private static func answer(of tab: CEFTab) async -> (editing: Bool, targets: [LinkHintTarget])? {
+        let clock = ContinuousClock(), began = clock.now
+        guard let focus = try? await tab.evaluate(LinkHintSession.focusScript, world: .isolated, gesture: .cmux) else { return nil }
+        let editing = LinkHintSession.editing(from: focus), checked = clock.now
+        tab.host.lifecycleTrace.record(tab.id, "link-hints focus-check \(Self.ms(checked - began)) editing=\(editing)")
+        guard !editing else { return (true, []) }
+        guard let value = try? await tab.evaluate(LinkHintSession.collectScript, world: .isolated, gesture: .cmux) else { return nil }
+        let targets = LinkHintSession.targets(from: value)
+        tab.host.lifecycleTrace.record(tab.id, "link-hints targets \(Self.ms(clock.now - checked)) count=\(targets.count)")
+        return (false, targets)
+    }
+
+    private static func ms(_ duration: Duration) -> String { String(format: "%.1fms", Double(duration.components.attoseconds) / 1e15 + Double(duration.components.seconds) * 1000) }
+
     /// The page answered (nil: its call failed or took past its bound).
-    private func collected(_ value: BrowserJSValue?, from tab: CEFTab) {
+    private func collected(_ answer: (editing: Bool, targets: [LinkHintTarget])?, from tab: CEFTab) {
         guard var current = session, current.tab === tab, current.keys.hints == nil else { return }
         bound.cancel()
-        guard let value else { return cancel() }
-        let resolved = current.pending.resolve(&current.keys, targets: LinkHintSession.targets(from: value), editing: LinkHintSession.editing(from: value))
+        guard let answer else { tab.host.lifecycleTrace.record(tab.id, "link-hints no answer: keys go to the page"); return cancel() }
+        let resolved = current.pending.resolve(&current.keys, targets: answer.targets, editing: answer.editing)
         session = current
         defer { deliver(resolved.page) }
         if resolved.noLinks { current.noLinks() }
