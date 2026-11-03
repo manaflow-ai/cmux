@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+public import CmuxNextLayout
 
 /// A browser tab opened straight into a new split of its pane (`frontend-browser-tab-split-v1`):
 /// one `new-frontend-browser-tab {pane, split}`, one daemon commit and one `pane-added` delta. The
@@ -9,7 +10,7 @@ public import CmuxNextDaemon
 /// daemon's pane replaces it by its client-minted id. Carried from austinywang's #23032.
 public struct BrowserTabSplitCommand: Sendable {
     /// The pane the split is made from.
-    public let pane: PaneID
+    public let pane: CmuxNextDaemon.PaneID
     /// The side of `pane` the new pane goes.
     public let direction: SplitDirection
     /// The address the tab opens (its stand-in shows it as its title).
@@ -19,7 +20,7 @@ public struct BrowserTabSplitCommand: Sendable {
     ///   - pane: the pane the split is made from.
     ///   - direction: the side of `pane` the new pane goes.
     ///   - url: the address the tab opens.
-    public init(pane: PaneID, direction: SplitDirection, url: String) {
+    public init(pane: CmuxNextDaemon.PaneID, direction: SplitDirection, url: String) {
         self.pane = pane
         self.direction = direction
         self.url = url
@@ -31,12 +32,16 @@ public struct BrowserTabSplitCommand: Sendable {
         daemon.supports(DaemonCapability.frontendBrowserTabSplit.rawValue) && daemon.supports(DaemonCapability.splitClientKeys.rawValue)
     }
 
-    /// Shows the split with the tab's stand-in now (the store's intent log), before any await. The
+    /// Shows the split with the tab's stand-in now (the store's intent log), before any await, and the
+    /// even sizing of `layout`'s chain around `shown` (the pane's layout id), as a terminal split does. The
     /// returned work sends `create` with the request's `split` and answers the daemon's surface, or
     /// nil when the person closed the new pane first (its tab closes when it arrives,
-    /// CancelledCreation). A refusal takes the split away again and rethrows.
+    /// CancelledCreation). A refusal takes the split and its sizing away again and rethrows.
     @MainActor
-    public func intendNow(on daemon: DaemonService) -> @MainActor (_ create: (ConversationTabSplit) async throws -> SurfaceID) async throws -> SurfaceID? {
+    public func intendNow(on daemon: DaemonService, layout: LayoutModel?, shown: CmuxNextLayout.PaneID)
+        -> @MainActor (_ create: (ConversationTabSplit) async throws -> SurfaceID) async throws -> SurfaceID? {
+        let changes = layout?.splitSizingChanges(splitting: shown, axis: direction == .right ? .horizontal : .vertical) ?? []
+        let sizing = layout?.showSplitSizing(changes)
         let provisional = ProvisionalPane(holding: ProvisionalTab().browser(url))
         let transaction = ClientTransactionID.generate(), store = daemon.store
         store.intend(.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional), transaction: transaction)
@@ -46,6 +51,7 @@ public struct BrowserTabSplitCommand: Sendable {
             let surface: SurfaceID
             do { surface = try await create(request) } catch {
                 store.rejectIntent(transaction)
+                if let sizing { layout?.cancelSplitSizing(sizing) }
                 throw error
             }
             ProvisionalTab.created(transaction, surface: surface, in: store)
@@ -55,7 +61,9 @@ public struct BrowserTabSplitCommand: Sendable {
             } else {
                 store.noteSettledAtNextSnapshot(transaction)
             }
-            return store.creations.wasCancelled(transaction) ? nil : surface
+            let cancelled = store.creations.wasCancelled(transaction)
+            if let sizing { if cancelled { layout?.cancelSplitSizing(sizing) } else { layout?.commitSplitSizing(sizing) } }
+            return cancelled ? nil : surface
         }
     }
 }

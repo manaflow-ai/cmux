@@ -243,7 +243,9 @@ final class LinkOpener {
         }
         // A split right or below shows in the click's frame with its tab, never in the source first (Leo 2026-11-03).
         let split: SplitMake = { [weak self, weak from] (pane: PaneController, direction: SplitDirection, finished: @escaping @MainActor (SurfaceID?) -> Void) -> Bool? in
-            guard PaneBrowserTabOpener(controller: pane).opensInSplit else { return nil }
+            // As every split (#23032 review): a chat dock or a pane with no room keeps the move, which refuses or opens a column.
+            guard PaneBrowserTabOpener(controller: pane).opensInSplit,
+                  case .split = pane.services.splitRoom(for: pane.pane, edge: direction == .right ? .right : .bottom) else { return nil }
             let request = BrowserTabSplitRequest(direction: direction, finished: { [weak self, weak from] (surface: SurfaceID?) in
                 if let surface, let from, let content = from.workspace { self?.returnFocus(of: surface, to: from.layoutPaneID, in: content) }
                 finished(surface)

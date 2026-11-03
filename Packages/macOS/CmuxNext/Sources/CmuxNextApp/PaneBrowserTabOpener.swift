@@ -5,7 +5,6 @@ import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextDaemon
 import CmuxNextDaemonService
-import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextRemoteLocalhostService
 import CmuxNextTabs
@@ -210,19 +209,16 @@ extension PaneBrowserTabOpener {
     private func openInSplit(_ split: BrowserTabSplitRequest, choice: BrowserEngineChoice, address: String, focusesAddressBar: Bool, // perf-hot: 10ms new-tab (the split shows in the click's turn)
                              profile: String?, notice: String?) {
         let controller = controller, browserTabs = controller.services.cache.browserTabs, model = controller.pane
-        let intent = controller.workspace?.beginFocusIntent(), layout = controller.workspace?.layoutModel
-        let sizing = layout.map { $0.showSplitSizing($0.splitSizingChanges(splitting: controller.layoutPaneID, axis: split.direction == .right ? .horizontal : .vertical)) }
-        let send = BenchSpans.measure("split.intend") { BrowserTabSplitCommand(pane: model.handle, direction: split.direction, url: address).intendNow(on: controller.daemon) }
+        let intent = controller.workspace?.beginFocusIntent(), command = BrowserTabSplitCommand(pane: model.handle, direction: split.direction, url: address)
+        let send = BenchSpans.measure("split.intend") { command.intendNow(on: controller.daemon, layout: controller.workspace?.layoutModel, shown: controller.layoutPaneID) }
         BenchSpans.measure("split.layout") { controller.workspace?.applyCurrent() } // the split draws in the click's frame
         controller.services.registry.track(Task {
             do {
                 let made = try await send { try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice, split: $0) }
-                if let sizing { if made == nil { layout?.cancelSplitSizing(sizing) } else { layout?.commitSplitSizing(sizing) } }
                 if let made { controller.workspace?.expectFocus(on: made, target: focusesAddressBar ? .addressBar : .content, generation: intent) }
                 split.finished(made)
                 return nil
             } catch {
-                if let sizing { layout?.cancelSplitSizing(sizing) }
                 split.finished(nil)
                 return "new-frontend-browser-tab: \(error)"
             }
