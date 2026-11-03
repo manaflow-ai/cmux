@@ -167,6 +167,7 @@ public final class TabStripView: NSView {
     weak var motionClock: MotionClock?
     var observationTask: Task<Void, Never>?
     var tokenObservationTask: Task<Void, Never>?
+    private(set) lazy var frameFixture = TabFrameFixture(strip: self) // the film's tab outline (motion.frameOwner.tabOutline)
 
     // MARK: Pointer state
 
@@ -361,12 +362,14 @@ public final class TabStripView: NSView {
             applyTokens(animated: false)
             startObserving()
             startObservingTokens()
+            frameFixture.start()
             sync(fromModel: true)
         } else {
             observationTask?.cancel()
             observationTask = nil
             tokenObservationTask?.cancel()
             tokenObservationTask = nil
+            frameFixture.stop()
             motionClock?.stop(self)
             motionClock = nil
             endPointerState()
