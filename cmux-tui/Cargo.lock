@@ -23,6 +23,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-mcp-connect",
  "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-sdk",
@@ -1142,8 +1143,10 @@ dependencies = [
 name = "cmux-conversation"
 version = "0.1.0"
 dependencies = [
+ "pulldown-cmark",
  "serde",
  "serde_json",
+ "unicase",
 ]
 
 [[package]]
@@ -1333,6 +1336,17 @@ dependencies = [
  "hmac",
  "sha2 0.10.9",
  "subtle",
+]
+
+[[package]]
+name = "cmux-mcp-connect"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "url",
 ]
 
 [[package]]
@@ -1975,6 +1989,13 @@ name = "cmux-url-input"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-view-rows"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "cmux-vm"
 version = "0.1.0"
 dependencies = [
@@ -2055,6 +2076,19 @@ dependencies = [
  "tokio-util",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-wg-tun"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "boringtun",
+ "cmux-wg",
+ "getrandom 0.3.4",
+ "libc",
+ "tokio",
+ "x25519-dalek",
 ]
 
 [[package]]

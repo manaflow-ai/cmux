@@ -487,10 +487,16 @@ fn run_cli(mut cmd: std::process::Command) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+/// An OpenCode export's JSON: its bytes from the first `{` on (the CLI may print a line before
+/// it). None when there is no `{`.
+fn opencode_export_json(bytes: &[u8]) -> Option<&[u8]> {
+    let start = bytes.iter().position(|b| *b == b'{')?;
+    bytes.get(start..)
+}
+
 /// The session id an OpenCode export holds (`info.id`).
 fn opencode_export_id(bytes: &[u8]) -> Option<String> {
-    let start = bytes.iter().position(|b| *b == b'{')?;
-    let v: serde_json::Value = serde_json::from_slice(&bytes[start..]).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(opencode_export_json(bytes)?).ok()?;
     v.pointer("/info/id").and_then(serde_json::Value::as_str).map(str::to_owned)
 }
 
@@ -521,14 +527,14 @@ pub fn export_opencode_with(
     cmd.arg("export").arg(sid);
     cmd.current_dir(if meta.cwd.is_dir() { meta.cwd.clone() } else { std::env::temp_dir() });
     let out = run_cli(cmd).map_err(|e| anyhow::anyhow!("opencode export: {e}"))?;
-    let start = out.iter().position(|b| *b == b'{').unwrap_or(out.len());
-    if opencode_export_id(&out).as_deref() != Some(sid) {
-        anyhow::bail!("opencode export did not answer session {sid}");
-    }
+    let json = match opencode_export_json(&out) {
+        Some(json) if opencode_export_id(json).as_deref() == Some(sid) => json,
+        _ => anyhow::bail!("opencode export did not answer session {sid}"),
+    };
     let dir = native_dir.join(OPENCODE_EXPORT);
     std::fs::create_dir_all(&dir)?;
     let name = opencode_export_name(sid);
-    crate::agent_login::write_private(&dir.join(&name), &out[start..])?;
+    crate::agent_login::write_private(&dir.join(&name), json)?;
     Ok(Some(format!("{OPENCODE_EXPORT}/{name}")))
 }
 

@@ -277,6 +277,7 @@
         "CmuxNextChromiumWarmup",
         "CmuxNextCloud",
         "CmuxNextCloudCredentials",
+        "CmuxNextCloudTunnel",
         "CmuxNextCloudUI",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
@@ -802,6 +803,23 @@
       "packages": [],
       "reads": []
     },
+    "CmuxNextCloudTunnel": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloudTunnel",
+      "targets": [
+        "CmuxNextCompat"
+      ],
+      "packages": []
+    },
+    "CmuxNextCloudTunnelTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCloudTunnelTests",
+      "targets": [
+        "CmuxNextCloudTunnel"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextCloudUI": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI",
@@ -990,6 +1008,7 @@
         "CmuxNextWakeups"
       ],
       "packages": [
+        "CmuxAgentBrands",
         "CmuxTheme"
       ]
     },
@@ -1225,6 +1244,7 @@
         "CmuxNextWakeups"
       ],
       "packages": [
+        "CmuxAgentQuestion",
         "CmuxHomeCore",
         "CmuxHomeRender",
         "CmuxMessagesLab"
@@ -1246,7 +1266,8 @@
       ],
       "packages": [
         "CmuxAgentQuestion",
-        "CmuxHomeCore"
+        "CmuxHomeCore",
+        "CmuxHomeRender"
       ]
     },
     "CmuxNextHomeEngineTests": {
@@ -1496,6 +1517,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPages",
       "targets": [
         "CmuxNextBrowserCore",
+        "CmuxNextChiefMemory",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextErrorJournal",

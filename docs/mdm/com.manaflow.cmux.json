@@ -1928,6 +1928,12 @@
       "title" : "Reactions Can Wake the Chief",
       "type" : "boolean"
     },
+    "cloud.agentsStartWithoutAsking" : {
+      "default" : false,
+      "description" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
+      "title" : "Let Agents Start Cloud Sessions Without Asking",
+      "type" : "boolean"
+    },
     "cloud.newWorkspaceFolder" : {
       "default" : "inherit",
       "description" : "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
@@ -1942,6 +1948,12 @@
       "default" : false,
       "description" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
       "title" : "Run New Workspaces in Cloud",
+      "type" : "boolean"
+    },
+    "cloud.tunnel.enabled" : {
+      "default" : false,
+      "description" : "Lets every app on this Mac reach your Cloud machines' private addresses, like a VPN for your Cloud network only. macOS asks you to allow the cmux network extension once. cmux itself does not need it.",
+      "title" : "Cloud Tunnel",
       "type" : "boolean"
     },
     "cloud.useMyClaudeLoginOnMyCloudMachines" : {
@@ -2510,6 +2522,12 @@
       "title" : "Copy Terminal Notifications to the Feed",
       "type" : "string"
     },
+    "feed.needsYouInChief" : {
+      "default" : false,
+      "description" : "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.",
+      "title" : "Pin Needs You in Chief",
+      "type" : "boolean"
+    },
     "files.textEditor" : {
       "default" : "",
       "description" : "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code.",
@@ -2708,6 +2726,18 @@
       ],
       "title" : "Server",
       "type" : "string"
+    },
+    "imessage.automationSkipped" : {
+      "default" : false,
+      "description" : "Remember skipping the Messages Automation step. This does not grant access or authorize sending.",
+      "title" : "Skip Messages Automation",
+      "type" : "boolean"
+    },
+    "imessage.enabled" : {
+      "default" : false,
+      "description" : "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click.",
+      "title" : "Connect iMessage",
+      "type" : "boolean"
     },
     "labs.classicHome" : {
       "default" : false,

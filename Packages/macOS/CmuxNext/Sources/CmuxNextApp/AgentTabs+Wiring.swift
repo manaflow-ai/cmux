@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudCredentials
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -120,6 +121,10 @@ extension AgentTabStore {
         tabs.cloudRepositoryLocal = { [weak services] in
             guard let services else { throw DaemonError.notConnected }
             return try await services.daemon.cloudRepositoryLocal()
+        }
+        tabs.imessage = { [weak services] action, view in
+            guard let services else { return AgentPaneReply.failure(code: "unavailable", message: "unavailable") }
+            return await services.imessage.respond(action, view: view)
         }
         tabs.machineTargets = { [weak services] in
             // Only the machines of the account signed in now, from a list loaded for it (as the
@@ -268,7 +273,7 @@ extension AgentTabStore {
             // As their splits did: a browser keeps its address bar focused through the move; with Ghostty's
             // `split-inherit-working-directory = false` (the header passes no folder) a terminal starts in the home folder.
             let start = cwd ?? NewTerminalStart.uninherited(.split, services: services, daemon: source.daemon, besides: nil)
-            return services.linkOpener.open(from: source, besideChat: true, kind: kind, focusing: kind == .browser ? .addressBar : .content) { target, placed in
+            return services.linkOpener.open(from: source, besideChat: true, kind: kind, focusing: kind == .browser ? .addressBar : .content, split: kind == .browser ? services.linkOpener.browserSplit(nil) : nil) { target, placed in
                 guard kind == .browser else { guard target.daemon.connection != nil else { return false }; target.newTerminalTab(cwd: start, daemonResolvesCwd: true, placementOwner: placed != nil, then: placed); return true }
                 return target.newBrowserTab(placementOwner: placed != nil, then: placed)
             }
@@ -553,7 +558,7 @@ extension AgentTabStore {
     /// turns it off; a Release recovery then reads the remote switch and asks the consent first,
     /// CloudPresenter.recoverCredentials).
     static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool,
-                                                   passesLogin: Bool = CloudStartChat.offersLoginCopyHere) -> Bool {
+                                                   passesLogin: Bool = CloudCredentialTransfer.offersLoginCopy(isDogfoodBuild: DevTools.isEnabled, defaults: .standard)) -> Bool {
         isSignedIn && passesLogin
     }
 }

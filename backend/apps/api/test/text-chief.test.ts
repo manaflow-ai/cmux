@@ -90,9 +90,9 @@ describe("texting Chief on one shared line", { timeout: 60_000 }, () => {
     // The iMessage typing bubble went out first.
     expect(p.sent.some((s) => s.url.endsWith("/api/send-typing-indicator") && s.body.number === "+14155550301")).toBe(true)
     await p.chiefSays(p.main, "Two meetings and a dentist.")
-    await p.settle()
+    // ConversationDO forwards replies in waitUntil; an AddressDO no-op can arrive first.
+    await expect.poll(() => p.sent.filter((s) => s.url.endsWith("/api/send-message")), { timeout: 5_000 }).toHaveLength(1)
     const replies = p.sent.filter((s) => s.url.endsWith("/api/send-message"))
-    expect(replies).toHaveLength(1)
     expect(replies[0]!.body).toMatchObject({ number: "+14155550301", from_number: LINE, content: "Two meetings and a dentist." })
   })
 
@@ -111,8 +111,7 @@ describe("texting Chief on one shared line", { timeout: 60_000 }, () => {
     await p.text("@muse a haiku about CI")
     expect((await p.messages(p.muse.main_conversation)).some((m) => m.parts[0]?.text === "a haiku about CI")).toBe(true)
     await p.chiefSays(p.muse, "green checks bloom")
-    await p.settle()
-    expect(p.sent.filter((s) => s.url.endsWith("/api/send-message")).at(-1)!.body.content).toBe("Muse: green checks bloom")
+    await expect.poll(() => p.sent.filter((s) => s.url.endsWith("/api/send-message")).at(-1)?.body.content, { timeout: 5_000 }).toBe("Muse: green checks bloom")
     await p.text("and the weather?")
     expect((await p.messages(p.main.main_conversation)).some((m) => m.parts[0]?.text === "and the weather?")).toBe(true)
   })

@@ -47,6 +47,9 @@ pub(crate) use display::{ChildTags, drop_display_lines};
 
 mod pending;
 
+#[cfg(test)]
+mod delivery_tests;
+
 impl Hub {
     // ------------------------------------------------------------- inbound
 
@@ -1294,12 +1297,18 @@ impl Hub {
         if let Some(by) = answered_by {
             outcome[ANSWERED_BY_SLOT] = by;
         }
-        // The asking task is gone: nothing writes the answer, so its fence is cut.
-        if pending.reply.send(outcome).is_err()
-            && let Some(fence) = answerer.fence
-        {
-            self.answer_fences.lock().unwrap().remove(permission_id);
-            fence.cut();
+        // The asking task is gone: nothing writes the answer. Cut its fence and
+        // tell the caller instead of acknowledging an answer that was never delivered.
+        if pending.reply.send(outcome).is_err() {
+            if let Some(fence) = answerer.fence {
+                self.answer_fences.lock().unwrap().remove(permission_id);
+                fence.cut();
+            }
+            return Err(RpcError::not_found(
+                "agent_gone: the agent is no longer waiting for this answer",
+            )
+            .with_data(json!({"reason": "agent_gone", "sessionId": session.id,
+                                  "permissionId": permission_id})));
         }
         Ok(())
     }
@@ -1385,6 +1394,8 @@ impl Hub {
         }
         // A secret card waits on the same turn (`secrets.rs`).
         self.cancel_pending_secrets(session);
+        // So does an MCP connect card (`mcp_connect.rs`).
+        self.cancel_pending_mcp_connects(session);
     }
 }
 

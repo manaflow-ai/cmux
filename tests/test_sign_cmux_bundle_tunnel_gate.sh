@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# cmux-next ships no Cloud tunnel system extension. Release signing must fail
-# before codesign when the entitlements still request the tunnel or the bundle
-# still carries Contents/Library/SystemExtensions, and the shipped channel
-# entitlements must not request it.
+# The opt-in Cloud Tunnel ships only with its profiles. Release signing must
+# fail before codesign when the entitlements request the tunnel but the bundle
+# has no extension, when the bundle carries an extension the entitlements and
+# profile do not cover, or when the extension's own profile or entitlements are
+# missing; the shipped channel entitlements do not request it.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -48,8 +49,22 @@ if sign "$APP" "$ROOT/cmux.release.entitlements"; then
   echo "FAIL: signing accepted a bundle with Contents/Library/SystemExtensions" >&2
   exit 1
 fi
-grep -q "ships no system extension" "$TMP_DIR/err" || {
+grep -q "does not request the Cloud Tunnel" "$TMP_DIR/err" || {
   echo "FAIL: signing did not fail at the system extension gate" >&2
+  sed -n '1,80p' "$TMP_DIR/err" >&2
+  exit 1
+}
+
+# 2b. Entitlements that request the tunnel, with no profile that grants it, are
+# refused for a bundled extension too.
+APP="$TMP_DIR/twob/cmux.app"
+mkdir -p "$APP/Contents/Library/SystemExtensions/x.systemextension"
+if sign "$APP" "$TMP_DIR/tunnel.entitlements"; then
+  echo "FAIL: signing accepted a bundled extension without a profile that grants the tunnel" >&2
+  exit 1
+fi
+grep -q "does not grant it" "$TMP_DIR/err" || {
+  echo "FAIL: signing did not fail at the tunnel profile gate" >&2
   sed -n '1,80p' "$TMP_DIR/err" >&2
   exit 1
 }
