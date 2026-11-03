@@ -135,6 +135,21 @@ struct LinkHintTypingTests {
         #expect(seen.note(synthetic, sig(0, synthetic)))
     }
 
+    /// Lead on STATUS 7898: two identical keys typed in one display refresh ("ll" at 120 Hz) have the same key code and
+    /// characters. Their event times differ (the HID event's own time, nanoseconds since boot, as seconds: a Double
+    /// holds 0.1 ns at a 5-day uptime), so neither is taken as the other's copy. Chromium's send-back of each is known.
+    @Test func twoIdenticalKeysInOneRefreshAreTwoKeys() {
+        var seen = LinkHintSeenKeys<Key>()
+        let uptime: TimeInterval = 432_000.123_456_789
+        let first = Key("l", code: 37), second = Key("l", code: 37)
+        let sig = { (time: TimeInterval) in LinkHintSeenKeys<Key>.Signature(time: time, code: 37, characters: "l") }
+        #expect(!seen.note(first, sig(uptime)), "the first l counts as seen")
+        #expect(!seen.note(second, sig(uptime + 0.004)), "the second l, 4 ms later, was taken as the first one's copy")
+        #expect(!seen.note(Key("l", code: 37), sig(uptime + 0.004_001)), "an l 1 µs after the second was taken as its copy")
+        #expect(seen.note(Key("l", code: 37), sig(uptime)) && seen.note(Key("l", code: 37), sig(uptime + 0.004)),
+                "Chromium's send-back of an l the page had was not known")
+    }
+
     /// v5 of #32537 looped without end (REOPEN VIDEO, ~32,000 key-downs per round): the keys link hints sent back to
     /// the page went through the key route again, were held by the next session and sent again. A key sent back is
     /// let through once and never taken again; the keys that reach the page equal the keys typed.
@@ -161,14 +176,18 @@ struct LinkHintTypingTests {
         #expect(outcome != .passThrough && outcome != .cancel)
     }
 
-    /// The collect script answers whether a text field has the keyboard next to its targets; an older answer (targets
-    /// only) is read as not editing.
+    /// The collect script answers whether a text field has the keyboard next to its targets, the focus check (lead on
+    /// STATUS 7898: read the focused element first, the targets only when hints start) with no targets; an older answer
+    /// (targets only) is read as not editing.
     @Test func theCollectAnswerSaysWhetherATextFieldHasTheKeyboard() {
         let editing = BrowserJSValue.string(#"{"editing":true,"targets":[{"x":1,"y":2,"left":0,"top":0}]}"#)
         #expect(LinkHintSession.editing(from: editing))
         #expect(LinkHintSession.targets(from: editing).count == 1)
         let idle = BrowserJSValue.string(#"{"editing":false,"targets":[]}"#)
         #expect(!LinkHintSession.editing(from: idle))
+        let focusOnly = BrowserJSValue.string(#"{"editing":true}"#)
+        #expect(LinkHintSession.editing(from: focusOnly), "the focus check's answer (no targets) was read as not editing")
+        #expect(!LinkHintSession.editing(from: .string(#"{"editing":false}"#)))
         let old = BrowserJSValue.string(#"[{"x":1,"y":2,"left":0,"top":0}]"#)
         #expect(!LinkHintSession.editing(from: old))
         #expect(LinkHintSession.targets(from: old).count == 1)
