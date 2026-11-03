@@ -244,7 +244,7 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     });
     await page.mouse.move(point.x, point.y);
     await page.waitForFunction(() => (window as unknown as { __frames: unknown[] }).__frames.length >= 40);
-    await page.waitForSelector('.acpmux-minimap__rail[data-wave="still"]', { timeout: 5_000 });
+    await page.waitForSelector('.acpmux-minimap__rail[data-wave-state="still"]', { timeout: 5_000 });
     const { over, frames } = await page.evaluate(() => {
       const probe = window as unknown as { __frames: { t: number; width: number }[]; __over: number };
       return { over: probe.__over, frames: probe.__frames.filter((frame) => frame.t >= probe.__over) };

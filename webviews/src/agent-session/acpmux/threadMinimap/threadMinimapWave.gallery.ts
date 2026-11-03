@@ -32,7 +32,7 @@ async function holdBetween(ctx: PlayContext, index: number, share: number) {
   list.dispatchEvent(new view.PointerEvent("pointermove", at));
   await ctx.waitFor(() => {
     const rail = ctx.document.querySelector(".acpmux-minimap__rail");
-    return rail?.getAttribute("data-wave") === "still" || !rail?.hasAttribute("data-wave");
+    return rail?.getAttribute("data-wave-state") === "still" || !rail?.hasAttribute("data-wave");
   });
 }
 

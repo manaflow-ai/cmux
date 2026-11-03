@@ -13,9 +13,12 @@ import { ROW_PITCH, waveAmplitude, waveFollow, WAVE_IN_MS, waveProgress, type Wa
 
 /// The custom property each tick in the bump's reach carries: its magnification, 0 to 1.
 export const WAVE_PROPERTY = "--acpmux-minimap-wave";
-/// The rail's attribute while the wave draws its ticks (threadMinimap.css): `moving` while its loop
-/// runs, `still` once it has stopped (the gallery and the tests wait on it).
+/// The rail's attribute while the wave draws its ticks (threadMinimap.css).
 export const WAVE_ATTRIBUTE = "data-wave";
+/// The loop's state on the rail, `moving` or `still` (the gallery and the tests wait on it). No
+/// selector reads it, so the loop starting and stopping restyles nothing; toggling `data-wave` itself
+/// would restyle every tick in the rail.
+export const WAVE_STATE_ATTRIBUTE = "data-wave-state";
 
 export class HoverWave {
   private frame: number | undefined;
@@ -50,9 +53,10 @@ export class HoverWave {
       this.focus = this.target;
       this.startedAt = now;
       this.lastAt = now;
+      rail.setAttribute(WAVE_ATTRIBUTE, "");
     }
     if (this.frame !== undefined) return;
-    rail.setAttribute(WAVE_ATTRIBUTE, "moving");
+    rail.setAttribute(WAVE_STATE_ATTRIBUTE, "moving");
     this.frame = requestAnimationFrame(this.step);
   }
 
@@ -66,7 +70,9 @@ export class HoverWave {
     if (this.frame !== undefined) cancelAnimationFrame(this.frame);
     this.frame = undefined;
     this.active = false;
-    this.rail()?.removeAttribute(WAVE_ATTRIBUTE);
+    const rail = this.rail();
+    rail?.removeAttribute(WAVE_ATTRIBUTE);
+    rail?.removeAttribute(WAVE_STATE_ATTRIBUTE);
     for (const tick of this.written.keys()) tick.style.removeProperty(WAVE_PROPERTY);
     this.written.clear();
   }
@@ -81,7 +87,7 @@ export class HoverWave {
     const grown = now - this.startedAt;
     this.draw(waveAmplitude(grown));
     if (this.focus !== this.target || grown < WAVE_IN_MS) this.frame = requestAnimationFrame(this.step);
-    else this.rail()?.setAttribute(WAVE_ATTRIBUTE, "still");
+    else this.rail()?.setAttribute(WAVE_STATE_ATTRIBUTE, "still");
   };
 
   private draw(amplitude: number): void {
