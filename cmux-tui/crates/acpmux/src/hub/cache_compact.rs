@@ -147,19 +147,20 @@ impl Hub {
     }
 
     async fn cache_compact_fire(self: &Arc<Self>, session: &Arc<Session>, expires_ms: u64) {
+        // Sent only while the chat still ends on the turn it ends on now (`after_turn`, checked
+        // with no await before the turn is taken and again after). Read before the checks below:
+        // a Web or phone turn that ends after this read refuses it at admission, and one that
+        // started before the checks shows in them, so it never lifts that turn's remote floor.
+        let last = session.meta().last_turn.as_ref().and_then(|t| t.get("turnId").cloned());
+        let Some(last) = last.and_then(|t| t.as_str().map(str::to_owned)) else { return };
         // Read again: the setting may have been turned off since the timer was armed, and the
         // cache must still be warm when the request goes.
-        if !self.cache_compact_ready(session)
-            || read_threshold().is_none()
+        if read_threshold().is_none()
             || now_ms() >= expires_ms
+            || !self.cache_compact_ready(session)
         {
             return;
         }
-        // Sent only while the chat still ends on the turn it ended on now (`after_turn`, checked
-        // with no await before the turn is taken and again after): a Web or phone turn that
-        // started and ended meanwhile refuses it, so it never lifts that turn's remote floor.
-        let last = session.meta().last_turn.as_ref().and_then(|t| t.get("turnId").cloned());
-        let Some(last) = last.and_then(|t| t.as_str().map(str::to_owned)) else { return };
         let opts = PromptOptions {
             prompt_id: Some(format!("cache-compact-{}", uuid::Uuid::now_v7())),
             provenance: Some(json!({"kind": KIND})),
