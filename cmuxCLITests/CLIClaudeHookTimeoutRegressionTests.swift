@@ -6,6 +6,96 @@ import CMUXAgentLaunch
 import CmuxFoundation
 @Suite(.serialized)
 struct CLIClaudeHookTimeoutRegressionTests {
+    @Test("Copilot stop with a live background shell stays waiting")
+    func copilotStopWithLiveBackgroundShellStaysWaiting() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-copilot-background-shell-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let agentScript = root.appendingPathComponent("copilot")
+        try makeCodexHookExecutableShellFile(at: agentScript, lines: [
+            "#!/bin/sh",
+            "cleanup() { kill \"$child\" 2>/dev/null || true; wait \"$child\" 2>/dev/null || true; }",
+            "trap cleanup EXIT TERM INT",
+            "/bin/bash -c 'sleep 300' &",
+            "child=$!",
+            "printf 'ready\\n'",
+            "wait \"$child\"",
+        ])
+
+        let agent = Process()
+        let agentOutput = Pipe()
+        agent.executableURL = agentScript
+        agent.standardOutput = agentOutput
+        agent.standardError = FileHandle.nullDevice
+        try agent.run()
+        defer {
+            if agent.isRunning {
+                agent.terminate()
+                agent.waitUntilExit()
+            }
+        }
+        let ready = agentOutput.fileHandleForReading.availableData
+        #expect(String(decoding: ready, as: UTF8.self).contains("ready"))
+
+        let socketPath = makeCodexHookSocketPath("copilot-bg")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let workspaceID = "55555555-5555-5555-5555-555555555555"
+        let surfaceID = "66666666-6666-6666-6666-666666666666"
+        let capturedCommands = CodexHookCapturedSocketCommands()
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: capturedCommands,
+            surfaceId: surfaceID,
+            connectionLimit: 12,
+            processBinding: CodexHookMockProcessBinding(
+                processID: Int(agent.processIdentifier),
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            )
+        )
+
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "hooks", "copilot", "stop"],
+            environment: [
+                "HOME": root.path,
+                "CFFIXED_USER_HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_COPILOT_PID": String(agent.processIdentifier),
+                "CMUX_WORKSPACE_ID": workspaceID,
+                "CMUX_SURFACE_ID": surfaceID,
+            ],
+            standardInput: """
+            {"sessionId":"copilot-background-shell","cwd":"\(root.path)","stopReason":"end_turn"}
+            """,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let commands = capturedCommands.snapshot()
+        #expect(commands.contains {
+            $0.hasPrefix("set_status copilot Waiting ")
+                && $0.contains("--icon=hourglass")
+                && $0.contains("--work=waiting")
+        }, Comment(rawValue: commands.joined(separator: "\n")))
+        #expect(!commands.contains {
+            $0.hasPrefix("set_status copilot Idle ")
+        }, Comment(rawValue: commands.joined(separator: "\n")))
+    }
+
     @Test("Queued lifecycle routes trust an admitted surface snapshot")
     func queuedLifecycleRoutesTrustAdmittedSurfaceSnapshot() {
         let reconciler = AgentHookLifecycleReconciler()
