@@ -1884,7 +1884,7 @@ pub use pool::PoolConfig;
 mod btw;
 pub use btw::BtwConfig;
 mod usage_warnings;
-pub use usage_warnings::{UsageLimits, UsageWarningsConfig};
+pub use usage_warnings::{ContextLimit, FALLBACK_CONTEXT_TOKENS, UsageLimits, UsageWarningsConfig};
 pub mod folder_profiles;
 pub mod harness_icon;
 pub mod profiles;
