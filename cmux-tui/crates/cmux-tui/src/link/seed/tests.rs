@@ -245,6 +245,67 @@ fn a_secret_with_a_non_utf8_name_is_left_out() {
     assert!(!names.contains(".env"), "{names}");
 }
 
+
+#[test]
+fn a_seed_plan_never_writes_skipped_secret_blobs_into_local_git_objects() {
+    let f = Fixture::new();
+    let work = &f.work;
+    // Tracked secrets stay included under the existing Git seed contract.
+    write(&work.join(".env.tracked"), "TRACKED_FIXTURE_ONLY\n");
+    git(work, &["add", ".env.tracked"]);
+    write(&work.join("README.md"), "staged README\n");
+    git(work, &["add", "README.md"]);
+    write(&work.join("README.md"), "unstaged README\n");
+    write(&work.join("notes.txt"), "ordinary untracked work\n");
+
+    let excluded = [
+        (".env.local", "FAKE_ENV_TOKEN_UNTRACKED\n"),
+        ("config/with[glob].pem", "FAKE_PEM_UNTRACKED\n"),
+        ("config/colon:name.key", "FAKE_KEY_UNTRACKED\n"),
+        ("secrets/id_rsa", "FAKE_SSH_KEY_UNTRACKED\n"),
+        (".npmrc", "//registry.example.invalid/:_authToken=FAKE_ONLY\n"),
+    ];
+    for (path, contents) in excluded {
+        write(&work.join(path), contents);
+    }
+    let secret_ids: Vec<String> =
+        excluded.iter().map(|(path, _)| git(work, &["hash-object", path])).collect();
+    let object_exists = |id: &str| {
+        Command::new("git")
+            .arg("-C")
+            .arg(work)
+            .args(["cat-file", "-e", &format!("{id}^{{blob}}")])
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap()
+            .success()
+    };
+    assert!(secret_ids.iter().all(|id| !object_exists(id)), "fixture blobs already existed");
+    let before = snapshot(work);
+    let bundle = f.path("seed.bundle");
+    let planned = plan(work, &bundle).unwrap();
+    assert_eq!(snapshot(work), before, "the real index/refs/status changed");
+    let work_paths = git(work, &["ls-tree", "-r", "--name-only", &planned.params.work]);
+    assert!(work_paths.lines().any(|path| path == "notes.txt"));
+    assert!(work_paths.lines().any(|path| path == ".env.tracked"));
+    for ((path, _), id) in excluded.iter().zip(&secret_ids) {
+        assert!(
+            planned.skipped.iter().any(|skipped| skipped.path == *path),
+            "{path} was not classified as skipped"
+        );
+        assert!(!work_paths.lines().any(|present| present == *path), "{path} entered WORK");
+        assert!(!object_exists(id), "{path} left a blob in the local Git object store");
+    }
+
+    let machine = f.machine(&planned, &bundle, "machine");
+    git(&machine, &["checkout", "-q", "--detach", &planned.params.work]);
+    assert_eq!(std::fs::read_to_string(machine.join("notes.txt")).unwrap(), "ordinary untracked work\n");
+    assert_eq!(std::fs::read_to_string(machine.join("README.md")).unwrap(), "unstaged README\n");
+    assert!(excluded.iter().all(|(path, _)| !machine.join(path).exists()));
+}
+
 #[test]
 fn detached_head_has_no_head_ref() {
     let f = Fixture::new();
