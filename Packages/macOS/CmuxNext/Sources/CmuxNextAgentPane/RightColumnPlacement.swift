@@ -1,3 +1,4 @@
+public import CmuxNextDaemon
 public import CoreGraphics
 
 /// The one rule for what opens on the right of a pane: transcript subagents (``AgentSubagentPanes``),
@@ -99,6 +100,21 @@ public struct RightColumnPlacement {
     public static func decide(_ column: Column, opening kind: Kind? = nil) -> Decision<String> {
         decide(sourceWidth: column.sourceWidth, column: column.panes, width: { column.widths[$0] }, opening: kind,
                holds: { column.kinds[$0]?.contains($1) == true })
+    }
+}
+
+public extension RightColumnPlacement.Kind {
+    /// The kind of an existing tab that opens beside a chat: a browser, a local terminal, or a
+    /// document (`document`: the tab shows the Changes diff page); nil for anything else, a remote
+    /// terminal included.
+    init?(opening tab: TabKind, document: Bool) {
+        switch tab {
+        case .browser: self = .browser
+        case .pty: self = .terminal
+        default:
+            guard document else { return nil }
+            self = .document
+        }
     }
 }
 

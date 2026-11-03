@@ -54,6 +54,10 @@ class SidebarItemRowView: NSView {
     /// hover close (Lawrence msg 19392); Close Workspace is in that menu.
     var onMore: (() -> Void)?
     var hoverMore: OverflowButton?
+    /// A double-click on a pinned workspace's row renames it in place (`SidebarItemRowView+Rename`).
+    var onRename: (() -> Void)?
+    /// The inline rename's editor draws over the title, which stays hidden until it ends.
+    var isRenaming = false
     var wiggleSize: CGSize = .zero
 
     private(set) var info = SidebarItemInfo(title: "", symbol: "circle")
@@ -168,7 +172,7 @@ class SidebarItemRowView: NSView {
         self.info = info
         self.style = style
         title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
-        title.isHidden = style.isIconOnly
+        title.isHidden = style.isIconOnly || isRenaming
         pin.image = info.leadingPin ? NSImage.icon(.statePinned, size: SidebarStyle.leadingGlyphSide) : nil
         title.alignment = style == .favorite ? .center : .natural
         let trailingDot = info.unreadDot && !style.isIconOnly && style != .favorite
@@ -565,6 +569,13 @@ class SidebarItemRowView: NSView {
         onPressBegan?()
         let point = convert(event.locationInWindow, from: nil)
         guard pill.frame.contains(point) else { return super.mouseDown(with: event) }
+        // The second click of a double-click renames: no press, so no second switch, lift or drag (its first click
+        // switched, as a list row's does).
+        if pressRenames(event) {
+            endPress()
+            onRename?()
+            return
+        }
         isPressed = true
         pressLocation = event.locationInWindow
         pressModifiers = event.modifierFlags
