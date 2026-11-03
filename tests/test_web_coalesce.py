@@ -38,7 +38,7 @@ test_reds = load("test_reds_for_coalesce", "test_reds.py")
 WEB = ROOT / ".github/workflows/cmux-next-web.yml"
 LINT = ROOT / ".github/workflows/cmux-next-web-lint.yml"
 CI_WEB = ROOT / ".github/workflows/ci-web.yml"
-A, B, C = "a" * 40, "b" * 40, "c" * 40
+A, B, C, D = "a" * 40, "b" * 40, "c" * 40, "d" * 40
 
 
 class WaitTests(unittest.TestCase):
@@ -55,6 +55,28 @@ class WaitTests(unittest.TestCase):
     def test_a_rerun_of_the_covered_push_does_not_wait(self):
         self.assertEqual(coalesce.plan_wait({"sha": A, "started": 1000.0}, A, B, 1001.0, 900), (0.0, B))
 
+    def test_a_rerun_checks_the_range_its_first_attempt_checked(self):
+        # A's run covered every push since C; its own push base B (a docs-only push, say) would skip C's web change.
+        last = {"sha": A, "started": 1000.0, "covered": {A: C}}
+        self.assertEqual(coalesce.plan_wait(last, A, B, 1001.0, 900, attempt=2), (0.0, C))
+        # A newer push ran since: the re-run of A still routes from C, never from the newer covered commit.
+        last = {"sha": D, "started": 2000.0, "covered": {A: C, D: A}}
+        self.assertEqual(coalesce.plan_wait(last, A, B, 2001.0, 900, attempt=2), (0.0, C))
+        # Forgotten: its own push base, no wait.
+        self.assertEqual(coalesce.plan_wait({"sha": D, "started": 2000.0, "covered": {}}, A, B, 2001.0, 900,
+                                            attempt=2), (0.0, B))
+
+    def test_a_rerun_leaves_the_marker_as_it_was(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp, "last.json")
+            kept = {"sha": D, "started": 2000.0, "covered": {A: C, D: A}}
+            marker.write_text(json.dumps(kept))
+            args = SimpleNamespace(off=False, hold_minutes=15, last=str(marker), sha=A, before=B, out=str(marker),
+                                   attempt=2)
+            with redirect_stdout(io.StringIO()):
+                coalesce.wait(args, sleep=lambda s: None, clock=lambda: 2100.0)
+            self.assertEqual(json.loads(marker.read_text()), kept)
+
     def test_wait_sleeps_records_the_push_and_outputs_its_base(self):
         with tempfile.TemporaryDirectory() as tmp:
             last, out, output = Path(tmp, "last.json"), Path(tmp, "new/last.json"), Path(tmp, "output")
@@ -69,7 +91,7 @@ class WaitTests(unittest.TestCase):
             finally:
                 del os.environ["GITHUB_OUTPUT"]
             self.assertEqual(slept, [800.0])
-            self.assertEqual(json.loads(out.read_text()), {"sha": A, "started": 1900.0})
+            self.assertEqual(json.loads(out.read_text()), {"sha": A, "started": 1900.0, "covered": {A: B}})
             self.assertEqual(output.read_text(), f"base={B}\n")
 
     def test_the_off_switch_never_waits(self):
@@ -292,6 +314,26 @@ class WorkflowTests(unittest.TestCase):
         self.assertLessEqual(job["timeout-minutes"], 20)
         self.assertIs(self.web["concurrency"]["cancel-in-progress"], False)
         self.assertNotIn("cancel-in-progress: true", WEB.read_text())
+
+    def test_the_bisect_copies_its_scripts_in_the_layout_they_resolve(self):
+        # web_subareas.py finds the bundle key at parents[1]/cmux-next/web-bundle-key.py: a flat copy loses it, and
+        # a commit that routes the suite only through the bundle inputs is never a candidate.
+        step = next(s for s in self.web["jobs"]["web-bisect"]["steps"] if s.get("name") == "Bisect the new webview reds")
+        runner = step["env"]["WEB_BISECT_RUNNER"].replace("${{ runner.temp }}", "")
+        with tempfile.TemporaryDirectory() as tmp:
+            script = step["run"][:step["run"].index("shopt -s nullglob")]  # the copy, not the bisect
+            subprocess.run(["bash", "-euc", script], cwd=ROOT, check=True,
+                           env=dict(os.environ, RUNNER_TEMP=tmp, WEB_BISECT_RUNNER=tmp + runner))
+            spec = importlib.util.spec_from_file_location("copied_web_subareas", Path(tmp + runner, "web_subareas.py"))
+            copied = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = copied  # its dataclasses look their module up
+            try:
+                spec.loader.exec_module(copied)
+            finally:
+                del sys.modules[spec.name]
+            self.assertTrue(copied.WEB_BUNDLE_KEY.is_file(), copied.WEB_BUNDLE_KEY)
+            for name in ("run-webviews-tests.sh", "web_coalesce.py", "web-bisect-probe.sh", "webviews_test_history.py"):
+                self.assertTrue(Path(tmp + runner, name).is_file(), name)
 
     def test_the_marker_is_restored_from_and_saved_to_one_path(self):
         # Actions keys a cache's version by its path, so a save at another path is never restored, even by prefix.

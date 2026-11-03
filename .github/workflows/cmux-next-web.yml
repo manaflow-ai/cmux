@@ -81,7 +81,7 @@ jobs:
         run: |
           off=(); [ "$COALESCE" = 1 ] || off=(--off)
           python3 -I scripts/ci/web_coalesce.py wait "${off[@]}" --last "$RUNNER_TEMP/web-coalesce/last.json" \
-            --sha "$GITHUB_SHA" --before "$PUSH_BEFORE" --hold-minutes 15 --out "$RUNNER_TEMP/web-coalesce/last.json"
+            --sha "$GITHUB_SHA" --before "$PUSH_BEFORE" --attempt "$GITHUB_RUN_ATTEMPT" --hold-minutes 15 --out "$RUNNER_TEMP/web-coalesce/last.json"
 
       - name: Record this push as the last covered one
         if: ${{ env.COALESCE == '1' }}
@@ -163,13 +163,15 @@ jobs:
         continue-on-error: true
         env:
           BASE: ${{ needs.coalesce.outputs.base }}
-          WEB_BISECT_RUNNER: ${{ runner.temp }}/web-bisect-runner
+          WEB_BISECT_RUNNER: ${{ runner.temp }}/web-bisect-runner/ci
         run: |
-          # The head's runner, bisect and probe for every probe, whatever commit is checked out.
-          mkdir -p "$WEB_BISECT_RUNNER"
+          # The head's runner, bisect and probe for every probe, whatever commit is checked out. The copy keeps the
+          # scripts/ layout one level up, so web_subareas.py finds ../cmux-next/web-bundle-key.py as in the repo.
+          mkdir -p "$WEB_BISECT_RUNNER" "$WEB_BISECT_RUNNER/../cmux-next"
           cp scripts/ci/run-webviews-tests.sh scripts/ci/webviews_test_results.py scripts/ci/webviews_test_shards.py \
             scripts/ci/webviews_test_history.py scripts/ci/web_subareas.py scripts/ci/web_coalesce.py \
             scripts/ci/web-bisect-probe.sh scripts/ci/ensure-system-chrome.sh "$WEB_BISECT_RUNNER/"
+          cp scripts/cmux-next/web-bundle-key.py "$WEB_BISECT_RUNNER/../cmux-next/"
           shopt -s nullglob
           results=("$RUNNER_TEMP"/web-bisect-results/webviews-test-history-shard*/webviews-head-results.json)
           python3 -I "$WEB_BISECT_RUNNER/web_coalesce.py" bisect --base "$BASE" --head "$GITHUB_SHA" \

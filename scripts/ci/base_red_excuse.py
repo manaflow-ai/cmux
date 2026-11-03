@@ -202,24 +202,9 @@ SUITE_JOBS = frozenset().union(*SUITES.values())
 BASE_TIER_TITLE = "cmux-next base tier · "
 
 
-# cmux-next-web.yml runs its web checks at most once every 15 minutes (scripts/ci/web_coalesce.py): a push whose
-# coalesce job a newer push replaced while it was pending ran no job and ended cancelled. About nine of every ten
-# feat-cmux-next pushes end that way, so read here they would spend the BASE_JOB_READS that reach the run with the
-# verdict. The run that covers such a commit is the next completed one, which the window reads anyway.
-COALESCED_WORKFLOW = ".github/workflows/cmux-next-web.yml"
-
-
-def coalesced(run: dict) -> bool:
-    """Whether RUN is a cmux-next web push run a newer push's coalesced run replaced before any job started."""
-    return (run.get("conclusion") == "cancelled" and run.get("event") == "push"
-            and str(run.get("path") or "").split("@", 1)[0] == COALESCED_WORKFLOW)
-
-
 def never_carries(run: dict, name: str) -> bool:
     """Whether RUN's suite never runs job NAME, so it has no verdict for it to read."""
     if run.get("conclusion") == "cancelled" and (run.get("display_title") or "").startswith(BASE_TIER_TITLE):
-        return True
-    if coalesced(run):
         return True
     jobs = suite_jobs(run)
     return name in SUITE_JOBS and jobs is not None and name not in jobs

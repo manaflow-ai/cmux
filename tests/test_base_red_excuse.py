@@ -639,6 +639,41 @@ class Excusing(unittest.TestCase):
                               text)
                 self.assertNotIn(f"repos/{REPO}/actions/runs/3000/jobs?filter=latest&per_page=100", self.gh.routes)
 
+    def coalesced_setup(self, newest_green: bool):
+        # cmux-next-web.yml runs its web checks at most once every 15 minutes (web_coalesce.py): a push whose
+        # pending coalesce job a newer push replaced ends cancelled, its coalesce job cancelled and its web job
+        # skipped. Such runs sit ahead of the run that covered them.
+        name = "web / Web tests (1/4)"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=name)}
+        self.gh.logs[1] = log(name, TEST_STEP, ISSUE)
+        runs = []
+        for n in range(9):
+            rid = 3000 + n
+            runs.append({"id": rid, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                         "conclusion": "cancelled", "path": ".github/workflows/cmux-next-web.yml",
+                         "head_sha": f"{n}" * 40})
+            self.gh.jobs[100 + n] = dict(failed_job(100 + n, rid, f"{n}" * 40, name="coalesce"), conclusion="cancelled")
+            self.gh.jobs[200 + n] = dict(failed_job(200 + n, rid, f"{n}" * 40, name="web"), conclusion="skipped")
+        if newest_green:
+            # Cancelled by hand after its web tests passed: that green is the newest verdict.
+            self.gh.jobs[300] = dict(failed_job(300, 3000, "0" * 40, name=name), conclusion="success")
+        covering = {"id": 20, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                    "conclusion": "failure", "path": ".github/workflows/cmux-next-web.yml", "head_sha": BASE_SHA}
+        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=name)
+        self.gh.logs[2] = log(name, TEST_STEP, ISSUE, OTHER)
+        self.gh.base_runs = runs + [covering]
+        return name
+
+    def test_coalesced_web_push_runs_leave_the_verdict_to_the_run_that_covered_them(self):
+        name = self.coalesced_setup(newest_green=False)
+        self.assertIn(f"excused '{name}': feat-cmux-next run 20", "\n".join(self.judge()))
+
+    def test_a_cancelled_web_run_whose_job_passed_is_the_newest_verdict(self):
+        # A cancelled run is not proof that nothing ran: its green must not be passed over for an older red.
+        self.coalesced_setup(newest_green=True)
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+
     def test_suites_that_never_run_the_job_are_skipped_unread_in_the_window(self):
         # 45 DEV daily runs ahead of the base tier run in the window: none is read, so the job-list budget
         # still reaches the base tier run and the dispatch fallback is not needed.
@@ -647,33 +682,6 @@ class Excusing(unittest.TestCase):
         self.assertIn(f"excused '{SCHEME}'", text)
         self.assertFalse([route for route in self.gh.routes if "/runs/30" in route and "/jobs?" in route])
         self.assertFalse([route for route in self.gh.routes if "event=workflow_dispatch" in route])
-
-    def test_coalesced_web_push_runs_are_skipped_unread(self):
-        # cmux-next-web.yml runs its web checks at most once every 15 minutes (web_coalesce.py): a push whose
-        # coalesce job a newer push replaced ran nothing and ended cancelled. More of them than the job-list
-        # budget sit ahead of the run that covered them; none is read, and that run is the base verdict.
-        name = "web / Web tests (1/4)"
-        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=name)}
-        self.gh.logs[1] = log(name, TEST_STEP, ISSUE)
-        noise = [{"id": 3000 + n, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
-                  "conclusion": "cancelled", "path": ".github/workflows/cmux-next-web.yml",
-                  "head_sha": f"{n % 10}" * 40} for n in range(excuse.BASE_JOB_READS + 5)]
-        covering = {"id": 20, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
-                    "conclusion": "failure", "path": ".github/workflows/cmux-next-web.yml", "head_sha": BASE_SHA}
-        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=name)
-        self.gh.logs[2] = log(name, TEST_STEP, ISSUE, OTHER)
-        self.gh.base_runs = noise + [covering]
-        text = "\n".join(self.judge())
-        self.assertIn(f"excused '{name}': feat-cmux-next run 20", text)
-        self.assertFalse([route for route in self.gh.routes if "/runs/30" in route and "/jobs?" in route])
-
-    def test_a_cancelled_run_of_another_workflow_is_still_read(self):
-        self.assertFalse(excuse.coalesced({"conclusion": "cancelled", "event": "push",
-                                           "path": ".github/workflows/cmux-next.yml"}))
-        self.assertFalse(excuse.coalesced({"conclusion": "cancelled", "event": "workflow_dispatch",
-                                           "path": ".github/workflows/cmux-next-web.yml"}))
-        self.assertTrue(excuse.coalesced({"conclusion": "cancelled", "event": "push",
-                                          "path": ".github/workflows/cmux-next-web.yml@refs/heads/feat-cmux-next"}))
 
     def test_a_suite_runs_verdict_for_a_shared_job_still_counts(self):
         # Review of this change: tip suite runs also run checks and web bundles. A newer green verdict in a
