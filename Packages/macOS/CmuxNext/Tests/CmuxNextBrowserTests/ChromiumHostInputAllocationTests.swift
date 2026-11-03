@@ -10,67 +10,51 @@ import Testing
 /// allocation. The page view turns each mouse move, key and scroll event into a wire frame and the connection
 /// writes it (HOT PATH AUDIT browser, handoff/hot-path-audit/browser/AUDIT.md).
 ///
-/// Counted on this thread with libmalloc's hook, against controls with the same loop over other events of the
-/// same kind: the send alone against a loop that only reads each frame, and each view handler against the
-/// AppKit reads it needs (the event's place, buttons, flags, time and characters; for a scroll, the one
-/// `CGEvent` Chromium's own Mac wheel path reads). What is left is cmux's own work, and it allocates nothing.
+/// Counted on this thread with libmalloc's hook, only inside each call: the counted window opens right before
+/// one `send` or one view handler and closes right after it, so the loop, the iteration and the test's own
+/// bookkeeping are never in a window. No control is subtracted; the count of each kind must be exactly 0.
 @MainActor @Suite(.serialized)
 struct ChromiumHostInputAllocationTests {
     private static let events = 500
 
     @Test func aForwardedInputEventAllocatesNothing() throws {
-        let control = HostInputMallocProbe.allocations { _ = ContiguousArray(repeating: 1, count: 64).count }
-        try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
+        let probe = try #require(HostInputMallocProbe.install(), "libmalloc exports no malloc_logger hook")
+        defer { probe.uninstall() }
+        // The probe must see an allocation in a window, or a 0 below would prove nothing.
+        let seen = probe.count { _ = ContiguousArray(repeating: 1, count: 64).count }
+        try #require(seen > 0, "malloc_logger saw no allocation in a counted window: the probe cannot measure here")
+
         let wire = try HostWire()
         defer { wire.close() }
+        let connection = wire.connection
         let view = ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        view.sink = { [connection = wire.connection] frame in _ = connection.send(frame) }
-        var sink = 0
-
-        // Frames made before the count (their making is the view's part below): the send alone.
+        view.sink = { frame in _ = connection.send(frame) }
         let frames = (0..<Self.events).map { _ in ChromiumHostFrame(.mouse, v: [1, 2, 0, 0, 0, 0], flags: 256, t0: 42) }
-        _ = wire.connection.send(frames[0])
-        let frameLoop = try #require(HostInputMallocProbe.allocations { for frame in frames { sink &+= Int(frame.rawKind) } })
-        let sends = try #require(HostInputMallocProbe.allocations { for frame in frames { _ = wire.connection.send(frame) } })
+        let moves = try Self.moves(), keys = try Self.keys(), wheels = try Self.wheels()
 
-        // Each handler against its AppKit reads, on other events of the same kind (an event may cache what it made).
-        let (moves, controlMoves) = (try Self.moves(), try Self.moves())
-        let (keys, controlKeys) = (try Self.keys(), try Self.keys())
-        let (wheels, controlWheels) = (try Self.wheels(), try Self.wheels())
-        view.mouseMoved(with: try Self.moves()[0])  // warm-up outside the count: first-use statics and metadata
+        // Warm-up outside every window, on events of its own: first-use statics, metadata and lazy state.
+        _ = connection.send(frames[0])
+        view.mouseMoved(with: try Self.moves()[0])
         view.keyDown(with: try Self.keys()[0])
         view.scrollWheel(with: try Self.wheels()[0])
-        sink &+= Self.mouseReads(try Self.moves()[0], in: view)
-        sink &+= Self.keyReads(try Self.keys()[0])
-        sink &+= Self.wheelReads(try Self.wheels()[0], in: view)
-        // Each counted loop body runs once, uncounted, on events of its own first: a one-time cost of the loop or
-        // the hook falls in neither side, and every counted event is still fresh (AppKit may fill an event's
-        // fields on first read, on both sides alike).
-        let (warmMoves, warmKeys, warmWheels) = (try Self.moves(), try Self.keys(), try Self.wheels())
-        _ = HostInputMallocProbe.allocations { for frame in frames { sink &+= Int(frame.rawKind) } }
-        _ = HostInputMallocProbe.allocations { for event in warmMoves { sink &+= Self.mouseReads(event, in: view) } }
-        _ = HostInputMallocProbe.allocations { for event in warmKeys { sink &+= Self.keyReads(event) } }
-        _ = HostInputMallocProbe.allocations { for event in warmWheels { sink &+= Self.wheelReads(event, in: view) } }
 
-        let mouseReads = try #require(HostInputMallocProbe.allocations { for event in controlMoves { sink &+= Self.mouseReads(event, in: view) } })
-        let mouse = try #require(HostInputMallocProbe.allocations { for event in moves { view.mouseMoved(with: event) } })
-        let keyReads = try #require(HostInputMallocProbe.allocations { for event in controlKeys { sink &+= Self.keyReads(event) } })
-        let key = try #require(HostInputMallocProbe.allocations { for event in keys { view.keyDown(with: event) } })
-        let wheelReads = try #require(HostInputMallocProbe.allocations { for event in controlWheels { sink &+= Self.wheelReads(event, in: view) } })
-        let wheel = try #require(HostInputMallocProbe.allocations { for event in wheels { view.scrollWheel(with: event) } })
-        try #require(wire.connection.endedByProtocolError == false, "the wire ended: the counts are not of sent frames")
+        var send = 0, mouse = 0, key = 0, wheel = 0
+        for frame in frames { send += probe.count { _ = connection.send(frame) } }
+        for event in moves { mouse += probe.count { view.mouseMoved(with: event) } }
+        for event in keys { key += probe.count { view.keyDown(with: event) } }
+        for event in wheels { wheel += probe.count { view.scrollWheel(with: event) } }
+        try #require(connection.endedByProtocolError == false, "the wire ended: the counts are not of sent frames")
 
-        let counts: [(String, Int)] = [("send", sends - frameLoop), ("mouse move", mouse - mouseReads), ("key", key - keyReads), ("scroll", wheel - wheelReads)]
+        let counts: [(String, Int)] = [("send", send), ("mouse move", mouse), ("key", key), ("scroll", wheel)]
         func per(_ count: Int) -> String { String(format: "%.2f", Double(count) / Double(Self.events)) }
-        print("CEF-HOST-INPUT-ALLOCS per event, cmux's own: " + counts.map { "\($0.0) \(per($0.1))" }.joined(separator: ", ")
-              + " (\(Self.events) events each; controls: frame loop \(frameLoop), AppKit reads mouse \(mouseReads), "
-              + "key \(keyReads), scroll \(wheelReads); sink \(sink & 1))")
+        print("CEF-HOST-INPUT-ALLOCS per event, inside the call: " + counts.map { "\($0.0) \(per($0.1))" }.joined(separator: ", ")
+              + " (\(Self.events) events each; probe check \(seen))")
         for (name, count) in counts {
-            #expect(count == 0, "a forwarded \(name) made \(per(count)) allocations per event of its own")
+            #expect(count == 0, "a forwarded \(name) made \(count) allocations in \(Self.events) events")
         }
     }
 
-    // MARK: Events and the AppKit reads each handler needs
+    // MARK: Events
 
     private static func moves() throws -> [NSEvent] {
         var events: [NSEvent] = []
@@ -101,40 +85,6 @@ struct ChromiumHostInputAllocationTests {
             events.append(try #require(scroll.flatMap { NSEvent(cgEvent: $0) }))
         }
         return events
-    }
-
-    private static func mouseReads(_ event: NSEvent, in view: NSView) -> Int {
-        let local = view.convert(event.locationInWindow, from: nil)
-        var total = Int(local.x)
-        total &+= Int(view.bounds.height - local.y)
-        total &+= NSEvent.pressedMouseButtons
-        total &+= Int(event.modifierFlags.rawValue)
-        total &+= Int(event.timestamp)
-        return total
-    }
-
-    private static func keyReads(_ event: NSEvent) -> Int {
-        var total = Int(event.characters?.utf16.first ?? 0)
-        total &+= Int(event.charactersIgnoringModifiers?.utf16.first ?? 0)
-        total &+= Int(event.keyCode)
-        total &+= event.isARepeat ? 1 : 0
-        total &+= Int(event.type.rawValue)
-        total &+= Int(event.modifierFlags.rawValue)
-        total &+= Int(event.timestamp)
-        return total
-    }
-
-    private static func wheelReads(_ event: NSEvent, in view: NSView) -> Int {
-        let local = view.convert(event.locationInWindow, from: nil)
-        var total = Int(local.x)
-        total &+= Int(view.bounds.height - local.y)
-        if let cgEvent = event.cgEvent {
-            total &+= Int(cgEvent.getIntegerValueField(.scrollWheelEventPointDeltaAxis1))
-            total &+= Int(cgEvent.getIntegerValueField(.scrollWheelEventPointDeltaAxis2))
-        }
-        total &+= Int(event.modifierFlags.rawValue)
-        total &+= Int(event.timestamp)
-        return total
     }
 }
 
@@ -192,20 +142,33 @@ nonisolated private func tallyHostInputMalloc(type: UInt32, arg1: UInt, arg2: UI
     _ = HostInputMallocTally.allocations.add(1, ordering: .relaxed)
 }
 
-/// How many heap allocations the calling thread makes in `body`, through libmalloc's `malloc_logger` hook
-/// (as TipActionRunAllocationTests counts); nil when libmalloc exports no hook.
+/// libmalloc's `malloc_logger` hook, installed once for the test; ``count(_:)`` counts this thread's allocations
+/// only between its two stores, around one call (as TipActionRunAllocationTests hooks libmalloc).
 nonisolated private struct HostInputMallocProbe {
-    static func allocations(_ body: () -> Void) -> Int? {
+    private let hook: UnsafeMutablePointer<HostInputMallocLogger?>
+    private let previous: HostInputMallocLogger?
+
+    /// Installs the counting hook; nil when libmalloc exports none.
+    static func install() -> HostInputMallocProbe? {
         // RTLD_DEFAULT, a C macro Swift does not import.
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "malloc_logger") else { return nil }
         let hook = symbol.assumingMemoryBound(to: HostInputMallocLogger?.self)
+        let probe = HostInputMallocProbe(hook: hook, previous: hook.pointee)
+        HostInputMallocTally.thread.store(0, ordering: .relaxed)
+        hook.pointee = tallyHostInputMalloc
+        return probe
+    }
+
+    /// Allocations this thread makes inside `body` only.
+    func count(_ body: () -> Void) -> Int {
         HostInputMallocTally.allocations.store(0, ordering: .relaxed)
         HostInputMallocTally.thread.store(pthread_mach_thread_np(pthread_self()), ordering: .relaxed)
-        let previous = hook.pointee
-        hook.pointee = tallyHostInputMalloc
         body()
-        hook.pointee = previous
         HostInputMallocTally.thread.store(0, ordering: .relaxed)
         return HostInputMallocTally.allocations.load(ordering: .relaxed)
+    }
+
+    func uninstall() {
+        hook.pointee = previous
     }
 }
