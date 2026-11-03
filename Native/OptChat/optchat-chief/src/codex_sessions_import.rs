@@ -316,6 +316,29 @@ mod tests {
         assert_eq!(items.last().unwrap().text, "later");
     }
 
+    /// `!cmd` in Codex records the command and its output as a user message;
+    /// that output (`cat .env`) must never reach memory.
+    #[test]
+    fn shell_command_records_are_dropped() {
+        let t = [
+            meta("cli", "codex_cli_rs"),
+            msg(
+                "2026-11-01T10:00:02.000Z",
+                "user",
+                "input_text",
+                "<user_shell_command>\n<command>cat .env</command>\n<output>DB_PASSWORD=hunter2</output>\n</user_shell_command>",
+            ),
+            msg("2026-11-01T10:00:03.000Z", "user", "input_text", "what now"),
+        ]
+        .concat();
+        let items = convert_session(&t, &mut HashSet::new());
+        assert!(
+            items.iter().all(|i| !i.text.contains("hunter2")),
+            "{items:?}"
+        );
+        assert_eq!(items.last().unwrap().text, "what now");
+    }
+
     #[test]
     fn exec_sessions_are_skipped() {
         let t = [
