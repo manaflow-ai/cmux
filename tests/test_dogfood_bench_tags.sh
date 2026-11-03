@@ -14,7 +14,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 [[ -f "$LIB" ]] || fail "no $LIB: reload.sh --release cannot tell a dogfood tag"
 [[ -f "$CONF" ]] || fail "no $CONF: no tag builds the bench configuration on --release"
-# shellcheck source=../scripts/cmux-next/lib/dogfood-bench-tags.sh
+# shellcheck source=scripts/cmux-next/lib/dogfood-bench-tags.sh
 source "$LIB"
 
 TMP_DIR="$(mktemp -d)"
