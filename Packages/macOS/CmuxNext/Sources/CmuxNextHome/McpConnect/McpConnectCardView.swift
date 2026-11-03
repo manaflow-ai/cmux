@@ -1,4 +1,4 @@
-import SwiftUI
+public import SwiftUI
 
 /// The MCP connect card in one of its looks (``McpConnectCardStyle``). Every look shows the same
 /// facts and the same controls; only the arrangement differs.
