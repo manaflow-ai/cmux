@@ -143,9 +143,39 @@ await requireBrowserLane("chat-header-solo-tab.test.ts", async () => {
     });
   }
 
+  // A line under the header (a live chat's choice, a watched chat; `data-enter="top"`) keeps the transcript below it:
+  // the transcript never covers its buttons.
+  test("a line under the header keeps the transcript below it in a solo row", async () => {
+    const shellCss = [
+      read("styles.css"),
+      read("agent-session/shared/styles.css"),
+      read("agent-session/acpmux/styles.css"),
+      read("agent-session/acpmux/header/header.css"),
+      read("agent-session/acpmux/conversation/conversation.css"),
+    ].join("\n");
+    const page = await browser.newPage({ viewport: { width: 320, height: 200 } });
+    try {
+      await page.setContent(`<!doctype html><html><head><style>${shellCss} body{margin:0;height:200px}</style></head><body>
+        <section class="acpmux-shell" data-tab-row data-solo-tab style="--acpmux-tab-row-height:40px;height:200px">
+          <div class="acpmux-stage" data-solo-tab style="flex:1;display:flex;flex-direction:column;min-height:0">
+            <header class="acpmux-header" data-tab-row></header>
+            <div class="acpmux-link-missing" data-enter="top" style="height:30px"><button>Take over</button></div>
+            <div class="acpmux-scroll" style="flex:1;min-height:0"></div>
+          </div>
+        </section></body></html>`);
+      const box = await page.evaluate(() => ({
+        line: Math.round(document.querySelector(".acpmux-link-missing")!.getBoundingClientRect().bottom),
+        scroll: Math.round(document.querySelector(".acpmux-scroll")!.getBoundingClientRect().top),
+      }));
+      expect(box.scroll).toBeGreaterThanOrEqual(box.line);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("the App tells the page the pane holds one tab, and only the chat's own stage takes it", () => {
     const app = read("agent-session/acpmux/App.tsx");
     expect(app).toContain("const soloTab = inTabRow && tabRow.soloTab === true;");
-    expect(app).toContain("topInset={soloTab ? tabRow.height : 0}");
+    expect(app).toContain("topInset={soloUnder ? tabRow.height : 0}");
   });
 });

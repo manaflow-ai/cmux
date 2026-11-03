@@ -128,7 +128,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         agentTagObservation = observeAgentTag(stripModel)
         themeDidChange()
         tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value, ChromeTunables.nativeRowTools.value, stripModel.holdsOneTab) }) {
+            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value, ChromeTunables.nativeRowTools.value) }) {
                 self?.needsLayout = true
                 self?.refreshBandHeight()
             }

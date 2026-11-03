@@ -20,6 +20,12 @@ extension TabStripView {
             modelChangedWhileHidden = true
             return
         }
+        // One tab or more: the pane lays out again, since a one-tab pane's row is no band over its chat
+        // (`TabStripModel.holdsOneTab`, the pane's `PaneTabRowSharing.offerTabRow(soloTab:)`).
+        if model.holdsOneTab != laidOutOneTab {
+            laidOutOneTab = model.holdsOneTab
+            superview?.needsLayout = true
+        }
         let input = ModelSnapshot(model)
         if hasSynced, window != nil, let last = lastSyncedInput, isAtRest {
             if input == last { return }

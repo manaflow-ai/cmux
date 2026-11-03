@@ -8408,6 +8408,14 @@ function AcpmuxPane() {
   const inTabRow = tabRow.height > 0 && !quick;
   /// A one-tab pane's row has no band: the transcript runs up under it (header/tabRow.ts `soloTab`, header.css).
   const soloTab = inTabRow && tabRow.soloTab === true;
+  /// The transcript runs up under the row only straight below it: a line under the header (a live chat's choice,
+  /// a peer copy, a watched chat, a handoff error; `data-enter="top"` below) keeps the transcript under that line.
+  const soloUnder =
+    soloTab &&
+    !snapshot.liveChat &&
+    !snapshot.peerCopy?.offline &&
+    !snapshot.summary?.watching &&
+    !(!reviewing && snapshot.handoff?.error);
   const tabRowTools = useTabRowTools(inTabRow ? tabRow : undefined, reportTabRowTools);
   // Ctrl-B moves a Claude Code chat's running command or subagent to the background, and a
   // running command's row says so (conversation/runInBackground.ts).
@@ -13011,7 +13019,7 @@ function AcpmuxPane() {
                                                     {(find) => (
                                                       <VirtualTranscript
                                                         key={chatPresentation}
-                                                        topInset={soloTab ? tabRow.height : 0}
+                                                        topInset={soloUnder ? tabRow.height : 0}
                                                         rows={transcriptRows}
                                                         earlier={!childRows ? snapshot.earlierPrompts : undefined}
                                                         promptCount={!childRows ? snapshot.promptCount : undefined}
@@ -14453,7 +14461,7 @@ function AcpmuxPane() {
             <>
               <div
                 className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}${inspectorOpen ? " acpmux-inspecting" : ""}`}
-                data-solo-tab={soloTab ? "" : undefined}
+                data-solo-tab={soloUnder ? "" : undefined}
                 style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
