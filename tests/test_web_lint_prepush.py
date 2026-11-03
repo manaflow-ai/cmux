@@ -596,6 +596,25 @@ class WebLintPrePushTests(unittest.TestCase):
                 self.commit(f"drop {name}")
                 self.push(CMUX_WEB_LINT_SKIP_REASON="fixture: reset between the config file sub-tests")
 
+    def test_a_file_in_a_folder_above_a_package_is_check_code(self):
+        # Tools search upward from the package for their config (Vite for a PostCSS config up to the workspace root,
+        # Node for node_modules), so every file directly in a folder above a package is check code.
+        self.seed_reviewed_check()
+        for name in ("pnpm-workspace.yaml", "postcss.config.mjs", "package.json", "node_modules/x/index.js"):
+            with self.subTest(name=name):
+                self.write(name, "export default {};\n")
+                self.write("webviews/src/app.ts", f"export const app = {len(name) + 70};\n")
+                self.git("add", "-f", name)  # node_modules/ is gitignored, but a push can still carry it
+                self.commit(f"add {name}")
+
+                result = self.push()
+
+                self.assertIn("webviews: not linted here", result.stderr)
+                self.assertIn(name, result.stderr)
+                self.git("rm", "--quiet", "-r", name.split("/")[0] if name.startswith("node_modules/") else name)
+                self.commit(f"drop {name}")
+                self.push(CMUX_WEB_LINT_SKIP_REASON="fixture: reset between the upward-search sub-tests")
+
     def test_a_symlink_in_executed_code_is_never_followed(self):
         # A symlink already on the base points executed code at a source file, which a push may change.
         self.seed_reviewed_check()
@@ -1440,6 +1459,60 @@ class CheckPiecesTests(unittest.TestCase):
 class TrustBoundaryTests(unittest.TestCase):
     """The pieces of the trust boundary on their own: which changes reach check code, and which paths escape."""
 
+    def closure(self, files: dict) -> tuple:
+        """executed_sources() of a one-commit repository holding FILES, for webviews."""
+        lint = load_lint(SOURCE)
+        webviews = next(p for p in lint.SCRIPT_PACKAGES if p.directory == "webviews")
+        holder = tempfile.mkdtemp(prefix="cmux-closure-")
+        self.addCleanup(shutil.rmtree, holder, True)
+        repo = Path(holder)
+        env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+        run = lambda *args: subprocess.run(["git", "-C", str(repo), *args], env=env, check=True, capture_output=True)
+        run("init", "--quiet")
+        for relative, text in files.items():
+            (repo / relative).parent.mkdir(parents=True, exist_ok=True)
+            (repo / relative).write_text(text)
+        run("add", "-A")
+        run("-c", "user.email=a@b", "-c", "user.name=n", "commit", "--quiet", "-m", "x")
+        head = run("rev-parse", "HEAD").stdout.decode().strip()
+        return lint, lint.executed_sources(repo, head, webviews, lint.package_scripts(repo, webviews)), repo
+
+    CHECK = {"webviews/package.json": json.dumps({"scripts": {"check": "node scripts/a.mjs"}})}
+
+    def test_the_closure_is_not_fooled_by_a_regex_that_looks_like_a_comment(self):
+        _, (loaded, problems), _ = self.closure({**self.CHECK, "webviews/scripts/a.mjs":
+                                                 'const r = /\\/*/;\nimport x from "../src/after.mjs";\nconst e = 1; // */\n',
+                                                 "webviews/src/after.mjs": "export default 1;\n"})
+        self.assertIn("webviews/src/after.mjs", loaded)
+        self.assertEqual(problems, [])
+
+    def test_a_built_up_module_name_refuses_the_package(self):
+        for code in ('require("./a" + x);\n', 'import("./a" + x);\n', "import(`./${x}`);\n", "import(x);\n"):
+            with self.subTest(code=code):
+                _, (_, problems), _ = self.closure({**self.CHECK, "webviews/scripts/a.mjs": code})
+                self.assertTrue([p for p in problems if "computed" in p], problems)
+        _, (_, problems), _ = self.closure({**self.CHECK, "webviews/scripts/a.mjs":
+                                            '// a note on import(x)\n * import(y) in a doc comment\nimport("./b.mjs");\n'})
+        self.assertEqual(problems, [], "a comment that mentions import() is no import")
+
+    def test_a_folder_import_follows_its_package_json_main(self):
+        _, (loaded, _), _ = self.closure({**self.CHECK, "webviews/scripts/a.mjs": 'import "../lib";\n',
+                                          "webviews/lib/package.json": '{"main": "entry.mjs"}',
+                                          "webviews/lib/entry.mjs": "export default 1;\n"})
+        self.assertIn("webviews/lib/entry.mjs", loaded)
+
+    def test_the_closure_fails_closed_when_git_fails(self):
+        lint, _, repo = self.closure(self.CHECK)
+        webviews = next(p for p in lint.SCRIPT_PACKAGES if p.directory == "webviews")
+        with self.assertRaises(SystemExit):
+            lint.executed_sources(repo, "0" * 40, webviews, {"check": "node scripts/a.mjs"})
+
+    def test_fold_ignores_what_a_mac_file_system_ignores(self):
+        lint = load_lint(SOURCE)
+        for name in ("Scripts", "scr\u200cipts", "scripts\ufeff", "SCRİPTS".replace("İ", "I")):
+            with self.subTest(name=name):
+                self.assertEqual(lint.fold(name), lint.fold("scripts"))
+
     def test_only_manaflow_ai_cmux_is_a_reviewed_remote_by_its_url(self):
         lint = load_lint(SOURCE)
         for url in ("https://github.com/manaflow-ai/cmux", "https://github.com/manaflow-ai/cmux.git",
@@ -1447,7 +1520,9 @@ class TrustBoundaryTests(unittest.TestCase):
             with self.subTest(url=url):
                 self.assertTrue(lint.REVIEWED_URL.search(url))
         for url in ("https://github.com/alice/cmux.git", "https://github.com/manaflow-ai/cmux-fork",
-                    "https://github.com/manaflow-ai/cmux.git.evil", "/tmp/origin.git"):
+                    "https://github.com/manaflow-ai/cmux.git.evil", "/tmp/origin.git",
+                    "https://evil.example/github.com/manaflow-ai/cmux", "https://github.com.evil.example/manaflow-ai/cmux",
+                    "/tmp/github.com/manaflow-ai/cmux"):
             with self.subTest(url=url):
                 self.assertFalse(lint.REVIEWED_URL.search(url))
 
@@ -1487,6 +1562,20 @@ class TrustBoundaryTests(unittest.TestCase):
                              ["Scripts", "webviews/check.sh"])
             with self.assertRaises(SystemExit):
                 lint.tree_symlinks(repo, "0" * 40)
+
+    def test_every_folder_above_a_package_or_its_build_holds_check_code(self):
+        lint = load_lint(SOURCE)
+        tui = next(p for p in lint.SCRIPT_PACKAGES if p.directory == "cmux-tui/frontends/web")
+        for path in ("cmux-tui/postcss.config.mjs", "cmux-tui/frontends/.postcssrc.json", "cmux-tui/bindings/tsconfig.json",
+                     "cmux-tui/node_modules/x/index.js", "cmux-tui/frontends/node_modules/y.js", "pnpm-workspace.yaml"):
+            with self.subTest(path=path):
+                self.assertEqual(lint.executed_changes(tui, [path]), [path])
+        for path in ("cmux-tui/crates/x.rs", "cmux-tui/frontends/other/x.ts", "cmux-tui/bindings/python/x.py",
+                     "docs/x.md"):
+            with self.subTest(path=path):
+                self.assertEqual(lint.executed_changes(tui, [path]), [])
+        web = lint.ESLINT_PACKAGES[0]
+        self.assertEqual(lint.eslint_executed_changes(web, ["eslint.config.js", "web/app/page.tsx"]), ["eslint.config.js"])
 
     def test_a_path_that_resolves_elsewhere_in_the_tree_escapes(self):
         lint = load_lint(SOURCE)
