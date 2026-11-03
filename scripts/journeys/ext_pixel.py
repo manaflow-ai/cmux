@@ -13,10 +13,14 @@ newer builds) once. When the store stays inactive: a film at x1 runs on the spri
 (the journey goes on); the note of each film says whether the page backdrop could be turned off.
 
 Steps (`do`):
-  px_film      {name, speed: S | reduce: true, steps: [...], after?: [...]}
-               One film at one speed: sets the speed (as px_springs), then plays STEPS (the set-up of the film,
+  px_film      {name, speed: S | reduce: true, switch?: {key, value}, steps: [...], after?: [...]}
+               One film at one speed: sets the speed (as px_springs); with SWITCH, then sets that Debug tunable (a feature
+               switch, e.g. motion.frameOwner.terminals) and reads it back (after the speed, whose springs reset must never
+               undo it); then plays STEPS (the set-up of the film,
                px_record_start, the input, video_stop) and AFTER (the rebuild of a closed pane) through the driver's own
-               step handlers. When the speed cannot be set it plays nothing and returns {film, status: "not run", reason}.
+               step handlers. When the switch does not take (a key this build does not have, an inactive tunable store:
+               never a film at the default) or the speed cannot be set, it plays nothing and returns {film, status: "not
+               run", reason}. The switch as read back goes into the film's note (`switch`).
   px_springs   {speed: S} | {reduce: true} | {reset: true}
                The speed alone: every `motion.spring.<token>` of SPRING_TOKENS gets its default response divided by S
                (0.25: x4 slower; 4: x4 faster) and its default damping, read back; `debug.motion speed fast` first (time
@@ -456,6 +460,7 @@ def step_px_record_start(j, step):
     backdrop = _backdrop(j)
     note = {"scale": scale, "roles": dict(ROLES), "speed": st["speed"], "reduce": st["reduce"], "spring": spring,
             "springs_source": st["springs_source"], "store": st.get("store"), "input": step.get("input"),
+            "switch": st.get("switch"),
             "page_backdrop": backdrop, "tunables": st["tunables"], "pages": getattr(j, "px_pages", {}),
             "frame": [width, height], "window_frame": win_frame, "screen_frame": screen_frame,
             "main_pane": window.get("main_pane"),
@@ -476,15 +481,38 @@ def _short(value):
     return value if len(text) <= RESULT_CHARS else text[:RESULT_CHARS] + "..."
 
 
+def set_switch(j, key, value):
+    """A feature switch (a Debug tunable) set to VALUE and read back: (applied, {key, wanted, value, applied[, why]}).
+    Applied only when the store takes overrides and the read-back value is VALUE: an OFF read back from an inactive store
+    is the default, not the kit's setting, so it is not applied either."""
+    store = _store(j)
+    rec = step_px_tunable(j, {"key": key, "value": value})
+    applied = bool(rec["applied"]) and bool(store["active"])
+    out = {"key": key, "wanted": value, "value": rec.get("value"), "applied": applied}
+    if not applied:
+        out["why"] = rec["why"] if not rec["applied"] else (store["why"] or "tunable store inactive")
+    _state(j)["switch"] = out
+    return applied, out
+
+
 def step_px_film(j, step):
     name = step["name"]
     reduce = bool(step.get("reduce"))
-    applied, facts = apply_speed(j, None if reduce else step.get("speed"), reduce)
     st = _state(j)
+    applied, facts = apply_speed(j, None if reduce else step.get("speed"), reduce)
     if not applied:
         line = {"film": name, "status": "not run", "reason": facts["reason"], "speed": facts.get("speed")}
         st["films"].append(line)
         return line
+    switch = None
+    if step.get("switch"):
+        # After the speed: the speed resets the springs section, which must never undo the switch.
+        ok, switch = set_switch(j, step["switch"]["key"], step["switch"]["value"])
+        if not ok:
+            line = {"film": name, "status": "not run", "speed": None if reduce else step.get("speed"), "switch": switch,
+                    "reason": f"not run: {switch['key']} = {json.dumps(switch['wanted'])} did not take: {switch['why']}"}
+            st["films"].append(line)
+            return line
     done = []
     for sub in list(step.get("steps") or []) + list(step.get("after") or []):
         handler = getattr(j, "step_" + str(sub.get("do")), None)
@@ -498,7 +526,9 @@ def step_px_film(j, step):
         done.append({"do": sub["do"], "title": sub.get("title", ""), "seconds": round(D.now() - t, 3), "result": _short(out)})
     line = {"film": name, "status": "recorded", "speed": None if reduce else st["speed"], "reduce": reduce,
             "springs_source": st["springs_source"], "speed_facts": facts, "bytes": film_bytes(j, name), "steps": done}
-    st["films"].append({k: line[k] for k in ("film", "status", "speed", "reduce", "springs_source", "bytes")})
+    if switch:
+        line["switch"] = switch
+    st["films"].append({k: line[k] for k in ("film", "status", "speed", "reduce", "springs_source", "bytes", "switch") if k in line})
     return line
 
 

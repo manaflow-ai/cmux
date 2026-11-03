@@ -5,6 +5,8 @@ border ... with different terminal/app shell background color so we can easily n
 
   gen_pixel.py --out DIR [--only ID ...]     writes DIR/<id>.json (scripts/journeys/journeys/video/)
   gen_pixel.py --list                        id, budget, recordings and title of every journey
+  gen_pixel.py --out DIR --switch KEY --only ID ...
+                                             switch variants: <case>-sw-<short> per case, KEY OFF then ON
 
 Every journey: a new workspace with 2 to 6 fixture panes, the fixture colors, then one recording per animation speed.
 
@@ -40,6 +42,12 @@ Motion, the page backdrop tunable, the agent theme.css and the settings back.
 
 Two journeys per case: <case> (the six speeds, for a build whose store is active; split -a, -b when too long for one
 lease) and <case>-s1r (x1 and Reduce Motion only: several fit one lease, for any bench build).
+
+Switch variants (--switch KEY, with --only): a feature switch (a boolean Debug tunable, e.g. motion.frameOwner.terminals,
+PR #33956) filmed both ways in one launch, per case one journey <case>-sw-<short> (<short>: the key's last part) with 4
+films: off-s1, on-s1, off-reduce, on-reduce (px_film's `switch`: set and read back before each film; a switch that does
+not take makes that film "not run", never a film at the default). Split -a, -b by budget when one lease cannot hold the
+4; the switch goes back to its default (null) in finally. Not written without --switch.
 
 Cases (layouts: T terminal fixture, P page fixture, A agent pane; | a vertical divider, / stacked):
   px-col-drag-*      a vertical divider dragged 150 pt right in 1 s (slow), back in 0.1 s (fast)    T|P and T|P|(A/T)
@@ -254,8 +262,8 @@ class Case:
         self.input, self.before, self.rebuild = input_kind, before or [], rebuild or []
         self.play_seconds = play_seconds
 
-    def recording(self, jid, label, speed, last=False):
-        """One px_film step (the speed, the film and the rebuild after it) and its estimated seconds."""
+    def recording(self, jid, label, speed, last=False, switch=None):
+        """One px_film step (the speed, the switch when given, the film and the rebuild after it) and its estimated seconds."""
         name = f"{jid}-{label}"
         expected = self.play_seconds(speed)
         # The recorder stops by itself after `seconds`: room for the lead (1 s), the steps' own overhead and the tail.
@@ -270,6 +278,9 @@ class Case:
         film = {"do": "px_film", "name": name, "steps": steps, "after": rebuild,
                 "title": (f"film {name}: Reduce Motion" if speed is None else f"film {name}: every motion.spring.* response / {speed:g}")}
         film.update({"reduce": True} if speed is None else {"speed": speed})
+        if switch:
+            film["switch"] = {"key": switch[0], "value": switch[1]}
+            film["title"] += f", {switch[0]} {'ON' if switch[1] else 'OFF'}"
         return film, EST_FILM + 1.3 * expected + (EST_REBUILD if rebuild else 0)
 
 
@@ -356,7 +367,9 @@ def cases():
     return out
 
 
-def journey(case, jid, speeds, part_note):
+def journey(case, jid, speeds, part_note, switch_key=None):
+    """One journey of CASE: its set-up, one film per (label, speed) or (label, speed, (key, value)) of SPEEDS, the after
+    check. With SWITCH_KEY the switch goes back to its default in finally."""
     steps = [fixture_settings()] + G.first_pane(jid, False) + fixture_files()
     if case.layout.window:
         place = next(st for st in steps if st["do"] == "window_place")
@@ -368,19 +381,23 @@ def journey(case, jid, speeds, part_note):
     steps += case.layout.build() + [G.settle(1.5)]
     seconds = EST_BASE + case.layout.seconds()
     names = []
-    for n, (label, speed) in enumerate(speeds):
-        film, cost = case.recording(jid, label, speed, last=n == len(speeds) - 1)
+    for n, spec in enumerate(speeds):
+        label, speed = spec[0], spec[1]
+        film, cost = case.recording(jid, label, speed, last=n == len(speeds) - 1, switch=spec[2] if len(spec) > 2 else None)
         steps.append(film)
         seconds += cost
         names.append(film["name"])
     steps += after_check()
     seconds += EST_AFTER
     budget = int(min(BUDGET_MAX, max(BUDGET_MIN, round(seconds * MARGIN))))
-    final = [{"do": "px_springs", "reset": True, "title": "clean-up: springs and Reduce Motion back"},
+    final = ([{"do": "px_tunable", "key": switch_key, "value": None, "title": f"clean-up: {switch_key} back to its default"}]
+             if switch_key else []) + [
+             {"do": "px_springs", "reset": True, "title": "clean-up: springs and Reduce Motion back"},
              {"do": "px_tunable", "key": "browserResize.pageBackdrop", "value": None, "title": "clean-up: the page backdrop back"},
              {"do": "px_agent_css", "remove": True, "title": "clean-up: agent-pane/theme.css removed"},
              settings_back()]
-    speeds_text = ", ".join("Reduce Motion" if s is None else f"x{s:g}" for _, s in speeds)
+    speeds_text = ", ".join(("Reduce Motion" if sp[1] is None else f"x{sp[1]:g}")
+                            + (f" {'ON' if sp[2][1] else 'OFF'}" if len(sp) > 2 else "") for sp in speeds)
     return {"id": jid, "priority": "P1", "title": f"PIXEL: {case.title}, at {speeds_text}{part_note}",
             "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell "
                    f"{SHELL}, terminal ground {THEME_BG}, tab strips {STRIP}, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or "
@@ -401,11 +418,34 @@ def sweep(case):
         groups = [list(SPEEDS[i:i + size]) for i in range(0, len(SPEEDS), size)]
 
 
-def journeys():
+def switch_short(key):
+    """The journey suffix of a switch key: its last dotted part, lowercase letters and digits (motion.frameOwner.terminals:
+    terminals)."""
+    return "".join(c for c in key.split(".")[-1].lower() if c.isalnum()) or "switch"
+
+
+def switch_variants(case, key):
+    """CASE filmed with KEY OFF then ON, at x1 and under Reduce Motion: off-s1, on-s1, off-reduce, on-reduce, in as few
+    journeys <case>-sw-<short>[-a|-b] as fit one lease each."""
+    films = [(f"{state}-{label}", speed, (key, state == "on")) for label, speed in SPEEDS_S1R for state in ("off", "on")]
+    base = f"{case.cid}-sw-{switch_short(key)}"
+    groups = [films]
+    while True:
+        built = [journey(case, base, groups[0], f" ({key} OFF and ON)", key)] if len(groups) == 1 else \
+            [journey(case, f"{base}-{'abc'[i]}", g, f" ({key} OFF and ON, part {'abc'[i]})", key) for i, g in enumerate(groups)]
+        if all(j["estimate_seconds"] * MARGIN <= BUDGET_MAX for j in built) or len(groups) >= len(films):
+            return built
+        size = -(-len(films) // (len(groups) + 1))
+        groups = [films[i:i + size] for i in range(0, len(films), size)]
+
+
+def journeys(switch=None):
     out = []
     for case in cases():
         out += sweep(case)
         out.append(journey(case, f"{case.cid}-s1r", list(SPEEDS_S1R), " (x1 and Reduce Motion: any bench build)"))
+        if switch:
+            out += switch_variants(case, switch)
     return out
 
 
@@ -415,8 +455,15 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--only", action="append", default=[])
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--switch", help="a boolean Debug tunable: each chosen case filmed with it OFF and ON (<case>-sw-<short>)")
     opts = ap.parse_args()
-    chosen = [j for j in journeys() if not opts.only or any(j["id"] == o or j["id"].startswith(o + "-") for o in opts.only)]
+    if opts.switch and not opts.only:
+        ap.error("--switch needs --only (the cases to film with the switch OFF and ON)")
+    every = journeys(opts.switch)
+    if opts.switch:
+        # The switch journeys of the chosen cases only: --only px-col-drag-2 matches px-col-drag-2-sw-terminals[-a|-b].
+        every = [j for j in every if "-sw-" in j["id"]]
+    chosen = [j for j in every if not opts.only or any(j["id"] == o or j["id"].startswith(o + "-") for o in opts.only)]
     if opts.list or not opts.out:
         for j in chosen:
             print(f"{j['id']:28} {j['budget_seconds']:4} s  {len(j['recordings'])} rec  {j['title']}")
@@ -433,10 +480,11 @@ def main():
 
 
 def prune(out, keep):
-    """Removes px-*.json files in OUT that this generator wrote (their source says so) and no longer makes."""
+    """Removes px-*.json files in OUT that this generator wrote (their source says so) and no longer makes. Switch
+    journeys (<case>-sw-<short>) come only from a --switch run, so a plain run keeps them."""
     removed = []
     for name in sorted(os.listdir(out)):
-        if not (name.startswith("px-") and name.endswith(".json")) or name[:-5] in keep:
+        if not (name.startswith("px-") and name.endswith(".json")) or name[:-5] in keep or "-sw-" in name:
             continue
         path = os.path.join(out, name)
         try:
