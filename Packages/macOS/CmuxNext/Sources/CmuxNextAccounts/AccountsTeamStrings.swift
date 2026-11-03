@@ -82,6 +82,10 @@ extension AccountsStrings {
     static func teamsJoined(_ name: String) -> String {
         String(format: text("accounts.teams.joined", "You joined “%@”. It is now your active team."), name)
     }
+    /// The join when the joined team could not be made active; the previous team stays active.
+    static func teamsJoinedInactive(_ name: String) -> String {
+        String(format: text("accounts.teams.joinedInactive", "You joined “%@”."), name)
+    }
     static func teamsDeclined(_ name: String) -> String {
         String(format: text("accounts.teams.declined", "Declined the invitation to “%@”."), name)
     }
