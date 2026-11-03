@@ -235,6 +235,18 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
+        Some("rights-hook") => {
+            // Claude Code's PreToolUse/PostToolUse hook of a Chief turn.
+            let phase = args.get(1).map(String::as_str).unwrap_or("");
+            let socket = flags.value("socket").map(std::path::PathBuf::from);
+            if let Some(socket) = socket {
+                let out = optchat_chief::rights::hook(phase, &socket, &mut std::io::stdin());
+                if !out.is_empty() {
+                    println!("{out}");
+                }
+            }
+            0
+        }
         Some(verb @ ("rights" | "audit")) => {
             // The table and the log of this Chief (`--mux-home` or MUX_HOME).
             let home = flags

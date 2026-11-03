@@ -452,6 +452,8 @@ impl Brain {
         // (`turn_permission`), with no question to anyone.
         self.turn_ask = items.iter().any(Queued::requires_approval);
         self.last_turn_ask = self.turn_ask;
+        // Who this turn speaks for (rights_gate.rs): the hook and the audit.
+        self.begin_turn_people(&items, &key);
         self.turn_denied.clear();
         self.repeat_denials = 0;
         self.interrupt.set_gate(self.turn_ask);
@@ -1093,6 +1095,8 @@ impl Brain {
             .turn_clock
             .take()
             .map(|t| t.elapsed().as_millis() as u64);
+        // The turn's cost against its people (rights_gate.rs), trace or not.
+        self.end_turn_spend(outcome.stats.cost);
         if !self.trace.is_on() {
             return;
         }
@@ -1761,6 +1765,7 @@ fn source_name(source: &Source) -> &'static str {
         Source::Child { .. } => "child",
         Source::Spawn(_) => "subagents",
         Source::Note => "note",
+        Source::Peer { .. } => "peer_chief",
         Source::OwnerAction { .. } => "owner_action",
         Source::Resume { .. } => "resume",
     }
@@ -1823,6 +1828,14 @@ fn item(queued: &Queued) -> Item {
         Source::Note => Item {
             images,
             note: true,
+            ..Item::default()
+        },
+        // A cut peer turn resumes under the floor (no person to name: the
+        // rights hook then grants nothing).
+        Source::Peer { .. } => Item {
+            images,
+            note: true,
+            requires_approval: true,
             ..Item::default()
         },
     }

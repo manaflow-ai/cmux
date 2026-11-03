@@ -225,6 +225,13 @@ impl Brain {
             } else {
                 labelled(summary, &text)
             };
+            // The rights table first (rights_gate.rs), as in the Chief's
+            // own conversation; another Chief is a `chief:` person.
+            let owner_msg = self.settings.membership.is_owner_message(summary, &message);
+            let lifts_floor = match self.admit(summary, &message, &text, owner_msg, Some(conversation)) {
+                super::rights_gate::Admit::Answered => return,
+                super::rights_gate::Admit::Queue { lifts_floor } => lifts_floor,
+            };
             let remote = message
                 .origin
                 .as_ref()
@@ -260,10 +267,7 @@ impl Brain {
                     seq: message.seq,
                     id: message.id.clone(),
                     remote,
-                    requires_approval: !self
-                        .settings
-                        .membership
-                        .is_owner_message(summary, &message),
+                    requires_approval: !owner_msg && !lifts_floor,
                 },
             );
             return;

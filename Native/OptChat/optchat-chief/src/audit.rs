@@ -66,6 +66,9 @@ pub struct Entry {
     pub output_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_bytes: Option<u64>,
+    /// A `spend` record's cost in USD.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usd: Option<f64>,
 }
 
 /// A record as read back.
@@ -283,7 +286,7 @@ pub fn head(root: &Path) -> Result<(u64, String), String> {
 
 /// Records for a person to read: the last `n`, only those that name `who`
 /// when given, newest last.
-pub fn query(records: &[Record], who: Option<&str>, n: usize) -> Vec<&Record> {
+pub fn query<'a>(records: &'a [Record], who: Option<&str>, n: usize) -> Vec<&'a Record> {
     let mut hits: Vec<&Record> = records
         .iter()
         .filter(|r| who.is_none_or(|w| r.entry.who.iter().any(|x| x == w)))

@@ -26,6 +26,17 @@
 //!   effects as the owner's does, so their turn runs without the floor.
 //! - `cap_usd_day` and `chief_cap_usd_day`: spend caps per local day
 //!   (usage.rs ledger), enforced when a turn would start.
+//! - `auth`: what the Chief's own model login is ([`AuthKind`]). Watching is
+//!   always allowed, but another person's prompt runs on the owner's login,
+//!   so it runs only on commercial auth (an API key, Bedrock, Vertex,
+//!   Foundry, or a Team or Enterprise seat), and only for a person the
+//!   owner listed here (their org or team). On a personal subscription (Pro,
+//!   Max, ChatGPT Plus or Pro) or an unknown login, another person's message
+//!   is a suggestion: the Chief runs no turn for it and the owner may send it
+//!   as their own ([`Rights::may_prompt`]). Anthropic's Consumer Terms forbid
+//!   making an account available to anyone else; the Commercial Terms let a
+//!   key serve the customer's own authorized users. A Chief-to-Chief request
+//!   is held to the same rule on the receiving Chief's login.
 //! - No file, or a person with no entry: nothing beyond today's floor.
 //! - The host's own files (this table, the audit log) are never writable
 //!   through a grant: [`Rights::decide`] refuses an edit there whatever the
@@ -45,6 +56,63 @@ pub const FILE: &str = "rights.json";
 pub const VERSION: u32 = 1;
 /// The id prefix of another person's Chief.
 pub const CHIEF_PREFIX: &str = "chief:";
+
+/// The kind of model login the Chief's turns run on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuthKind {
+    /// An Anthropic or OpenAI API key billed to its owner.
+    ApiKey,
+    Bedrock,
+    Vertex,
+    Foundry,
+    /// A Team or Enterprise organization seat.
+    Team,
+    Enterprise,
+    /// A personal subscription (Claude Pro, Max, Ultra; ChatGPT Plus, Pro).
+    Personal,
+}
+
+impl AuthKind {
+    pub fn parse(s: &str) -> Option<AuthKind> {
+        serde_json::from_value(Value::String(s.to_owned())).ok()
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AuthKind::ApiKey => "api-key",
+            AuthKind::Bedrock => "bedrock",
+            AuthKind::Vertex => "vertex",
+            AuthKind::Foundry => "foundry",
+            AuthKind::Team => "team",
+            AuthKind::Enterprise => "enterprise",
+            AuthKind::Personal => "personal",
+        }
+    }
+
+    /// Whether it may serve people other than its owner.
+    pub fn commercial(self) -> bool {
+        !matches!(self, AuthKind::Personal)
+    }
+
+    /// What an environment says, when it says it plainly: an API key or a
+    /// cloud provider switch is commercial. A subscription login is not
+    /// visible here, so None (the table's own `auth`, else personal).
+    pub fn detect(env: &dyn Fn(&str) -> Option<String>) -> Option<AuthKind> {
+        let set = |k: &str| env(k).is_some_and(|v| !v.trim().is_empty() && v != "0");
+        if set("CLAUDE_CODE_USE_BEDROCK") {
+            Some(AuthKind::Bedrock)
+        } else if set("CLAUDE_CODE_USE_VERTEX") {
+            Some(AuthKind::Vertex)
+        } else if set("CLAUDE_CODE_USE_FOUNDRY") {
+            Some(AuthKind::Foundry)
+        } else if set("ANTHROPIC_API_KEY") {
+            Some(AuthKind::ApiKey)
+        } else {
+            None
+        }
+    }
+}
 
 /// One person's entry.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -71,6 +139,10 @@ pub struct Person {
 pub struct Rights {
     #[serde(default)]
     pub version: u32,
+    /// The Chief's model login, as the owner declared it (None: personal,
+    /// unless the host's environment shows an API key or a provider).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth: Option<AuthKind>,
     /// The Chief's own spend cap per local day, in USD (every turn counts).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chief_cap_usd_day: Option<f64>,
@@ -160,6 +232,40 @@ impl Rights {
             std::fs::rename(&tmp, path)
         };
         write().map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    /// The login the Chief's turns run on: the declared one, else what the
+    /// environment shows, else personal (fail closed).
+    pub fn auth_kind(&self, detected: Option<AuthKind>) -> AuthKind {
+        self.auth.or(detected).unwrap_or(AuthKind::Personal)
+    }
+
+    /// Whether `author`'s prompt may start a turn on this Chief's login.
+    /// Err: why it is only a suggestion (shown to the people in the chat).
+    pub fn may_prompt(
+        &self,
+        owner: &str,
+        author: &str,
+        detected: Option<AuthKind>,
+    ) -> Result<(), String> {
+        if author == owner {
+            return Ok(());
+        }
+        let auth = self.auth_kind(detected);
+        if !auth.commercial() {
+            return Err(format!(
+                "this Chief runs on its owner's personal subscription ({}), which may not serve anyone else: \
+                 the message is a suggestion for its owner to send as their own",
+                auth.as_str()
+            ));
+        }
+        if self.person(author).is_none() {
+            return Err(format!(
+                "{author} is not on this Chief's team list: only people its owner added may prompt it on its {} login",
+                auth.as_str()
+            ));
+        }
+        Ok(())
     }
 
     pub fn person(&self, id: &str) -> Option<&Person> {
@@ -509,6 +615,51 @@ fn short_tool(tool: &str) -> &str {
     tool.rsplit("__").next().unwrap_or(tool)
 }
 
+/// Adds the rights hook to a turn folder's project `settings`: before and
+/// after every tool call, `<exe> rights-hook pre|post --socket <socket>`
+/// asks the host (brain/rights_gate.rs). Hooks turn on; the user's named
+/// hooks (turn_user_extras.rs) stay.
+pub fn add_turn_hooks(settings: &mut Value, exe: &str, socket: &Path) {
+    let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
+    for (event, phase) in [("PreToolUse", "pre"), ("PostToolUse", "post")] {
+        let command = format!(
+            "{} rights-hook {phase} --socket {}",
+            quote(exe),
+            quote(&socket.display().to_string())
+        );
+        let group = serde_json::json!({
+            "matcher": "*",
+            "hooks": [{"type": "command", "command": command, "timeout": 15}],
+        });
+        if !settings["hooks"].is_object() {
+            settings["hooks"] = serde_json::json!({});
+        }
+        match settings["hooks"][event].as_array_mut() {
+            Some(groups) => groups.insert(0, group),
+            None => settings["hooks"][event] = serde_json::json!([group]),
+        }
+    }
+    settings["disableAllHooks"] = serde_json::json!(false);
+}
+
+/// `optchat-chief rights-hook pre|post --socket PATH`: Claude Code's hook
+/// input on stdin, the host's answer on stdout. A host that does not answer
+/// gives no decision, so the call reaches the turn's own policy (the ask
+/// floor refuses it in another person's turn).
+pub fn hook(phase: &str, socket: &Path, stdin: &mut dyn std::io::Read) -> String {
+    let mut text = String::new();
+    if stdin.read_to_string(&mut text).is_err() {
+        return String::new();
+    }
+    let Ok(payload) = serde_json::from_str::<Value>(&text) else {
+        return String::new();
+    };
+    match crate::tools::ask_rights_hook(socket, phase, payload) {
+        Ok(answer) if answer != "{}" => answer,
+        _ => String::new(),
+    }
+}
+
 /// `optchat-chief rights ...`: show and edit the table from a terminal (the
 /// owner's own; the chat's `/grant` and `/revoke` go through the host).
 ///
@@ -519,6 +670,7 @@ fn short_tool(tool: &str) -> &str {
 /// optchat-chief rights approver PERSON on|off
 /// optchat-chief rights cap PERSON USD|off
 /// optchat-chief rights chief-cap USD|off
+/// optchat-chief rights auth api-key|bedrock|vertex|foundry|team|enterprise|personal|auto
 /// optchat-chief rights name PERSON NAME
 /// optchat-chief rights check PERSON TOOL [INPUT_JSON]
 /// ```
@@ -572,6 +724,15 @@ pub fn run(words: &[String], optchat_root: &Path, owner: &str) -> Result<String,
             rights.people.entry(who.to_string()).or_default().cap_usd_day = usd(amount)?;
             format!("{who}: daily cap {amount}")
         }
+        ["auth", kind] => {
+            rights.auth = match *kind {
+                "auto" => None,
+                k => Some(AuthKind::parse(k).ok_or_else(|| {
+                    format!("auth is one of api-key, bedrock, vertex, foundry, team, enterprise, personal, auto (not {k})")
+                })?),
+            };
+            format!("Chief login: {kind}")
+        }
         ["chief-cap", amount] => {
             rights.chief_cap_usd_day = usd(amount)?;
             format!("Chief daily cap {amount}")
@@ -598,11 +759,25 @@ pub fn run(words: &[String], optchat_root: &Path, owner: &str) -> Result<String,
     Ok(changed)
 }
 
-pub const USAGE: &str = "usage: rights [show] [--json] | grant PERSON PATTERN... | revoke PERSON [PATTERN...] | approver PERSON on|off | cap PERSON USD|off | chief-cap USD|off | name PERSON NAME | check PERSON TOOL [INPUT_JSON]";
+pub const USAGE: &str = "usage: rights [show] [--json] | grant PERSON PATTERN... | revoke PERSON [PATTERN...] | approver PERSON on|off | cap PERSON USD|off | chief-cap USD|off | auth KIND|auto | name PERSON NAME | check PERSON TOOL [INPUT_JSON]";
 
-/// The table as lines for a person to read.
+/// The table as lines for a person to read (the auth this process sees).
 pub fn render(rights: &Rights) -> String {
+    render_with(rights, rights.auth_kind(AuthKind::detect(&|k| std::env::var(k).ok())))
+}
+
+/// [`render`] with the Chief's login `auth`.
+pub fn render_with(rights: &Rights, auth: AuthKind) -> String {
     let mut out = Vec::new();
+    out.push(format!(
+        "Login: {}{}",
+        auth.as_str(),
+        if auth.commercial() {
+            " (people listed here may prompt it)"
+        } else {
+            " (personal: other people's messages are suggestions only)"
+        }
+    ));
     out.push(match rights.chief_cap_usd_day {
         Some(c) => format!("Chief daily cap: ${c:.2}"),
         None => "Chief daily cap: none".to_owned(),
@@ -720,6 +895,37 @@ mod tests {
     }
 
     #[test]
+    fn another_persons_prompt_needs_commercial_auth_and_a_listed_person() {
+        let mut r = table();
+        // Personal (the default, and what an unknown login counts as).
+        assert!(r.may_prompt(OWNER, OWNER, None).is_ok());
+        assert!(r.may_prompt(OWNER, "user_ben", None).unwrap_err().contains("suggestion"));
+        assert!(r.may_prompt(OWNER, "user_ana", None).is_err(), "an approver too");
+        // The environment shows an API key.
+        assert!(r.may_prompt(OWNER, "user_ben", Some(AuthKind::ApiKey)).is_ok());
+        assert!(r.may_prompt(OWNER, "user_zed", Some(AuthKind::ApiKey)).is_err());
+        // A declared personal login wins over what the environment shows.
+        r.auth = Some(AuthKind::Personal);
+        assert!(r.may_prompt(OWNER, "user_ben", Some(AuthKind::ApiKey)).is_err());
+        r.auth = Some(AuthKind::Team);
+        assert!(r.may_prompt(OWNER, "user_ben", None).is_ok());
+        assert!(r.may_prompt(OWNER, "chief:ben-chief", None).is_ok());
+    }
+
+    #[test]
+    fn auth_is_detected_only_from_plain_signs() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+        };
+        assert_eq!(AuthKind::detect(&env(&[])), None);
+        assert_eq!(AuthKind::detect(&env(&[("ANTHROPIC_API_KEY", "sk-x")])), Some(AuthKind::ApiKey));
+        assert_eq!(AuthKind::detect(&env(&[("CLAUDE_CODE_USE_BEDROCK", "1")])), Some(AuthKind::Bedrock));
+        assert_eq!(AuthKind::detect(&env(&[("CLAUDE_CODE_USE_VERTEX", "0")])), None);
+        assert_eq!(AuthKind::parse("api-key"), Some(AuthKind::ApiKey));
+        assert_eq!(AuthKind::parse("max"), None);
+    }
+
+    #[test]
     fn patterns_parse_strictly() {
         for ok in ["Read", "Bash(git log*)", "Bash(make test)", "mcp__github__*", "Read(/a/*)", "WebFetch(https://docs.rs/*)"] {
             assert!(Pattern::parse(ok).is_ok(), "{ok}");
@@ -749,6 +955,27 @@ mod tests {
         assert_eq!(mode & 0o777, 0o600);
         assert!(run(&w("approver chief:x on"), &dir, OWNER).is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_turn_hooks_run_first_and_turn_hooks_on() {
+        let mut settings = json!({"disableAllHooks": true, "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": []}]}});
+        add_turn_hooks(&mut settings, "/opt/o'c", Path::new("/h/tools.sock"));
+        assert_eq!(settings["disableAllHooks"], json!(false));
+        let pre = settings["hooks"]["PreToolUse"].as_array().unwrap();
+        assert_eq!(pre.len(), 2);
+        assert_eq!(pre[0]["matcher"], "*");
+        assert_eq!(
+            pre[0]["hooks"][0]["command"],
+            "'/opt/o'\\''c' rights-hook pre --socket '/h/tools.sock'"
+        );
+        assert_eq!(settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"].as_str().unwrap().contains("rights-hook post"), true);
+    }
+
+    #[test]
+    fn a_hook_with_no_host_gives_no_decision() {
+        let out = hook("pre", Path::new("/nonexistent/tools.sock"), &mut "{\"tool_name\":\"Bash\"}".as_bytes());
+        assert_eq!(out, "");
     }
 
     #[test]

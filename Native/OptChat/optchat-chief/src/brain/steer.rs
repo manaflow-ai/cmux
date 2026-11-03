@@ -258,6 +258,9 @@ impl Brain {
     /// Another person's text delivered to a running turn keeps that turn's
     /// local effects refused until it ends.
     pub(super) fn taint_approval(&mut self, items: &[Queued]) {
+        // Its people join the turn's (rights_gate.rs): the hook holds the
+        // rest of the turn to every one of them.
+        self.add_turn_people(items);
         if items.iter().any(Queued::requires_approval) {
             self.turn_ask = true;
             self.last_turn_ask = true;
