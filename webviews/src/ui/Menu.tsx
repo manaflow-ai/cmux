@@ -20,6 +20,7 @@ import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { useNativePopup, type NativePopupDescription, type NativePopupEvent } from "./nativePopup";
 import { popupAction } from "./popupDescriptors";
 import { cx } from "./cx";
+import { useScrollEdges } from "./scrollEdges";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { popupCollision, type UiPopupFlip } from "./openSide";
 import { usePopupPadding } from "./popupInset";
@@ -31,7 +32,11 @@ import { useNativeFinalFocus } from "./useNativeFinalFocus";
 export interface MenuProps {
   open?: boolean;
   /** Optional declarative rows for WebPopupHost. When supplied, no popup rows mount in the page. */
-  native?: { model: NativePopupDescription; onEvent?(event: NativePopupEvent): void; onDismiss?(): void };
+  native?: {
+    model: NativePopupDescription;
+    onEvent?(event: NativePopupEvent): void;
+    onDismiss?(): void;
+  };
   onOpenChange?(open: boolean): void;
   onOpenChangeComplete?(open: boolean): void;
   children: ReactNode;
@@ -365,12 +370,14 @@ export function MenuPopup({
   const [popup, setPopup] = useState<HTMLElement | null>(null);
   // The popup's last node: Base UI asks where focus goes after the close fade, as it unmounts.
   const popupNode = useRef<HTMLElement | null>(null);
+  const edges = useScrollEdges();
   const attachPopup = useCallback(
     (node: HTMLElement | null) => {
+      edges(node);
       if (node) popupNode.current = node;
       if (host) setPopup(node);
     },
-    [host],
+    [host, edges],
   );
   // No room above or below in the page: past the window's edge (popupHost.ts). Side menus stay.
   useEscapingPopup(
@@ -404,7 +411,11 @@ export function MenuPopup({
           ref={attachPopup}
           id={id}
           aria-label={label}
-          className={cx("ui-popup ui-glass ui-menu", matchTrigger && "ui-menu-match-trigger", className)}
+          className={cx(
+            "ui-popup ui-glass ui-menu ui-scroll-edge-fade",
+            matchTrigger && "ui-menu-match-trigger",
+            className,
+          )}
           finalFocus={
             finalFocus ?? (nested ? undefined : (closeType) => focusAfterClose(closeType, menu, popupNode.current))
           }

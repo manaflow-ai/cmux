@@ -35,7 +35,10 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
   });
 
   async function open(entry: string, variant: string): Promise<Page> {
-    const page = await browser.newPage({ viewport: { width: 640, height: 320 }, deviceScaleFactor: 2 });
+    const page = await browser.newPage({
+      viewport: { width: 640, height: 320 },
+      deviceScaleFactor: 2,
+    });
     const { port } = vite.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, width: 640, height: 320 })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
@@ -49,25 +52,47 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
         const list = page.locator(selector).first();
         await list.waitFor();
         expect(await list.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
-        await list.evaluate((node) => { node.scrollTop = 0; });
-        await page.waitForFunction((selector) => document.querySelector(selector)?.hasAttribute("data-fade-bottom"), selector);
+        await list.evaluate((node) => {
+          node.scrollTop = 0;
+        });
+        await page.waitForFunction(
+          (selector) => document.querySelector(selector)?.hasAttribute("data-fade-bottom"),
+          selector,
+        );
         expect(await list.getAttribute("data-fade-top")).toBeNull();
         expect(await list.evaluate((node) => getComputedStyle(node).maskImage)).not.toBe("none");
-        await list.evaluate((node) => { node.scrollTop = (node.scrollHeight - node.clientHeight) / 2; });
-        await page.waitForFunction((selector) => document.querySelector(selector)?.hasAttribute("data-fade-top"), selector);
+        await list.evaluate((node) => {
+          node.scrollTop = (node.scrollHeight - node.clientHeight) / 2;
+        });
+        await page.waitForFunction(
+          (selector) => document.querySelector(selector)?.hasAttribute("data-fade-top"),
+          selector,
+        );
         expect(await list.getAttribute("data-fade-bottom")).not.toBeNull();
         if (process.env.FAST_CHECKS_OUT) {
-          await page.screenshot({ path: path.join(process.env.FAST_CHECKS_OUT, `${entry}-overflow.png`) });
+          await page.screenshot({
+            path: path.join(process.env.FAST_CHECKS_OUT, `${entry}-overflow.png`),
+          });
         }
-        await list.evaluate((node) => { node.scrollTop = node.scrollHeight; });
-        await page.waitForFunction((selector) => !document.querySelector(selector)?.hasAttribute("data-fade-bottom"), selector);
+        await list.evaluate((node) => {
+          node.scrollTop = node.scrollHeight;
+        });
+        await page.waitForFunction(
+          (selector) => !document.querySelector(selector)?.hasAttribute("data-fade-bottom"),
+          selector,
+        );
         expect(await list.getAttribute("data-fade-top")).not.toBeNull();
         // Filtering down to one result removes both fades without another scroll gesture.
         if (entry === "agent-pane.project-chooser") {
           await page.locator('[role="combobox"]').fill("review-40");
           await page.waitForFunction((selector) => {
             const node = document.querySelector(selector);
-            return node && node.scrollHeight <= node.clientHeight && !node.hasAttribute("data-fade-top") && !node.hasAttribute("data-fade-bottom");
+            return (
+              node &&
+              node.scrollHeight <= node.clientHeight &&
+              !node.hasAttribute("data-fade-top") &&
+              !node.hasAttribute("data-fade-bottom")
+            );
           }, selector);
           expect(await list.evaluate((node) => getComputedStyle(node).maskImage)).toBe("none");
         }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
+import { useScrollEdges } from "./scrollEdges";
 import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
 import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { usePopupHost } from "./UiProvider";
@@ -131,12 +132,14 @@ export function ContextMenu({
     },
   });
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  const edges = useScrollEdges();
   const attach = useCallback(
     (node: HTMLDivElement | null) => {
+      edges(node);
       menu.current = node;
       if (host) setShown(node);
     },
-    [host],
+    [host, edges],
   );
   useEffect(
     () => () => {
@@ -151,7 +154,15 @@ export function ContextMenu({
   useEscapingPopup(
     host,
     shown,
-    () => point && { getBoundingClientRect: () => ({ left: point.x, right: point.x, top: point.y, bottom: point.y }) },
+    () =>
+      point && {
+        getBoundingClientRect: () => ({
+          left: point.x,
+          right: point.x,
+          top: point.y,
+          bottom: point.y,
+        }),
+      },
     { side: "bottom", align: "start", gap: 0, shell: "self" },
   );
   // Where the menu sits, measured before it paints.
@@ -324,7 +335,7 @@ export function ContextMenu({
             >
               <div
                 ref={attach}
-                className={cx("ui-popup ui-glass ui-context-menu", popupClassName)}
+                className={cx("ui-popup ui-glass ui-context-menu ui-scroll-edge-fade", popupClassName)}
                 role="menu"
                 data-focus-ring="rows"
                 tabIndex={-1}

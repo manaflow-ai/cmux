@@ -346,7 +346,11 @@ function railByHarness(
     const alternate = launchSuffix(family.id) && family.id !== running && !hasModels(family);
     // A launch tab starts its harness; it lists no rows (stale ones of a failed probe included), so
     // reaching it with the arrow keys shows nothing that could start a model.
-    const own = { ...family, name: currentName, ...(alternate ? { launch: true, models: [], more: [] } : {}) };
+    const own = {
+      ...family,
+      name: currentName,
+      ...(alternate ? { launch: true, models: [], more: [] } : {}),
+    };
     return [
       own,
       ...names.flatMap((profile): QuickFamily[] => {
@@ -1355,7 +1359,10 @@ export function ModelPicker(props: ModelPickerProps) {
                         ? { onLaunch: pickProfile, onFork: pickProfile, forkReady: fork.ready }
                         : {}),
                       // Each row's star, the full picker's favourites (the Starred tab lists them).
-                      stars: { has: (model) => favorites.has(model.id), toggle: (model) => toggleFavorite(model.id) },
+                      stars: {
+                        has: (model) => favorites.has(model.id),
+                        toggle: (model) => toggleFavorite(model.id),
+                      },
                     },
                   }
                 : {}),
@@ -1431,6 +1438,7 @@ export function ModelPicker(props: ModelPickerProps) {
               started chat's harness is fixed, so its menu has none. */}
           {!harnessFixed && (
             <ScrollArea
+              fade
               className="acpmux-mp-rail-scroll w-11 flex-none border-r-[0.5px] border-edge"
               viewportClassName="acpmux-mp-rail-viewport"
               horizontal
@@ -1593,7 +1601,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 </button>
               )}
             </div>
-            <ScrollArea className="min-h-0 flex-1">
+            <ScrollArea fade className="min-h-0 flex-1">
               <PickerOptionList
                 id={`${menuId}-models`}
                 className="acpmux-mp-models"
