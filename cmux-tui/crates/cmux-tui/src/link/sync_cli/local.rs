@@ -160,13 +160,15 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
     };
     set.git = true;
     for (path, untracked) in working_files(folder, &mut set.skipped)? {
-        // Git seeding and fs-v1 fallback must agree on excluded untracked
-        // secrets. Git's object store is copied separately; this check also
-        // prevents a private key or registry token from going as a plain file.
-        if untracked
-            && cmux_tui_core::git_seed::secrets::reason(folder, path.as_bytes()).is_some()
-        {
-            let name = path.rsplit('/').next().unwrap_or(path.as_str());
+        let name = path.rsplit('/').next().unwrap_or(path.as_str());
+        // A share uses its separate, explicit file admission policy. Preserve
+        // the existing .env exclusion there; apply Git seed's broader secret
+        // rules only to automatic project copies/fallbacks.
+        let skipped_secret = untracked
+            && (name.starts_with(".env")
+                || (rules == Rules::Copy
+                    && cmux_tui_core::git_seed::secrets::reason(folder, path.as_bytes()).is_some()));
+        if skipped_secret {
             set.skips.note(&path, skips::secret(name).unwrap_or(Why::CredentialFile));
             continue;
         }
@@ -755,6 +757,33 @@ mod tests {
             assert!(!borrowed.contains(&stray), "{stray} went: {borrowed:?}");
         }
         assert!(set.skipped >= 3, "the stray files were not counted: {}", set.skipped);
+    }
+
+    #[test]
+    fn automatic_git_copy_excludes_credentials_without_changing_explicit_shares() {
+        let root = tempfile::tempdir().unwrap();
+        let repo = std::fs::canonicalize(root.path()).unwrap();
+        git(&repo, &["init", "-q"]);
+        std::fs::write(repo.join("README"), "tracked\n").unwrap();
+        git(&repo, &["add", "README"]);
+        git(&repo, &["commit", "-qm", "base"]);
+        std::fs::create_dir(repo.join("pkg")).unwrap();
+        std::fs::write(repo.join(".env.local"), "FAKE_ENV\n").unwrap();
+        std::fs::write(repo.join("keys.pem"), "FAKE_KEY\n").unwrap();
+        std::fs::write(repo.join("pkg/.npmrc"), "_authToken=FAKE\n").unwrap();
+        std::fs::write(repo.join("notes.txt"), "ordinary\n").unwrap();
+
+        let automatic = collect(&repo, Rules::Copy).unwrap();
+        let explicit = collect(&repo, Rules::Share).unwrap();
+        for omitted in [".env.local", "keys.pem", "pkg/.npmrc"] {
+            assert!(!automatic.files.contains_key(omitted), "{omitted} was copied");
+        }
+        assert!(automatic.files.contains_key("notes.txt"));
+        // The explicit access path still has its own keep policy.
+        assert!(!explicit.files.contains_key(".env.local"));
+        for eligible in ["keys.pem", "pkg/.npmrc", "notes.txt"] {
+            assert!(explicit.files.contains_key(eligible), "{eligible} changed share behavior");
+        }
     }
 
     #[test]
