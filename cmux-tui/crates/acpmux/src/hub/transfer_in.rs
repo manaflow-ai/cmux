@@ -18,8 +18,7 @@
 
 use super::transfer_guard::{Guard, bundle_path_kind};
 use super::transfer_out::{
-    DURABLE_TRANSFER_SCHEMA, MAX_BUNDLE, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside,
-    transfers_dir,
+    DURABLE_TRANSFER_SCHEMA, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, transfers_dir,
 };
 use super::*;
 use base64::Engine;
@@ -381,13 +380,14 @@ impl Hub {
             return Err(e.with_data(json!({"harness": harness})));
         }
         let files = manifest["files"].as_array().cloned().unwrap_or_default();
-        let mut total = 0u64;
         for f in &files {
             inside(Path::new("/"), f["path"].as_str().unwrap_or(""))?;
-            total = total.saturating_add(f["size"].as_u64().unwrap_or(u64::MAX));
+            if f["size"].as_u64().is_none() {
+                return Err(RpcError::invalid_params("transfer: file size must be a u64"));
+            }
         }
-        if files.len() > MAX_FILES || total > MAX_BUNDLE {
-            return Err(transfer_error("size", format!("{} files, {total} bytes", files.len())));
+        if files.len() > MAX_FILES {
+            return Err(transfer_error("size", format!("{} files", files.len())));
         }
         if let Some(g) = &guard {
             self.guarded_receive_check(g, &manifest).await?;
@@ -441,7 +441,9 @@ impl Hub {
             let e = transfer_error("offset", format!("{path:?} has {have} bytes, not {offset}"));
             return Err(e.with_data(json!({"size": have})));
         }
-        if data.len() as u64 > MAX_PAGE || have + data.len() as u64 > size {
+        if data.len() as u64 > MAX_PAGE
+            || size.checked_sub(have).is_none_or(|left| data.len() as u64 > left)
+        {
             return Err(transfer_error("size", format!("{path:?} is {size} bytes")));
         }
         use std::io::Write;
