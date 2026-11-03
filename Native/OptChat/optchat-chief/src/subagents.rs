@@ -1609,7 +1609,7 @@ impl Orchestrator for Spawner {
         let default_harness = choice
             .subagent_harness
             .clone()
-            .filter(|h| !h.trim().is_empty())
+            .filter(|h| !self.pinned && !h.trim().is_empty())
             .unwrap_or_else(|| self.settings.harness.clone());
         if let Some(h) = harness.as_deref() {
             self.check_route(&choice, "harness", h)?;
@@ -1693,7 +1693,10 @@ impl Orchestrator for Spawner {
             tasks: tasks.clone(),
             peer: self.cloud.as_ref().map(|c| c.peer.clone()),
             place,
-            harness: harness.clone(),
+            // The pinned subagent may use a different family from the Chief.
+            harness: harness
+                .clone()
+                .or_else(|| self.pinned.then(|| self.settings.harness.clone())),
             machines: self.machine_table(),
             reply,
         })?;
