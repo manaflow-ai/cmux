@@ -2,16 +2,16 @@
 // How the composer's menus open and close under the mouse (cg-composer item 2, click polish; Codex
 // desktop is the reference): the + menu, the model button and the permission chip in the bar, and
 // the folder chip on the location strip, in a chat's composer, a new chat's and the New Tab page's.
-// The model button names the model and its effort, and its menu holds the levels under Effort ›
-// (Leo 2026-10-20: one button, no effort chip of its own).
+// The model button names the model and its effort. With a harness rail its menu shows the levels
+// in the settings column; without one it keeps the Effort submenu.
 //
 // - Menus open on the press (pressRelease.ts). A second press on the same chip closes its menu.
 // - With one menu open, a press on another chip opens that one at once: no press to dismiss first.
 // - A press anywhere else only closes the menu: nothing under it is clicked (the mic does not start
 //   dictation, the field takes no click), as a macOS menu swallows the click that dismisses it.
 // - Escape closes the menu and puts the keyboard back on its chip, with the chip's focus ring.
-// - Picking a permission mode, or a level (the running model's effort dropdown, else the Effort ›), hands the keyboard back to
-//   the prompt.
+// - Picking a permission mode hands the keyboard back to the prompt. A level in columns applies
+//   while the menu stays open; Return closes it and returns to the prompt.
 //
 // Real Chromium and WebKit (the app's engine) with real pointer events, on the gallery stage at
 // 760 and 300 px. CI fails the file when it cannot launch them (requireBrowserLane). Locally:
@@ -410,7 +410,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           }
         });
 
-        test(`${where}: picking a mode or a level hands the keyboard back to the prompt`, async () => {
+        test(`${where}: picking a mode or a level and closing hands the keyboard back to the prompt`, async () => {
           for (const name of stage.picks) {
             const page = await open(engine, stage, width);
             await pressFreshChip(page, chip(name));
@@ -419,9 +419,27 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
             // is a side dropdown beside its row (#27948): its effort item opens the levels.
             const sideEffort = ".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger";
             const sideLevel = '.acpmux-quick-effort-menu [role="menuitemradio"][aria-checked="false"]';
+            const columnsLevel = '.acpmux-cols-tune [role="radio"][aria-checked="false"]:not([aria-disabled="true"])';
             if (name === "Model")
-              await page.locator(`${sideEffort}, .acpmux-quick-sub:has-text("Effort")`).first().waitFor();
-            if (name === "Model" && (await page.locator(sideEffort).count()) > 0) {
+              await page
+                .locator(`${columnsLevel}, ${sideEffort}, .acpmux-quick-sub:has-text("Effort")`)
+                .first()
+                .waitFor();
+            if (name === "Model" && (await page.locator(".acpmux-cols").count()) > 0) {
+              const level = page.locator(columnsLevel).first();
+              const label = await level.locator(".acpmux-cols-name").textContent();
+              await menusAtRest(page);
+              await level.scrollIntoViewIfNeeded();
+              await pressAt(page, columnsLevel);
+              expect(await page.locator('.acpmux-cols-tune [role="radio"][aria-checked="true"]').textContent()).toBe(
+                label,
+              );
+              expect(await settle(page, stage.chips, [name])).toEqual([name]);
+              expect(
+                await page.evaluate(() => document.activeElement?.matches('.acpmux-cols-search input[type="search"]')),
+              ).toBe(true);
+              await page.keyboard.press("Enter");
+            } else if (name === "Model" && (await page.locator(sideEffort).count()) > 0) {
               // A submenu trigger opens on hover or from the keyboard (Base UI ignores a press while it
               // opens on hover): hover it, then press a level in its dropdown.
               await page.locator(sideEffort).first().hover();

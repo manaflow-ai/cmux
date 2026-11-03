@@ -497,6 +497,20 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `chat send` from a coding agent is the agent's message, not the owner's
+    // (chief/chat_scope.rs): a Chief's chat is sent here, any other chat runs
+    // the app action with its text labelled.
+    #[cfg(unix)]
+    let chat_args;
+    #[cfg(unix)]
+    let args = match chief::chat_scope::run_if_requested(args) {
+        Some(chief::chat_scope::Chat::Exit(code)) => return code,
+        Some(chief::chat_scope::Chat::Rewritten(rewritten)) => {
+            chat_args = rewritten;
+            chat_args.as_slice()
+        }
+        None => args,
+    };
     #[cfg(unix)]
     if let Some(code) = mcp::run_if_requested(args)
         .or_else(|| workflow::run_if_requested(args))
