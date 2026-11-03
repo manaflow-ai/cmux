@@ -40,7 +40,7 @@ export default defineConfig({
       "src/agent-session/acpmux/icons/cmuxIconsCustom.json",
       // scripts/agent-icons/generate.py --check owns these bytes.
       "src/agent-session/shared/agentBrands.generated.ts",
-      // scripts/cmux-next/gen-design-scale.py --check owns these bytes.
+      // Build output of scripts/pages/gen-design-scale.mjs.
       "src/ui/designTokens.generated.ts",
       // scripts/icon-picker/gen-emoji-data.mjs --check owns these bytes.
       "src/icon-picker/generated/**",

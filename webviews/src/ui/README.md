@@ -191,10 +191,12 @@ Rules:
 
 One token source: `schemas/design-scale/design-scale.json` (spacing, control heights, icon sizes,
 radii, glass levels, elevation, colour roles) with `schemas/type-scale` and `schemas/motion-scale`.
-`scripts/cmux-next/gen-design-scale.py` writes the `--ds-*` and `--elevation-*` variables into
+`webviews/scripts/pages/gen-design-scale.mjs` writes the `--ds-*` and `--elevation-*` variables into
 `pages/shared/desktop.css`, the Tailwind theme `ui/theme.generated.css` that every Tailwind entry
-imports, and `ui/designTokens.generated.ts` for the token sheet (gallery `ui.token-sheet`). Run it
-after editing the schema; `--check` (in `bun run check`) fails on drift. Tailwind then resolves to
+imports, and `ui/designTokens.generated.ts` for the token sheet (gallery `ui.token-sheet`). The last
+two are build output (gitignored): `bun install`, every build and the test preload write them through
+`gen-strings.mjs`. Run it after editing the schema; `--check` (in `bun run check`) fails when
+desktop.css's block drifted. Tailwind then resolves to
 our tokens: `p-3` is 3 grid units, `rounded-md` is `--ds-radius-md`, `text-body` is the type step,
 `bg-hover` / `text-muted` are the colour roles the host derives from the terminal theme, and
 `shadow-elevation-2`, `duration-quick` and `ease-standard` are the shadow and motion steps. Glass

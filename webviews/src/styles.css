@@ -5,7 +5,7 @@
 @source not "./icon-picker/generated";
 
 /* The one Tailwind theme (schemas/design-scale, type-scale and motion-scale, through
-   scripts/cmux-next/gen-design-scale.py): p-3, rounded-md, text-body, bg-hover, shadow-elevation-2. */
+   webviews/scripts/pages/gen-design-scale.mjs): p-3, rounded-md, text-body, bg-hover, shadow-elevation-2. */
 @import "./ui/theme.generated.css";
 
 :root {

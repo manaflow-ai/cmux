@@ -1,4 +1,4 @@
-// The design scale is the one token source (schemas/design-scale, scripts/cmux-next/gen-design-scale.py):
+// The design scale is the one token source (schemas/design-scale, webviews/scripts/pages/gen-design-scale.mjs):
 // desktop.css defines the variables and ui/theme.generated.css points Tailwind's theme at them, so
 // `p-3`, `rounded-md`, `text-body` or `bg-hover` resolve to our tokens in every Tailwind entry, light
 // and dark. This compiles the shared theme over a few classes and checks where each one points, and
