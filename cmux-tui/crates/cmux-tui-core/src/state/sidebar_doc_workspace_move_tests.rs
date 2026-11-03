@@ -189,6 +189,41 @@ fn a_create_with_placement_top_shows_first_under_a_bottom_setting() {
     mux.shutdown();
 }
 
+/// A synced personal order can keep rows before Home. `top` puts the new
+/// row right after Home there, and the sidebar document draws it first in the
+/// machine section, not after the row that precedes Home (New Workspace in
+/// Section drew it next to last, CmdNTopInGroupFramesTests).
+#[test]
+fn a_top_create_shows_first_when_rows_precede_home_in_the_personal_order() {
+    let session = Session::new("create-top-home-late");
+    let mux = session.open();
+    let bottom = crate::user_settings::NewWorkspacePlacement::Bottom.set_for_test();
+    let a = empty_workspace(&mux, "a");
+    let b = empty_workspace(&mux, "b");
+    let home = home(&mux);
+    drop(bottom);
+    let home_first = mux
+        .read_registry_state(|connection| super::home_store::home_first(connection))
+        .unwrap();
+    assert_eq!(home_first.map(|(first, _)| first), Some(false), "home row is not after a and b");
+    let c = mutate(
+        &mux,
+        "workspace.create",
+        json!({"name": "c", "initial_content": "empty", "placement": "top"}),
+        "create-c",
+    )["workspace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let ids = [home.as_str(), a.as_str(), b.as_str(), c.as_str()];
+    assert_eq!(
+        shown(&mux, &ids),
+        [home.as_str(), c.as_str(), a.as_str(), b.as_str()],
+        "the new row right after Home was not drawn first below Home"
+    );
+    mux.shutdown();
+}
+
 /// Closing the last workspace removes only its item, including through the
 /// persisted daemon path that publishes changes to the app's pinned FFI mirror.
 #[test]
