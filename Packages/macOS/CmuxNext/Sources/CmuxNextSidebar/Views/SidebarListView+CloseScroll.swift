@@ -26,11 +26,19 @@ extension SidebarListViewComponents {
         }
         let before = displayed.viewport(height: height), after = layout.viewport(height: height)
         if displayed.rows.isEmpty {
-            // First rows: show the active workspace, no animation.
-            apply(layout, animated: false)
+            // First rows: show the active workspace, no animation. The clip goes to the reveal first and the rows are
+            // realized once, there (REOPEN-F7: applied at offset 0 and then scrolled, a reopened window far down its
+            // list built its rows twice before its first frame).
             if let extent = selectionReveal(in: layout, height: height) {
-                scrollClip(to: after.reveal(extent, from: clip.bounds.minY, padding: SidebarLayout.revealPadding), animated: false)
+                let target = after.reveal(extent, from: clip.bounds.minY, padding: SidebarLayout.revealPadding)
+                if target != clip.bounds.minY {
+                    let content = max(layout.totalHeight, height)
+                    if frame.height < content { setFrameSize(NSSize(width: frame.width, height: content)) }
+                    clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX, y: target))
+                    enclosingScrollView?.reflectScrolledClipView(clip)
+                }
             }
+            apply(layout, animated: false)
             return
         }
         let offset = clip.bounds.minY
