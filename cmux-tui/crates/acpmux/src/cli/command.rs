@@ -1749,7 +1749,12 @@ mod help_contract_tests {
             }
             assert!(
                 Cli::try_parse_from([
-                    "acpmux", word, "doctor", "box", "--fix", "--accept-new-host-key"
+                    "acpmux",
+                    word,
+                    "doctor",
+                    "box",
+                    "--fix",
+                    "--accept-new-host-key"
                 ])
                 .is_err()
             );

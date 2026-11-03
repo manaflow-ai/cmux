@@ -1206,7 +1206,8 @@ fn first_contact_trust_is_opt_in_and_a_changed_key_stops_enrollment() {
             RemoteOut {
                 ok: false,
                 stdout: String::new(),
-                stderr: "REMOTE HOST IDENTIFICATION HAS CHANGED!\nHost key verification failed.".into(),
+                stderr: "REMOTE HOST IDENTIFICATION HAS CHANGED!\nHost key verification failed."
+                    .into(),
             }
         });
         let results = machine_steps(&fake, &plan, &local, true, &mut |_| {}).0;
