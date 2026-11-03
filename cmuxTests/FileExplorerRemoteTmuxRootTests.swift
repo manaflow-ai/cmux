@@ -66,20 +66,25 @@ struct FileExplorerRemoteTmuxRootTests {
         #expect(FileExplorerWorkspaceRootResolver().resolve(fixture.workspace) == .none)
     }
 
-    @Test func observationFollowsDirectoryAndConnectionChanges() throws {
+    @Test(.timeLimit(.minutes(1))) func observationFollowsDirectoryAndConnectionChanges() async throws {
         let fixture = Fixture()
         defer { fixture.tearDown() }
-        var roots: [FileExplorerWorkspaceRoot] = []
+        let (applied, sink) = AsyncStream<FileExplorerWorkspaceRoot>.makeStream()
+        var roots = applied.makeAsyncIterator()
         let observation = FileExplorerWorkspaceObservation(
             workspace: fixture.workspace, resolver: FileExplorerWorkspaceRootResolver(),
-            apply: { roots.append($0) }
+            apply: { sink.yield($0) }
         )
         defer { observation.stop() }
         observation.refresh()
-        #expect(roots.count == 1)
+        guard case let .remoteSSH(_, _, _, _, initiallyAvailable, _) = await roots.next() else {
+            Issue.record("A connecting mirror must publish its SSH root")
+            return
+        }
+        #expect(!initiallyAvailable)
 
         fixture.connection.handleMessageForTesting(.enter)
-        guard case let .remoteSSH(_, _, _, _, available, _) = roots.last else {
+        guard case let .remoteSSH(_, _, _, _, available, _) = await roots.next() else {
             Issue.record("Connecting the mirror must publish its SSH root")
             return
         }
@@ -89,23 +94,28 @@ struct FileExplorerRemoteTmuxRootTests {
         fixture.workspace.updateRemotePanelDirectoryWithMetadata(
             panelId: panelID, directory: "/home/dev/first"
         )
+        guard case let .remoteSSH(_, _, _, firstPath, _, _) = await roots.next() else {
+            Issue.record("Directory reports must retain the SSH root")
+            return
+        }
+        #expect(firstPath == "/home/dev/first")
         fixture.workspace.updateRemotePanelDirectoryWithMetadata(
             panelId: panelID, directory: "/home/dev/second"
         )
-        guard case let .remoteSSH(_, _, _, path, _, _) = roots.last else {
+        guard case let .remoteSSH(_, _, _, path, _, _) = await roots.next() else {
             Issue.record("Directory reports must retain the SSH root")
             return
         }
         #expect(path == "/home/dev/second")
 
         fixture.connection.stop()
-        guard case let .remoteSSH(_, _, _, _, connected, _) = roots.last else {
+        guard case let .remoteSSH(_, _, _, _, connected, _) = await roots.next() else {
             Issue.record("A disconnected mirror must retain an unavailable SSH root")
             return
         }
         #expect(!connected)
         fixture.mirror.detachObserver()
-        #expect(roots.last == FileExplorerWorkspaceRoot.none)
+        #expect(await roots.next() == FileExplorerWorkspaceRoot.none)
     }
 
     @MainActor

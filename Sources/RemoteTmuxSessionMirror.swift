@@ -103,9 +103,6 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
 
     private weak var tabManager: TabManager?
     weak var workspace: Workspace?
-    /// Workspace-scoped projections (Files) that re-read this mirror after each
-    /// connection transition and once more when it releases its workspace.
-    private var connectionObservers: [UUID: @MainActor () -> Void] = [:]
     /// The workspace currently backing this mirror, if it has not been released.
     var mirroredWorkspace: Workspace? { workspace }
     private let defaultPanelIds: [UUID]
@@ -199,6 +196,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         self.workspace = workspace
         self.defaultPanelIds = Array(workspace.panels.keys)
         workspace.remoteTmuxSessionMirror = self
+        workspace.remoteTmuxMirrorState.link = RemoteTmuxMirrorLink(
+            host: host, isConnected: connection.connectionState == .connected
+        )
         workspace.syncRemoteRelayIDAliasesToController()
         self.paneInputForwarder = RemoteTmuxPaneInputForwarder(
             isActive: connection.connectionState == .connected,
@@ -272,31 +272,15 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 if state == .connected, let self {
                     AppDelegate.shared?.remoteTmuxController.noteMirrorConnected(host: self.host)
                 }
-                self?.notifyConnectionObservers()
+                if let self {
+                    self.workspace?.remoteTmuxMirrorState.link?.isConnected = self.connection.connectionState == .connected
+                }
             },
             onAuthRequired: { [weak self] sshArgv in
                 self?.handleReconnectNeedsAuthentication(sshArgv: sshArgv) ?? false
             }
         ))
         rebuild()
-    }
-
-    /// Registers a handler that runs after every connection transition and once
-    /// more when the mirror releases its workspace; never after removal.
-    func addConnectionObserver(_ handler: @escaping @MainActor () -> Void) -> UUID {
-        let token = UUID()
-        connectionObservers[token] = handler
-        return token
-    }
-
-    /// Unregisters a handler returned by `addConnectionObserver`.
-    func removeConnectionObserver(_ token: UUID) {
-        connectionObservers[token] = nil
-    }
-
-    /// Runs every registered handler against the mirror's current state.
-    private func notifyConnectionObservers() {
-        for handler in connectionObservers.values { handler() }
     }
 
     /// A reconnect stopped because the host wants interactive authentication that a
@@ -358,9 +342,8 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         workspace?.remoteTmuxWindowOrderSync = nil
         if workspace?.remoteTmuxSessionMirror === self {
             workspace?.remoteTmuxSessionMirror = nil
+            workspace?.remoteTmuxMirrorState.link = nil
             workspace?.syncRemoteRelayIDAliasesToController()
-            notifyConnectionObservers()
-            connectionObservers.removeAll()
         }
         // Detach owns the whole mirror set, so prune the sizing ledger once.
         // Each mirror's teardown then sees no claim and avoids rescanning the

@@ -98,8 +98,11 @@ struct FileExplorerWorkspaceRootResolver {
         }
         if workspace.usesRemoteDirectoryProvenance {
             // A projection without an unambiguous workspace owner never becomes local or SSH.
+            // Mirror workspaces are never restored, so their saved projections are already in
+            // `projectedResources` and their connection transitions skip the catalog scan.
             if !workspace.cloudBindingState.projectedResources.isEmpty ||
-                catalog.projectionRecords(forWorkspace: workspace.id).contains(where: { !$0.resource.machine.isLocal }) {
+                (!workspace.isRemoteTmuxMirror &&
+                    catalog.projectionRecords(forWorkspace: workspace.id).contains(where: { !$0.resource.machine.isLocal })) {
                 return .remoteCloud(workspaceId: workspace.id, vmID: "", displayTarget: "",
                                     rootPath: nil, isAvailable: false, unavailableDetail: nil, target: nil)
             }
@@ -107,9 +110,9 @@ struct FileExplorerWorkspaceRootResolver {
                 // Mirrors own their SSH connection independently of managed SSH
                 // workspaces. Reuse that authenticated master and only remote cwd reports.
                 // A surviving ET control stream does not establish SSH availability.
-                guard let mirror = workspace.remoteTmuxSessionMirror,
-                      mirror.host.transport == .ssh else { return .none }
-                let host = mirror.host
+                guard let link = workspace.remoteTmuxMirrorState.link,
+                      link.host.transport == .ssh else { return .none }
+                let host = link.host
                 return .remoteSSH(
                     workspaceId: workspace.id,
                     connection: SSHFileExplorerConnection(
@@ -118,7 +121,7 @@ struct FileExplorerWorkspaceRootResolver {
                     ),
                     displayTarget: host.destination,
                     rootPath: workspace.trustedRemoteCurrentDirectory,
-                    isAvailable: mirror.connection.connectionState == .connected,
+                    isAvailable: link.isConnected,
                     unavailableDetail: nil
                 )
             }

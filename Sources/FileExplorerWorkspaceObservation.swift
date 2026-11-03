@@ -10,11 +10,8 @@ final class FileExplorerWorkspaceObservation {
     private var previous: FileExplorerWorkspaceRoot?
     private var catalogObserver: NSObjectProtocol?
     private var directoryObserver: NSObjectProtocol?
-    /// Released in `stop()`; the handler holds `self` weakly, so a dropped
-    /// observation is inert until the mirror detaches.
-    private weak var observedMirror: RemoteTmuxSessionMirror?
-    private var mirrorConnectionObserver: UUID?
     private var bindingChangesTask: Task<Void, Never>?
+    private var mirrorChangesTask: Task<Void, Never>?
 
     /// Subscribes to every owner of the workspace's root and publishes changed roots through `apply`.
     init(workspace: Workspace, resolver: FileExplorerWorkspaceRootResolver,
@@ -33,10 +30,6 @@ final class FileExplorerWorkspaceObservation {
                         (notification.userInfo?["workspaceId"] as? UUID) == workspace.id else { return }
                 self.refresh()
             }
-        }
-        if let mirror = workspace.remoteTmuxSessionMirror {
-            observedMirror = mirror
-            mirrorConnectionObserver = mirror.addConnectionObserver { [weak self] in self?.refresh() }
         }
         catalogObserver = NotificationCenter.default.addObserver(
             forName: SurfaceCatalog.didChangeNotification,
@@ -58,6 +51,13 @@ final class FileExplorerWorkspaceObservation {
                 self.refresh()
             }
         }
+        mirrorChangesTask = Task { @MainActor [weak self, weak workspace] in
+            guard let workspace else { return }
+            for await _ in workspace.remoteTmuxMirrorState.changes() {
+                guard let self, self.workspace === workspace else { return }
+                self.refresh()
+            }
+        }
     }
 
     func refresh(force: Bool = false) {
@@ -72,6 +72,8 @@ final class FileExplorerWorkspaceObservation {
     func stop() {
         bindingChangesTask?.cancel()
         bindingChangesTask = nil
+        mirrorChangesTask?.cancel()
+        mirrorChangesTask = nil
         if let directoryObserver {
             NotificationCenter.default.removeObserver(directoryObserver)
             self.directoryObserver = nil
@@ -80,15 +82,12 @@ final class FileExplorerWorkspaceObservation {
             NotificationCenter.default.removeObserver(catalogObserver)
             self.catalogObserver = nil
         }
-        if let mirrorConnectionObserver {
-            observedMirror?.removeConnectionObserver(mirrorConnectionObserver)
-            self.mirrorConnectionObserver = nil
-        }
         workspace = nil
     }
 
     deinit {
         bindingChangesTask?.cancel()
+        mirrorChangesTask?.cancel()
         if let directoryObserver { NotificationCenter.default.removeObserver(directoryObserver) }
         if let catalogObserver { NotificationCenter.default.removeObserver(catalogObserver) }
     }
