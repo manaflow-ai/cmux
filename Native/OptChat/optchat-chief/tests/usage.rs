@@ -794,6 +794,36 @@ fn credit_meter_resumed_subagent_keeps_the_original_person_and_route() {
 }
 
 #[test]
+fn legacy_resumed_subagent_never_inherits_the_current_owner() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = usage::dir(tmp.path());
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("2026-10.jsonl"),
+        format!(
+            "{}\n",
+            json!({"v":1,"ts":T0,"kind":"subagent","key":"old","agent":"a1","harness":"cmux","usd_cum":1.0})
+        ),
+    )
+    .unwrap();
+    let ledger = usage::Ledger::open(&dir).unwrap();
+    ledger.observe(&json!({"ev":"usage.identity","person":"account-owner"}));
+    ledger.observe(&answer(T0 + 1, "a1", 2.0));
+    let rows = usage::read(&dir, 0, u64::MAX).unwrap();
+    let line = rows.last().unwrap();
+    assert_eq!(line.person.as_deref(), Some("unknown"));
+    assert_eq!(line.usd, Some(1.0));
+    let chief = Chief {
+        id: "c".into(),
+        label: "Chief".into(),
+        home: "/h".into(),
+    };
+    let row = usage::export_row(&chief, line);
+    assert_eq!(row["stack_user_id"], "unknown");
+    assert_eq!(row["billable"], false);
+}
+
+#[test]
 fn credit_backfill_history_does_not_lock_out_live_turns() {
     let tmp = tempfile::tempdir().unwrap();
     let traces = tmp.path().join("traces");
