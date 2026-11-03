@@ -115,10 +115,12 @@ impl Hub {
             let result: Result<()> = async {
                 match &activity.child {
                     Child::Agent { session_id, prompt_id, host } => {
-                        anyhow::ensure!(
-                            host.as_deref().is_none_or(|host| host == "local"),
-                            "remote workflow agent cancellation is not supported on this route"
-                        );
+                        if host.as_deref().is_some_and(|host| host != "local") {
+                            self.workflow_cancel_remote(run, activity)
+                                .await
+                                .map_err(|e| anyhow::anyhow!(e.message))?;
+                            return Ok(());
+                        }
                         let session = match self.resolve(session_id) {
                             Ok(session) => session,
                             Err(error) if error.code == RpcError::not_found("").code => {
@@ -143,9 +145,13 @@ impl Hub {
                             }
                             Err(error) => return Err(anyhow::anyhow!(error.message)),
                         };
-                        self.bg_stop(&session, task_id)
-                            .await
-                            .map_err(|e| anyhow::anyhow!(e.message))?;
+                        match self.bg_stop(&session, task_id).await {
+                            Err(error)
+                                if error.code == RpcError::not_found("").code
+                                    && !self.workflow_bg_uncertain(&session, task_id) => {}
+                            Err(error) => return Err(anyhow::anyhow!(error.message)),
+                            Ok(_) => {}
+                        }
                     }
                 }
                 Ok(())
@@ -400,6 +406,52 @@ mod tests {
         assert_eq!(recovered.state, State::Paused);
         assert_eq!(recovered.generation, pausing.generation);
         assert!(!hub.workflow_runs.owns_runner(&run.id, pausing.generation));
+    }
+
+    #[tokio::test]
+    async fn workflow_cancellation_accepts_machine_handles_that_never_launched() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let owner = format!("workflow-unlaunched-{}", uuid::Uuid::now_v7().simple());
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema":crate::store::META_SCHEMA,"id":owner,"name":"Workflow machine owner",
+            "harness":"fake","cwd":std::env::temp_dir(),"status":"idle","createdAt":1,"updatedAt":1
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+        let hub = Hub::new(cfg, store);
+        let run = RunRecord {
+            version: 1,
+            id: format!("wf-{}", uuid::Uuid::now_v7().simple()),
+            name: "Unlaunched machine".into(),
+            owner_session_id: owner.clone(),
+            local_principal: false,
+            source: "source".into(),
+            source_hash: String::new(),
+            args: json!([]),
+            allowed_tools: None,
+            cwd: std::env::temp_dir(),
+            generation: 1,
+            state: State::Pausing,
+            activities: BTreeMap::from([(
+                "machine".into(),
+                crate::workflow_runs::ActivityRecord {
+                    id: "machine".into(),
+                    kind: "machine".into(),
+                    fingerprint: "pinned".into(),
+                    child: Child::Machine {
+                        session_id: owner,
+                        task_id: "never-launched".into(),
+                        host: None,
+                    },
+                    policy: Value::Null,
+                    outcome: None,
+                },
+            )]),
+            outcome: None,
+        };
+        hub.workflow_cancel_children(&run).await.unwrap();
     }
 
     #[tokio::test]

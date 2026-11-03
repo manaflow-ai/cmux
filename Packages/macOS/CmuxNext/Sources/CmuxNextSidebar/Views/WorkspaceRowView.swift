@@ -167,6 +167,7 @@ final class WorkspaceRowView: SidebarRowView {
         layer?.addSublayer(progressTrack)
         closeButton.isHidden = true
         audioButton.isHidden = true
+        pinButton.isHidden = true // hover only (layoutPin shows it), so it makes no image before then
         placeholderBar.wantsLayer = true
         placeholderBar.layer?.cornerRadius = Metrics.chipCornerRadius(height: SidebarStyle.placeholderBarHeight)
         placeholderBar.isHidden = true

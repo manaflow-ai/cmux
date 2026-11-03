@@ -243,6 +243,12 @@ public final class IPhoneHostService {
         }
     }
 
+    /// The app Feed's open requests for the phones (#33818): handed to hostd, which serves and
+    /// pushes them (`needs_you.rs`). One hop to the supervisor; it keeps the newest set.
+    public func setNeedsYou(_ requests: [MobileHostNeedsYouRequest]) async {
+        await supervisor.setNeedsYou(requests)
+    }
+
     /// Reads the account's phones from the mobile service (latest read wins).
     public func refreshPhones() {
         listing?.cancel()

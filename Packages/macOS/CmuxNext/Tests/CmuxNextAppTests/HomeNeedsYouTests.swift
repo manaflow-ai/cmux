@@ -84,9 +84,9 @@ import Testing
     }
 
     @Test func onlyAChiefsConversationShowsItAndOnlyWhileSomethingWaits() {
-        #expect(HomeNeedsYou.shows(isChief: true, waiting: 1))
-        #expect(!HomeNeedsYou.shows(isChief: true, waiting: 0))
-        #expect(!HomeNeedsYou.shows(isChief: false, waiting: 3))
+        #expect(FeedNeedsYouPin.shows(isChief: true, waiting: 1))
+        #expect(!FeedNeedsYouPin.shows(isChief: true, waiting: 0))
+        #expect(!FeedNeedsYouPin.shows(isChief: false, waiting: 3))
     }
 
     @Test func thePinnedSectionSitsUnderTheHeaderAndMovesNoMessage() async throws {
