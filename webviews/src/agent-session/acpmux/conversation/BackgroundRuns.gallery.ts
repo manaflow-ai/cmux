@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample prompts, commands and replies), not shipped UI.
-// A run of background-task notifications folds into one line (backgroundRuns.ts), and a reply of only
-// punctuation draws no row (visibleMessage.ts). Leo, 2026-11-02, on a chat that drew "Background task
+// A run of background-task notifications folds into one line (backgroundRuns.ts), and a lone "."
+// reply draws no row (visibleMessage.ts). Leo, 2026-11-02, on a chat that drew "Background task
 // finished" four times, each with a lone "·" reply under it: "why do you still do these".
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -13,7 +13,7 @@ const quiet = (id: string, minutes: number): AcpmuxRow =>
     id: backgroundTurnRowId(id),
     background: { id, trigger: "task_notification", running: false, quiet: true, hasRows: true },
   });
-/// What the agent did in a quiet background turn: read the task's log, then the lone "·" an agent
+/// What the agent did in a quiet background turn: read the task's log, then the lone "." an agent
 /// sends to end a turn it had nothing to say in, which draws nothing.
 const dot = (id: string, minutes: number) => [
   activity(
@@ -21,7 +21,7 @@ const dot = (id: string, minutes: number) => [
     minutes - 0.03,
     { id: `${id}-work`, inBackground: id },
   ),
-  assistant("·", minutes - 0.05, { id: `${id}-dot`, inBackground: id }),
+  assistant(".", minutes - 0.05, { id: `${id}-dot`, inBackground: id }),
 ];
 const opening = [
   user("Run the four suites in the background and tell me if anything breaks", 12),
@@ -29,7 +29,7 @@ const opening = [
   summary(11.9, { status: "completed", durationMs: 4_000 }),
 ];
 
-/// Leo's chat: four quiet task turns in a row, each answered with "·".
+/// Leo's chat: four quiet task turns in a row, each answered with ".".
 const fourFinished = [
   ...opening,
   quiet("gallery-run-a", 10),
