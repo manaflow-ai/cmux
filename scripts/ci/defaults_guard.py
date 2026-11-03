@@ -462,19 +462,32 @@ def static_declarations(text: str) -> list[tuple[str, str, list[str]]]:
     return found
 
 
+TUNABLE_TYPE = re.compile(r"(?:Derived)?Tunable|\w+Tunable")
+TYPEALIAS = re.compile(r"\btypealias\s+(\w+)(?:<[^=\n]*>)?\s*=\s*([^\n;]+)")
+# `struct S: P, Q {`, `final class Sub: Base {`, `extension T: P where ... {`: the names after the colon.
+TYPE_INHERITANCE = re.compile(r"\b(?:enum|struct|class|extension|protocol)\s+[\w.]+(?:<[^>{]*>)?\s*:\s*([^{]+)\{")
+
+
 def calls_helper(path: str, tokens: list[str], helper_files: Mapping[str, set[str]],
-                 types: Mapping[str, set[str]], file_types: Mapping[str, set[str]]) -> bool:
-    """Whether a declaration's tokens (after its kind and name) call a Tunable helper it can reach."""
+                 types: Mapping[str, set[str]], file_types: Mapping[str, set[str]],
+                 inherits: Mapping[str, set[str]]) -> bool:
+    """Whether a declaration's tokens (after its kind and name) call a Tunable helper it can reach: the caller's
+    types (those its file declares, plus the superclasses and protocols they name) meet a type the helper's file
+    declares. Only the caller's side takes inheritance: a subclass reaches its base's helper and a conforming type
+    a protocol extension's, but a helper file conforming to Sendable reaches no other Sendable type."""
     for i in range(2, len(tokens)):
         files = helper_files.get(tokens[i])
         if not files:
             continue
+        reach = file_types.get(path, set()) | inherits.get(path, set())  # bare `helper` or `Self.helper`
         if tokens[i - 1] == ".":
-            if i >= 3 and any(owner in files for owner in types.get(tokens[i - 2], ())):
-                return True  # Type.helper
-            continue  # x.helper or .helper: some other member that shares the name
-        if any(file_types.get(path, set()) & file_types.get(file, set()) for file in files):
-            return True  # bare helper inside its own type
+            owner = tokens[i - 2] if i >= 3 else ""
+            if owner != "Self":
+                if owner not in types:
+                    continue  # x.helper or .helper: some other member that shares the name
+                reach = {owner}.union(*(inherits.get(file, set()) for file in types[owner]))  # Type.helper
+        if any(reach & file_types.get(file, set()) for file in files):
+            return True
     return False
 
 
@@ -485,24 +498,39 @@ def tunable_source_defaults(sources: Mapping[str, str]) -> dict[str, object]:
     help text or implementation also needs review. Unrelated declarations in its file do not.
     Same-file names and qualified Type.member references resolve to all possible source declarations
     (including extensions); ambiguity adds evidence rather than silently choosing one definition.
+    A typealias of a Tunable counts as a Tunable token; a Tunable helper is matched by the call that can
+    reach it (calls_helper), never by a token that only shares its name.
     """
     nodes, by_file_name, types = {}, {}, {}
+    aliases: dict[str, list[str]] = {}  # typealias name -> the names on its right-hand side
+    inherits: dict[str, set[str]] = {}  # file -> the superclasses and protocols its types name
     for path, text in sources.items():
-        for type_name in re.findall(r"\b(?:enum|struct|class|extension)\s+(\w+)", strip_swift_comments(text)):
+        code = strip_swift_comments(text)
+        for type_name in re.findall(r"\b(?:enum|struct|class|extension|protocol)\s+(?!(?:func|var|let|subscript|init)\b)(\w+)", code):
             types.setdefault(type_name, set()).add(path)
+        for clause in TYPE_INHERITANCE.findall(code):
+            inherits.setdefault(path, set()).update(re.findall(r"\w+", clause.split(" where ")[0]))
+        for alias, target in TYPEALIAS.findall(code):
+            aliases.setdefault(alias, []).extend(re.findall(r"\w+", target))
         for kind, name, tokens in static_declarations(text):
             key = f"tunable-source.{path.removeprefix(SWIFT_SOURCES + '/')}:{name}"
             while key in nodes:
                 key += "#"
             nodes[key] = (path, kind, name, tokens)
             by_file_name.setdefault((path, name), set()).add(key)
+    # A typealias of a Tunable (`typealias TD = Tunable<Double>`, or an alias of such an alias) is a Tunable token.
+    tunable_names = {name for name, target in aliases.items() if any(TUNABLE_TYPE.fullmatch(t) for t in target)}
+    while grown := {name for name, target in aliases.items() if name not in tunable_names and set(target) & tunable_names}:
+        tunable_names |= grown
     selected = {key for key, (_, _, _, tokens) in nodes.items()
-                if any(re.fullmatch(r"(?:Derived)?Tunable|\w+Tunable", token) for token in tokens)}
+                if any(TUNABLE_TYPE.fullmatch(token) or token in tunable_names for token in tokens)}
     # A helper returning Tunable (e.g. points) has callers whose initializer has no Tunable token. A call is
-    # matched to the helper it can reach: `Type.helper` where Type is declared in the helper's file, or a bare
-    # `helper` (not `x.helper`) in a file that declares one of the helper's file's types (the same type or an
-    # extension of it). Any token that merely shares the name (`model.toggle()`, a closure named `make`) is
-    # not a call of it: that matched every `static func bind` in the app (#32983, #32979).
+    # matched to the helper it can reach: a bare `helper` or `Self.helper` in a file whose types share one with
+    # the helper's file, or `Type.helper` where Type's files do. A file's types are the types and extensions it
+    # declares plus the superclasses and protocols they name, so a subclass reaches its base's helper and a
+    # conforming type a protocol extension's. A token that only shares the name (`model.toggle()`, a closure
+    # named `make`, `JSONValue.number`) is not a call of it: that matched every `static func bind` in the app
+    # (#32983, #32979). Still not resolved: a helper reached through a generic parameter (`T.points`).
     helper_files: dict[str, set[str]] = {}
     for key, (path, kind, name, _) in nodes.items():
         if key in selected and kind == "func":
@@ -512,7 +540,7 @@ def tunable_source_defaults(sources: Mapping[str, str]) -> dict[str, object]:
         for path in paths:
             file_types.setdefault(path, set()).add(type_name)
     for key, (path, _, _, tokens) in nodes.items():
-        if key not in selected and calls_helper(path, tokens, helper_files, types, file_types):
+        if key not in selected and calls_helper(path, tokens, helper_files, types, file_types, inherits):
             selected.add(key)
     pending = list(selected)
     while pending:
