@@ -95,8 +95,9 @@ import Testing
     /// The front tab's label as the auto name gives it: a tab's own name, else an idle shell's folder, only while
     /// nobody named the workspace (`WorkspaceAutoName.label`).
     private static func folderLabel(_ workspace: WorkspaceModel, _ tab: TabModel, _: TabModel?) -> SidebarMapping.PageFace? {
-        // A tab's own name, else its own title (OSC), as `NewWorkspaceName.forTab` gives them.
-        let own = tab.name.flatMap { $0.isEmpty ? nil : $0 } ?? (tab.titleText.isEmpty ? nil : tab.titleText)
+        // A tab's own name, else its own title (OSC) unless it is only the shell's name, as `NewWorkspaceName.forTab` gives them.
+        let own = tab.name.flatMap { $0.isEmpty ? nil : $0 }
+            ?? (tab.titleText.isEmpty || TerminalTitle.isBareShell(tab.titleText) ? nil : tab.titleText)
         return .init(title: workspace.isUnnamed ? own ?? tab.cwd.map { String($0.split(separator: "/").last ?? "") } : nil, favicon: nil)
     }
 
@@ -124,6 +125,14 @@ import Testing
     @Test func aCloudShellWithItsOwnTitleIsNotTerminal() throws {
         #expect(try Self.title(cwd: "/home/cmux", machine: cloud, tabTitle: "cmux") != "Terminal")
         #expect(try Self.title(cwd: "/home/cmux", machine: cloud, tabTitle: "/home/cmux") == "Terminal")
+    }
+
+    /// An idle shell that titles itself with its own name (`zsh`, a login `-bash`, `~`) says nothing about the work: it
+    /// reads "Terminal" too (review of #28051 at 8a39e401).
+    @Test func aCloudShellTitledWithTheShellsNameReadsTerminal() throws {
+        for shell in ["zsh", "-bash", "~"] {
+            #expect(try Self.title(cwd: "/home/cmux", machine: cloud, tabTitle: shell) == "Terminal", "titled \(shell)")
+        }
     }
 
     @Test func anSSHOrLocalShellAtHomeIsUnchanged() throws {
