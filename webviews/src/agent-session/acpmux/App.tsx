@@ -222,6 +222,7 @@ import { paneKnowsNewChat } from "./locationRow";
 import { ChatUnavailableState } from "./ChatUnavailableState";
 import { useCloudChatRecovery } from "./useCloudChatRecovery";
 import { cloudChatRecoveryActive, cloudChatUnavailable, type CloudChatIdentity } from "./cloudChatRecovery";
+import { cloudSendWakes } from "./cloudWake";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos } from "./projectRepos";
@@ -9345,26 +9346,43 @@ function AcpmuxPane() {
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
   const recheckCloudChat = useCallback(async () => {
+    // A machine woken while the pane's link was down: connect again now, not at the backoff's turn.
+    if (!directClient.current) retryHost.current?.();
     await directClient.current?.recheckMissing();
   }, []);
+  // An open that failed on a socket still open (direct.ts emits "failed") read no chat: its
+  // machine may be paused, so recovery reads it as it does a lost link.
+  const cloudLinkUp = connected && snapshot.connection !== "failed";
+  const cloudRecoveryShows = cloudChatRecoveryActive(
+    !!snapshot.unavailable,
+    snapshot.sessionId,
+    snapshot.rows.length,
+    cloudLinkUp,
+    freshView,
+  );
+  /// Prompts sent in this Cloud chat wait for its machine to wake (cloudWake.ts): the recovery reads
+  /// the machine and connects again meanwhile, also over a transcript the pane still shows.
+  const [cloudWaking, setCloudWaking] = useState(false);
   const cloudRecovery = useCloudChatRecovery({
     cloud: cloudChatIdentity,
     session: snapshot.missingSession ?? snapshot.sessionId,
-    active: cloudChatRecoveryActive(
-      !!snapshot.unavailable,
-      snapshot.sessionId,
-      snapshot.rows.length,
-      // An open that failed on a socket still open (direct.ts emits "failed") read no chat: its
-      // machine may be paused, so recovery reads it as it does a lost link.
-      connected && snapshot.connection !== "failed",
-      freshView,
-    ),
+    active: cloudRecoveryShows || cloudWaking,
     recheck: recheckCloudChat,
   });
   const cloudUnavailable =
-    cloudRecovery.state === "paused" || cloudRecovery.state === "deleted"
+    cloudRecoveryShows && (cloudRecovery.state === "paused" || cloudRecovery.state === "deleted")
       ? cloudChatUnavailable(snapshot.unavailable ?? { reason: "offline" }, cloudRecovery.state, machineName)
       : snapshot.unavailable;
+  /// The chat a send now wakes its Cloud machine for (cloudWake.ts), or undefined.
+  const cloudWakeChat = cloudSendWakes({
+    cloud: cloudChatIdentity !== undefined,
+    chat: snapshot.sessionId ?? snapshot.missingSession,
+    // `connected`, not `cloudLinkUp`: a prompt's own failure on an open socket also reads "failed",
+    // and that chat's machine is live.
+    linkUp: connected && Boolean(window.cmuxAcpmuxActions?.["chat.send"]),
+    paused: cloudRecovery.state === "paused",
+    unavailable: !!snapshot.unavailable,
+  });
   const hasTray = !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0);
   // The tray's motion (subagents/trayMotion.tsx): the chat on screen as of this render, which the
   // tray reads as it goes (it plays its exit only while its own chat still shows), and the chat that
@@ -9478,7 +9496,8 @@ function AcpmuxPane() {
   const trustHeld = useTrustHeldPrompts({
     chat: snapshot.sessionId,
     cwd: trustHeldCwd,
-    holds: trustHeldWaits,
+    // A waking Cloud machine holds the chat's prompts too, until the chat is back (cloudWake.ts).
+    holds: trustHeldWaits || (cloudWaking && cloudWakeChat !== undefined),
     send: (entry) => sendTrustHeld.current(entry),
     reserve: reserveHeldPrompt,
     putBack: (entries, behind) => void giveBackTrustHeld.current(entries, behind),
@@ -9487,6 +9506,25 @@ function AcpmuxPane() {
   });
   const trustHeldNow = useRef(trustHeld);
   trustHeldNow.current = trustHeld;
+  // The wake ends once no prompt waits for it; one that failed (or found the machine deleted) gives
+  // its prompts back to the composer, as a failed send does.
+  const wakingHeld = trustHeld.wakingAny();
+  useEffect(() => {
+    if (!wakingHeld) setCloudWaking(false);
+  }, [wakingHeld]);
+  // The wake belongs to the chat its prompts were sent in: another chat shown ends it (its recovery
+  // stops), and the prompts go back to their chat's draft (trustHeld.ts `whereHeldGoes`).
+  const wakeShownChat = snapshot.sessionId ?? snapshot.missingSession;
+  useEffect(() => {
+    const hold = trustHeldNow.current;
+    if (!wakeShownChat || !hold.wakingAny() || hold.rowsIn(wakeShownChat).some((row) => row.waking)) return;
+    void giveBackTrustHeld.current(hold.takeWaking());
+  }, [wakeShownChat]);
+  const cloudWakeFailed = cloudRecovery.error !== undefined || cloudRecovery.state === "deleted";
+  useEffect(() => {
+    if (!cloudWakeFailed || !trustHeldNow.current.wakingAny()) return;
+    void giveBackTrustHeld.current(trustHeldNow.current.takeWaking());
+  }, [cloudWakeFailed]);
   // A new chat's held prompts go to the host with its typed text the moment they are held, so the
   // tab keeps them when it moves to another chat (the host keeps no new-chat text past that).
   const newChatHeldText = snapshot.sessionId ? undefined : trustHeld.newChatTexts.join("\u0000");
@@ -9928,7 +9966,9 @@ function AcpmuxPane() {
   // Stop reaches acpmux even when pressed while the pane reconnects (stopThroughReconnect.ts).
   const stopThroughReconnect = useStopThroughReconnect(snapshot, cancelTurn);
   const keptStopping = stopThroughReconnect.stopping;
-  const heldRows = trustHeld.rows;
+  // A chat not listed yet (its machine wakes) shows the prompts held for it under its recorded id.
+  const heldRows =
+    !snapshot.sessionId && snapshot.missingSession ? trustHeld.rowsIn(snapshot.missingSession) : trustHeld.rows;
   /// Sends a prompt the folder's trust held, with its own send's ticket, in the chat it was sent in:
   /// settles with the session acpmux took it in (a new chat's, once its start made it), or rejects
   /// with its refusal; a refusal is the hold's to handle (trustHeld.ts).
@@ -13826,6 +13866,20 @@ function AcpmuxPane() {
                 // Refused here: the chat view says why and the composer keeps the prompt.
                 sandbox.refuse(text, started);
                 return false;
+              }
+              // A Cloud chat whose machine is paused or out of reach: the send wakes the machine and
+              // waits in the pane under "Waking the machine…", then goes once the chat is back
+              // (cloudWake.ts). Enter's gesture resumes the machine; the prompt keeps the send's.
+              if (cloudWakeChat && cloudRecovery.state !== "deleted" && !quick && !snapshot.summary?.watching) {
+                setCloudWaking(true);
+                trustHeld.hold(
+                  text,
+                  shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                  { chat: cloudWakeChat, cwd: trustHeldCwd },
+                  true,
+                );
+                cloudRecovery.resume();
+                return true;
               }
               // Until acpmux connects nothing takes a prompt; the composer keeps it.
               if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
