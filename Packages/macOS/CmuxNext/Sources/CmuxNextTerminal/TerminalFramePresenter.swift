@@ -222,7 +222,8 @@ final class TerminalFramePresenter {
     }
 
     private func landed(_ view: TerminalSurfaceView, id: ObjectIdentifier, watch: Bool, followUp: Bool) {
-        if watch { watched[id] = Watch(view: view) } else { commits[id] = Watch(view: view) }
+        // A request the landing made for this view owns it; it is not watched beside it.
+        if watch, requests[id] == nil { watched[id] = Watch(view: view) } else if !watch { commits[id] = Watch(view: view) }
         if followUp { view.requestWantedFrame() }
     }
 

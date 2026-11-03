@@ -85,7 +85,8 @@ struct TerminalSurfaceCommitSizeTests {
     /// - the key turn, timed with `ContinuousClock` from `PaneResize.press` to the end of that turn's Core Animation
     ///   commit (stamped inside ``CommitBoundary``; a boundary that missed the commit is not a sample), is at most one
     ///   120 Hz refresh (8.33 ms) at the median of 6 presses (one slow press on a shared host is not the code's);
-    /// - each press resized the terminals and their frames came through the presenter (`stats.presented` grows);
+    /// - each press resized both terminals and both frames came through the presenter (`stats.presented` grows by 2,
+    ///   no fallback);
     /// - Ghostty runs no display pass and draws no frame on main for the new sizes (render counters
     ///   `host_display_passes`, `host_main_draws`: a display pass of a new size waits up to 4 ms for the renderer's
     ///   frame);
@@ -96,16 +97,19 @@ struct TerminalSurfaceCommitSizeTests {
         // Warm-up press: one-time setup is not the key turn's cost.
         _ = await screen.press(.left)
         let before = screen.counters
-        let presentedBefore = screen.presented
+        let fallbacksBefore = screen.fallbacks
         var turns: [Double] = []
         for direction in [LayoutDirection.right, .left, .right, .left, .right, .left] {
+            let presentedBefore = screen.presented
             let pressed = await screen.press(direction)
             #expect(pressed.moved, "the press moved nothing")
+            // Both terminals change size on each press: both new frames come through the presenter.
+            #expect(screen.presented >= presentedBefore + 2, "a press's frames did not both come through the presenter (\(presentedBefore) -> \(screen.presented))")
             if let ms = pressed.turnMs { turns.append(ms) }
         }
+        #expect(screen.fallbacks == fallbacksBefore, "a press's frame came too late and fell back (\(screen.fallbacks - fallbacksBefore))")
         try #require(turns.count >= 4, "too few key turns were timed (\(turns.count) of 6: the boundary missed the rest)")
         let median = turns.sorted()[turns.count / 2]
-        #expect(screen.presented >= presentedBefore + 6, "the terminals' new frames did not come through the presenter (\(presentedBefore) -> \(screen.presented))")
         let after = screen.counters
         #expect(after.displayPasses == before.displayPasses,
                 "Ghostty ran \(after.displayPasses - before.displayPasses) display passes on main for the key's new sizes")
@@ -178,8 +182,10 @@ struct TerminalSurfaceCommitSizeTests {
                 await Self.commit()
             }
             let drawn = !sessions.contains { $0.surfaceView.presentedFrame == nil }
-            if !drawn { close() }
+            let counted = sessions.allSatisfy { $0.diagnostics.renderCounters != nil }
+            if !drawn || !counted { close() }
             try #require(drawn, "a terminal never showed its first frame")
+            try #require(counted, "a terminal has no render counters")
             // Every turn ends after Core Animation's commit with what it committed.
             sampler = MainRunLoopObserver(activities: [.beforeWaiting, .exit], order: CommitBoundary.order,
                                           drawsNothingAfterCommit: true) { [weak self] _ in self?.sample() }
@@ -204,17 +210,17 @@ struct TerminalSurfaceCommitSizeTests {
             }
         }
 
-        /// Ghostty's main-thread display passes and draws, summed over the terminals (a terminal without counters
-        /// counts as one of each, so the check fails rather than passes on nothing).
+        /// Ghostty's main-thread display passes and draws, summed over the terminals (``init()`` requires counters).
         var counters: (displayPasses: UInt64, mainDraws: UInt64) {
             sessions.reduce((0, 0)) { sum, session in
-                guard let counters = session.diagnostics.renderCounters else { return (sum.0 + 1, sum.1 + 1) }
-                return (sum.0 + counters.hostDisplayPasses, sum.1 + counters.hostMainDraws)
+                let counters = session.diagnostics.renderCounters
+                return (sum.0 + (counters?.hostDisplayPasses ?? 0), sum.1 + (counters?.hostMainDraws ?? 0))
             }
         }
 
-        /// Frames the window's presenter showed with their bounds.
+        /// Frames the window's presenter showed with their bounds, and requests that fell back.
         var presented: Int { TerminalFramePresenter.forWindow(window).stats.presented }
+        var fallbacks: Int { TerminalFramePresenter.forWindow(window).stats.fallbacks }
 
         /// One press: whether p2 moved, and the key turn's main-thread time, from the press to the end of that turn's
         /// Core Animation commit (nil when the boundary missed it). Then 6 more commits, for the frames to land.
