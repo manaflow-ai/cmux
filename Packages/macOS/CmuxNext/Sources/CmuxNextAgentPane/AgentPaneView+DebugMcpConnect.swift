@@ -35,6 +35,34 @@ extension AgentPaneView {
         return ["session": session, "asked": true]
     }
 
+    /// DEBUG capture actions of `debug.agent_pane` that run natively in this package: `set_files`
+    /// (`selector`, `paths`) and `mcp_connect_ask` (`server`, `reason`, `scope`; `read: true`
+    /// returns what the asks got back). The App forwards here so its control file does not grow.
+    ///
+    /// - Parameters:
+    ///   - action: The `debug.agent_pane` action.
+    ///   - params: The action's parameters as `JSONSerialization` objects.
+    ///   - environment: Resolves the acpmux this app's chats use; called only for an ask.
+    /// - Returns: The answer without `pane`, or nil when `action` is not one of these.
+    public func debugNativeAction(_ action: String, params: [String: Any],
+                                  environment: () async -> AcpmuxEnvironment?) async -> [String: Any]? {
+        switch action {
+        case "set_files":
+            let error = await debugSetFiles(selector: params["selector"] as? String ?? ".acpmux-attach-input",
+                                            paths: (params["paths"] as? [Any])?.compactMap { $0 as? String } ?? [])
+            return ["error": error ?? NSNull()]
+        case "mcp_connect_ask":
+            if params["read"] as? Bool == true { return ["replies": debugMcpConnectAnswers] }
+            let asked = await debugMcpConnectAsk(server: params["server"] as? String ?? "",
+                                                 reason: params["reason"] as? String ?? "",
+                                                 scope: params["scope"] as? String ?? "chat",
+                                                 environment: await environment())
+            return ["result": asked]
+        default:
+            return nil
+        }
+    }
+
     /// What the debug asks of this pane got back, by session: such as `connect: signInNeeded` with its
     /// `signInUrl` for `escalate_auth`. Never a secret.
     public var debugMcpConnectAnswers: [String: Any] { debugMcpConnectReplies }
