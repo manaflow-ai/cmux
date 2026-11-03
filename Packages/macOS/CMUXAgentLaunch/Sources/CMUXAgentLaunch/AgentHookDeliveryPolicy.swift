@@ -26,6 +26,11 @@ public struct AgentHookDeliveryPolicy: Sendable {
     /// producer so a later forwarder can apply ``hookAgentPID(environmentPID:invocationAgentPID:controllingTerminal:)``.
     public static let invokerPIDEnvironmentKey = "CMUX_AGENT_HOOK_INVOKER_PID"
 
+    /// The kernel start generation of the recorded invoker, as
+    /// `<seconds> <microseconds>`. A PID alone can be reused after its process
+    /// exits; the generation must match the live process.
+    public static let invokerStartEnvironmentKey = "CMUX_AGENT_HOOK_INVOKER_START"
+
     /// The largest payload accepted by the local delivery queue.
     public static let maximumPayloadBytes = 64 * 1_024
 
@@ -155,19 +160,22 @@ public struct AgentHookDeliveryPolicy: Sendable {
         return recordedSurfaceIsListed
     }
 
-    /// Whether a spool-recorded invoker PID still names the process that
-    /// published the record.
+    /// Whether a spool-recorded invoker PID still names the exact kernel
+    /// process generation captured at publish time.
     ///
-    /// A process that started after the record was published cannot be its
-    /// producer; the PID was reused. The one-second tolerance only covers
-    /// whole-second start times and ordinary clock resolution.
-    public func recordedInvokerIsTrustworthy(
-        startSeconds: UInt64,
-        startMicroseconds: UInt64,
-        publishedAt: TimeInterval
+    /// A missing or malformed recorded generation fails closed: the caller
+    /// must not route by the recorded PID. A reused PID has a different start
+    /// generation even though it is alive.
+    public func recordedInvokerGenerationMatches(
+        recordedStartSeconds: Int64?,
+        recordedStartMicroseconds: Int64?,
+        liveStartSeconds: UInt64?,
+        liveStartMicroseconds: UInt64?
     ) -> Bool {
-        let started = Double(startSeconds) + Double(startMicroseconds) / 1_000_000
-        return started <= publishedAt + 1
+        guard let recordedStartSeconds, let recordedStartMicroseconds,
+              let liveStartSeconds, let liveStartMicroseconds else { return false }
+        return recordedStartSeconds == Int64(liveStartSeconds)
+            && recordedStartMicroseconds == Int64(liveStartMicroseconds)
     }
 
     /// Chooses the agent process that owns one hook invocation.

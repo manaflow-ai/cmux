@@ -47,7 +47,7 @@ final class CMUXCLI {
     static func queuedAgentHookDataEnvironmentKeys(agent: String) -> [String] {
         [
             "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_CLAUDE_PID",
-            "CMUX_AGENT_HOOK_INVOKER_PID", agentHookRouteSnapshotEnvironmentKey,
+            "CMUX_AGENT_HOOK_INVOKER_PID", "CMUX_AGENT_HOOK_INVOKER_START", agentHookRouteSnapshotEnvironmentKey,
         ]
     }
 
@@ -117,15 +117,38 @@ print("PASS: relay-backed environment unchanged")
 
 // A recorded spool invoker with a dead exported PID behaves like a live hook.
 cli.inferredPID = nil
+let liveGeneration = ClaudeViewerProcessIdentity(pid: live)!
+let liveStart = "\(liveGeneration.seconds) \(liveGeneration.microseconds)"
 let spooled = cli.agentHookOrderingEnvironment(
+    agent: "claude", client: client,
+    processEnvironment: deadEnvironment.merging(
+        ["CMUX_AGENT_HOOK_INVOKER_PID": String(live),
+         "CMUX_AGENT_HOOK_INVOKER_START": liveStart]) { $1 },
+    runsInHookProcess: false
+)
+precondition(spooled["CMUX_CLAUDE_PID"] == String(live))
+precondition(spooled["CMUX_AGENT_HOOK_INVOKER_PID"] == nil)
+precondition(spooled["CMUX_AGENT_HOOK_INVOKER_START"] == nil)
+print("PASS: recorded spool invoker replaces a dead exported PID")
+
+// A missing or mismatched invoker generation fails closed: the recorded PID
+// is not used for routing and the stale exported PID is cleared.
+let untrusted = cli.agentHookOrderingEnvironment(
+    agent: "claude", client: client,
+    processEnvironment: deadEnvironment.merging(
+        ["CMUX_AGENT_HOOK_INVOKER_PID": String(live),
+         "CMUX_AGENT_HOOK_INVOKER_START": "1 1"]) { $1 },
+    runsInHookProcess: false
+)
+precondition(untrusted["CMUX_CLAUDE_PID"] == nil)
+let missing = cli.agentHookOrderingEnvironment(
     agent: "claude", client: client,
     processEnvironment: deadEnvironment.merging(
         ["CMUX_AGENT_HOOK_INVOKER_PID": String(live)]) { $1 },
     runsInHookProcess: false
 )
-precondition(spooled["CMUX_CLAUDE_PID"] == String(live))
-precondition(spooled["CMUX_AGENT_HOOK_INVOKER_PID"] == nil)
-print("PASS: recorded spool invoker replaces a dead exported PID")
+precondition(missing["CMUX_CLAUDE_PID"] == nil)
+print("PASS: missing or mismatched invoker generation fails closed")
 '''
 
 

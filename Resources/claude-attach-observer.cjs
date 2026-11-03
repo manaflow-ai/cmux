@@ -105,12 +105,14 @@ if (process.env.CMUX_CLAUDE_ATTACH_CONTEXT) {
       // Complete each mutation before processing the next native socket event.
       // In particular, a close must not overtake an async subscription write.
       // This runs once per attach/close, with a 500 ms ceiling, never per frame.
-      // A detach that misses the 500 ms budget is retained here and retried on
-      // the next connection event, one entry per event. No timer and no
-      // unbounded blocking are added; after three attempts the entry is
-      // dropped and the CLI's live process-generation checks remain the
-      // backstop.
+      // A failed mutation is confirmed by the CLI's exit status and retried by
+      // a bounded asynchronous deadline. Timers do not block Claude's event
+      // loop and are unref'd; after the deadline the entry is dropped and the
+      // next connection event still reconciles it.
       const pending = new Map();
+      const retryDeadlineMs = 5000;
+      const retryIntervalMs = 250;
+      let retryTimer = null;
       const deliver = value => {
         try {
           execFileSync(context.cli, ['__claude-viewer', value.action],
@@ -118,27 +120,37 @@ if (process.env.CMUX_CLAUDE_ATTACH_CONTEXT) {
           return true;
         } catch { return false; }
       };
-      const flushOnePending = () => {
+      const scheduleRetry = () => {
+        if (retryTimer || pending.size === 0) return;
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          retryOnePending();
+          scheduleRetry();
+        }, retryIntervalMs);
+        retryTimer.unref?.();
+      };
+      const retryOnePending = () => {
         for (const [key, entry] of [...pending]) {
-          if (deliver(entry.value)) { pending.delete(key); return; }
-          entry.attempts += 1;
-          if (entry.attempts >= 3) pending.delete(key);
+          if (deliver(entry.value) || Date.now() > entry.deadline) pending.delete(key);
           return;
         }
       };
       const observer = installObserver({
         acceptsPath: path => new RegExp('^/(?:private/)?tmp/cc-daemon-' + process.getuid() + '/[^/]+/control\\.sock$').test(path),
         report: value => {
+          // A closed connection cancels a queued attach for the same
+          // attachment: a later retry must not resurrect a closed lease.
+          if (value.action === 'detached') pending.delete(value.attach_id + ':attached');
           // A synchronous removal also survives Claude's immediate process.exit
           // path. SIGKILL is covered by kernel process-generation validation.
-          flushOnePending();
+          retryOnePending();
           if (deliver(value)) return;
           const key = value.attach_id + ':' + value.action;
-          const entry = pending.get(key) ?? { value, attempts: 0 };
+          if (pending.size >= 32 && !pending.has(key)) return;
+          const entry = pending.get(key) ?? { value, deadline: Date.now() + retryDeadlineMs };
           entry.value = value;
-          entry.attempts += 1;
-          if (entry.attempts >= 3 || (pending.size >= 32 && !pending.has(key))) pending.delete(key);
-          else pending.set(key, entry);
+          pending.set(key, entry);
+          scheduleRetry();
         }
       });
       process.once('exit', () => observer.detachAll());

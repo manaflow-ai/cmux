@@ -83,12 +83,12 @@ test('two overlapping attachments keep independent leases', async t => {
   clientA.write(JSON.stringify({ proto: 1, op: 'attach', short: 'aaaaaaaa', attachId: idA }) + '\n');
   clientB.write(JSON.stringify({ proto: 1, op: 'attach', short: 'bbbbbbbb', attachId: idB }) + '\n');
   const waitFor = async predicate => {
-    for (let i = 0; i < 100; i++) {
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
       if (predicate()) return;
-      await new Promise(resolve => setImmediate(resolve));
-      await new Promise(resolve => setTimeout(resolve, 5));
+      await new Promise(resolve => setTimeout(resolve, 10));
     }
-    throw new Error('observer event did not arrive');
+    throw new Error('observer event did not arrive before the deadline');
   };
   await waitFor(() => events.filter(e => e.action === 'attached').length === 2);
   assert.deepEqual(events.filter(e => e.action === 'attached').map(e => e.attach_id).sort(), [idA, idB].sort());

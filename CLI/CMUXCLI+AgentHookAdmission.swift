@@ -395,8 +395,7 @@ extension CMUXCLI {
         client: SocketClient,
         socketPassword: String? = nil,
         resolvesProcessRoute: Bool = true,
-        runsInHookProcess: Bool = true,
-        recordedInvokerPublishedAt: Date? = nil
+        runsInHookProcess: Bool = true
     ) throws {
         var environment = agentHookOrderingEnvironment(
             agent: agent,
@@ -404,8 +403,7 @@ extension CMUXCLI {
             socketPassword: socketPassword,
             processEnvironment: processEnvironment,
             resolvesProcessRoute: resolvesProcessRoute,
-            runsInHookProcess: runsInHookProcess,
-            recordedInvokerPublishedAt: recordedInvokerPublishedAt
+            runsInHookProcess: runsInHookProcess
         )
         // Resolve acknowledged native viewers at admission, while worker PID
         // identity is still live. Replay keeps this immutable pane snapshot.
@@ -895,6 +893,7 @@ extension CMUXCLI {
             "CMUX_SURFACE_ID", "CMUX_STABLE_SURFACE_ID", "CMUX_WORKSPACE_ID", agentHookRouteSnapshotEnvironmentKey,
             agentHookPIDEnvironmentVariable(agentName: agent),
             AgentHookDeliveryPolicy.invokerPIDEnvironmentKey,
+            AgentHookDeliveryPolicy.invokerStartEnvironmentKey,
         ] + routedLaunchKeys
     }
 

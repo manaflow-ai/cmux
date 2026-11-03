@@ -12,8 +12,7 @@ extension CMUXCLI {
         socketPassword: String? = nil,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         resolvesProcessRoute: Bool = true,
-        runsInHookProcess: Bool = true,
-        recordedInvokerPublishedAt: Date? = nil
+        runsInHookProcess: Bool = true
     ) -> [String: String] {
         var environment = AgentLaunchEnvironmentPolicy().selectedEnvironment(
             from: processEnvironment,
@@ -32,27 +31,35 @@ extension CMUXCLI {
         }
         let pidEnvironmentKey = Self.agentHookPIDEnvironmentVariable(agentName: agent)
         // A spool record names the process that ran its hook; a CLI hook is
-        // that process's descendant. A PID whose process started after the
-        // record was published was reused: it cannot be the producer, and
-        // routing through it could misattribute the event.
+        // that process's descendant. The PID alone can be reused after its
+        // process exits, so the producer records the invoker's kernel start
+        // generation. A missing or mismatched generation fails closed: the
+        // recorded PID is never used for routing.
         var recordedInvokerPID = environment.removeValue(
             forKey: AgentHookDeliveryPolicy.invokerPIDEnvironmentKey
         ).flatMap(Int.init)
+        let recordedInvokerStart = environment.removeValue(
+            forKey: AgentHookDeliveryPolicy.invokerStartEnvironmentKey
+        )
         if let invokerPID = recordedInvokerPID {
-            guard let identity = ClaudeViewerProcessIdentity(pid: invokerPID),
-                  recordedInvokerPublishedAt.map({
-                      AgentHookDeliveryPolicy().recordedInvokerIsTrustworthy(
-                          startSeconds: identity.seconds,
-                          startMicroseconds: identity.microseconds,
-                          publishedAt: $0.timeIntervalSince1970
-                      )
-                  }) ?? true else {
+            let identity = ClaudeViewerProcessIdentity(pid: invokerPID)
+            let parts = recordedInvokerStart?
+                .split(separator: " ", omittingEmptySubsequences: true)
+                .compactMap { Int64($0) }
+            let trusted = parts?.count == 2
+                && AgentHookDeliveryPolicy().recordedInvokerGenerationMatches(
+                    recordedStartSeconds: parts?[0],
+                    recordedStartMicroseconds: parts?[1],
+                    liveStartSeconds: identity?.seconds,
+                    liveStartMicroseconds: identity?.microseconds
+                )
+            if !trusted {
                 recordedInvokerPID = nil
-                if !client.isRelayBacked, runsInHookProcess || recordedInvokerPublishedAt != nil {
-                    // Never fall back to the dead/reused recorded PID.
+                if !client.isRelayBacked {
+                    // The recorded identity is untrusted (missing or reused).
+                    // Never forward the stale exported PID either.
                     environment.removeValue(forKey: pidEnvironmentKey)
                 }
-                // Continue with the normal invocation-derived identity below.
                 let invocationPID = runsInHookProcess ? inferredAgentPID() : nil
                 if let agentPID = AgentHookDeliveryPolicy().hookAgentPID(
                     environmentPID: nil,

@@ -12,6 +12,7 @@ The initial integration is opt-in through `CMUX_CLAUDE_ATTACH_OBSERVER=1`. Nativ
 - Add a bounded Bun preload observer. Observe socket writes/emits without adding data listeners, changing flow control, or modifying bytes. Restore BUN_OPTIONS and remove observer context before application code or children execute.
 - Reuse Claude's verified background registry for short job/native session/worker identity. Persist per-attachment leases in the existing locked hook session store. Verify same-user kernel process generations and the local cmux target; exclude relays and replayed process identities.
 - Route live background hooks to the most recently acknowledged, still-live viewer; retain other attachments for fallback when that viewer disconnects. Remove only the closing attachment. This preserves the current single-target notification contract.
+- Storage and lookup are bounded: each session keeps at most 16 live leases (the oldest is evicted beyond that), and a hook checks at most the 4 newest live leases for app route corroboration. A viewer older than those bounds is not selected; there is no focused-pane fallback. Both bounds keep hook latency and the store size predictable.
 - Wire native wrapper entrypoints, including explicit attach and the agent picker, behind the opt-in. Keep disabled integration, non-native launchers, headless runs and unsupported protocols unchanged.
 - Run focused red/green tests, the agent-launch package suite, wrapper checks, an isolated native Claude mock-API run and scoped official verification. Record unrun app integration checks honestly.
 
@@ -37,7 +38,8 @@ Only the public preload code is cached under the user's private cmux directory. 
 ## Verification commands
 
 - `node --test tests/test_claude_attach_observer.cjs`: real Unix-stream ACK/close, rejected/oversized/unrelated messages, byte preservation and child-environment restoration. Also invoked by the existing wrapper CI lane.
-- `python3 tests/test_claude_attached_viewer_policy.py`: compile the actual Swift policy sources and exercise live generation, PID reuse, socket isolation, newest-viewer selection and independent removal, without requiring Swift Testing or the app.
+- `python3 tests/test_claude_attached_viewer_policy.py`: compile the actual Swift policy sources and exercise live generation, PID reuse, socket isolation, newest-viewer selection, the 16-lease and 4-candidate bounds, and independent removal, without requiring Swift Testing or the app.
+- Automated checks do not load the generated Bun `--preload` when Bun is not installed in the lane; the observer test skips that case explicitly. Native Claude loads it under Bun in manual validation only.
 - `python3 tests/test_claude_wrapper_hooks.py`: full affected wrapper suite; report baseline failures separately from new failures.
 - `python3 scripts/verify-local.py --swift-changed`: scoped static verification only.
 

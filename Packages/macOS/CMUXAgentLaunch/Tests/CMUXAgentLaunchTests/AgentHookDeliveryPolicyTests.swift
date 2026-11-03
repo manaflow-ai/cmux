@@ -158,14 +158,17 @@ struct AgentHookDeliveryPolicyTests {
         ))
     }
 
-    @Test("A spool invoker started after publication is not trusted")
-    func recordedInvokerMustPredatePublication() {
-        // A reused PID starts after the record was published; it cannot be
-        // the hook's producer even though it is alive.
-        #expect(policy.recordedInvokerIsTrustworthy(
-            startSeconds: 100, startMicroseconds: 0, publishedAt: 100.5))
-        #expect(!policy.recordedInvokerIsTrustworthy(
-            startSeconds: 101, startMicroseconds: 500_000, publishedAt: 100.5))
+    @Test("A spool invoker must match the exact kernel generation")
+    func recordedInvokerMustMatchExactGeneration() {
+        #expect(policy.recordedInvokerGenerationMatches(
+            recordedStartSeconds: 100, recordedStartMicroseconds: 500_000,
+            liveStartSeconds: 100, liveStartMicroseconds: 500_000))
+        #expect(!policy.recordedInvokerGenerationMatches(
+            recordedStartSeconds: 100, recordedStartMicroseconds: 500_000,
+            liveStartSeconds: 100, liveStartMicroseconds: 500_001))
+        #expect(!policy.recordedInvokerGenerationMatches(
+            recordedStartSeconds: nil, recordedStartMicroseconds: nil,
+            liveStartSeconds: 100, liveStartMicroseconds: 500_000))
     }
 
     @Test("Agent names produce stable ASCII PID environment keys")

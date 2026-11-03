@@ -308,6 +308,26 @@ struct ClaudeHookSessionRecord: Codable {
     /// correlation remains disabled for this session; re-enabling it after
     /// eviction would let an old delayed callback consume a newer approval.
     var cursorShellCommandOnlyCorrelationDisabled: Bool? = nil
+    /// The worker's own route before the first viewer admission. Restored when
+    /// the last viewer detaches so the worker's hooks keep a live pane.
+    var claudeViewerOriginalRoute: ClaudeViewerOriginalRoute? = nil
+    /// The earliest pane slots seen before any viewer admission, keyed by
+    /// surface/workspace. A later admission on the same pane stores the
+    /// worker's own slot, so only the first snapshot may be restored.
+    var claudeViewerOriginalSurfaceSlots: [String: ClaudeViewerActiveSessionSnapshot]? = nil
+    var claudeViewerOriginalWorkspaceSlots: [String: ClaudeViewerActiveSessionSnapshot]? = nil
+    /// The viewer surface currently written into this record's route. A
+    /// detach restores the original route only while this still matches.
+    var claudeViewerRouteSurfaceId: String? = nil
+}
+
+/// A worker session's route and process generation before viewer admission.
+struct ClaudeViewerOriginalRoute: Codable, Equatable {
+    var workspaceId: String
+    var surfaceId: String
+    var pid: Int?
+    var pidStartSeconds: Int64?
+    var pidStartMicroseconds: Int64?
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {
@@ -9786,6 +9806,14 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 windowOverride: windowId
             )
+        case "__process-generation":
+            // Producer-side helper: print the kernel start generation of a
+            // live same-user PID. No socket connection or app state is used.
+            guard let rawPID = commandArgs.first, let pid = Int(rawPID),
+                  pid > 1, let identity = ClaudeViewerProcessIdentity(pid: pid) else {
+                exit(1)
+            }
+            print("\(identity.seconds) \(identity.microseconds)")
         case "__claude-viewer":
             guard try runClaudeViewerHook(commandArgs: commandArgs, client: client) else { exit(1) }
 

@@ -120,7 +120,9 @@ class ViewerRoutingTargetTests(unittest.TestCase):
                         "p=subprocess.run([cli,'--socket',sock,'__claude-viewer','attached'],\n"
                         " input=json.dumps({'attach_id':attachment,'job_id':worker[:8],\n"
                         " 'viewer_pid':os.getpid()}),capture_output=True,text=True,timeout=8)\n"
-                        "open(result,'w').write(json.dumps({'pid':os.getpid(),'code':p.returncode,'err':p.stderr}))\n"
+                        "tmp=result+'.tmp'\n"
+                        "open(tmp,'w').write(json.dumps({'pid':os.getpid(),'code':p.returncode,'err':p.stderr}))\n"
+                        "os.replace(tmp,result)\n"
                         "while not os.path.exists(stop): time.sleep(0.01)\n"
                     )
                     viewer = subprocess.Popen(
@@ -129,12 +131,11 @@ class ViewerRoutingTargetTests(unittest.TestCase):
                         env=env, start_new_session=True)
                     server.pid_surfaces[viewer.pid] = (viewer_workspace, viewer_surface)
                     go.write_text("1")
-                    for _ in range(500):
-                        if result_file.exists():
-                            break
-                        time.sleep(0.01)
-                    else:
-                        self.fail("viewer helper did not finish the attach call")
+                    deadline = time.monotonic() + 15
+                    while not result_file.exists() and time.monotonic() < deadline:
+                        time.sleep(0.02)
+                    if not result_file.exists():
+                        self.fail("viewer helper did not finish the attach call before the deadline")
                     outcome = json.loads(result_file.read_text())
                     self.assertEqual(outcome["code"], 0, outcome["err"])
                     state = json.loads(state_path.read_text())
