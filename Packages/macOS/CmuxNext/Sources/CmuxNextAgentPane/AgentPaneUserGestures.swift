@@ -132,12 +132,19 @@ import CmuxNextCompat
     /// was on and is still on, not turned off in between, within ``lifetime``, and only for a method it
     /// covers. Each one is logged with its driver.
     func consumePosted(for method: String?) -> Bool {
-        guard let posted = lastPosted, posted.granted, posted.revocations == actAsMe?.revocations,
-              let method, let holder = actAsMe?.lets(method) else { return false }
-        lastPosted = nil
-        guard now() - posted.at <= Self.lifetime else { return false }
-        actAsMe?.recordLetThrough(method: method, holder: holder, driver: posted.driver)
+        guard let method, let (holder, driver) = takePosted(for: method) else { return false }
+        actAsMe?.recordLetThrough(method: method, holder: holder, driver: driver)
         return true
+    }
+
+    /// ``consumePosted(for:)`` without the log: the posted gesture's holder and driver, nil when it grants
+    /// nothing. A reserved ticket logs only when its frame redeems it (``redeem(_:connection:pick:sessionId:)``).
+    private func takePosted(for method: String?) -> (AgentPaneActAsMe.Holder, AgentPaneActAsMe.Driver)? {
+        guard let posted = lastPosted, posted.granted, posted.revocations == actAsMe?.revocations,
+              let method, let holder = actAsMe?.lets(method) else { return nil }
+        lastPosted = nil
+        guard now() - posted.at <= Self.lifetime else { return nil }
+        return (holder, posted.driver)
     }
 
     /// A frame of `method` was refused for want of a gesture: when another process's posted input was
@@ -180,6 +187,8 @@ import CmuxNextCompat
         /// A ticket another process's posted gesture paid for (``consumePosted(for:)``): the grant's
         /// ``AgentPaneActAsMe/revocations`` then. Turning the grant off voids it; nil for the person's own.
         var postedUnder: Int?
+        /// Who posted that gesture, under which holder: logged as a let-through when the ticket is redeemed.
+        var postedBy: (holder: AgentPaneActAsMe.Holder, driver: AgentPaneActAsMe.Driver)?
 
         /// Within its lifetime, not counting the time its uploads held it, and not one of them stalled.
         func isFresh(_ now: TimeInterval) -> Bool {
@@ -221,9 +230,11 @@ import CmuxNextCompat
     /// gesture never pays for it, whatever the grant. Module-only.
     func reserve(connection: Int, intent: AgentPaneGestureIntent, paid: Bool, personOnly: Bool = false) -> String? {
         var postedUnder: Int?
+        var postedBy: (holder: AgentPaneActAsMe.Holder, driver: AgentPaneActAsMe.Driver)?
         if !paid, !(intent.method == "session/prompt" ? consumeForSend() : consume()) {
-            guard !personOnly, consumePosted(for: intent.method), let actAsMe else { return nil }
+            guard !personOnly, let posted = takePosted(for: intent.method), let actAsMe else { return nil }
             postedUnder = actAsMe.revocations
+            postedBy = posted
         }
         let at = now()
         dropTickets { !$1.isFresh(at) || ($1.connection == connection && $1.intent.slot == intent.slot) }
@@ -247,7 +258,7 @@ import CmuxNextCompat
         }
         let ticket = UUID().uuidString
         issued += 1
-        tickets[ticket] = Ticket(connection: connection, intent: intent, at: at, order: issued, postedUnder: postedUnder)
+        tickets[ticket] = Ticket(connection: connection, intent: intent, at: at, order: issued, postedUnder: postedUnder, postedBy: postedBy)
         lastTicket = ticket
         return ticket
     }
@@ -268,8 +279,12 @@ import CmuxNextCompat
         if let seed = redeemSeed(ticket, pick: pick) { return seed }
         guard let held = tickets[ticket] else { return false }
         dropTickets { key, _ in key == ticket }
-        return held.connection == connection && held.isFresh(now()) && held.intent.matches(pick) && held.uploads.isEmpty
+        let allowed = held.connection == connection && held.isFresh(now()) && held.intent.matches(pick) && held.uploads.isEmpty
             && held.intent.sessionId.map { $0 == sessionId } != false && isGrantStanding(held)
+        if allowed, let by = held.postedBy {
+            actAsMe?.recordLetThrough(method: held.intent.method, holder: by.holder, driver: by.driver)
+        }
+        return allowed
     }
 
     /// A posted ticket (``Ticket/postedUnder``) stands only while the grant is on and was not turned off

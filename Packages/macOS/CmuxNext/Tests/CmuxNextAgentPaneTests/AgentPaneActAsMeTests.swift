@@ -256,6 +256,24 @@ struct AgentPaneActAsMeTests {
         #expect(!grant.isOn, "the launch read undid Turn Off")
     }
 
+    /// A posted Send ticket is logged as let through when its frame redeems it, not when it is reserved.
+    @Test func aPostedTicketIsLoggedOnlyWhenRedeemed() throws {
+        let grant = AgentPaneActAsMe()
+        grant.turnOn(.taken())
+        let gestures = Self.gestures(grant)
+        let send = try #require(AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": ["promptId": "p-1"]]]))
+        let pick = AgentPaneGesturePick(method: "session/prompt", params: ["_meta": ["acpmux": ["promptId": "p-1"]]])
+        gestures.recordPosted(driver: Self.driver)
+        let ticket = try #require(gestures.reserve(connection: 1, intent: send))
+        #expect(grant.letThroughs.isEmpty, "a reservation was logged as let through")
+        #expect(gestures.redeem(ticket, connection: 1, pick: pick))
+        #expect(grant.letThroughs == [.init(method: "session/prompt", holder: .person, driver: Self.driver)])
+        gestures.recordPosted(driver: Self.driver)
+        let unused = try #require(gestures.reserve(connection: 1, intent: send))
+        #expect(!gestures.redeem(unused, connection: 2, pick: pick))
+        #expect(grant.letThroughs.count == 1, "a refused redemption was logged as let through")
+    }
+
     @Test func aGesturePostedBeforeTurnOffDoesNotGrantOnceTurnedOnAgain() {
         let grant = AgentPaneActAsMe()
         grant.turnOn(.taken())
