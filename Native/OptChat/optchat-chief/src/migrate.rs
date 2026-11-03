@@ -206,7 +206,7 @@ pub fn is_machine_local(rel: &str, without_transcripts: bool) -> bool {
 }
 
 /// Whether `dir` is absent or an empty directory.
-fn absent_or_empty(dir: &Path) -> bool {
+pub(crate) fn absent_or_empty(dir: &Path) -> bool {
     match std::fs::read_dir(dir) {
         Ok(mut entries) => entries.next().is_none(),
         Err(e) => e.kind() == std::io::ErrorKind::NotFound,
@@ -217,13 +217,13 @@ fn is_sqlite(rel: &str) -> bool {
     SQLITE_SUFFIXES.iter().any(|s| rel.ends_with(s))
 }
 
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     chrono::Utc::now()
         .format("%Y-%m-%dT%H:%M:%S%.3fZ")
         .to_string()
 }
 
-fn hostname() -> String {
+pub(crate) fn hostname() -> String {
     let mut buf = [0u8; 256];
     // SAFETY: the buffer is valid for its length; gethostname NUL-terminates
     // within it or truncates.
@@ -235,7 +235,7 @@ fn hostname() -> String {
     String::from_utf8_lossy(&buf[..end]).into_owned()
 }
 
-fn sha256_file(path: &Path) -> Result<(String, u64), String> {
+pub(crate) fn sha256_file(path: &Path) -> Result<(String, u64), String> {
     let mut file =
         std::fs::File::open(path).map_err(|e| format!("reading {}: {e}", path.display()))?;
     let mut hasher = Sha256::new();
@@ -348,7 +348,7 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-fn memory_counts(tables: Option<&BTreeMap<String, u64>>) -> Counts {
+pub(crate) fn memory_counts(tables: Option<&BTreeMap<String, u64>>) -> Counts {
     let get = |t: &str| tables.and_then(|m| m.get(t)).copied().unwrap_or(0);
     Counts {
         messages: get("messages"),
@@ -457,7 +457,7 @@ pub fn checkpoint(
     Ok(manifest)
 }
 
-fn create_private_dir(dir: &Path) -> Result<(), String> {
+pub(crate) fn create_private_dir(dir: &Path) -> Result<(), String> {
     use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new()
         .recursive(true)
@@ -466,7 +466,7 @@ fn create_private_dir(dir: &Path) -> Result<(), String> {
         .map_err(|e| format!("creating {}: {e}", dir.display()))
 }
 
-fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
     use std::os::unix::fs::OpenOptionsExt;
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -533,7 +533,7 @@ pub struct Restored {
     pub rewritten: usize,
 }
 
-fn target_rel(rel: &str, from_session: Option<&str>, to_session: &str) -> String {
+pub(crate) fn target_rel(rel: &str, from_session: Option<&str>, to_session: &str) -> String {
     match from_session {
         Some(from) => match rel.strip_prefix(&format!("tui/{from}/")) {
             Some(rest) => format!("tui/{to_session}/{rest}"),
@@ -652,7 +652,11 @@ const REWRITE_LIMIT: u64 = 4 << 20;
 /// path becomes the target's, so no preset or setting points back into the
 /// old machine's home (cmux-tui build_adopt/chief.rs does the same).
 /// SQLite files are left alone. Returns how many files changed.
-fn rewrite_home_paths(staging: &Path, from_root: &str, final_home: &Path) -> Result<usize, String> {
+pub(crate) fn rewrite_home_paths(
+    staging: &Path,
+    from_root: &str,
+    final_home: &Path,
+) -> Result<usize, String> {
     let to_root = final_home.to_string_lossy();
     if from_root.is_empty() || from_root == to_root {
         return Ok(0);
@@ -821,11 +825,11 @@ fn ssh_bin() -> String {
 }
 
 /// Single-quotes `s` for a POSIX shell.
-fn sh_quote(s: &str) -> String {
+pub(crate) fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
-fn ssh(host: &str, script: &str, stdin: Option<&Path>) -> Result<String, String> {
+pub(crate) fn ssh(host: &str, script: &str, stdin: Option<&Path>) -> Result<String, String> {
     let mut cmd = Command::new(ssh_bin());
     cmd.args([
         "-o",
@@ -874,7 +878,7 @@ const REMOTE_MOVER: &str = ".cmux/bin/optchat-chief";
 /// An optchat-chief on `host` that knows this checkpoint format: `wanted`
 /// when it answers, else the one installed at [`REMOTE_MOVER`], else this
 /// binary copied there when the host has this machine's OS and CPU.
-fn remote_mover(host: &str, wanted: &str) -> Result<String, String> {
+pub(crate) fn remote_mover(host: &str, wanted: &str) -> Result<String, String> {
     let knows = |bin: &str| {
         ssh(
             host,
@@ -982,7 +986,7 @@ fn lock_pid(lock: &Path) -> Option<i32> {
         .ok()
 }
 
-fn drain(home: &Path, options: &MoveOptions) -> Result<String, String> {
+pub(crate) fn drain(home: &Path, options: &MoveOptions) -> Result<String, String> {
     let lock = home.join("state").join("host.lock");
     write_private(&home.join(SHUTDOWN_FILE), b"chief move\n")?;
     if !crate::lock::held(&lock) {
@@ -1014,7 +1018,7 @@ fn drain(home: &Path, options: &MoveOptions) -> Result<String, String> {
     Ok(format!("stopped host pid {pid}"))
 }
 
-fn timed<T>(
+pub(crate) fn timed<T>(
     steps: &mut Vec<Step>,
     name: &str,
     f: impl FnOnce() -> Result<(T, String), String>,
@@ -1077,6 +1081,17 @@ pub fn move_chief(options: &MoveOptions) -> MoveReport {
         }};
     }
     if let Some(m) = moved(&home) {
+        if let Some((base, chief)) = crate::migrate_return::cloud_source(&m.to)
+            && !matches!(options.target, Target::Cloud(_))
+        {
+            // The way back out of the cloud (migrate_return.rs).
+            if let Err(e) =
+                crate::migrate_return::move_out(options, &home, &base, &chief, &mut report)
+            {
+                report.error = Some(e);
+            }
+            return report;
+        }
         let e = format!("this Chief already moved to {}", m.to);
         report.steps.push(Step {
             step: "preflight".into(),
@@ -1125,7 +1140,10 @@ pub fn move_chief(options: &MoveOptions) -> MoveReport {
         }
         Target::Cloud(t) => {
             let base = crate::migrate_cloud::api_base(t)?;
-            let token = crate::migrate_cloud::session_token(options.session_token_file.as_deref())?;
+            let token = crate::migrate_cloud::session_token(
+                options.session_token_file.as_deref(),
+                Some(&base),
+            )?;
             let api = crate::migrate_cloud::Api::new(base.clone(), token);
             api.probe_brains()?;
             Ok((
@@ -1185,7 +1203,10 @@ pub fn move_chief(options: &MoveOptions) -> MoveReport {
     if let Target::Cloud(t) = &options.target {
         let copied = timed(&mut report.steps, "transfer+verify", || {
             let base = crate::migrate_cloud::api_base(t)?;
-            let token = crate::migrate_cloud::session_token(options.session_token_file.as_deref())?;
+            let token = crate::migrate_cloud::session_token(
+                options.session_token_file.as_deref(),
+                Some(&base),
+            )?;
             let api = crate::migrate_cloud::Api::new(base, token);
             let moved = crate::migrate_cloud::move_to_cloud(
                 &api,
@@ -1221,48 +1242,87 @@ pub fn move_chief(options: &MoveOptions) -> MoveReport {
         report.moved = true;
         return report;
     }
-    let restored = timed(&mut report.steps, "transfer+restore", || {
-        match &options.target {
-            Target::Local(p) => {
-                let r = restore(&tmp, p)?;
-                Ok((
-                    r.clone(),
-                    format!("restored {} files into {}", r.files, r.home),
-                ))
-            }
-            Target::Ssh { host, .. } => {
-                let stage = format!("{remote_home}.checkpoint");
-                let recv = format!(
-                    "rm -rf {s} && mkdir -p -m 700 {s} && tar -C {s} -xf -",
-                    s = sh_quote(&stage)
-                );
-                ssh(host, &recv, Some(&tmp))?;
-                let script = format!(
-                    "{b} move restore --from {s} --home {h} && rm -rf {s}",
-                    b = sh_quote(&remote_bin),
-                    s = sh_quote(&stage),
-                    h = sh_quote(&remote_home)
-                );
-                let out = ssh(host, &script, None)?;
-                let r: Restored = serde_json::from_str(out.trim())
-                    .map_err(|e| format!("restore answer {out:?}: {e}"))?;
-                Ok((
-                    r.clone(),
-                    format!("restored {} files into {host}:{}", r.files, r.home),
-                ))
-            }
-            Target::Cloud(_) => unreachable!("handled above"),
-        }
-    });
+    let delivered = deliver(options, &tmp, &manifest, &mut report, Some(&remote_bin));
     let _ = std::fs::remove_dir_all(&tmp);
-    let restored = match restored {
-        Ok(r) => r,
+    let to = match delivered {
+        Ok(to) => to,
         Err(e) => {
             undo_drain(&home);
             fail!(e);
         }
     };
-    let verify = timed(&mut report.steps, "verify", || {
+    report.to = to.clone();
+    if let Err(e) = timed(&mut report.steps, "commit", || {
+        mark_moved(&home, &to, &sha).map(|()| ((), format!("source marked moved to {to}")))
+    }) {
+        undo_drain(&home);
+        fail!(e);
+    }
+    report.moved = true;
+    report
+}
+
+/// Sends a checked checkpoint at `tmp` to a home on this Mac or over SSH,
+/// restores it there and checks its counts against `manifest`. Returns the
+/// target as `moved.json` names it. Shared by a move from a home and a move
+/// out of the cloud (migrate_return.rs).
+pub(crate) fn deliver(
+    options: &MoveOptions,
+    tmp: &Path,
+    manifest: &Manifest,
+    report: &mut MoveReport,
+    remote_bin: Option<&str>,
+) -> Result<String, String> {
+    let steps = &mut report.steps;
+    let name = options
+        .home
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "default".into());
+    let remote_home = match &options.target {
+        Target::Local(p) => p.to_string_lossy().into_owned(),
+        Target::Ssh { home: Some(h), .. } => h.clone(),
+        Target::Ssh { home: None, .. } => format!(".cmux/chief/{name}"),
+        Target::Cloud(_) => return Err("deliver takes a home target, not the cloud".into()),
+    };
+    let remote_bin = match (&options.target, remote_bin) {
+        (_, Some(bin)) => bin.to_owned(),
+        (Target::Ssh { host, .. }, None) => remote_mover(host, &options.remote_bin)?,
+        _ => options.remote_bin.clone(),
+    };
+    let restored = timed(steps, "transfer+restore", || match &options.target {
+        Target::Local(p) => {
+            let r = restore(tmp, p)?;
+            Ok((
+                r.clone(),
+                format!("restored {} files into {}", r.files, r.home),
+            ))
+        }
+        Target::Ssh { host, .. } => {
+            let stage = format!("{remote_home}.checkpoint");
+            let recv = format!(
+                "rm -rf {s} && mkdir -p -m 700 {s} && tar -C {s} -xf -",
+                s = sh_quote(&stage)
+            );
+            ssh(host, &recv, Some(tmp))?;
+            let script = format!(
+                "{b} move restore --from {s} --home {h} && rm -rf {s}",
+                b = sh_quote(&remote_bin),
+                s = sh_quote(&stage),
+                h = sh_quote(&remote_home)
+            );
+            let out = ssh(host, &script, None)?;
+            let r: Restored = serde_json::from_str(out.trim())
+                .map_err(|e| format!("restore answer {out:?}: {e}"))?;
+            Ok((
+                r.clone(),
+                format!("restored {} files into {host}:{}", r.files, r.home),
+            ))
+        }
+        Target::Cloud(_) => unreachable!("handled above"),
+    });
+    let restored = restored?;
+    let verify = timed(steps, "verify", || {
         if restored.memory != manifest.memory || restored.conversations != manifest.conversations {
             return Err(format!(
                 "target counts differ: memory {:?} vs {:?}, conversations {:?} vs {:?}",
@@ -1297,20 +1357,8 @@ pub fn move_chief(options: &MoveOptions) -> MoveReport {
             ),
         ))
     });
-    if let Err(e) = verify {
-        undo_drain(&home);
-        fail!(e);
-    }
-    let to = options.target.describe(&restored.home);
-    report.to = to.clone();
-    if let Err(e) = timed(&mut report.steps, "commit", || {
-        mark_moved(&home, &to, &sha).map(|()| ((), format!("source marked moved to {to}")))
-    }) {
-        undo_drain(&home);
-        fail!(e);
-    }
-    report.moved = true;
-    report
+    verify?;
+    Ok(options.target.describe(&restored.home))
 }
 
 /// Sends one message to where this home's Chief moved (a cloud move only)
@@ -1327,7 +1375,7 @@ fn ask_moved(home: &Path, text: &str, token_file: Option<&Path>) -> Result<Strin
     let (base, chief) = rest.rsplit_once('/').ok_or("bad cloud target")?;
     let api = crate::migrate_cloud::Api::new(
         base.to_owned(),
-        crate::migrate_cloud::session_token(token_file)?,
+        crate::migrate_cloud::session_token(token_file, Some(base))?,
     );
     let conversation = crate::migrate_cloud::chief_main_conversation(chief);
     crate::migrate_cloud::first_turn(&api, chief, &conversation, text, Duration::from_secs(600))
@@ -1514,7 +1562,7 @@ pub fn rollback(
         let (api_base, chief) = rest
             .rsplit_once('/')
             .ok_or_else(|| format!("bad target in moved.json: {target}"))?;
-        let token = crate::migrate_cloud::session_token(token_file)?;
+        let token = crate::migrate_cloud::session_token(token_file, Some(api_base))?;
         crate::migrate_cloud::Api::new(api_base.to_owned(), token).brain_off(chief)?;
     } else if let Some(rest) = target.strip_prefix("ssh:") {
         let (host, path) = rest
