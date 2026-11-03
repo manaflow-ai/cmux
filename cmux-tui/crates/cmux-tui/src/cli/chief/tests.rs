@@ -84,14 +84,29 @@ fn an_agents_prompt_names_its_sender_and_a_persons_none() {
     ]))
     .unwrap();
     let want = AgentSender::new("lane-a", Some("question"), Some("t1"));
-    assert_eq!(parsed.sender(None), want);
+    let session = |name: &'static str| {
+        move |key: &str| (key == "ACPMUX_SESSION_NAME").then(|| name.to_owned())
+    };
+    let none = |_: &str| None::<String>;
+    let host = || Some("mini-7.local".to_owned());
+    assert_eq!(parsed.sender(&none, &host), want);
     // `--from` wins over the acpmux session this runs in.
-    assert_eq!(parsed.sender(Some("other")), want);
+    assert_eq!(parsed.sender(&session("other"), &host), want);
     let plain = parse_args(&strings(&["-p", "hi"])).unwrap();
-    assert_eq!(plain.sender(Some("lane-b")), AgentSender::new("lane-b", None, None));
-    // The person at a terminal: no acpmux session, no sender.
-    assert_eq!(plain.sender(None), None);
-    assert_eq!(plain.sender(Some("")), None);
+    assert_eq!(plain.sender(&session("lane-b"), &host), AgentSender::new("lane-b", None, None));
+    // The person at a terminal: no acpmux session and no coding agent, no sender.
+    assert_eq!(plain.sender(&none, &host), None);
+    assert_eq!(plain.sender(&session(""), &host), None);
+    // A Claude Code terminal outside acpmux is that Claude, on this machine (u19922).
+    let claude = |key: &str| match key {
+        "CLAUDECODE" => Some("1".to_owned()),
+        "CLAUDE_CODE_SESSION_ID" => Some("9d1c0e7a-1111".to_owned()),
+        _ => None,
+    };
+    assert_eq!(
+        plain.sender(&claude, &host),
+        AgentSender::new("claude-9d1c0e7a@mini-7", None, None)
+    );
 }
 
 #[test]
