@@ -102,7 +102,7 @@ fn only_the_identity_questions_are_answered() {
 
 #[test]
 fn other_gh_runs_never_touch_the_agent() {
-    let missing = std::path::Path::new("/nonexistent/agent.sock");
+    let missing = Path::new("/nonexistent/agent.sock");
     assert!(answer_from_agent(&args(&["pr", "list"]), missing).is_none());
     assert!(answer_from_agent(&args(&["api", "repos/o/r"]), missing).is_none());
 }
@@ -204,6 +204,6 @@ fn no_answer_leaves_gh_to_run_as_before() {
     let (_dir, socket, agent) = fake_agent("not json".to_owned());
     assert!(answer_from_agent(&args(&["api", "user"]), &socket).unwrap().is_err());
     agent.join().unwrap();
-    let missing = std::path::Path::new("/nonexistent/agent.sock");
+    let missing = Path::new("/nonexistent/agent.sock");
     assert!(answer_from_agent(&args(&["auth", "status"]), missing).unwrap().is_err());
 }
