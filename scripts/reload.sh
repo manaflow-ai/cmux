@@ -29,6 +29,9 @@ DERIVED_DATA=""
 NAME_SET=0
 BUNDLE_SET=0
 DERIVED_SET=0
+# 1: build only this Mac's architecture, 0: the configuration's own (Release is universal); empty until the
+# flags and environment are read (--native-arch, CMUX_RELOAD_NATIVE_ARCH, a fleet measurement step).
+NATIVE_ARCH=""
 TAG=""
 LAUNCH=0
 BUILD_ONLY=0
@@ -765,7 +768,16 @@ Options:
   --derived-data <path>  Override derived data path.
                          Defaults to CMUX_DERIVED_DATA when set (an absolute
                          path to a DerivedData kept warm for this checkout and
-                         shared by its tags), else one directory per tag.
+                         shared by its tags), else in a fleet measurement step
+                         (CMUX_CI_STEP_CLASS=exclusive) .build/DerivedData/cmux-measure
+                         in this checkout, else one directory per tag.
+  --native-arch          Build only this Mac's architecture (ARCHS=$(uname -m),
+                         ONLY_ACTIVE_ARCH=YES), the app and its bundled helpers,
+                         instead of Release's universal arm64 + x86_64. For an app
+                         that only runs here: benches and local Release dogfood.
+                         The default in a fleet measurement step; CMUX_RELOAD_NATIVE_ARCH=1
+                         turns it on, CMUX_RELOAD_NATIVE_ARCH=0 off. Shipped builds
+                         never use reload.sh, so they stay universal.
   --no-global-cli-links  Do not update /tmp/cmux-cli, /tmp/cmux-last-cli-path,
                          or PATH cmux-dev shims. Useful for isolated dogfood.
   --swift-frontend-workaround
@@ -880,6 +892,26 @@ tagged_derived_data_path() {
   echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
 }
 
+# A fleet measurement step (cmux-ci run --class exclusive, the scripts/measure/ entries) builds a tagged app
+# only to run it on this Mac. Its HOME is per step (work/steps/<id>/home), so the per-tag DerivedData was a
+# cold build every time, and Release built x86_64 too, a slice the bench never runs: chat-open.sh at
+# 599d6c5d ran into its 1800 s bound inside that build (step b128e339), split-spring.sh at 5d5ab41c sat
+# in it past 30 min (step 24ab613d).
+reload_is_measurement_step() {
+  [[ "${CMUX_CI_STEP_CLASS:-}" == exclusive ]]
+}
+
+# A measurement step's DerivedData sits in the checkout's .build, which the build worker keeps between
+# steps when the step runs in a warm checkout of its own (cmuxterm-hq build-fleet/cmd/worker/step_warm.go:
+# one checkout path per slot, cleaned with `git clean -ffdx -e .build`). Xcode keys DerivedData by the
+# sources' absolute paths, so only a checkout that keeps its path keeps the build warm. A cold checkout
+# removes it with the step, as the per-step HOME did. After a finished build reload.sh writes the
+# commit to .build/.cmux-ci-built-ref, the worker's sign that the build in .build completed
+# (warmBuildOutcome); a build cut short leaves none, and the worker drops that .build.
+measurement_derived_data_path() {
+  echo "$(cd "$SCRIPT_DIR/.." && pwd -P)/.build/DerivedData/cmux-measure"
+}
+
 # A tag only changes the bundle id, names, socket and state files. None of those
 # are compiler inputs, so a new tag built into a DerivedData that is already warm
 # for this checkout recompiles nothing, while a fresh per-tag DerivedData is a full
@@ -888,7 +920,8 @@ tagged_derived_data_path() {
 # to pass --derived-data on every reload. It must be absolute, and only one build
 # may use it at a time; that is the owner's lock to hold, not this script's.
 resolve_tagged_derived_data() {
-  # Precedence: --derived-data, then CMUX_DERIVED_DATA, then one directory per tag.
+  # Precedence: --derived-data, then CMUX_DERIVED_DATA, then a measurement step's warm one, then one
+  # directory per tag.
   local slug="$1" explicit_set="${2:-0}" explicit_path="${3:-}"
   if [[ "$explicit_set" -eq 1 ]]; then
     echo "$explicit_path"
@@ -900,6 +933,10 @@ resolve_tagged_derived_data() {
       return 1
     fi
     echo "$CMUX_DERIVED_DATA"
+    return 0
+  fi
+  if reload_is_measurement_step; then
+    measurement_derived_data_path
     return 0
   fi
   tagged_derived_data_path "$slug"
@@ -1198,6 +1235,10 @@ while [[ $# -gt 0 ]]; do
       NO_GLOBAL_CLI_LINKS=1
       shift
       ;;
+    --native-arch)
+      NATIVE_ARCH=1
+      shift
+      ;;
     --swift-disable-global-isel)
       SWIFT_FRONTEND_WORKAROUND=1
       shift
@@ -1221,6 +1262,14 @@ done
 if [[ "$BUILD_ONLY" -eq 1 && "$LAUNCH" -eq 1 ]]; then
   echo "error: --build-only cannot be combined with --launch" >&2
   exit 1
+fi
+
+if [[ -z "$NATIVE_ARCH" ]]; then
+  case "${CMUX_RELOAD_NATIVE_ARCH:-}" in
+    1) NATIVE_ARCH=1 ;;
+    0) NATIVE_ARCH=0 ;;
+    *) if reload_is_measurement_step; then NATIVE_ARCH=1; else NATIVE_ARCH=0; fi ;;
+  esac
 fi
 
 if [[ -z "$TAG" ]]; then
@@ -1412,9 +1461,16 @@ fi
 # app architecture in their binaries, while both build scripts default to the
 # host. A fleet --release build failed on "acpmux has architectures arm64, but
 # the app needs arm64 x86_64" (job f03724be4852). An explicit choice wins.
-if [[ "$BUILD_CONFIGURATION" == "Release" ]]; then
-  export CMUX_NEXT_ACPMUX_ARCHS="${CMUX_NEXT_ACPMUX_ARCHS:-arm64 x86_64}"
-  export CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="${CMUX_NEXT_OPTCHAT_CHIEF_ARCHS:-arm64 x86_64}"
+# A --native-arch build (a measurement step's default) builds the app for this Mac alone, so its helpers
+# need only that architecture too.
+RELOAD_HELPER_ARCHS="arm64 x86_64"
+if [[ "$NATIVE_ARCH" -eq 1 ]]; then
+  RELOAD_HELPER_ARCHS="$(uname -m)"
+  echo "==> native architecture build: ARCHS=$RELOAD_HELPER_ARCHS ONLY_ACTIVE_ARCH=YES (not universal)"
+fi
+if [[ "$BUILD_CONFIGURATION" == "Release" || "$NATIVE_ARCH" -eq 1 ]]; then
+  export CMUX_NEXT_ACPMUX_ARCHS="${CMUX_NEXT_ACPMUX_ARCHS:-$RELOAD_HELPER_ARCHS}"
+  export CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="${CMUX_NEXT_OPTCHAT_CHIEF_ARCHS:-$RELOAD_HELPER_ARCHS}"
 fi
 
 # cmux-next's agent pane starts the acpmux daemon from Resources/bin. A miss
@@ -1457,8 +1513,8 @@ fi
 # compile it on a miss and require it; a local reload bundles a cached build
 # when one exists and otherwise builds an app whose iPhone section says it is
 # unavailable (never Cargo on the developer Mac).
-if [[ "$BUILD_CONFIGURATION" == "Release" ]]; then
-  export CMUX_NEXT_MOBILE_HOST_ARCHS="${CMUX_NEXT_MOBILE_HOST_ARCHS:-arm64 x86_64}"
+if [[ "$BUILD_CONFIGURATION" == "Release" || "$NATIVE_ARCH" -eq 1 ]]; then
+  export CMUX_NEXT_MOBILE_HOST_ARCHS="${CMUX_NEXT_MOBILE_HOST_ARCHS:-$RELOAD_HELPER_ARCHS}"
 fi
 if [[ -z "${CMUX_NEXT_MOBILE_HOST_BIN:-}" && -x "$PWD/scripts/cmux-next/build-mobile-host.sh" ]]; then
   if cmux_mobile_host_cached="$("$PWD/scripts/cmux-next/build-mobile-host.sh" --cached-only --print-path 2>/dev/null)"; then
@@ -1686,6 +1742,9 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+if [[ "$NATIVE_ARCH" -eq 1 ]]; then
+  XCODEBUILD_ARGS+=(ARCHS="$RELOAD_HELPER_ARCHS" ONLY_ACTIVE_ARCH=YES)
+fi
 # A dev bundle id never claims http/https at Default rank, Release mode included
 # (Resources/Info.plist; tests/test_web_url_handler_rank.py).
 web_url_handler_rank=Default
@@ -1955,6 +2014,10 @@ sleep 0.2
 if LC_ALL=C grep -q 'BUILD INTERRUPTED' "$RELOAD_LOG"; then
   echo "error: xcodebuild reported ** BUILD INTERRUPTED **; refusing to reuse DerivedData app artifacts" >&2
   exit 65
+fi
+# The finished build's commit beside a measurement step's DerivedData (measurement_derived_data_path).
+if reload_is_measurement_step && [[ "$DERIVED_DATA" == "$(measurement_derived_data_path)" ]]; then
+  git -C "$SCRIPT_DIR/.." rev-parse HEAD > "$(dirname "$(dirname "$DERIVED_DATA")")/.cmux-ci-built-ref" 2>/dev/null || true
 fi
 
 FALLBACK_APP_NAME="$PRODUCT_APP_NAME"
