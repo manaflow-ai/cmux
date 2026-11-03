@@ -100,10 +100,10 @@ extension SSHService {
         return handed
     }
 
-    /// cx-3r9mt: whether an automatic update may run (``RemoteAgentDaemonStatus/idleForUpdate(ownInstance:)``).
-    func agentDaemonIdleForUpdate(_ session: SSHMachineSession) async -> Bool {
+    /// cx-3r9mt: whether an automatic update may run (``RemoteAgentDaemonStatus/mayUpdateAutomatically(ownInstance:)``).
+    func agentDaemonAllowsAutomaticUpdate(_ session: SSHMachineSession) async -> Bool {
         let ours = AcpmuxRemotePersonKeys.shared.instance(machine: session.machineID)
-        return await RemoteAgentDaemonStatus.read(session.host, environment: await Self.environment())?.idleForUpdate(ownInstance: ours) == true
+        return await RemoteAgentDaemonStatus.read(session.host, environment: await Self.environment())?.mayUpdateAutomatically(ownInstance: ours) == true
     }
 
     /// The fallback for a cmux-tui without `agent-session-start-keyed-reason-v1` (remove with
