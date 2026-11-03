@@ -274,7 +274,7 @@ impl Mux {
                 break;
             }
             match self.reap_unplaced_terminal(&terminal_id) {
-                Ok(ReapOutcome::Reaped) => ended += 1,
+                Ok(terminal_reap::ReapOutcome::Reaped) => ended += 1,
                 Ok(_) => {}
                 Err(error) => self.report_internal_diagnostic(format!(
                     "PTY reclaim could not end closed terminal {terminal_id}: {error:#}"
