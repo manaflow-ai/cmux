@@ -1,9 +1,9 @@
 import type { OutboxItem, Principal, ReduceContext, ReduceResult } from "@cmux/ownership"
-import { reduceChief, type ChiefCloudMachine, type ChiefRecord } from "./user-chief.ts"
+import { HOSTED_DEFAULT_KEY, reduceChief, type ChiefCloudMachine, type ChiefRecord } from "./user-chief.ts"
 import { personalTeamIdFor, type UserState } from "./user.ts"
 
 /** Also used by the Mac's ensureHosted; the server selects it before any client is needed. */
-export const HOSTED_DEFAULT_KEY = "chief-hosted-default"
+export { HOSTED_DEFAULT_KEY } from "./user-chief.ts"
 export const DEFAULT_CHIEF_ENSURE = "chief.default.ensure"
 export const DEFAULT_CHIEF_PROVISION = "chief.default.provision"
 export const DEFAULT_CHIEF_BIND = "chief.default.bind"

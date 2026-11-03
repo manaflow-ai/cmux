@@ -52,6 +52,10 @@ describe("signup default Chief", () => {
     const replay = decided(userDomain.reduce(made.state, DEFAULT_CHIEF_ENSURE, {}, context(undefined, "another-tx")))
     expect(replay.changed).toBe(false)
     expect(Object.keys(replay.state.chiefs ?? {})).toEqual([id])
+    const raced = decided(userDomain.reduce(made.state, "chief.create", { display_name: "Chief", is_default: true }, { ...context(session), idempotencyKey: HOSTED_DEFAULT_KEY }))
+    expect(raced.changed).toBe(false)
+    expect((raced.value as { id: string }).id).toBe(id)
+    expect(Object.keys(raced.state.chiefs ?? {})).toEqual([id])
     const removed: UserState = { ...made.state, chiefs: {} }
     expect(decided(userDomain.reduce(removed, DEFAULT_CHIEF_ENSURE, {}, context())).value).toBeNull()
     expect(decided(userDomain.reduce(removed, DEFAULT_CHIEF_ENSURE, {}, context())).state.chiefs).toEqual({})

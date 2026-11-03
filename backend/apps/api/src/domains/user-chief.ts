@@ -5,6 +5,8 @@ import type { UserState } from "./user.ts"
 
 /** A chief's main conversation id: derived from the chief id (one place per chief). */
 export const chiefMainConversation = (chief: string): string => `conv_${invites.crockford(createHash("sha256").update(`chief-main\u0000${chief}`).digest(), 26)}`
+/** The Mac and the server use the same account-level hosted-Chief ensure key. */
+export const HOSTED_DEFAULT_KEY = "chief-hosted-default"
 
 /**
  * Chief records in UserDO (plans/cmux-next/chief-mac.md section 9). The user's principal is
@@ -185,6 +187,10 @@ export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx:
     case "chief.create": {
       if (params.display_name !== undefined && !nameOk(params.display_name)) return reject("validation.invalid", "display_name must be 1 to 100 characters")
       if (params.is_default !== undefined && typeof params.is_default !== "boolean") return reject("validation.invalid", "is_default must be a boolean")
+      const signup = state.hosted_default ? chiefs[state.hosted_default] : undefined
+      // The Mac may read an empty list just before the signup outbox commits. This is a no-change
+      // answer, so key-sensitive state is never written into a mirrored event (replays hide keys).
+      if (ctx.idempotencyKey === HOSTED_DEFAULT_KEY && signup?.archived_at === null && !signup.brain_place) return { ok: true, state, value: signup, changed: false }
       if (active.length >= MAX_CHIEFS) return reject("validation.invalid", `at most ${MAX_CHIEFS} chiefs`)
       let place: ChiefBrainPlace | null = null
       if (params.brain_place !== undefined) {
