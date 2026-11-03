@@ -202,15 +202,15 @@ final class CookieImportConsentPanel {
         window.addChildWindow(panel, ordered: .above)
         window.themeScope.adopt(panel)
         place()
-        panel.personClick.shown()
+        panel.arm()
         // Draws the person's eye without activating cmux (a Dock bounce while another app is in front).
         NSApp.requestUserAttention(.informationalRequest)
         let center = NotificationCenter.default
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
             observers.append(MainActorObservation(name, object: window, center: center) { [weak self] in
                 self?.place()
-                // Moved under the pointer (AppKit moves a child window with its parent): not armed.
-                self?.panel.personClick.shown()
+                // Moved under the pointer (AppKit moves a child window with its parent): armed again.
+                self?.panel.arm()
             })
         }
         observers.append(MainActorObservation(NSWindow.willCloseNotification, object: window, center: center) { [weak self] in
@@ -258,24 +258,28 @@ final class CookieImportConsentWindow: NSPanel {
     /// Runs once per click of the person's on Allow.
     var onPersonAllow: @MainActor () -> Void = {}
 
+    /// The frame the guard was last armed for.
+    private var armedFrame: NSRect?
+
     override func sendEvent(_ event: NSEvent) {
         dispatch(event) { super.sendEvent(event) }
     }
 
-    /// Moved (placed again, or an Accessibility client set its position): a click aimed at what was
-    /// there before is not taken. A move with its parent is armed by the panel's parent observers.
-    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
-        super.setFrame(frameRect, display: flag)
+    /// The panel shows or moves now (placed, or its parent moved): a click aimed at what was there
+    /// before is not taken.
+    func arm() {
+        armedFrame = frame
         personClick.shown()
     }
 
-    override func setFrameOrigin(_ point: NSPoint) {
-        super.setFrameOrigin(point)
-        personClick.shown()
-    }
-
-    /// SECURITY: Allow answers here, from the person's click itself, never from the button's action.
+    /// SECURITY: Allow answers here, from the person's click itself, never from the button's action. A
+    /// mouse-down on a panel that moved since it was armed (an Accessibility client set its position) arms
+    /// it again at that click, so that click is not taken.
     func dispatch(_ event: NSEvent, _ body: () -> Void) {
+        if event.type == .leftMouseDown, frame != armedFrame {
+            armedFrame = frame
+            personClick.shown(at: event.timestamp)
+        }
         if personClick.dispatch(event, allow: allow, in: windowNumber, body) { onPersonAllow() }
     }
 }

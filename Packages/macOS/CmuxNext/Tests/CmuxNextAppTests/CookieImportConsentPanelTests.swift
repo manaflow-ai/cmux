@@ -147,4 +147,57 @@ import Testing
         #expect(await answer.value == .allow)
         #expect(!consent.isShown)
     }
+
+    /// A move of the panel arms Chrome's guard again: a click right after the panel moved under the pointer
+    /// (an Accessibility client set its position, or its parent moved) is not taken; the next one is.
+    @Test func aClickRightAfterThePanelMovesIsNotTaken() async throws {
+        _ = NSApplication.shared
+        let parent = Self.parent()
+        let consent = CookieImportConsentPanel(request: Self.request, onShowRequester: nil, isPersonEvent: { _ in true })
+        let answer = Task { await consent.ask(on: parent, limit: .seconds(30)) }
+        _ = try await Self.shown(consent, on: parent)
+        let window = consent.panel
+        let allow = try #require(consent.allowButton)
+        let delay = window.personClick.activationDelay
+        let base = ProcessInfo.processInfo.systemUptime + 1000
+        window.personClick.shown(at: base)
+        var number = 0
+        var current: NSEvent?
+        window.personClick.eventInHand = { current }
+        let click = { (time: TimeInterval) throws in
+            let at = allow.convert(NSPoint(x: allow.bounds.midX, y: allow.bounds.midY), to: nil)
+            let make = { (type: NSEvent.EventType, stamp: TimeInterval) throws -> NSEvent in
+                number += 1
+                return try #require(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: stamp,
+                                                       windowNumber: window.windowNumber, context: nil, eventNumber: number,
+                                                       clickCount: 1, pressure: 0))
+            }
+            let pressed = try make(.leftMouseDown, time), released = try make(.leftMouseUp, time + 0.05)
+            current = pressed
+            window.dispatch(pressed) { current = released }
+        }
+        window.setFrameOrigin(NSPoint(x: window.frame.minX + 40, y: window.frame.minY + 40))
+        try click(base + 4 * delay) // the first click after the move
+        for _ in 0..<50 { await Task.yield() }
+        #expect(consent.isShown, "a click right after the panel moved is not taken")
+        try click(base + 8 * delay)
+        #expect(await answer.value == .allow)
+    }
+
+    /// A palette or Import card run skips the panel only for the person's own click or key that just
+    /// started it: not another process's, not a mouse move, and not an old event (an Accessibility press
+    /// makes no event, so the event in dispatch is an older one).
+    @Test func aPersonsRunIsOnlyOneThePersonsOwnRecentInputStarted() throws {
+        let event = { (type: NSEvent.EventType, time: TimeInterval) throws -> NSEvent in
+            try #require(NSEvent.mouseEvent(with: type, location: .zero, modifierFlags: [], timestamp: time, windowNumber: 0,
+                                            context: nil, eventNumber: 1, clickCount: 1, pressure: 0))
+        }
+        let person: @MainActor (NSEvent) -> Bool = { _ in true }
+        #expect(CookieImportService.startedByPerson(try event(.leftMouseUp, 99.5), now: 100, isPerson: person))
+        #expect(!CookieImportService.startedByPerson(try event(.leftMouseUp, 99.5), now: 100, isPerson: { _ in false }),
+                "another process's click")
+        #expect(!CookieImportService.startedByPerson(try event(.mouseMoved, 99.9), now: 100, isPerson: person), "a mouse move")
+        #expect(!CookieImportService.startedByPerson(try event(.leftMouseUp, 90), now: 100, isPerson: person), "an old click")
+        #expect(!CookieImportService.startedByPerson(nil, now: 100, isPerson: person), "no event")
+    }
 }
