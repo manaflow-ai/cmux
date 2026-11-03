@@ -942,6 +942,10 @@ fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value
     }
     if attach {
         out.insert("eventStream", json!(true));
+        // The page opening the chat asks for its newest records at once, as the app's local
+        // attach does (`direct.ts` `sendAttach`): waiting for a restarted daemon's log restore
+        // of a long chat outlasted `CALL_TIMEOUT`, and the remote chat opened empty.
+        out.insert("waitLogs", json!(false));
     }
     Ok(out)
 }

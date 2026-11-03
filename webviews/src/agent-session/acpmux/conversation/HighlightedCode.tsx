@@ -59,7 +59,14 @@ const paneThemeType = () => (document.documentElement.dataset.theme === "light" 
  * re-renders the same instance instead of building another; a theme switch on the page
  * (applyAgentTheme sets `data-theme`) changes its syntax colors in place.
  */
-export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlockProps) {
+export function HighlightedCode({
+  code,
+  lang = "text",
+  label,
+  actions,
+  artifactIdentity,
+  artifactRevision,
+}: CodeBlockProps) {
   const t = useT();
   const look = useCodeHeaderLook(lang, label);
   const host = useRef<HTMLDivElement>(null);
@@ -111,11 +118,20 @@ export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlo
       file: { name, contents: code, lang: (isHighlighted(lang) ? lang : "text") as never },
     });
   }, [code, lang, look, pool, wrap, name, workerAvailable]);
-  if (!workerAvailable) return <PlainCode code={code} lang={lang} actions={actions} />;
+  if (!workerAvailable)
+    return (
+      <PlainCode
+        code={code}
+        lang={lang}
+        actions={actions}
+        artifactIdentity={artifactIdentity}
+        artifactRevision={artifactRevision}
+      />
+    );
   return (
     <div className={`cv-codeblock${codeHeaderClass(look)}`} ref={menuPartRef({ code })}>
       <CodeHeader look={look} lang={lang} label={label}>
-        <OpenPreview code={code} lang={lang} />
+        <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
         <button
           type="button"
           className="cv-codeblock__action"

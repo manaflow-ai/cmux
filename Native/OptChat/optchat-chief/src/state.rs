@@ -381,6 +381,10 @@ pub struct SubRecord {
     /// Its acpmux session, once created.
     #[serde(default)]
     pub session_id: Option<String>,
+    /// The harness its session runs on (`subagent.start`'s), kept so its
+    /// spend is still attributed after a host restart (usage.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
     /// Its cmux workspace, once created.
     #[serde(default)]
     pub workspace: Option<String>,
@@ -565,6 +569,15 @@ pub struct QueuedLaunch {
     pub model: Option<String>,
 }
 
+/// Files awaiting a streamed upload. The manifest survives a Chief restart;
+/// the bytes remain on disk instead of entering the outbox JSON.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingMedia {
+    pub path: std::path::PathBuf,
+    pub mime_type: String,
+    pub image_syntax: Option<std::ops::Range<usize>>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OutboxEntry {
     pub conversation: String,
@@ -592,6 +605,8 @@ pub struct OutboxEntry {
     /// new key (a reply is never dropped).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plain_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_media: Vec<PendingMedia>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

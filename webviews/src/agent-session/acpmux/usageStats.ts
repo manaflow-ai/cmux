@@ -111,15 +111,25 @@ export function byUsage<T extends { sessionId: string; usageStats?: SessionUsage
     );
 }
 
-/** The context `usage` read against the window the session compacts at: its autocompact cap when
- *  that is under the model's window, as Claude Code's own /context reads it (Leo 2026-10-20, of a
- *  ring that read "213.1K of 1M tokens": "I usually have, like, 400K on my typical [Claude]
- *  sessions"). `usage` itself when there is no smaller cap. */
+/** The context `usage` read against the window the session compacts at, as Claude Code's own
+ *  /context reads it (Leo 2026-10-20, of a ring that read "213.1K of 1M tokens": "I usually have,
+ *  like, 400K on my typical [Claude] sessions"; 2026-11-02, of "/ 1M" on a 400k chat: "whatever a
+ *  user set their compact window to it should be that instead of always showing the defautl"). The
+ *  smaller of the window /context itself names (`breakdown.maxTokens`, which already reads the
+ *  person's autocompact setting) and acpmux's autocompact cap, each only when it is under the
+ *  model's window. `usage` itself when neither is. */
 export function compactingUsage<U extends { used: number; size: number }>(
   usage: U | undefined,
   stats: SessionUsageStats | undefined,
+  breakdown?: { maxTokens?: unknown },
 ): U | undefined {
-  const cap = stats?.autocompact === "capped" ? stats.autocompactCap : undefined;
-  if (!usage || !cap || cap <= 0 || (usage.size > 0 && cap >= usage.size)) return usage;
-  return { ...usage, size: cap };
+  if (!usage) return usage;
+  const under = (n: unknown) =>
+    typeof n === "number" && Number.isFinite(n) && n > 0 && (usage.size <= 0 || n < usage.size) ? n : undefined;
+  const windows = [
+    under(breakdown?.maxTokens),
+    under(stats?.autocompact === "capped" ? stats.autocompactCap : undefined),
+  ];
+  const known = windows.filter((n): n is number => n !== undefined);
+  return known.length === 0 ? usage : { ...usage, size: Math.min(...known) };
 }

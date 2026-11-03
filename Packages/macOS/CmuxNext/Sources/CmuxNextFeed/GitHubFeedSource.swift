@@ -18,6 +18,9 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
     private var notificationETag: String?
     private var reviewETag: String?
     private var checksETag: String?
+    private var heldETag: String?
+    /// Dedupe keys of the held pull requests the last fresh answer listed.
+    private var heldKeys: Set<String> = []
     private(set) public var lastError: String?
     public private(set) var githubDetails: [String: GitHubFeedDetail] = [:]
 
@@ -41,7 +44,9 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
         notificationETag = nil
         reviewETag = nil
         checksETag = nil
+        heldETag = nil
         githubDetails.removeAll()
+        detailOrder.removeAll()
     }
 
     public func githubDetail(for item: FeedItem) -> GitHubFeedDetail? {
@@ -110,6 +115,24 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
                     post(item, detail: detail)
                 }
             }
+            // Needs you: the user's own PRs held for their trial are open requests, pinned with
+            // the other asks until the PR lands, closes or loses the hold. Then it leaves the held
+            // list, and a fresh answer without it withdraws the request (a 304 or an error does not).
+            let held = try await client.heldForTrial(etag: heldETag)
+            heldETag = held.etag ?? heldETag
+            if let value = held.value, !held.notModified {
+                var listed: Set<String> = []
+                for pull in value {
+                    let (item, detail) = makeHeldItem(from: pull)
+                    listed.insert(item.dedupeKey ?? item.id)
+                    post(item, detail: detail)
+                }
+                for gone in heldKeys.subtracting(listed) {
+                    owner.withdraw(dedupeKey: gone)
+                    githubDetails[gone] = nil
+                }
+                heldKeys = listed
+            }
             lastError = nil
         } catch {
             lastError = String(describing: error)
@@ -117,9 +140,24 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
     }
 
     private func post(_ item: FeedItem, detail: GitHubFeedDetail) {
-        githubDetails[item.dedupeKey ?? item.id] = detail
+        let key = item.dedupeKey ?? item.id
+        githubDetails[key] = detail
         owner.post(item)
+        // A request's detail stays as long as the owner keeps the request (it never prunes an
+        // open one); a notice's details are bounded like the owner's items, the oldest first.
+        guard !item.isRequest else { return }
+        detailOrder.removeAll { $0 == key }
+        detailOrder.append(key)
+        if detailOrder.count > Self.maxDetails {
+            for stale in detailOrder.prefix(detailOrder.count - Self.maxDetails) { githubDetails[stale] = nil }
+            detailOrder.removeFirst(detailOrder.count - Self.maxDetails)
+        }
     }
+
+    /// The most notice details kept: as many as the local feed owner keeps items.
+    public static let maxDetails = InMemoryFeedSource.defaultMaxItems
+    /// Detail keys, least recently posted first.
+    private var detailOrder: [String] = []
 
     private func makeItem(from notification: GitHubNotification) -> (FeedItem, GitHubFeedDetail) {
         let url = notificationURL(repository: notification.repository, subject: notification.subject)
@@ -159,6 +197,24 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
         let detail = GitHubFeedDetail(
             repository: review.repository.fullName, number: review.number, url: url,
             title: review.title, body: review.body, state: review.state, branch: review.branch, updatedAt: review.updatedAt
+        )
+        return (item, detail)
+    }
+
+    private func makeHeldItem(from pull: GitHubReviewRequest) -> (FeedItem, GitHubFeedDetail) {
+        let url = URL(string: pull.htmlURL)
+        let dedupe = "github:held:\(pull.repository.fullName):\(pull.number)"
+        let item = FeedItem(
+            id: stableID(dedupe), home: .local(install: "github"), title: FeedStrings.github,
+            body: notificationReference(repository: pull.repository.fullName, number: pull.number),
+            prompt: .review(.init(subject: .pr, ref: pull.htmlURL)), priority: .normal, dedupeKey: dedupe,
+            thread: "github:\(pull.repository.fullName):pr:\(pull.number)", context: FeedContext(url: url),
+            expiresAt: now().addingTimeInterval(7 * 24 * 60 * 60), poster: FeedPoster(kind: .integration, label: "GitHub"),
+            createdAt: pull.updatedAt, updatedAt: now()
+        )
+        let detail = GitHubFeedDetail(
+            repository: pull.repository.fullName, number: pull.number, url: url,
+            title: pull.title, body: pull.body, state: pull.state, branch: pull.branch, updatedAt: pull.updatedAt
         )
         return (item, detail)
     }

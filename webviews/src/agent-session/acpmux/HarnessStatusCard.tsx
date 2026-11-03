@@ -55,7 +55,7 @@ function version(rows: readonly AcpmuxRow[], summary: Summary, t: Translate): st
 }
 
 function usageLabel(summary: Summary, t: Translate): string {
-  const usage = compactingUsage(summary.usage, summary.usageStats);
+  const usage = compactingUsage(summary.usage, summary.usageStats, summary.contextBreakdown);
   if (!usage || usage.size <= 0 || usage.used < 0) return t("status.notReported");
   const percent = Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100);
   return t("status.usage", { percent, used: usage.used.toLocaleString(), size: usage.size.toLocaleString() });
@@ -97,23 +97,25 @@ export function HarnessStatusCard({
   const source = info(summary);
   const auth = authSourceLabel(summary, t);
   const settings = source.settingsSources ?? summary.settingsSources;
-  const usageLimits =
-    usageLimitsLabel(source.usageLimits, t, locale) ??
-    usageLimitsLabel(summary.usageLimits, t, locale) ??
-    t("status.notReported");
+  const reportedLimits =
+    usageLimitsLabel(source.usageLimits, t, locale) ?? usageLimitsLabel(summary.usageLimits, t, locale);
+  // acpmux says when the sign-in has no plan limits at all (an API key, a cloud provider): the row
+  // does not apply. Otherwise a chat with none yet says so plainly.
+  const limitsApply = reportedLimits !== undefined || summary.usageLimitsApply !== false;
+  const usageLimits = reportedLimits ?? t("status.noLimitYet");
   const fields: readonly StatusField[] = [
     [t("status.field.version"), version(rows, summary, t)],
     [t("status.field.session"), display(summary.sessionId, t)],
     [t("status.field.cwd"), display(summary.cwd, t)],
-    [t("status.field.host"), display(summary.host ?? summary.peer, t)],
+    [t("status.field.host"), display(summary.host ?? summary.peer ?? summary.machine, t)],
     [t("status.field.model"), display(summary.model, t)],
     [t("status.field.effort"), display(summary.effort, t)],
     [t("status.field.authSource"), auth],
     [t("status.field.routing"), routeLabel(summary, t)],
     [t("status.field.settings"), listLabel(settings, t)],
     [t("status.field.context"), usageLabel(summary, t)],
-    [t("status.field.usageLimits"), usageLimits],
-  ] as const;
+    ...(limitsApply ? [[t("status.field.usageLimits"), usageLimits] as const] : []),
+  ];
   const copyField = async (label: string, value: string, target: HTMLElement) => {
     const selection = window.getSelection();
     if (

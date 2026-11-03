@@ -9,6 +9,7 @@ dependencies = [
  "acpmux-build-id",
  "anyhow",
  "base64",
+ "bytes",
  "chrono",
  "chrono-tz",
  "clap",
@@ -37,6 +38,8 @@ dependencies = [
  "futures",
  "futures-util",
  "getrandom 0.3.4",
+ "inotify",
+ "jsonschema",
  "libc",
  "memchr",
  "notify",
@@ -563,6 +566,9 @@ name = "bitflags"
 version = "2.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
+dependencies = [
+ "serde_core",
+]
 
 [[package]]
 name = "blake2"
@@ -1268,6 +1274,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-imessage"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-json"
 version = "0.1.0"
 dependencies = [
@@ -1436,7 +1451,10 @@ name = "cmux-rd-link"
 version = "0.1.0"
 dependencies = [
  "cmux-transport",
+ "hmac",
  "libc",
+ "md-5",
+ "sha1",
  "snow",
 ]
 
@@ -2230,6 +2248,7 @@ dependencies = [
  "mio",
  "parking_lot",
  "rustix",
+ "serde",
  "signal-hook",
  "signal-hook-mio",
  "winapi",
@@ -4207,6 +4226,16 @@ name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
+
+[[package]]
+name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest 0.10.7",
+]
 
 [[package]]
 name = "memchr"

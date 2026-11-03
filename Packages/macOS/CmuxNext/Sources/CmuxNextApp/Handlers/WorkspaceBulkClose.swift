@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
@@ -106,6 +107,8 @@ enum WorkspaceBulkClose {
         if members.isEmpty, let none = nothingToClose.first(where: { $0.0 == id })?.1 { throw ActionFailure.invalidTarget(none()) }
         let services = context.services
         let names = members.map { $0.0.name }
+        // The groups these closes may empty (Close Others in Group's whole groups go as `PersonalGroupPin` says).
+        let cleanups = WorkspaceGroupClose.closeCleanups(id == "workspaceGroup.closeOthers" ? [] : members.map(\.0.id), services)
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
         var groups: [(String?, [String])] = [(nil, names)]
         if id == "workspaceGroup.closeOthers" {
@@ -119,8 +122,11 @@ enum WorkspaceBulkClose {
         } else {
             WorkspaceClose.close(members)
         }
+        // task-owner: one cleanup per group, bounded by `GroupCloseCleanup.settleLimit` and its delete
+        for cleanup in cleanups { Task { @MainActor in await cleanup.run() } }
         guard invocation.origin == .user, members.count > 1, let window else { return }
-        WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), groups: groups, after: seen, in: window, services)
+        WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), groups: groups, after: seen, in: window, services,
+                                      cleanups: cleanups)
     }
 
     /// The open workspaces a sidebar section lists: its workspace items (Pinned

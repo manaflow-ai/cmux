@@ -29,6 +29,8 @@ impl Brain {
                 self.agents_up = true;
                 self.reap_closed_compactor_sessions(&sessions);
                 self.reconcile_spawns(&sessions);
+                let sessions_listed: Vec<String> =
+                    sessions.iter().map(|s| s.name.clone()).collect();
                 // Only the Chief's own children: the compactor and turn
                 // sessions come and go by the thousand.
                 self.sessions = sessions
@@ -41,6 +43,7 @@ impl Brain {
                         let _ = self.agents.end_session(&id);
                     }
                 }
+                self.ensure_chief_inbox(&sessions_listed);
                 self.adopt_orphans(false);
                 self.reconcile_children();
                 self.maybe_start_turn();
@@ -271,6 +274,9 @@ impl Brain {
             self.orphan_wait = None;
             return;
         }
+        // A person's message that came before the agent link was back (a
+        // restart) does not wait for it either (`queue_in`).
+        let force = force || self.queue.iter().any(super::Queued::is_owner_message);
         let orphans = std::mem::take(&mut self.state.orphans);
         let mut gone = Vec::new();
         let mut running = false;

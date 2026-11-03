@@ -1023,6 +1023,14 @@ export type SessionDetail = {
   tools?: (ToolSummary[] | null);
   /** `_acpmux/set_tools` can change them; omitted from census rows. */
   toolsMutable?: (boolean | null);
+  /**
+   * The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike
+   * `updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,
+   * git, process counts) never moves it, so a client that keeps a chat's newest page reads it
+   * again only when this passes the value it read at. An upper bound after a hard stop.
+   * Absent from a peer on an older acpmux.
+   */
+  transcriptSeq?: number;
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
@@ -1246,6 +1254,14 @@ export type SessionSummary = {
   tools?: (ToolSummary[] | null);
   /** `_acpmux/set_tools` can change them; omitted from census rows. */
   toolsMutable?: (boolean | null);
+  /**
+   * The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike
+   * `updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,
+   * git, process counts) never moves it, so a client that keeps a chat's newest page reads it
+   * again only when this passes the value it read at. An upper bound after a hard stop.
+   * Absent from a peer on an older acpmux.
+   */
+  transcriptSeq?: number;
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
@@ -1290,6 +1306,12 @@ export interface SessionsParams {
    * (its name, e.g. `huge-blue`). Empty is no filter.
    */
   peer?: (string | null);
+  /**
+   * `_acpmux/sessions` only (a watch refuses it): only the sessions with a pending permission
+   * or question, local and peer, summarized alone and answered without the list's pace.
+   * Takes no other filter; the reply is never paged (capability `session-list-pending-v1`).
+   */
+  pendingOnly?: (boolean | null);
   /**
    * `_acpmux/sessions` only (a watch refuses it): only the sessions in this status
    * (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.

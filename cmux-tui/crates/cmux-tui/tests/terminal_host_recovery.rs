@@ -5293,6 +5293,10 @@ mod host_orphan;
 #[path = "terminal_host_recovery/restart_host_leak.rs"]
 mod restart_host_leak;
 
+#[cfg(unix)]
+#[path = "terminal_host_recovery/pty_release.rs"]
+mod pty_release;
+
 #[path = "terminal_host_recovery/false_exit.rs"]
 mod false_exit;
 

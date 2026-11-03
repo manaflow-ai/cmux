@@ -254,3 +254,84 @@ fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
         acpmux.env
     );
 }
+
+/// A hook binary that does not know `__bg-hook` never blocks the chat's Bash calls: as the cmux
+/// CLI does (gcp-codex-swarm-09, 2026-11-02), the bare command refuses with exit 2, which Claude
+/// Code takes as "block this call", and the plugin's command runs the call instead. A deny the
+/// hook prints still reaches Claude Code.
+#[test]
+fn a_hook_binary_that_does_not_know_the_hook_lets_the_call_run() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-hook-skew-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let script = |name: &str, body: &str| {
+        let path = root.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\ncat >/dev/null\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path.to_string_lossy().into_owned()
+    };
+    let run = |command: &str| {
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        // A binary that is gone never reads its input: the write may fail with a broken pipe.
+        let _ = child.stdin.take().unwrap().write_all(br#"{"tool_name":"Bash"}"#);
+        child.wait_with_output().unwrap()
+    };
+    let words = |exe: String| vec![exe, crate::bg_hook::HOOK_ARG.to_owned(), "/h".to_owned()];
+    let old =
+        words(script("cmux", r#"echo 'cmux: unknown resource scope "__bg-hook".' >&2; exit 2"#));
+    let bare: Vec<String> = old.iter().map(|w| format!("'{w}'")).collect();
+    assert_eq!(run(&bare.join(" ")).status.code(), Some(2), "the skew this guards against");
+    let out = run(&super::hook_command(&old));
+    assert!(out.status.success(), "a refusing hook binary blocked the call: {out:?}");
+    // A binary that is gone does not block either.
+    let gone = words(root.join("gone").to_string_lossy().into_owned());
+    assert!(run(&super::hook_command(&gone)).status.success());
+    // The hook's own answer still gets through.
+    let deny = words(script("acpmux", r#"echo '{"deny":true}'"#));
+    let out = run(&super::hook_command(&deny));
+    assert!(out.status.success());
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), r#"{"deny":true}"#);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// `github_status` lives in the `acpmux` server, which every harness gets the same way: Claude
+/// Code in its `--mcp-config`, every ACP harness (Codex, OpenCode, Gemini, pi) in `mcpServers`,
+/// and, folded behind `cmux`, in its upstreams.
+#[test]
+fn the_github_status_server_reaches_every_harness_kind() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-gh-status-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let inputs = super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(
+            std::path::PathBuf::from("/usr/local/bin/acpmux"),
+            vec![],
+        )),
+        ..memory_inputs(&root, None)
+    };
+    let tools = super::resolve(&inputs).for_session("s1");
+    let acpmux = crate::acpmux_mcp::SERVER_NAME;
+    let acp = tools.acp_servers();
+    let entry = acp.as_array().unwrap().iter().find(|s| s["name"] == acpmux).unwrap();
+    assert_eq!(entry["args"], serde_json::json!(["acpmux-mcp"]));
+    let claude = tools.mcp_config().unwrap();
+    assert_eq!(claude["mcpServers"][acpmux]["args"], serde_json::json!(["acpmux-mcp"]));
+    // With the cmux server, the acpmux server is one of its upstreams.
+    let cmux = root.join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let folded = super::resolve(&inputs).for_session("s1").folded();
+    let upstreams =
+        &folded.servers[0].env.iter().find(|(k, _)| k == super::UPSTREAMS_ENV).unwrap().1;
+    let upstreams: serde_json::Value = serde_json::from_str(upstreams).unwrap();
+    assert!(upstreams.as_array().unwrap().iter().any(|s| s["name"] == acpmux), "{upstreams}");
+    let _ = std::fs::remove_dir_all(&root);
+}

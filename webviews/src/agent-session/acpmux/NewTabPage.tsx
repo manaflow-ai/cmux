@@ -567,7 +567,8 @@ export function NewTabPage({
     const element = field.current?.element();
     setDropHost(element ? (element.closest(".acpmux-newtab") ?? element.ownerDocument.body) : null);
   }, [fieldReady]);
-  const dropLandingTarget = useCallback(() => field.current?.element()?.parentElement ?? null, []);
+  // The input card, which a file drag rings (composer/DropOverlay.tsx).
+  const dropLandingTarget = useCallback(() => field.current?.element()?.closest(".acpmux-newtab-box") ?? null, []);
   // Cmd-V anywhere on the page outside a text field (a row, a card, the empty page) goes into the
   // field, caret at the end, as in a chat (composer/pasteAnywhere.ts; Leo 2026-10-22: "cmd v anywhere
   // in chat should put it in chat").
