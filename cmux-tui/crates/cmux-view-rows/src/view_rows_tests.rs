@@ -187,6 +187,28 @@ fn a_receiver_refuses_an_edit_that_does_not_fit_and_keeps_its_rows() {
     }
 }
 
+/// A count the base rows and the inserted rows cannot fill is refused before anything is allocated
+/// for it: a receiver never panics or aborts on an edit, whatever it says (review of #33902).
+#[test]
+fn a_receiver_refuses_a_count_its_rows_cannot_fill_before_it_allocates_it() {
+    let list = rows(&[("a", 1), ("b", 2)]);
+    for (change, why) in [
+        (edit(vec![0], vec![], vec![], vec![], usize::MAX), Malformed::TooFewRows),
+        (edit(vec![], vec![], vec![placed(0, "c", 3)], vec![], usize::MAX), Malformed::TooFewRows),
+        (edit(vec![0, 1], vec![], vec![placed(0, "c", 3)], vec![], 0), Malformed::TooManyRows),
+    ] {
+        let mut applied = Applied::new();
+        assert_eq!(applied.apply(Diff::Reset { revision: 1, rows: list.clone() }), Ok(()));
+        assert_eq!(
+            applied.apply(Diff::Edit { base: 1, revision: 2, edit: change.clone() }),
+            Err(ApplyError::Malformed(why)),
+            "{change:?}"
+        );
+        assert_eq!(applied.rows(), &list, "{change:?}");
+        assert_eq!(applied.revision(), Some(1), "{change:?}");
+    }
+}
+
 #[test]
 fn rows_refuse_a_key_that_comes_twice() {
     assert_eq!(Rows::new([("a", 1), ("b", 2), ("a", 3)]).err(), Some(DuplicateKey("a")));
