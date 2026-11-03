@@ -567,6 +567,14 @@ final class RemoteTmuxViewConnection {
         return connection.sendSequence(settle)
     }
 
+    /// Unlinks the view's copy of `windowId`, at `windowIndex` in the view, so the real session
+    /// keeps the window.
+    nonisolated static func unlinkFromViewCommands(
+        windowId: String, viewSessionName: String, windowIndex: Int
+    ) -> [String] {
+        ["unlink-window -k -t \(RemoteTmuxHost.shellSingleQuoted(viewSessionName)):\(windowIndex)"]
+    }
+
     /// Links `windowId` into the view and marks it as cmux's.
     static func linkIntoView(
         _ windowId: String, viewSessionName: String, on connection: RemoteTmuxControlConnection
@@ -847,7 +855,8 @@ final class RemoteTmuxViewConnection {
                 if let idx = snapshot.windows.first(where: {
                     $0.sessionName == view.sessionName && $0.windowId == windowId
                 })?.windowIndex {
-                    _ = conn.send("unlink-window -k -t \(quoted(view.sessionName)):\(idx)")
+                    _ = conn.sendSequence(Self.unlinkFromViewCommands(
+                        windowId: windowId, viewSessionName: view.sessionName, windowIndex: idx))
                 }
                 ownedWindowIds.remove(windowId)
             }

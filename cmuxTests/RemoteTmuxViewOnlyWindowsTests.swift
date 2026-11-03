@@ -140,6 +140,66 @@ import Testing
         #expect(try tmux.windowIds(session: "view").contains(x))
     }
 
+    /// tmux reads a target that starts with `$` as a session id, so `=$home:@1` finds nothing and
+    /// a window next to a window of a session named `$home` could never be adopted. The adoption
+    /// names the session by its id instead.
+    @Test(.enabled(if: ViewOnlyTmuxServer.binary != nil))
+    func aWindowJoinsASessionWhoseNameStartsWithDollarInARealTmux() throws {
+        let tmux = try ViewOnlyTmuxServer()
+        defer { tmux.stop() }
+        func newWindow(_ arguments: [String]) throws -> String {
+            try tmux.run(arguments + ["-P", "-F", "#{window_id}"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let home = try tmux.run(["new-session", "-d", "-s", "$home", "-P", "-F", "#{session_id}"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let a = try tmux.run(["list-windows", "-t", home, "-F", "#{window_id}"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let placeholder = try newWindow(["new-session", "-d", "-s", "view"])
+        try tmux.run(["link-window", "-d", "-s", a, "-t", "=view:"])
+        let x = try newWindow(["new-window", "-d", "-a", "-t", "=view:\(a)"])
+
+        let rows = RemoteTmuxLinkedWorkspaceModel.parseRows(
+            try tmux.run(["list-windows", "-a", "-F", RemoteTmuxLinkedWorkspaceModel.listFormat]))
+        let adoptions = RemoteTmuxViewOnlyWindows.adoptions(
+            rows: rows, viewSessionName: "view", excludedSessions: ["view"],
+            placeholderWindowId: placeholder, cmuxOwnedWindowIds: [a])
+        #expect(adoptions.count == 1)
+        let file = tmux.directory.appendingPathComponent("dollar.conf")
+        try RemoteTmuxViewOnlyWindows.linkCommands(adoptions).map { $0.joined(separator: " ; ") }
+            .joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
+        tmux.runIgnoringFailure(["source-file", file.path])
+
+        let homeWindows = try tmux.run(["list-windows", "-t", home, "-F", "#{window_id}"])
+            .split(separator: "\n").map(String.init)
+        #expect(homeWindows == [a, x])
+    }
+
+    /// A window cmux unlinks from the view loses its mark. The mark is a window option and
+    /// outlives the link, so a window linked into the view again by hand would otherwise read as
+    /// cmux's, and be destroyed with `unlink-window -k` once its real session ended.
+    @Test(.enabled(if: ViewOnlyTmuxServer.binary != nil))
+    func aWindowUnlinkedFromTheViewLosesItsMarkInARealTmux() throws {
+        let tmux = try ViewOnlyTmuxServer()
+        defer { tmux.stop() }
+        let a = try tmux.run(["new-session", "-d", "-s", "main", "-P", "-F", "#{window_id}"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = try tmux.run(["new-session", "-d", "-s", "view"])
+        try tmux.run(["link-window", "-d", "-s", a, "-t", "=view:"])
+        let index = try tmux.run(["display-message", "-p", "-t", "=view:\(a)", "#{window_index}"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = try tmux.run(["set-option", "-w", "-t", a, RemoteTmuxViewSession.optLinked, "1"])
+
+        let commands = RemoteTmuxViewConnection.unlinkFromViewCommands(
+            windowId: a, viewSessionName: "view", windowIndex: try #require(Int(index)))
+        let file = tmux.directory.appendingPathComponent("unlink.conf")
+        try commands.joined(separator: " ; ").write(to: file, atomically: true, encoding: .utf8)
+        try tmux.run(["source-file", file.path])
+
+        #expect(try tmux.windowIds(session: "main") == [a])
+        #expect(try !tmux.windowIds(session: "view").contains(a))
+        #expect(try tmux.windowMark(a) == "")
+    }
+
     /// The bringup reads the view's settled flag through a window format, where tmux falls back
     /// from window options to the session's.
     @Test(.enabled(if: ViewOnlyTmuxServer.binary != nil))
@@ -168,6 +228,7 @@ import Testing
         var completions: [(Bool) -> Void] = []
         var sent: [[String]] = []
         var owned: [String] = []
+        var failed: [String] = []
         RemoteTmuxViewConnection.adopt(
             [
                 .init(windowId: "@7", sessionName: "main", afterWindowId: "@1"),
@@ -178,13 +239,15 @@ import Testing
                 completions.append(completion)
                 return true
             },
-            onLinked: { owned.append($0) }
+            onLinked: { owned.append($0) },
+            onFailed: { failed.append($0) }
         )
         #expect(sent.count == 2)
         #expect(owned.isEmpty, "a queued link is not a link yet")
         completions[0](true)
         completions[1](false)
         #expect(owned == ["@7"])
+        #expect(failed == ["@8"], "a refused link is reported, so the view can try again")
     }
 
     /// The writes that link or mark view windows, each sent on the view's control stream.
@@ -266,16 +329,27 @@ import Testing
         #expect(read.toMark.isEmpty)
     }
 
-    /// A view an older cmux left behind has no marks, and any window in it alone may be a copy
-    /// that cmux linked before its session was killed. The first bringup keeps the old rule for
-    /// that view, every window but the placeholder is cmux's, and marks them all so later
-    /// bringups can use the marks.
-    @Test func aViewFromAnOlderCmuxIsReadTheOldWayOnceAndMarked() {
+    /// A view an older cmux left behind has no marks. A window in it alone may be a copy that
+    /// cmux linked before its session was killed, or one somebody created in the view. Reconcile
+    /// unlinks a dead copy with `-k`, which destroys a window whose only link is the view, so the
+    /// bringup claims only the windows that are also in a real session, and marks them so later
+    /// bringups can use the marks. The same read follows a settle write tmux refused.
+    @Test func aViewWithoutMarksClaimsOnlyWindowsLinkedElsewhere() {
         let read = RemoteTmuxViewConnection.readBringupRows(["@0 0  ", "@1 1  ", "@9 0  "])
         #expect(!read.marksSettled)
         #expect(read.placeholder == "@0")
-        #expect(read.adopted == ["@1", "@9"])
-        #expect(Set(read.toMark) == ["@1", "@9"])
+        #expect(read.adopted == ["@1"])
+        #expect(read.toMark == ["@1"])
+    }
+
+    /// The placeholder carries its own mark, so a bringup finds it wherever it sits. Read by
+    /// position, a window created in the view ahead of it would be taken for the placeholder,
+    /// and the real one, unmarked and unlinked, would be adopted into a session as a tab.
+    @Test func thePlaceholderIsFoundByItsMarkWhereverItSits() {
+        let rows = ["@1 1 1 1 ", "@9 0  1 ", "@0 0  1 1"]
+        let read = RemoteTmuxViewConnection.readBringupRows(rows)
+        #expect(read.placeholder == "@0")
+        #expect(read.adopted == ["@1"])
     }
 }
 

@@ -12,7 +12,8 @@ extension RemoteTmuxViewConnection {
     nonisolated static func adopt(
         _ adoptions: [RemoteTmuxViewOnlyWindows.Adoption],
         send: ([String], @escaping (Bool) -> Void) -> Bool,
-        onLinked: @escaping (String) -> Void
+        onLinked: @escaping (String) -> Void,
+        onFailed: @escaping (String) -> Void = { _ in }
     ) {
         for (adoption, command) in zip(adoptions, RemoteTmuxViewOnlyWindows.linkCommands(adoptions)) {
             _ = send(command) { linked in
