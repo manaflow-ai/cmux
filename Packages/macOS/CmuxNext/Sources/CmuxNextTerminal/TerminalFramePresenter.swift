@@ -1,26 +1,30 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextWakeups
 import GhosttyNextKit
 import QuartzCore
 
 /// FRAME OWNER REFACTOR S4 (`motion.frameOwner.terminals`, ``TerminalDragTunables/framesOwnedByCommit``): one per
 /// window. A terminal whose size changes asks Ghostty for a frame at the new size (``TerminalSurfaceView/place(_:anchor:)``)
-/// and keeps its old bounds and old frame. Inside the Core Animation commit of each refresh, after AppKit's layout and
-/// display, the presenter's pass asks each waiting terminal for that frame (`ghostty_surface_host_frame`): a drawn one
-/// becomes the layer's contents and the view takes the new bounds in that same commit; one not drawn yet keeps both
-/// (ready-or-keep). The main thread never waits for a frame. Chromium does the same at a resize: the browser compositor
+/// and keeps its old bounds and old frame. Just before Core Animation's commit of every main run-loop turn while a
+/// request waits (a run-loop observer at ``passOrder``), the presenter's pass asks each waiting terminal for that frame
+/// (`ghostty_surface_host_frame`): a drawn one becomes the layer's contents and the view takes the new bounds in that
+/// same commit; one not drawn yet keeps both (ready-or-keep). A size asked during AppKit's display cycle (inside that
+/// turn's commit) is presented from the next turn: the renderer draws it meanwhile. The main thread never waits for a frame. Chromium does the same at a resize: the browser compositor
 /// shows a new size only with a frame the renderer submitted for it and keeps the old surface until then.
 ///
 /// Requests of one refresh form a group that presents together for at most ``groupTicks`` refreshes, so two terminals
-/// beside one divider land in the same commit. A request kept more than ``keepLimit`` passes takes its bounds anyway
-/// (counted in ``Stats/fallbacks``). One refresh after a commit that changed a terminal's shown size, the presenter
+/// beside one divider land in the same commit. A request kept more than ``keepLimit`` refreshes takes its bounds
+/// anyway (counted in ``Stats/fallbacks``). One refresh after a commit that changed a terminal's shown size, the presenter
 /// tells Ghostty that commit is done (`ghostty_surface_host_frame_committed`), so the terminal's echo goes to the screen
 /// off the main thread again.
 final class TerminalFramePresenter {
     /// Refreshes a group of requests waits for its slowest member.
     static let groupTicks: UInt64 = 2
-    /// Passes a request keeps its old size before it takes its bounds without its frame.
-    static let keepLimit = 6
+    /// Refreshes a request keeps its old size before it takes its bounds without its frame.
+    static let keepLimit: UInt64 = 6
+    /// The pass's run-loop order: just before Core Animation's commit (2,000,000), after the turn's other work.
+    static let passOrder: CFIndex = 1_999_999
     /// Refreshes a terminal whose bounds changed without a present is watched for its frame.
     static let watchLimit = 240
 
@@ -45,7 +49,6 @@ final class TerminalFramePresenter {
         weak var view: TerminalSurfaceView?
         /// The refresh it was made in: its group.
         var epoch: UInt64
-        var keeps = 0
     }
 
     private struct Watch {
@@ -60,10 +63,9 @@ final class TerminalFramePresenter {
     private var watched: [ObjectIdentifier: Watch] = [:]
     /// Terminals whose shown size changed in a commit that is done by the next refresh.
     private var commits: [ObjectIdentifier: Watch] = [:]
-    /// Terminals that landed at a size older than the one they want now: they ask again next refresh.
-    private var followUps: [ObjectIdentifier: Watch] = [:]
     private var epoch: UInt64 = 0
-    private let passLayer = CommitPassLayer()
+    /// The pass before each commit, installed while a request waits.
+    private var passObserver: MainRunLoopObserver?
     private lazy var client = FrameClient(owner: "Terminal.framePresenter", isAnimation: false, scheduler: { [weak self] in
         self?.window.map(FrameScheduler.forWindow) ?? .app
     }) { [weak self] _ in
@@ -72,7 +74,6 @@ final class TerminalFramePresenter {
 
     private init(window: NSWindow) {
         self.window = window
-        passLayer.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
     }
 
     private static var associationKey: UInt8 = 0
@@ -90,7 +91,6 @@ final class TerminalFramePresenter {
         let id = ObjectIdentifier(view)
         requests[id] = Request(view: view, epoch: epoch)
         watched[id] = nil
-        followUps[id] = nil
         armPass()
         client.activate()
     }
@@ -108,7 +108,6 @@ final class TerminalFramePresenter {
         let id = ObjectIdentifier(view)
         requests[id] = nil
         watched[id] = nil
-        followUps[id] = nil
         commits[id] = nil
     }
 
@@ -117,8 +116,7 @@ final class TerminalFramePresenter {
 
     // MARK: Frames
 
-    /// One refresh, outside the commit: the commits of earlier passes are done; watched terminals are read; the
-    /// terminals that landed short ask again; the next commit gets a pass while a request waits.
+    /// One refresh: the commits of earlier passes are done (``commits``), and watched terminals are read.
     private func tick() -> Bool {
         epoch &+= 1
         if !commits.isEmpty {
@@ -146,27 +144,25 @@ final class TerminalFramePresenter {
                 watched[id] = next.ticks > Self.watchLimit ? nil : next
             }
         }
-        if !followUps.isEmpty {
-            let asking = followUps
-            followUps.removeAll(keepingCapacity: true)
-            for (_, follow) in asking { follow.view?.requestWantedFrame() }
-        }
-        if !requests.isEmpty { armPass() }
-        return !requests.isEmpty || !watched.isEmpty || !commits.isEmpty || !followUps.isEmpty
+        return !requests.isEmpty || !watched.isEmpty || !commits.isEmpty
     }
 
-    /// The pass runs inside the commit of the open transaction (``CommitPassLayer``); outside a layer tree, now.
+    /// Installs the pass before each commit while a request waits. An observer never wakes the run loop: the
+    /// display link's ticks (``client``) bring a turn, and its commit, each refresh.
     private func armPass() {
-        guard let host = window?.contentView?.layer else { return pass() }
-        passLayer.onDisplay = { [weak self] in self?.pass() }
-        if passLayer.superlayer !== host { host.addSublayer(passLayer) }
-        passLayer.setNeedsDisplay()
+        guard passObserver == nil else { return }
+        passObserver = MainRunLoopObserver(activities: [.beforeWaiting, .exit], order: Self.passOrder) { [weak self] _ in
+            self?.pass()
+        }
     }
 
-    /// Inside the commit: each waiting terminal shows its frame at the new size with its new bounds, or keeps both.
-    /// No allocation per request, no observed state written, no wait.
+    /// Before this turn's commit: each waiting terminal shows its frame at the new size with its new bounds, or keeps
+    /// both. It never waits; a terminal that lands short asks for its newest size here (a grid report, as any size).
     func pass() { // perf-hot: 1ms motion-frame
-        guard !requests.isEmpty else { return }
+        guard !requests.isEmpty else {
+            passObserver = nil
+            return
+        }
         let started = ContinuousClock.now
         stats.passes += 1
         // A group (the requests of one refresh) waits for its slowest member while it is younger than `groupTicks`.
@@ -180,11 +176,9 @@ final class TerminalFramePresenter {
                 requests[id] = nil
                 continue
             }
-            var next = request
-            if waitingGroups.contains(request.epoch), epoch &- request.epoch < Self.groupTicks {
+            let age = epoch &- request.epoch
+            if waitingGroups.contains(request.epoch), age < Self.groupTicks {
                 if Self.isReady(view.hostFrame(present: false)) { stats.groupWaits += 1 }
-                next.keeps += 1
-                requests[id] = next
                 continue
             }
             let shown = view.hostFrame(present: true)
@@ -197,45 +191,27 @@ final class TerminalFramePresenter {
                 land(view, id: id, watch: shown == GHOSTTY_HOST_FRAME_NONE)
             default:
                 stats.keeps += 1
-                next.keeps += 1
-                if next.keeps > Self.keepLimit {
+                if age > Self.keepLimit {
                     stats.fallbacks += 1
                     land(view, id: id, watch: true)
-                } else {
-                    requests[id] = next
                 }
             }
         }
+        if requests.isEmpty { passObserver = nil }
         stats.longestPass = max(stats.longestPass, started.duration(to: .now))
     }
 
+    /// The view takes the size its shown frame has; one that wants another size since asks for it now (a new
+    /// request, presented from the next turn).
     private func land(_ view: TerminalSurfaceView, id: ObjectIdentifier, watch: Bool) {
         requests[id] = nil
         let followUp = view.landRequestedFrame()
         if watch { watched[id] = Watch(view: view) } else { commits[id] = Watch(view: view) }
-        if followUp { followUps[id] = Watch(view: view) }
+        if followUp { view.requestWantedFrame() }
     }
 
     private static func isReady(_ state: ghostty_host_frame_e) -> Bool {
         state == GHOSTTY_HOST_FRAME_READY || state == GHOSTTY_HOST_FRAME_SHOWN
             || state == GHOSTTY_HOST_FRAME_NONE || state == GHOSTTY_HOST_FRAME_HIDDEN
     }
-}
-
-/// An empty 1-point layer in the window's tree (drawn nowhere, no actions) that Core Animation displays inside the
-/// commit of the open transaction, after AppKit's layout and display and before the encode, as the debug
-/// `CommitProbe` does: its display runs the presenter's pass, so what the pass changes ships in that commit, also for
-/// a resize made inside AppKit's display cycle. The work is taken by its display: a display Core Animation adds on its
-/// own (a new contents scale) runs nothing.
-private nonisolated final class CommitPassLayer: CALayer {
-    var onDisplay: (@MainActor () -> Void)?
-
-    override func display() {
-        let body = onDisplay
-        onDisplay = nil
-        // The layer joins only window layer trees, from the main actor (`TerminalFramePresenter.armPass`).
-        MainActor.assumeIsolated { body?() } // main-proof: Core Animation displays window layers in the main thread's commit
-    }
-
-    override func action(forKey event: String) -> (any CAAction)? { nil }
 }
