@@ -230,6 +230,8 @@ final class DeclarativePopupHost {
             if row.kind == .choice, row.options?.contains(where: { $0.id == value && $0.disabled != true }) != true { return }
         case .highlight:
             guard let row, row.disabled != true else { return }
+        case .navigate:
+            guard current.rail?.isEmpty == false, id == nil, value == "next" || value == "previous" else { return }
         case .dismiss: return
         }
         let opening = root.openingGeneration
