@@ -40,8 +40,8 @@ public final class MotionClock {
     }, settle: { [weak self] in self?.settleAll() }) { [weak self] tick in
         self?.tick(tick) ?? false
     }
-    /// The display-link time of the frame the clock steps now (``FrameTick/timestamp``); nil between frames. A
-    /// render-server move that starts inside a frame begins there, on the time its springs step from (FRAME OWNER S1).
+    /// The time the frame the clock steps now is on (``FrameTick/motionTimestamp``: the time its springs step to);
+    /// nil between frames. A render-server move that starts inside a frame begins there (FRAME OWNER S1).
     public private(set) var frameTimestamp: CFTimeInterval?
     /// The window whose scheduler the clock ticks on (nil: the app clock).
     private weak var window: NSWindow?
@@ -121,9 +121,9 @@ public final class MotionClock {
     /// One frame. While `debug.motion` records, the main-thread work of the whole frame
     /// (`clock`) and of each animator (its trace name) is timed (`MotionTrace.measure`).
     private func tick(_ tick: FrameTick) -> Bool {
-        frameTimestamp = tick.timestamp
+        frameTimestamp = tick.motionTimestamp
         defer { frameTimestamp = nil }
-        return MotionTrace.measure("clock") { step(tick.elapsed) }
+        return MotionTrace.measure("clock") { step(tick.motionElapsed) }
     }
 
     private func step(_ dt: Double) -> Bool {

@@ -37,6 +37,8 @@ final class CloudService {
     @ObservationIgnored let paths: CloudPaths
     /// One app-lifetime owner of confirmed, per-account Codex delivery.
     let codexBroker: CloudCodexBrokerAdapter
+    /// The Release login copy's remote off switch (CloudService+LoginCopy.swift).
+    @ObservationIgnored let harnessLoginCopySwitch = CloudHarnessLoginCopySwitch()
     @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
@@ -162,11 +164,21 @@ final class CloudService {
     /// - Parameters:
     ///   - mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
     ///   - work: The app's blocking-work lanes: the install id is read on its files lane (``CloudDeviceID``).
+    /// Whether this compile has the bench hooks (`reload.sh --config bench`; never shipped). With them, a
+    /// `cap<sha10>` capture build's Cloud is configured as a Debug build's (``CloudConfiguration/isCaptureBuild(bundleID:benchHooks:)``).
+    nonisolated static var benchHooksCompiled: Bool {
+        #if CMUX_BENCH_HOOKS
+        true
+        #else
+        false
+        #endif
+    }
+
     init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork, loginKeychain: LoginKeychain, authCaptureFixture: Bool = false) {
         self.machines = machines
         self.mainWork = mainWork
         self.work = work
-        configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
+        configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild, benchHooks: Self.benchHooksCompiled)
         auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture)
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
         deviceID = CloudDeviceID(paths: paths, work: work)
@@ -339,8 +351,8 @@ final class CloudService {
             // must fence the old Native mesh and link before reconnecting.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
                 if accountScope != nil {
-                    // Sign-out revoked the WireGuard peer and parked the hub.
-                    await self.hub?.resume()
+                    AgentPaneTailCache.shared.resume()
+                    await self.hub?.resume() // sign-out revoked the WireGuard peer and parked the hub
                     // Another account's machines, connections and share installs end first (its next share binds this one).
                     let switched = await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID)
                     if switched { self.dropAllMachines() }
@@ -880,7 +892,7 @@ final class CloudService {
 
     /// Runs when a sign-out starts, while the account's tokens still work
     /// (the device hub signs this Mac out of its sessions at once).
-    var willSignOut: [@MainActor () -> Void] = []
+    var willSignOut: [@MainActor () -> Void] = [{ AgentPaneTailCache.shared.clear() }]
 
     func signOut() async {
         signedOutCreation.cancel()

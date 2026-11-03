@@ -461,6 +461,9 @@ export function incomingPrompt(
     return summary ? { kind: "notice", text: summary } : { kind: "hidden" };
   }
   if (!rest) return { kind: "hidden" };
+  // Claude Code's SendMessage from another session: `[from <name>] …` (sentFirst).
+  const sent = sentFirst(rest);
+  if (sent) return { kind: "message", message: { ...sent, raw: text } };
   // A message acpmux delivered to the harness, read back from its transcript, records no client of
   // its own: only the strict addressed form names its sender.
   const addressed = addressedFirst(rest, context);
@@ -536,8 +539,24 @@ function colonFirst(text: string): { name: string; text: string } | undefined {
   return prefixed ? { name: prefixed[1]!, text: prefixed[2]!.trim() } : undefined;
 }
 
-/// The agent named first in brackets in `text`, and its message after the name.
+/// Claude Code's SendMessage delivers another session's words as `[from <name>] <text>`, a user prompt
+/// in the receiving session's transcript, read back as an adopted or watched chat's. The sender often
+/// signs again (`[from claude-sr2-coord] From claude-sr2-coord: …`), which the card's chip says
+/// already (Leo, 2026-11-03, on such a message drawn as his own bubble: "this should be somewhat
+/// rendered?").
+const SENT_PREFIX = /^\[from ([\w.@/:-]{1,64})\]\s+(\S[\s\S]*)$/;
+function sentFirst(text: string): { name: string; text: string } | undefined {
+  const prefixed = SENT_PREFIX.exec(text);
+  if (!prefixed) return undefined;
+  const name = prefixed[1]!;
+  return { name, text: unsigned(prefixed[2]!.trim(), name) };
+}
+
+/// The agent named first in brackets in `text`, and its message after the name; `[from <name>]`
+/// names `<name>` (sentFirst).
 function namedFirst(text: string): { name: string; text: string } | undefined {
+  const sent = sentFirst(text);
+  if (sent) return sent;
   const prefixed = NAME_PREFIX.exec(text);
   const name = prefixed?.[1]!.trim();
   return prefixed && name && AGENT_NAME.test(name) && !NOT_A_NAME.test(name)

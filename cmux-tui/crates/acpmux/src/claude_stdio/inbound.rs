@@ -575,6 +575,8 @@ impl Translator {
                             ),
                         ));
                     }
+                } else if let Some(acp) = rid.strip_prefix("psp-") {
+                    out.extend(self.suggestions_set(acp, &sid).await);
                 } else if let Some(acp) = rid.strip_prefix("stop-") {
                     // A stop_task's answer (`subagent_stop`, `STOP_TASK`); the
                     // task's end is its own event.
@@ -879,6 +881,9 @@ impl Translator {
             }
             // The account's plan usage limits, newest per window (`usage_limits.rs`).
             "rate_limit_event" => out.extend(self.usage_limits_update(line).await),
+            "prompt_suggestion" if parent.is_none() => {
+                out.extend(self.suggestion_update(line).map(upd))
+            }
             "system" if sub.starts_with("task_") => {
                 if let Some(update) = self.background_shell_task(sub, line, &sid).await {
                     out.push(update);

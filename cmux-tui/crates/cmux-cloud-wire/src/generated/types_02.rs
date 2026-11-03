@@ -4,6 +4,18 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    GrantCreatedFrom {
+        Install = "install",
+        Ui = "ui",
+        Automation = "automation",
+        StandingRule = "standing_rule",
+    }
+}
+
+/// A server-side grant; tokens carry only its id.
+pub type GrantId = String;
+
 /// A cloud group, minted by TeamDO (grp_ + 20 lowercase hex).
 pub type GroupId = String;
 
@@ -890,13 +902,4 @@ wire_enum! {
         Enforced = "enforced",
         Default = "default",
     }
-}
-
-/// ES256 (P-256) public key of an install.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PublicJwk {
-    pub kty: LitEc,
-    pub crv: LitP256,
-    pub x: String,
-    pub y: String,
 }
