@@ -106,7 +106,7 @@ import { OutputsSection, outputArtifacts, outputLinks, type OutputArtifact, type
 import { sessionInfoLists, type SessionInfoProcess, type ProcessRegistry } from "./processes";
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
-import { SubagentsSection, subagentCounts } from "./SubagentsSection";
+import { SubagentsSection, subagentCounts, subagentTally } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
 import { UsageSection, usageMeta, type UsageOwnRowLayout } from "./UsageSection";
@@ -1771,9 +1771,16 @@ export function SessionInfo({
       title={t("summary.subagents")}
       open={state.subagents}
       onOpenChange={fold("subagents")}
-      meta={value(subagentCounts(t, listedAgents, waiting, sessions))}
+      meta={value(subagentCounts(t, subagentTally(listedAgents, waiting, sessions, limits)))}
     >
-      <SubagentLimitStepper chatId={chatId} limits={limits} sessions={sessions} onSet={setRunningLimit} />
+      <SubagentLimitStepper
+        chatId={chatId}
+        limits={limits}
+        sessions={sessions}
+        agents={listedAgents}
+        waiting={waiting}
+        onSet={setRunningLimit}
+      />
       {listedAgents.length + sessions.length > 0 && (
         <SubagentsSection
           agents={listedAgents}

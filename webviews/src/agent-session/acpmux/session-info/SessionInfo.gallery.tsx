@@ -832,6 +832,22 @@ const openMcpTools: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-breakdown__items") !== null);
 };
 
+/// The Subagents head and its running limit's line count one running set: the head's waiting and
+/// running add up to the line's "Running N", and a chat waiting for a slot is queued in both.
+const sameRunningSet: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-subagent-limit__text"));
+  const limit = ctx.document.querySelector(".acpmux-subagent-limit__text")!;
+  const meta = ctx.document.querySelector('[data-section="subagents"] .acpmux-session-info-section__meta');
+  const head = meta?.textContent ?? "";
+  const number = (re: RegExp, from: string) => Number(re.exec(from)?.[1] ?? 0);
+  const live = number(/(\d+) waiting/, head) + number(/(\d+) running/, head);
+  const running = number(/Running (\d+)/, limit.textContent ?? "");
+  if (live === 0 || running !== live)
+    throw new Error(`the head says "${head}" but the limit says "${limit.textContent}"`);
+  if (number(/(\d+) queued/, head) !== 1 || number(/(\d+) queued/, limit.textContent ?? "") !== 1)
+    throw new Error(`the queued chat must be queued in both: "${head}" / "${limit.textContent}"`);
+};
+
 const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-session-info")?.textContent ?? "";
 
 export default componentEntry<Props>({
@@ -1272,7 +1288,8 @@ export default componentEntry<Props>({
       },
     },
     "subagent-limit": {
-      note: 'Subagents with the chat\'s own running limit of 2: two of the chats it started run, a third waits for a slot ("1 queued"), with Reset back to the inherited limit and − / + beside it.',
+      note: 'Subagents with the chat\'s own running limit of 2: three subagents and two of the chats it started run, a third chat waits for a slot ("1 queued"), with Reset back to the inherited limit and − / + beside it. The limit\'s line counts the same running set as the head (subagentTally): the head\'s waiting and running add up to its "Running N", and both say "1 queued" (Leo, 2026-11-02, on "2 running · 13 done" over "Running 1 / 1000 max": "yeah idk what\'s going on there").',
+      play: sameRunningSet,
       props: {
         ...full,
         summary: { ...summary, subsessionLimits: { maxRunning: 2, maxRunningSource: "session" } },

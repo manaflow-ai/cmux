@@ -3,7 +3,6 @@
 // records, set with `_acpmux/subsession/limits` (session-info/SubagentLimitStepper.tsx). Leo, 2026-10-21:
 // "increase or decrease subagent amounts ad hoc".
 import type { SubsessionLimits, SubsessionLimitSource } from "./model";
-import type { StartedSession } from "./started/startedSessions";
 
 /// The range acpmux takes for `maxRunning`.
 export const MAX_RUNNING = { min: 1, max: 1000 } as const;
@@ -32,21 +31,4 @@ export function subsessionLimits(value: unknown): SubsessionLimits | undefined {
     ...(running !== undefined ? { running } : {}),
     ...(queued !== undefined ? { queued } : {}),
   };
-}
-
-/// The chat's sub-sessions running a turn now and those waiting for a free slot. Read live from
-/// the session list (a chat's state, its `waitsForSlot`); acpmux's own counts, which only an info
-/// read or a `limits` record carries, stand in while the list names none of its chats.
-export function slotCounts(
-  limits: SubsessionLimits,
-  sessions: readonly StartedSession[],
-): { running: number; queued: number } {
-  if (sessions.length === 0) return { running: limits.running ?? 0, queued: limits.queued ?? 0 };
-  let running = 0;
-  let queued = 0;
-  for (const child of sessions) {
-    if (child.waitsForSlot) queued += 1;
-    else if (child.state === "running" || child.state === "waiting") running += 1;
-  }
-  return { running, queued };
 }

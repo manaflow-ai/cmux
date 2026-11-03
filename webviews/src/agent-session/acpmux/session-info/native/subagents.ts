@@ -16,8 +16,8 @@ import { orderedSessions, sessionStatus, sessionStateText } from "../ChildSessio
 import type { SubsessionLimits } from "../../model";
 import type { StartedSession } from "../../started/startedSessions";
 import type { Subagent } from "../../subagents/subagentFold";
-import { clampRunning, MAX_RUNNING, slotCounts } from "../../subsessionLimits";
-import { SUBAGENTS_SHOWN, subagentCounts } from "../SubagentsSection";
+import { clampRunning, MAX_RUNNING } from "../../subsessionLimits";
+import { slotCounts, SUBAGENTS_SHOWN, subagentCounts, subagentTally, type SubagentTally } from "../SubagentsSection";
 import type { NativeInfoActions, NativeInfoButton, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
 import { nativeInfoWave } from "./wave";
 
@@ -77,8 +77,10 @@ export function subagentsSection(
   const limitSet = limits?.maxRunningSource !== undefined && limits.maxRunningSource !== "default";
   if (agents.length + sessions.length === 0 && !limitSet) return undefined;
   const rows: NativeInfoRow[] = [];
+  // One tally for the head and the limit's line, as the page's (SubagentsSection.tsx).
+  const tally = subagentTally(agents, waiting, sessions, limits);
   if (limits)
-    rows.push(limitRow(limits, sessions, input.onSet, actions, t, input.limitState, input.pendingMax, input.onStep));
+    rows.push(limitRow(limits, tally, input.onSet, actions, t, input.limitState, input.pendingMax, input.onStep));
   type SubagentLine = {
     key: string;
     identity: string;
@@ -215,7 +217,7 @@ export function subagentsSection(
     });
     if (endedOpen) rows.push(...ended.map(line));
   }
-  const meta = subagentCounts(t, agents, waiting, sessions);
+  const meta = subagentCounts(t, tally);
   return {
     id: "subagents",
     group: "running",
@@ -231,7 +233,7 @@ export function subagentsSection(
 /// chat set its own, − and + one lower or higher (named `from` the limit they step).
 function limitRow(
   limits: SubsessionLimits,
-  sessions: readonly StartedSession[],
+  tally: SubagentTally,
   onSet: SubagentsSectionInput["onSet"],
   actions: NativeInfoActions,
   t: Translate,
@@ -240,7 +242,7 @@ function limitRow(
   onStep?: (by: number) => void,
 ): NativeInfoRow {
   const max = pendingMax ?? limits.maxRunning;
-  const { running, queued } = slotCounts(limits, sessions);
+  const { running, queued } = slotCounts(tally);
   const buttons: NativeInfoButton[] = [];
   if (onSet || onStep) {
     if (limits.maxRunningSource === "session" && onSet)

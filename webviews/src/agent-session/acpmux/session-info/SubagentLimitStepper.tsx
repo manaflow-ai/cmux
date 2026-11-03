@@ -11,9 +11,13 @@ import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { SubsessionLimits } from "../model";
 import type { StartedSession } from "../started/startedSessions";
-import { clampRunning, MAX_RUNNING, slotCounts } from "../subsessionLimits";
+import { clampRunning, MAX_RUNNING } from "../subsessionLimits";
+import type { Subagent } from "../subagents/subagentFold";
+import { slotCounts, subagentTally } from "./SubagentsSection";
 import "./SubagentLimitStepper.css";
 import { nextSubagentLimitAsk, type SubagentLimitAsk } from "./native/limit";
+
+const NO_WAITING: ReadonlySet<string> = new Set();
 
 /// How long a refused change says so.
 const REFUSAL_MS = 4_000;
@@ -124,13 +128,18 @@ export function SubagentLimitStepper({
   chatId,
   limits,
   sessions = [],
+  agents = [],
+  waiting = NO_WAITING,
   onSet,
 }: {
   /// The chat whose limit this is: a value asked for another chat never shows here.
   chatId?: string;
   limits?: SubsessionLimits;
-  /// The chats its agent started, for the live counts.
+  /// The chats its agent started and its subagents, for the live counts: the section head's own
+  /// (SubagentsSection.tsx `subagentTally`), so "Running N" is the head's running set.
   sessions?: readonly StartedSession[];
+  agents?: readonly Subagent[];
+  waiting?: ReadonlySet<string>;
   /// `_acpmux/subsession/limits` for this chat: a number sets its own limit, `null` drops it. A step
   /// names the limit it stepped `from`, so a limit that moved meanwhile (an ancestor's, the
   /// workspace's or the settings', which reach this chat as no record) is stepped from instead.
@@ -140,7 +149,7 @@ export function SubagentLimitStepper({
   const controller = useSubagentLimitController({ chatId, limits, onSet });
   if (!limits) return null;
   const { max, state, step } = controller;
-  const { running, queued } = slotCounts(limits, sessions);
+  const { running, queued } = slotCounts(subagentTally(agents, waiting, sessions, limits));
   const own = limits.maxRunningSource === "session";
   return (
     <div className="acpmux-subagent-limit">

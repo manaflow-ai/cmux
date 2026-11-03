@@ -17,6 +17,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 const ROW_ICON = rowIconSize(12);
 
+import type { SubsessionLimits } from "../model";
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
 import { useAgentProgress } from "../subagents/agentProgressStore";
@@ -39,23 +40,47 @@ import { SESSION_INFO_WAVE_STYLE } from "./native/wave";
 export const SUBAGENTS_SHOWN = 5;
 const NO_SESSIONS: readonly StartedSession[] = [];
 
-/// "1 waiting · 3 running · 40 done" for the section's head, the started chats counted with the
-/// subagents, or nothing for neither.
-export function subagentCounts(
-  t: Translate,
+/// The section's live counts, one source for its head ("2 running · 13 done") and its running
+/// limit's line ("Running 2 / 16 max", SubagentLimitStepper.tsx, native/subagents.ts), so the two
+/// never disagree (Leo, 2026-11-02, on "2 running · 13 done" over "Running 1 / 1000 max": "yeah idk
+/// what's going on there"). The subagents and the started chats count alike, each by the status its
+/// line shows (a retrying chat runs); a chat acpmux holds for a free slot (`waitsForSlot`) is
+/// queued, neither running nor done. While the list names none of the chats, acpmux's own counts
+/// (`limits`, from an info read or a `limits` record) stand in for theirs.
+export type SubagentTally = Record<SubagentStatus | "queued", number>;
+
+export function subagentTally(
   agents: readonly Subagent[],
   waiting: ReadonlySet<string>,
   sessions: readonly StartedSession[] = NO_SESSIONS,
-): string {
-  const count = (status: SubagentStatus) =>
-    agents.filter((agent) => subagentStatus(agent, waiting) === status).length +
-    sessions.filter((child) => sessionStatus(child) === status).length;
+  limits?: SubsessionLimits,
+): SubagentTally {
+  const tally: SubagentTally = { waiting: 0, running: 0, queued: 0, failed: 0, stopped: 0, done: 0 };
+  for (const agent of agents) tally[subagentStatus(agent, waiting)] += 1;
+  for (const child of sessions) tally[child.waitsForSlot ? "queued" : sessionStatus(child)] += 1;
+  if (sessions.length === 0 && limits) {
+    tally.running += limits.running ?? 0;
+    tally.queued += limits.queued ?? 0;
+  }
+  return tally;
+}
+
+/// The running limit's counts: what runs a turn now (waiting on the person included) and what waits
+/// for a free slot, from the same tally as the section's head.
+export function slotCounts(tally: SubagentTally): { running: number; queued: number } {
+  return { running: tally.running + tally.waiting, queued: tally.queued };
+}
+
+/// "1 waiting · 3 running · 1 queued · 40 done" for the section's head, from `subagentTally`, or
+/// nothing for neither subagents nor chats.
+export function subagentCounts(t: Translate, tally: SubagentTally): string {
   return [
-    count("waiting") > 0 && t("summary.subagents.waiting", { n: count("waiting") }),
-    count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
-    count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
-    count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
-    count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
+    tally.waiting > 0 && t("summary.subagents.waiting", { n: tally.waiting }),
+    tally.running > 0 && t("summary.subagents.running", { n: tally.running }),
+    tally.queued > 0 && t("sessionInfo.subagents.limit.queued", { n: tally.queued }),
+    tally.failed > 0 && t("summary.subagents.failed", { n: tally.failed }),
+    tally.stopped > 0 && t("summary.subagents.stopped", { n: tally.stopped }),
+    tally.done > 0 && t("summary.subagents.done", { n: tally.done }),
   ]
     .filter(Boolean)
     .join(" · ");
