@@ -105,6 +105,11 @@
       "what": "one streamed token of a Chief reply on the main thread: HomeLiveBook append, publishLive of that conversation, and each open Home view's store observation (whole-message views are not woken by a talk token)",
       "bench": "HomeWholeMessageTokenCostTests (HOMETOKEN lines: ms per token, wakes and passes, 1 and 4 views, 2,000 messages) and HomeStreamingPerfTests (streaming mode), run on the fleet (package-test-lane.sh suite Packages/Shared/CmuxMessagesLab)",
       "owner": "hpa-stream (HOT PATH AUDIT area F)"
+    },
+    "acpmux-token-fanout": {
+      "what": "one streamed token to one attached acpmux connection: the shared session/update line enqueued (one copy into the connection's queue); the line is built once per record",
+      "bench": "cmux-tui-rust-check.sh test a_streamed_tokens_line_is_built_once_for_every_attached_connection (FANOUT-ENCODE line), then scripts/measure/acpmux-overhead.sh bench=daemon (STRESS token to client, 2 clients) on the fleet",
+      "owner": "PL-acpmux (HOT PATH AUDIT area F: hpa-stream)"
     }
   }
 }

@@ -234,6 +234,7 @@
     "cmux-tui/crates/chatmux-relay/src/tunnel_terminal.rs": {"count": 2, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/chatmux-relay/src/workspace.rs": {"count": 6, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/cmux-conversation/src/lib.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "cmux-tui/crates/cmux-conversation/src/question_reply.rs": {"count": 1, "reason": "safe: MAX_REPLY_BYTES reuses MAX_QUESTION_TEXT_BYTES in the pure question-reply resolver: an oversized reply only resolves to InputTooLong (not read as a choice) before normalization allocates; it sends, drops or truncates nothing, so nothing the person sends is refused"},
     "cmux-tui/crates/cmux-link/src/dial.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/cmux-link/src/registration.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/cmux-link/src/root_bootstrap.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},

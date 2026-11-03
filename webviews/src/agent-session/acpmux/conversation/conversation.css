@@ -2139,6 +2139,13 @@ pre.cv-math-source {
 :is(.cv-worked, .cv-activity):hover .cv-command__bg {
   position: static;
   opacity: 1;
+  pointer-events: auto;
+}
+/* A button now (BackgroundHint.tsx): reached by Tab, it shows as on hover. */
+:is(.cv-worked, .cv-activity) .cv-command__bg:focus-visible {
+  position: static;
+  opacity: 1;
+  pointer-events: auto;
 }
 /* It fades as a message's hover row does (#23769): in after a beat, out quickly. */
 @media (prefers-reduced-motion: no-preference) {
@@ -2146,6 +2153,9 @@ pre.cv-math-source {
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
   :is(.cv-worked, .cv-activity):hover .cv-command__bg {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  :is(.cv-worked, .cv-activity) .cv-command__bg:focus-visible {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
   }
 }
@@ -3498,6 +3508,24 @@ button.cv-video-frames__frame:focus-visible {
   margin-left: auto;
   color: var(--cv-text-dim);
   white-space: nowrap;
+  /* A button (it moves the command, as Ctrl-B does) that reads as the hint it was. */
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  /* A button does not inherit the line's face: inherit it, so it keeps the line's baseline (#33160). */
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: default;
+}
+.cv-command__bg:hover {
+  color: var(--cv-text);
+}
+.cv-command__bg:focus-visible {
+  color: var(--cv-text);
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+  border-radius: var(--ds-radius-sm);
 }
 /* A message to another agent (MessageCard.tsx) is the shared agent message row
    (AgentMessageRow.css). Opened, its text grows in place under the line, at the line's text
