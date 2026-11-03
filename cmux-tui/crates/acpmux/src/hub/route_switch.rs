@@ -94,6 +94,7 @@ impl Hub {
             return Ok(None);
         }
         let home = route.file.account_home.clone().map(PathBuf::from);
+        let name = route.name();
         let before = route_account::home_var(&family).and_then(|var| env.get(var).cloned());
         let fam = family.clone();
         let route_env = tokio::task::spawn_blocking(move || routes::env_for(&route, &fam, &state))
@@ -101,6 +102,7 @@ impl Hub {
             .map_err(|e| RpcError::internal(e.to_string()))?
             .map_err(|e| route_error(&e))?;
         routes::apply(env, &route_env);
+        env.insert(routes::NAME_KEY.into(), name);
         // A home the profile pins (a Chief turn's, a claude-sr profile's) is
         // only replaced by a route picked for this chat or profile.
         let pinned = before.is_some() && !matches!(scope, "chat" | "profile");

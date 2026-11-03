@@ -205,7 +205,8 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         return Ok(Some(AppCommand::Version));
     }
     if scope == "nightly" {
-        return nightly::parse(args.get(1..).unwrap_or_default()).map(|command| Some(AppCommand::Nightly(command)));
+        return nightly::parse(args.get(1..).unwrap_or_default())
+            .map(|command| Some(AppCommand::Nightly(command)));
     }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);

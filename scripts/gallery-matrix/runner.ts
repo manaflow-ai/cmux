@@ -365,7 +365,7 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
   await mkdir(args.outputDir, { recursive: true });
   const server = selected.some((item) => !/^https?:\/\//.test(item.path_or_url)) ? await serveDirectory(resolve(args.galleryDir)) : null;
   const browsers = new Map<Engine, Browser>();
-  const launch = async (engine: Engine): Promise<Browser> => browserTypes[engine].launch({ headless: true, timeout: 30_000, ...(engine === "chromium" ? { channel: "chrome" } : {}) });
+  const launch = async (engine: Engine): Promise<Browser> => browserTypes[engine].launch({ headless: true, timeout: 30_000, ...(engine === "chromium" ? (process.env.CMUX_CHROME_HEADLESS_SHELL ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL } : { channel: "chrome" }) : {}) });
   const screenshotName = (item: MatrixCase, engine: Engine) => `${safeFilePart(item.id)}-${engine}.png`;
   const failedResult = (item: MatrixCase, engine: Engine, error: unknown): Record<string, unknown> => ({
     id: item.id,

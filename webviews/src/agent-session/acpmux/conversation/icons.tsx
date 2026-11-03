@@ -277,12 +277,13 @@ export const WORKING_ARC_LENGTH = 0.72;
 export const WORKING_STROKE_WIDTH = 2;
 const WORKING_RADIUS = 5.25;
 
-/** The path of `share` of the r 5.25 ring from 12 o'clock clockwise. */
+/** The path of `share` of the r 5.25 ring from 12 o'clock clockwise. The end is absolute (`A`):
+ * a relative `a` took it as an offset from the start and drew the arc off the ring (#32730). */
 export function workingArcPath(share: number): string {
   const angle = 2 * Math.PI * share;
   const x = +(8 + WORKING_RADIUS * Math.sin(angle)).toFixed(2);
   const y = +(8 - WORKING_RADIUS * Math.cos(angle)).toFixed(2);
-  return `M8 2.75a5.25 5.25 0 ${share > 0.5 ? 1 : 0} 1 ${x} ${y}`;
+  return `M8 2.75A5.25 5.25 0 ${share > 0.5 ? 1 : 0} 1 ${x} ${y}`;
 }
 const WORKING_ARC_PATH = workingArcPath(WORKING_ARC_LENGTH);
 
