@@ -27,7 +27,7 @@ struct ChiefAvatarMotionTests {
             }
             entries = [
                 entry("chief", "Chief", .monogram("CH"), .idle, true),
-                entry("scout", "Scout", .monogram("SC"), .idle, false),
+                entry("scout", "Scout", .monogram("SC"), .working, false),
                 entry("maya", "Maya", nil, .working, false),  // no avatar of its own: shows nothing
                 entry("noah", "Noah", .monogram("NO"), nil, false),
             ]
@@ -67,6 +67,12 @@ struct ChiefAvatarMotionTests {
         }
 
         func cue(_ id: String) -> CAAnimation? { avatar(id)?.animation(forKey: SidebarAvatarMotion.cueKey) }
+
+        /// Ring's one glint across the face, a state change's cue.
+        func glintCue(_ id: String) -> CABasicAnimation? {
+            avatar(id)?.sublayers?.first { $0.name == SidebarAvatarLooks.glintName }?.sublayers?.first?
+                .animation(forKey: SidebarAvatarMotion.cueKey) as? CABasicAnimation
+        }
     }
 
     init() {
@@ -94,16 +100,14 @@ struct ChiefAvatarMotionTests {
         let f = Fixture()
         #expect(f.view.avatarMotionStyle == .ring, "Ring is the default")
 
-        // Idle: a glint sweeps across now and then; no ring.
-        let idle = try #require(f.glintMove("scout"), "idle glints")
-        #expect(idle.duration == SidebarAvatarLooks.idleGlintPeriod && idle.repeatCount == .infinity)
-        #expect(f.ring("scout") == nil)
-        #expect(f.glintMove("chief") != nil, "a pinned tile's avatar too")
+        // Idle: at rest, nothing runs (the idle budget); no ring.
+        #expect(!f.looping("chief") && f.ring("chief") == nil && f.glintMove("chief") == nil, "idle runs nothing")
         #expect(f.avatar("maya").map(SidebarAvatarMotion.isLooping) != true, "a conversation without its own avatar shows nothing")
         #expect(!f.looping("noah"), "no state asked: nothing")
 
-        // Working: an arc turns round the edge.
-        f.set("scout", .working)
+        // Working: an arc turns round the edge (the pinned tile too).
+        f.set("chief", .working)
+        #expect(f.looping("chief"))
         let arc = try #require(f.ring("scout"))
         #expect(arc.strokeEnd < 0.5, "an arc, not the whole ring")
         let turn = try #require(arc.animation(forKey: SidebarAvatarMotion.animationKey) as? CABasicAnimation)
@@ -119,6 +123,8 @@ struct ChiefAvatarMotionTests {
         f.set("scout", .waiting)
         let waiting = try #require(f.ring("scout"))
         #expect(waiting.strokeEnd == 1 && !f.looping("scout"))
+        let glint = try #require(f.glintCue("scout"), "a change glints once")
+        #expect(glint.repeatCount == 0 && glint.duration <= 0.24 && glint.isRemovedOnCompletion)
         f.set("scout", .failed)
         let failed = try #require(f.ring("scout"))
         #expect(failed.strokeColor == NSColor.systemRed.cgColor && !f.looping("scout"))
@@ -128,6 +134,8 @@ struct ChiefAvatarMotionTests {
             for mode in [CmuxSidebarEntry.AvatarMotion.idle, .working, .waiting, .failed] {
                 f.set("scout", mode)
                 #expect(neverTranslates(try #require(f.avatar("scout"))), "\(style) \(mode) moves the avatar off its place")
+                // Only working loops: idle, waiting and failed run nothing once their cue has played.
+                #expect(f.looping("scout") == (mode == .working && style != .still), "\(style) \(mode) loops")
             }
         }
     }
@@ -156,7 +164,14 @@ struct ChiefAvatarMotionTests {
         CmuxSidebarView.reduceMotionOverride = true
         f.set("scout", .working)
         f.set("scout", .idle)
-        #expect(f.cue("scout") == nil)
+        #expect(f.cue("scout") == nil && f.glintCue("scout") == nil)
+
+        // A cue still playing ends when motion stops (#33475).
+        CmuxSidebarView.reduceMotionOverride = false
+        f.set("scout", .failed)
+        #expect(f.cue("scout") != nil)
+        CmuxSidebarView.reduceMotionOverride = true
+        #expect(f.cue("scout") == nil, "a playing cue ends when motion stops")
     }
 
     @Test func reduceMotionAndTheHostsGateStopEveryLoopButKeepStillRings() throws {
