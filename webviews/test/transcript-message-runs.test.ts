@@ -12,6 +12,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/mode
 import { layoutConversation } from "../src/agent-session/acpmux/model";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { hiddenRowFolds, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { foldMessageRuns } from "../src/agent-session/acpmux/conversation/messageRuns";
 
 const MESSAGE_RUN = "messageRun";
 let n = 0;
@@ -29,6 +30,31 @@ const tool = (title: string, kind: string, fields: Record<string, unknown> = {})
 });
 const send = (to: string, message: string) =>
   tool("SendMessage", "other", { inputSummary: JSON.stringify({ to, message }) });
+
+test("a 1024-recipient MCP batch keeps its full summary count and a bounded initial page estimate", () => {
+  const batch = (count: number) =>
+    activity([
+      tool("mcp__cmux__acpmux_send", "other", {
+        inputSummary: JSON.stringify({ tag: "area=docs", text: "hello" }),
+        output: JSON.stringify({
+          results: Array.from({ length: count }, (_, index) => ({ index: 0, to: `recipient-${index}`, ok: true })),
+        }),
+      }),
+    ]);
+  const small = { ...batch(32), foldRun: true };
+  const large = { ...batch(1024), foldRun: true };
+  // A second coordination line makes the containing run fold, where its heading must count
+  // every recipient even though the large call mounts a bounded page.
+  const companion = send("recipient-companion", "hello");
+  const foldedRun = foldMessageRuns([{ ...large, items: [...large.items!, companion] }], new Set());
+  expect(foldedRun[0]?.messageRun?.sent).toBe(1025);
+  const smallHeight = layoutConversation([small], 720).heights[0]!;
+  const largeHeight = layoutConversation([large], 720).heights[0]!;
+  // The large batch initially mounts the same 32 rows plus one shared-grid pager line.
+  expect(smallHeight).toBe(32 * 22);
+  expect(largeHeight).toBe(smallHeight + 22);
+  expect(layoutConversation([{ ...large, foldRun: undefined }], 720).heights[0]).toBe(largeHeight);
+});
 const read = (path: string) => tool(`Read ${path}`, "read", { locations: [{ path }] });
 const run = (command: string) => tool(command, "execute", { command, output: "ok\n" });
 const activity = (items: AcpmuxActivity[], id?: string) =>

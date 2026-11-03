@@ -18,6 +18,9 @@ import { isFoldedRun } from "./toolRunSummary";
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
 
+/// Rendering page size only: every send stays in the receipt and is reachable through the pager.
+export const SEND_PAGE_SIZE = 32;
+
 export type ToolGroup =
   /// Its calls, with any thought that came between two of them in its place (`groupCalls` lists
   /// only the calls).
@@ -27,8 +30,8 @@ export type ToolGroup =
   | { type: "dispatch"; item: AcpmuxActivity; call: DispatchCall }
   /// A message a shell `acpmux send` (acpmuxSends.ts) or the acpmux MCP send's batch, file or tag
   /// shape (acpmuxMcpSends.ts) sent: the sent-message row (SentMessageLine.tsx). A call that sent
-  /// several (a batch) is one entry per message, all with the same `item`.
-  | { type: "send"; item: AcpmuxActivity; send: AcpmuxSendCallPart }
+  /// several is one entry per message; large batches retain their complete receipt for paging.
+  | { type: "send"; item: AcpmuxActivity; send: AcpmuxSendCallPart; batch?: readonly AcpmuxSendCallPart[] }
   /// A sub-session started, sent a message or waited on (subsessionCalls.ts), each its own card.
   | { type: "subsession"; item: AcpmuxActivity; call: SubsessionCall }
   /// Adjacent start_session calls become one disclosure row with one expandable child per session.
@@ -42,6 +45,10 @@ export type ToolGroup =
   | { type: "item"; item: AcpmuxActivity };
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
+
+/// The initially visible recipient lines and, for a paged batch, its pager on the same grid.
+export const sendGroupLines = (group: Extract<ToolGroup, { type: "send" }>): number =>
+  group.batch ? Math.min(SEND_PAGE_SIZE, group.batch.length) + 1 : 1;
 
 /// The group a call joins, or nil for a call drawn on its own. Only calls with a command line
 /// are commands; an MCP call can also say "execute". An edit still waiting for its permission
@@ -282,8 +289,10 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     }
     flushLead();
     if (dispatch) groups.push({ type: "dispatch", item, call: dispatch });
-    else if (send) for (const part of send) groups.push({ type: "send", item, send: part });
-    else if (message) groups.push({ type: "message", item, message });
+    else if (send) {
+      if (send.length > SEND_PAGE_SIZE) groups.push({ type: "send", item, send: send[0]!, batch: send });
+      else for (const part of send) groups.push({ type: "send", item, send: part });
+    } else if (message) groups.push({ type: "message", item, message });
     else if (subsession) groups.push({ type: "subsession", item, call: subsession });
     else if (key) mcp = { key, items: [item] };
     else if (kind) run = { kind, items: [item], lead: 0 };

@@ -19,7 +19,15 @@ import type { Translate } from "../i18n";
 import { inboxCounts } from "./inboxNotice";
 import { joinsReceivedRow } from "./laneNoticeBatches";
 import { isWaitingMessage } from "./pendingMessages";
-import { awaitsPermission, isFailed, isRunning, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
+import {
+  awaitsPermission,
+  isFailed,
+  isRunning,
+  runStretches,
+  sendGroupLines,
+  toolGroups,
+  type ToolGroup,
+} from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import type { Folds } from "./viewFolds";
 
@@ -72,8 +80,14 @@ function member(row: AcpmuxRow): Member | undefined {
   )
     return undefined;
   let lines = 0;
-  for (const stretch of runStretches(row, groups)) lines += stretch.fold ? 1 : stretch.groups.length;
-  const sent = groups.filter(isSend).length;
+  for (const stretch of runStretches(row, groups))
+    lines += stretch.fold
+      ? 1
+      : stretch.groups.reduce((sum, group) => sum + (group.type === "send" ? sendGroupLines(group) : 1), 0);
+  const sent = groups.reduce(
+    (sum, group) => sum + (isSend(group) ? (group.type === "send" ? (group.batch?.length ?? 1) : 1) : 0),
+    0,
+  );
   const sentItems = new Set(groups.flatMap((group) => (isSend(group) && "item" in group ? [group.item] : [])));
   const work = row.items.filter((item) => item.tool && !sentItems.has(item));
   return {

@@ -1217,6 +1217,8 @@ function noteHeight(text: string | undefined, width: number): number {
 function activityStepHeight(item: AcpmuxActivity, width: number): number {
   const tool = item.tool;
   if (!tool) return item.kind === "note" ? noteHeight(item.text, width) : 26;
+  const sends = acpmuxMcpSends(tool);
+  if (sends?.length) return toolRowHeight() * (sends.length > SEND_PAGE_SIZE ? SEND_PAGE_SIZE + 1 : sends.length);
   // A message to another agent (SendMessage, `acpmux send`, a sub-session's `send_message`) is one
   // line on the tool rows' line (AgentMessageRow.tsx), as every one-line row is.
   if (agentMessage(tool)) return toolRowHeight();
@@ -1281,7 +1283,8 @@ function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: num
 /// An entry a folded run keeps on its own line: a group starts closed there (ToolGroupRow.tsx
 /// `folded`), one line, as a sent message's row is (SentMessageLine.tsx); anything else is its calls.
 function foldedGroupHeight(group: ToolGroup, width: number): number {
-  if (group.type === "group" || group.type === "send") return toolRowHeight();
+  if (group.type === "send") return toolRowHeight() * sendGroupLines(group);
+  if (group.type === "group") return toolRowHeight();
   // `.cv-tool-group` lists its calls flush too.
   const items = "items" in group ? group.items : [group.item];
   return items.reduce((sum, item) => sum + activityStepHeight(item, width), 0);
@@ -2536,7 +2539,15 @@ export function scrollLeadRanges(
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
-import { runStretches, staysInSight, toolGroups, type ToolGroup } from "./conversation/toolGroups";
+import {
+  runStretches,
+  SEND_PAGE_SIZE,
+  sendGroupLines,
+  staysInSight,
+  toolGroups,
+  type ToolGroup,
+} from "./conversation/toolGroups";
+import { acpmuxMcpSends } from "./conversation/acpmuxMcpSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { isQuietThought, isThought, mergeThoughts } from "./conversation/thoughts";
 import { previewCardHeight } from "./conversation/previewUrl";
