@@ -15,9 +15,9 @@ import type { SessionInfoSectionId } from "./sessionInfoState";
 
 export type SessionInfoGroupId = "about" | "made" | "running";
 
-/// Each block's sections in their default order: where it runs, what it made, what it runs. A
-/// section's block still draws the hairlines (SessionInfoGroup.tsx): a hairline sits wherever two
-/// adjacent sections come from different blocks, so the default order draws the three blocks.
+/// Each block's sections: where it runs, what it made, what it runs. A section's block draws the
+/// hairlines (SessionInfoGroup.tsx): a hairline sits wherever two adjacent sections come from
+/// different blocks. The order of the #27291 per-block format (parseOrder) is this one.
 export const GROUP_SECTIONS: Readonly<Record<SessionInfoGroupId, readonly SessionInfoSectionId[]>> = {
   about: ["environment", "context", "usage", "connectors"],
   made: ["changes", "sources", "outputs"],
@@ -26,8 +26,52 @@ export const GROUP_SECTIONS: Readonly<Record<SessionInfoGroupId, readonly Sessio
 
 const GROUPS = Object.keys(GROUP_SECTIONS) as SessionInfoGroupId[];
 
-/// Every section in its default place, top to bottom.
-export const DEFAULT_ORDER: readonly SessionInfoSectionId[] = GROUPS.flatMap((group) => GROUP_SECTIONS[group]);
+/// Every section in its default place, top to bottom: the machine (Cloud or this Mac), Context, the
+/// running subagents and background tasks, then Sources (Leo, 2026-11-03: "1. Machines showing up so
+/// I know if it's cloud or not 2. context 3. Subagents/background tasks running 4. Sources"). Usage, a
+/// folded row valued at Context's spend, stays right after Context; the sections he did not name
+/// follow Sources. A person's saved order (a drag) still wins over this one.
+export const DEFAULT_ORDER: readonly SessionInfoSectionId[] = [
+  "environment",
+  "context",
+  "usage",
+  "subagents",
+  "tasks",
+  "sources",
+  "changes",
+  "outputs",
+  "connectors",
+];
+
+/// Leo's four, always in view: the machine, Context, what it runs, Sources (DEFAULT_ORDER above).
+export const PRIORITY_SECTIONS: readonly SessionInfoSectionId[] = [
+  "environment",
+  "context",
+  "subagents",
+  "tasks",
+  "sources",
+];
+
+/// The less-used sections, behind the panel's one Show more until the person opens it (Leo,
+/// 2026-11-03: "i feel like it's a bit too much stuff by default there's a bunch of things there that
+/// can be a bit more hidden under 'show more' or whatnot"). None is ever dropped: Show more lists them
+/// all, a reveal (a running line's count, the header's chip) opens it, and its choice stays.
+export const MORE_SECTIONS: readonly SessionInfoSectionId[] = ["usage", "changes", "outputs", "connectors"];
+
+/// The sections of `shown` that the panel's Show more hides while it is closed: every less-used one,
+/// unless the person's own order (a drag) put it above one of Leo's four that it follows by default;
+/// that one stays in view, so a drag still wins. `order` is the panel's whole order (sectionOrder).
+export function tuckedSections(
+  shown: readonly SessionInfoSectionId[],
+  order: readonly SessionInfoSectionId[] = shown,
+): SessionInfoSectionId[] {
+  const placed = (id: SessionInfoSectionId) =>
+    PRIORITY_SECTIONS.some(
+      (priority) =>
+        DEFAULT_ORDER.indexOf(priority) < DEFAULT_ORDER.indexOf(id) && order.indexOf(id) < order.indexOf(priority),
+    );
+  return shown.filter((id) => MORE_SECTIONS.includes(id) && !placed(id));
+}
 
 /// The block a section belongs to by default.
 export function sectionGroup(id: SessionInfoSectionId): SessionInfoGroupId {

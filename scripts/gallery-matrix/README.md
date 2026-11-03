@@ -6,7 +6,7 @@ Install once from this directory:
 
 ```sh
 bun install
-bunx playwright install chromium webkit
+bunx playwright install webkit && ../ci/ensure-system-chrome.sh
 ```
 
 Browsers never run on a developer laptop (coordinator rule, 2026-10-07): the runner renders only inside a Freestyle VM or on CI (`CMUX_GALLERY_IN_VM=1`). Locally, `--dry-run` lists the stage URLs of a manifest:
@@ -161,7 +161,7 @@ cmux-ci test --setup webviews --timeout 1800 -- bash -lc '
   CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
   cd ../scripts/gallery-matrix
   bun install --frozen-lockfile
-  ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+  ../ci/ensure-system-chrome.sh
   result=0
   CMUX_GALLERY_IN_VM=1 bun geometry-audit.ts --gallery-dir "$RUNNER_TEMP/gallery" \
     --output-dir "$RUNNER_TEMP/geometry" --expected-sha "$(git rev-parse HEAD)" || result=1

@@ -183,7 +183,7 @@ jobs:
 
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           bun install --frozen-lockfile
-          ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+          "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
           # Each stage renders its own states: a state the PR adds has no base
           # variant to render (the base reports it not ready), and one it removes
           # has no head variant.

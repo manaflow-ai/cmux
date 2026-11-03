@@ -19,6 +19,10 @@ extension UpdaterService {
     public func switchToBuild(_ build: String) async -> String? {
         guard switchesBuilds else { return UpdaterStrings.channelsSwitchUnavailable }
         guard build != identity.build else { return UpdaterStrings.channelsSwitchAlreadyHere }
+        // A pulled build is never switched to, kept or not: the Channels card offers it no Switch, and
+        // `updates.switch_build` (the CLI) asks for it by number.
+        let folder = changelogNotes.map { Self.channelFolder(notesBase: $0.notesBase) }
+        if await Self.pulled(in: folder).contains(where: { $0.build == build }) { return UpdaterStrings.channelsSwitchPulled }
         // A directory listing and a read of each kept bundle's Info.plist: file I/O on the files lane.
         let store = keptVersions
         let kept = (try? await work.run(.userVisible, mayBlock: .files) { store.list().contains { $0.build == build } }) ?? false
@@ -120,6 +124,9 @@ nonisolated extension UpdaterStrings {
         text("updater.channels.switchUnavailable", "This build cannot switch builds (it follows no update feed).")
     }
     static var channelsSwitchAlreadyHere: String { text("updater.channels.switchAlreadyHere", "This Mac already runs that build.") }
+    static var channelsSwitchPulled: String {
+        text("updater.channels.switchPulled", "That build was pulled from the feed. Pick another one.")
+    }
     static var channelsSwitchGone: String {
         text("updater.channels.switchGone", "That build is no longer offered for download.")
     }

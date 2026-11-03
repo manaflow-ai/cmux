@@ -85,7 +85,11 @@ fn tool_schemas_follow_the_catalog() {
         assert_eq!(schema["additionalProperties"], false);
         assert_eq!(
             properties.contains_key("machine"),
-            tool.operation == ResourceOperation::MachineGet,
+            // workspace_list's `machine` picks a Cloud machine's workspaces (cloud_workspaces.rs).
+            matches!(
+                tool.operation,
+                ResourceOperation::MachineGet | ResourceOperation::WorkspaceList
+            ),
             "{}",
             tool.name
         );
