@@ -24,6 +24,14 @@ extra Chromium switches are accepted only there.
 """
 import argparse, collections, json, os, sys, time
 
+
+def argparse_kinds(value):
+    kinds = [k for k in value.split(",") if k]
+    unknown = [k for k in kinds if k not in ("print", "spawn", "both")]
+    if unknown or not kinds:
+        raise argparse.ArgumentTypeError("kinds are print, spawn, both (got %r)" % value)
+    return kinds
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError  # noqa: E402
@@ -32,7 +40,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--json")
-parser.add_argument("--kinds", default="print,spawn,both")
+parser.add_argument("--kinds", default="print,spawn,both", type=lambda v: ",".join(argparse_kinds(v)))
 parser.add_argument("--counts", default="0,8,24")
 parser.add_argument("--hz", type=float, default=20)
 parser.add_argument("--window", type=float, default=20)
@@ -108,7 +116,7 @@ def run_kind(kind):
             # Without Chromium there is no pump: every window would read 0 wakes, which is not a finding.
             rows.append({"kind": kind, "error": "Chromium is not running (debug.cef state %r, trigger %r)" % (cef.get("state"), cef.get("trigger"))})
             print("CEF-PUMP-WAKES " + json.dumps(rows[-1]), flush=True)
-            return
+            return  # the finally keeps this row in the report
         made = 0
         for count in sorted({int(c) for c in opts.counts.split(",")}):
             while made < count:
@@ -117,8 +125,9 @@ def run_kind(kind):
                 time.sleep(0.5)  # test harness: the loop starts while its workspace shows
             new_workspace(app, "quiet-%s-%d" % (kind, count), "/bin/sh -c 'exec sleep 3600'", True)
             time.sleep(opts.settle)  # test harness: the switch settles before the window
+            start = uptime_us()  # the ledger counts from its reset
             checked(app.rpc("debug.wakeups", {"reset": True}), "debug.wakeups reset", "ledger")
-            before, start = pump_counters(app), uptime_us()
+            before = pump_counters(app)
             time.sleep(opts.window)  # the measured window: no calls into the app
             after = pump_counters(app)
             ledger = checked(app.rpc("debug.wakeups", {}), "debug.wakeups", "ledger")
@@ -146,12 +155,13 @@ def run_kind(kind):
             RESULT.setdefault("trace", summarize_trace(trace_file, windows))
     except LaunchError as error:
         rows.append({"kind": kind, "error": error.reason})
+        print("CEF-PUMP-WAKES " + json.dumps(rows[-1]), flush=True)
     except (RuntimeError, OSError) as error:  # a refused newTab, a failed control reply: this kind ends, the report is still written
         rows.append({"kind": kind, "error": "%s: %s" % (type(error).__name__, error)})
         print("CEF-PUMP-WAKES " + json.dumps(rows[-1]), flush=True)
     finally:
         app.stop()
-    RESULT["kinds"][kind] = rows
+        RESULT["kinds"][kind] = rows  # every way out of the kind, an early return too
 
 
 def summarize_trace(path, windows):
