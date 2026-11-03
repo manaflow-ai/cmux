@@ -5,7 +5,7 @@ public import CmuxNextDesign
 /// A capture-only pane sample using the shipped toolbar and menu presentation path.
 /// Supplying tools directly enables native rendering only here; no ChromeTunables value is set.
 @MainActor
-public final class DebugNativeRowToolsFixtureView: NSView {
+public final class DebugNativeRowToolsFixtureView: NSView, DebugNativeRowToolsOverlay {
     private let backdrop = NSVisualEffectView()
     private weak var activeMenu: NSMenu?
     private weak var previousResponder: NSResponder?

@@ -83,6 +83,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .tabState: "tabState"
         case .tabRowTools: "tabRowTools"
         case .sessionInfo: "sessionInfo"
+        case .sessionInfoOverlays: "sessionInfoOverlays"
         case .copyText: "copyText"
         case .tabRowToolsSet: "tabRowToolsSet"
         case .tabRowToolsOpenMenu: "tabRowToolsOpenMenu"

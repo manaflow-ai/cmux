@@ -400,6 +400,8 @@
    sheet draws the same row. */
 .nt-screen .nt-composer {
   --acpmux-composer-control: 28px;
+  --acpmux-composer-trail-glyph: 18px;
+  --acpmux-composer-trail-stroke: 1.35;
   --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--cmux-interface-scale, 1));
   --acpmux-text-drop: calc(var(--text-content) / 14);
   --acpmux-composer-inset: var(--nt-composer-inset);
@@ -445,10 +447,12 @@
   width: 24px;
   height: 24px;
 }
-/* Send is the mic's plain glyph at the mic's size (Leo 2026-10-21: no disc; composerStates.css). */
-.nt-pickers .acpmux-send .acpmux-icon {
-  width: 18px;
-  height: 18px;
+/* Send is the mic's plain glyph at the mic's size and weight (Leo 2026-10-21: no disc;
+   composerStates.css), the composer's trailing glyph tokens (composerLocation.css). */
+.nt-pickers :is(.acpmux-send, .acpmux-mic) .acpmux-icon {
+  width: var(--acpmux-composer-trail-glyph);
+  height: var(--acpmux-composer-trail-glyph);
+  stroke-width: var(--acpmux-composer-trail-stroke);
 }
 /* New Tab's trailing controls share the chat composer's action rhythm. The default button group
    leaves its legacy 8px gap in place; use the same 4px token as Claude's composer so mic and Send

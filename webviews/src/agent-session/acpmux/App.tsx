@@ -326,6 +326,7 @@ import {
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
+import { FisheyeFilters } from "../../ui/glass/Fisheye";
 import { latestTurnCheckpointPair, readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
 import { registerAttachmentViewHost, registerComposerHost, useComposerSettings } from "./composerSettings";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
@@ -528,6 +529,7 @@ import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
 import {
   cloudPageRefusal,
+  cloudRunsHere,
   cloudStartFolder,
   cloudStartToasted,
   newTabProjectPick,
@@ -2392,6 +2394,7 @@ const isStepRow = (row: AcpmuxRow | undefined) =>
     row.kind === "policyUnenforced" ||
     row.kind === "agentPair" ||
     row.kind === "sessionStart" ||
+    row.kind === BACKGROUND_TURN ||
     (row.kind === "activity" && !isEditRow(row)));
 /// A step row by its layout mark: a step row above, or the running turn's line right under one
 /// (model.ts `isLiveStep`, which `layoutConversation` marks MARK_STEP), so the live line and its
@@ -2620,8 +2623,12 @@ function restingAnchor(
   return atLatest || !row ? null : { rowId: row.id, offset: top - placed.tops[index] };
 }
 
+/// Jump to latest's diameter, CSS px (conversation.css .acpmux-jump-latest): its fisheye filter is
+/// drawn for it (ui/glass/Fisheye.tsx).
+const JUMP_LATEST_SIZE = 32;
 /// Jump to latest: a glass circle centered above the composer, shown while the reader is scrolled up
-/// from the latest message (ChatGPT and Codex style). While the agent works it stays a static arrow;
+/// from the latest message (ChatGPT and Codex style). The glass is a fisheye lens that magnifies the
+/// transcript under it (Leo 2026-10-21: "I want more fisheye!"). While the agent works it stays a static arrow;
 /// the working state is already represented by the shared transcript spinner. It stays mounted while
 /// hidden (inert) so it fades out as it fades in (conversation.css).
 function JumpToLatest({
@@ -2644,23 +2651,26 @@ function JumpToLatest({
   if (needsYou && needsYou.count > 0) return <NeedsYouPill {...needsYou} shown={shown} lift={lift} onJump={onJump} />;
   const label = t(working ? "transcript.jumpLatestWorking" : "transcript.jumpLatest");
   return (
-    <button
-      type="button"
-      className="ui-glass ui-glass-floats acpmux-jump-latest"
-      data-shown={shown ? "" : undefined}
-      style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
-      aria-label={label}
-      // The arrow says nothing by itself; working state is carried by the shared spinner in the transcript.
-      title={label}
-      // Hidden, it is inert: out of the tab order and the accessibility tree while it fades out.
-      inert={!shown}
-      // A click does not focus a button in WebKit, so focus on it means Return or Space.
-      onClick={(event) => onJump(event.currentTarget === document.activeElement)}
-    >
-      <span className="acpmux-jump-latest__arrow" aria-hidden="true">
-        <ArrowDown size={14} />
-      </span>
-    </button>
+    <>
+      <FisheyeFilters size={JUMP_LATEST_SIZE} />
+      <button
+        type="button"
+        className="ui-glass ui-glass-fisheye acpmux-jump-latest"
+        data-shown={shown ? "" : undefined}
+        style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
+        aria-label={label}
+        // The arrow says nothing by itself; working state is carried by the shared spinner in the transcript.
+        title={label}
+        // Hidden, it is inert: out of the tab order and the accessibility tree while it fades out.
+        inert={!shown}
+        // A click does not focus a button in WebKit, so focus on it means Return or Space.
+        onClick={(event) => onJump(event.currentTarget === document.activeElement)}
+      >
+        <span className="acpmux-jump-latest__arrow" aria-hidden="true">
+          <ArrowDown size={14} />
+        </span>
+      </button>
+    </>
   );
 }
 
@@ -8192,6 +8202,8 @@ function AcpmuxPane() {
   /// A Cloud start is out (the host answers once the chat opens, minutes for a new machine): the
   /// folder default changes nothing meanwhile, so the prompt it holds never turns into a local send.
   const cloudStartPending = useRef(false);
+  /// The cap card answered Run on This Mac (cloudRunsHere): the prompt sends here once the mode switched.
+  const runHereSend = useRef(false);
   /// Counts the Cloud starts that ended, so the folder default looks again once one has.
   const [cloudStartsEnded, setCloudStartsEnded] = useState(0);
   const sandboxModeRows = {
@@ -8237,6 +8249,14 @@ function AcpmuxPane() {
     void started.then((answer) => {
       cloudStartPending.current = false;
       setCloudStartsEnded((count) => count + 1);
+      if (cloudRunsHere(answer)) {
+        // The cap card's Run on This Mac: the prompt still in the composer goes to a chat here once the mode is.
+        setCloudStart((current) => (current?.key === key ? undefined : current));
+        runModePicked.current = true;
+        runHereSend.current = true;
+        sandbox.setMode("persistent");
+        return;
+      }
       setCloudStart((current) => cloudStartEnded(current, key, answer));
       if (!answer.ok && !cloudStartToasted(answer))
         directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
@@ -8264,6 +8284,12 @@ function AcpmuxPane() {
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
     if (sandbox.mode !== "cloud") setCloudStart((current) => (current?.state === "failed" ? undefined : current));
+  }, [sandbox.mode]);
+  /// Run on This Mac from the cap card (runHereSend): the kept prompt sends once the mode is this Mac's.
+  useEffect(() => {
+    if (!runHereSend.current || sandbox.mode !== "persistent") return;
+    runHereSend.current = false;
+    composerHandle.current?.send();
   }, [sandbox.mode]);
   const viewedSandbox = sandboxViewing && snapshot.sessionId ? sandboxView : undefined;
   /// The chat view shows the tab's run as a card (SandboxRunView), which offers its own Check again.

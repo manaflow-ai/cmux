@@ -79,7 +79,8 @@ cmux cloud list-machines --json
 ```bash
 cmux cloud list-machines                                    # the app's Cloud machines
 cmux machine new                                            # prints its target and next steps (--json: machine_id, or pending)
-cmux cloud new-workspace                                    # New Cloud Workspace
+cmux cloud new-workspace                                    # New Cloud Workspace: a new small machine of its own, never a listed one
+cmux cloud new-workspace --target machine:vm-…              # a new workspace on that machine
 cmux cloud open-machine --target machine:vm-…
 cmux cloud open-desktop --target machine:vm-…                # its desktop in a cmux browser tab, over the app's Cloud tunnel
 cmux cloud open-desktop --target machine:vm-… --viewer native # the same desktop in the native remote view pane (development builds)

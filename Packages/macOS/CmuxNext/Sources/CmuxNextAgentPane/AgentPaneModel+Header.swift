@@ -231,6 +231,9 @@ extension AgentPaneModel {
         case .sessionInfo(let info):
             sessionInfo.update(info)
             return AgentPaneReply.success()
+        case .sessionInfoOverlays(let rects):
+            sessionInfo.updateOverlays(rects)
+            return AgentPaneReply.success()
         case .copyText(let text):
             guard transport.gestures.consume() else {
                 return Self.transportFailure(.gestureRequired)
