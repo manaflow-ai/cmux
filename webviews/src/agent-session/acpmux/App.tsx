@@ -518,7 +518,7 @@ import {
 import { uniqueArtifacts } from "./conversation/artifactDedupe";
 import { writtenArtifacts } from "./conversation/writtenArtifacts";
 import { artifactVersions } from "./conversation/artifactVersions";
-import { ArtifactLiveSource, mergeArtifactVersions } from "./conversation/artifactLive";
+import { artifactLiveSource, mergeArtifactVersions } from "./conversation/artifactLive";
 import { RenderPages, renderPages, renderVersions } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
@@ -6485,7 +6485,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const artifactRows = artifact ? snapshot.rows : undefined;
   const artifactRowsRef = useRef(snapshot.rows);
   artifactRowsRef.current = snapshot.rows;
-  const artifactLive = useRef<ArtifactLiveSource | undefined>(undefined);
+  const artifactLive = useRef<ReturnType<typeof artifactLiveSource>>(undefined);
   if (!artifact) {
     artifactLive.current?.dispose();
     artifactLive.current = undefined;
@@ -6494,7 +6494,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A pinned preview from another chat does not follow this chat's rows.
   const liveDocument = useMemo(
     () =>
-      artifact?.identity && artifactRows && artifact.sessionId === snapshot.sessionId
+      (artifact?.identity || artifact?.path) && artifactRows && artifact.sessionId === snapshot.sessionId
         ? artifactLive.current?.read(artifactRows)
         : undefined,
     [artifact, artifactRows, snapshot.sessionId],
@@ -6530,7 +6530,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const openArtifact = useCallback(
     (next: Artifact) => {
       artifactLive.current?.dispose();
-      artifactLive.current = next.identity ? new ArtifactLiveSource(next, artifactRowsRef.current) : undefined;
+      artifactLive.current = artifactLiveSource(next, artifactRowsRef.current);
       setArtifact((current) => ({
         ...next,
         sessionId: artifactSession,
