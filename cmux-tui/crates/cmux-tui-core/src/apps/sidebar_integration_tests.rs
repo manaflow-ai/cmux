@@ -87,13 +87,18 @@ fn write_app(dir: &Path, id: &str, version: &str) {
     std::fs::write(dir.join("cmux-app.v2.json"), manifest.to_string()).unwrap();
 }
 
-fn app_sections(mux: &Mux) -> Vec<Section> {
+/// A fresh document already has the recent-chats app section. Count only
+/// this fixture app, while retaining every section so duplicates still fail.
+fn app_sections_for(mux: &Mux, app: &str) -> Vec<Section> {
     mux.read_registry_state(|connection| {
         crate::state::sidebar_doc_store::with_doc(connection, |doc| {
             Ok(doc
                 .sections()
                 .iter()
-                .filter(|section| matches!(section.kind, SectionKind::App { .. }))
+                .filter(|section| {
+                    matches!(&section.kind, SectionKind::App { contribution }
+                        if contribution.split_once('#').is_some_and(|(id, _)| id == app))
+                })
                 .cloned()
                 .collect())
         })
@@ -115,12 +120,12 @@ fn customize_section_appearing_after_startup_keeps_a_move_and_removal_across_res
     let session = Session::new();
     let mux = session.open();
     let supervisor = session.supervisor(&mux);
-    assert!(app_sections(&mux).is_empty());
+    assert!(app_sections_for(&mux, "local/customize").is_empty());
 
     let customize = session.0.join("customize");
     write_app(&customize, "local/customize", "1.0.0");
     let prints = supervisor.reload_local_apps(&HashMap::new());
-    let placed = app_sections(&mux);
+    let placed = app_sections_for(&mux, "local/customize");
     assert_eq!(placed.len(), 1, "first appearance did not place exactly one section");
     let section = &placed[0];
     assert_eq!(section.region, Region::Bottom);
@@ -132,7 +137,7 @@ fn customize_section_appearing_after_startup_keeps_a_move_and_removal_across_res
     change_section(&mux, "sidebar.section.move", json!({"id": id, "place": {"region": "top"}}));
     write_app(&customize, "local/customize", "1.0.1");
     let prints = supervisor.reload_local_apps(&prints);
-    let moved = app_sections(&mux);
+    let moved = app_sections_for(&mux, "local/customize");
     assert_eq!(moved.len(), 1);
     assert_eq!(moved[0].id, id);
     assert_eq!(moved[0].region, Region::Top, "reload overwrote the person's move");
@@ -140,17 +145,23 @@ fn customize_section_appearing_after_startup_keeps_a_move_and_removal_across_res
     change_section(&mux, "sidebar.section.remove", json!({"id": id}));
     write_app(&customize, "local/customize", "1.0.2");
     supervisor.reload_local_apps(&prints);
-    assert!(app_sections(&mux).is_empty(), "reload restored a removed section");
+    assert!(
+        app_sections_for(&mux, "local/customize").is_empty(),
+        "reload restored a removed section"
+    );
     drop(supervisor);
     mux.shutdown();
     drop(mux);
 
     let reopened = session.open();
     let supervisor = session.supervisor(&reopened);
-    assert!(app_sections(&reopened).is_empty(), "restart restored a removed section");
+    assert!(
+        app_sections_for(&reopened, "local/customize").is_empty(),
+        "restart restored a removed section"
+    );
 
     supervisor.place_sidebar("local/customize#cmux.section/1", Some(Region::Middle)).unwrap();
-    let restored = app_sections(&reopened);
+    let restored = app_sections_for(&reopened, "local/customize");
     assert_eq!(restored.len(), 1, "explicit placement did not restore the section");
     assert_eq!(restored[0].region, Region::Middle);
     assert_eq!(restored[0].scroll, cmux_layout_reducer::sidebar_doc::Scroll::Flow);
@@ -164,7 +175,10 @@ fn an_uninstalled_or_hidden_local_app_is_placed_only_when_shown() {
     write_app(&session.0.join("local/panel"), "local/panel", "1.0.0");
     let mux = session.open();
     let supervisor = session.supervisor(&mux);
-    assert!(app_sections(&mux).is_empty(), "an uninstalled app placed a section");
+    assert!(
+        app_sections_for(&mux, "local/panel").is_empty(),
+        "an uninstalled app placed a section"
+    );
 
     supervisor
         .set(
@@ -179,7 +193,7 @@ fn an_uninstalled_or_hidden_local_app_is_placed_only_when_shown() {
             },
         )
         .unwrap();
-    assert!(app_sections(&mux).is_empty(), "a hidden install placed a section");
+    assert!(app_sections_for(&mux, "local/panel").is_empty(), "a hidden install placed a section");
 
     supervisor
         .set(
@@ -193,7 +207,7 @@ fn an_uninstalled_or_hidden_local_app_is_placed_only_when_shown() {
             },
         )
         .unwrap();
-    let shown = app_sections(&mux);
+    let shown = app_sections_for(&mux, "local/panel");
     assert_eq!(shown.len(), 1);
     assert_eq!(shown[0].region, Region::Bottom);
     assert!(matches!(&shown[0].kind, SectionKind::App { contribution }
