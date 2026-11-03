@@ -556,6 +556,9 @@ def frame_click(run, key, label):
                                                       opts.strip_ms)})
     if not out.get("watch"):
         record["layout_watch_error"] = out.get("watch_error")
+    # Rows the page added after its first paint are a second view: the first frame was not the final one.
+    if (record.get("drift") or {}).get("rows_appeared_later"):
+        record["first_is_final"] = False
     return record
 
 

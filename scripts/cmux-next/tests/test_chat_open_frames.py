@@ -74,16 +74,20 @@ class TranscriptTests(unittest.TestCase):
         record["transcript_ms"] = cof.transcript_ms({"frames": 80, "first_content_ms": None}, 30, 2500)
         self.assertIsNone(record["transcript_ms"])
         self.assertFalse(cof.valid(record))
-        self.assertIsNone(cof.transcript_ms({"frames": 80, "first_content_ms": 2400}, 300, 2500))
+        self.assertIsNone(cof.transcript_ms({"frames": 80, "first_content_ms": 2400, "first_rows": 4}, 300, 2500))
+        # A first paint of chrome with no rows (a page still loading reads as the empty chat) is no transcript.
+        self.assertIsNone(cof.transcript_ms({"frames": 80, "first_content_ms": 20, "first_rows": 0}, 30, 2500))
+        # A page that does not report its rows proves nothing.
+        self.assertIsNone(cof.transcript_ms({"frames": 80, "first_content_ms": 20}, 30, 2500))
         self.assertIsNone(cof.transcript_ms(None, 30, 2500))
 
     def test_transcript_inside_the_strip_counts_from_the_click(self):
         record = cof.final_frame(strip(*[(0.3, 0)] * 12))
-        record["transcript_ms"] = cof.transcript_ms({"frames": 80, "first_content_ms": 20}, 45.5, 2500)
+        record["transcript_ms"] = cof.transcript_ms({"frames": 80, "first_content_ms": 20, "first_rows": 6}, 45.5, 2500)
         self.assertEqual(record["transcript_ms"], 65.5)
         self.assertTrue(cof.valid(record))
         # A watch asked before the click counts from the click.
-        self.assertEqual(cof.transcript_ms({"frames": 80, "first_content_ms": 20}, -50, 2500), 20)
+        self.assertEqual(cof.transcript_ms({"frames": 80, "first_content_ms": 20, "first_rows": 6}, -50, 2500), 20)
 
     def test_a_blank_frame_breaks_first_is_final(self):
         rows = strip((0.4, 0.4, 0.999), *[(0.3, 0)] * 12)
@@ -99,7 +103,9 @@ class DriftAndSummaryTests(unittest.TestCase):
         watch = {"frames": 90, "first_content_ms": 40, "scroll_jumps": [{"at_ms": 70}],
                  "shifts": [{"element": "row#3", "from": {"x": 0, "y": 100, "w": 10, "h": 10}, "to": {"x": 0, "y": 112, "w": 10, "h": 10}},
                             {"element": "composer", "from": {"x": 0, "y": 0, "w": 1, "h": 1}, "to": {"x": 0, "y": 90, "w": 1, "h": 1}}]}
-        self.assertEqual(cof.row_drift(watch), {"rows_moved": 1, "max_row_px": 12, "scroll_jumps": 1, "page_first_content_ms": 40})
+        watch["appeared"] = [{"element": "row#9", "at_ms": 300}, {"element": "chip:model", "at_ms": 90}]
+        self.assertEqual(cof.row_drift(watch), {"rows_moved": 1, "max_row_px": 12, "rows_appeared_later": 1, "scroll_jumps": 1,
+                                                "page_first_content_ms": 40})
         self.assertEqual(cof.row_drift({"frames": 3, "shifts": []})["max_row_px"], 0)
         self.assertIsNone(cof.row_drift(None))
         self.assertIsNone(cof.row_drift({"error": "no pane shows an agent tab"}))

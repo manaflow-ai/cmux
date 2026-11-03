@@ -71,14 +71,19 @@ def row_drift(watch):
             continue
         was, now = shift.get("from") or {}, shift.get("to") or {}
         moved.append(max(abs((now.get(k) or 0) - (was.get(k) or 0)) for k in ("x", "y", "w", "h")))
-    return {"rows_moved": len(moved), "max_row_px": max(moved) if moved else 0,
+    late = sum(1 for item in watch.get("appeared") or [] if str(item.get("element", "")).startswith("row#"))
+    return {"rows_moved": len(moved), "max_row_px": max(moved) if moved else 0, "rows_appeared_later": late,
             "scroll_jumps": len(watch.get("scroll_jumps") or []), "page_first_content_ms": watch.get("first_content_ms")}
 
 
 def transcript_ms(watch, watch_started_ms, strip_ms):
     """When the page first drew its transcript, in ms from the click (its layout_watch's first paint plus when the
-    watch started), or None when it did not draw one inside the strip."""
+    watch started), or None when it did not draw one inside the strip. The click cases open chats with messages,
+    so a first paint with no transcript rows (`first_rows` 0: the empty chat, or a page still loading, which
+    reads the same) is not the transcript, nor is a watch from a page that does not report its rows."""
     if not isinstance(watch, dict) or not _number(watch.get("first_content_ms")) or not _number(watch_started_ms):
+        return None
+    if not _number(watch.get("first_rows")) or watch["first_rows"] <= 0:
         return None
     at = round(max(0, watch_started_ms) + watch["first_content_ms"], 1)
     return at if at <= strip_ms else None
