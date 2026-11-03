@@ -102,11 +102,22 @@ def _motion(j, action, **params):
     return reply
 
 
+# sent / returned are D.now() = time.monotonic() of this driver process: on the minis' python 3.9 it counts from the
+# process start, not the host clock of the frames, trace and journal (VIDEO JUDGE CLOCK, STATUS 7930). Each entry
+# carries the offset to the host clock measured now in this process (the method of ext_tiers.host_seconds, #32640);
+# video_judge.py adds it once at load: host = t + host_offset_s.
+_HOST_CLOCK = getattr(time, "CLOCK_UPTIME_RAW", time.CLOCK_MONOTONIC)
+
+
+def _host_offset_s():
+    return time.clock_gettime(_HOST_CLOCK) - time.monotonic()
+
+
 def _hid_log(j, kind, args, sent, returned, answer=None):
     rec = getattr(j, "video", None)
     if rec is not None:
         rec["hid"].append({"kind": kind, "args": args, "t_sent": round(sent, 6), "t_returned": round(returned, 6),
-                           "answer": answer})
+                           "answer": answer, "host_offset_s": round(_host_offset_s(), 6)})
 
 
 def _crash_reports(j, since):
