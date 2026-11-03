@@ -95,12 +95,12 @@ struct AgentTabContent {
     /// (2-5 frames of an empty pane after Cmd-N, cx-21zkz): the New Tab frame shows under it, and
     /// the page stays clear, until its next frame there. Its own parked frame first, at the size it shows at.
     private func coverMove(of view: AgentPaneView) {
+        if view.pageDrawsOverCovers { return view.placeMovedChromiumPage() } // its own window, which no cover hides
         let paneView = pane.view, appearance = Self.appearance(of: paneView)
         let size = pane.services.newTabSpares.openingSize(of: view) ?? paneView.contentHost.bounds.size
-        // Only a frame at that size (none for a pane not laid out), and the page stays clear until it drew there, cover or
-        // not: a page shown at its parked size (a split pane's) shifted as it laid out again (Leo 2026-10-20).
+        // Only a frame at that size (none unlaid out); the page stays clear until it drew there (Leo 2026-10-20: it shifted).
         let own = view.redraw.takeRememberedFrame(size: size, appearance: appearance)
-        let image = size == .zero || paneView.launchImageView != nil || view.pageDrawsOverCovers ? nil : own ?? AgentPaneNewTabFrame.shared.image(size: size, appearance: appearance)
+        let image = size == .zero || paneView.launchImageView != nil ? nil : own ?? AgentPaneNewTabFrame.shared.image(size: size, appearance: appearance)
         BenchSpans.mark(image == nil ? "newTab.cover.none \(size) \(String(describing: appearance))" : own != nil ? "newTab.cover.own" : "newTab.cover")
         // The image's deadline shows the page too, should its frame never be reported.
         if let image {

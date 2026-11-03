@@ -324,6 +324,12 @@ final class HomeProjection: @preconcurrency ChatIntents {
         return have.drop(while: { wanted.contains($0) }).allSatisfy { !wanted.contains($0) }
     }
 
+    #if DEBUG
+    /// DEBUG: maps and lays out every shown row again, without animation (the Agent Messages
+    /// Playground registered another fold row style).
+    func debugRebuild() { rebuild() }
+    #endif
+
     /// The whole window again, without animation (MessagesLab has no action
     /// for it): `.replaceWindow`, then the pin or the first visible row's
     /// window position is restored.

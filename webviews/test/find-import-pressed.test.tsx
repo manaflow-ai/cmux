@@ -8,9 +8,19 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("find-import-pressed.test.tsx", async () => {
+  // Reduce Motion (desktop.css) gives every property a 0.01 ms transition, so a frame can still hold
+  // the hover or press change mid-transition, read as its oklab interpolation (0.1 on its way to
+  // 0.15). Feedback stays immediate: no transition may last 1 ms or more. Read once they settle.
   const paint = (button: Locator) =>
     button.evaluate(async (element) => {
       await window.cmuxPaintFrame();
+      const running = element.getAnimations();
+      for (const animation of running) {
+        const duration = Number(animation.effect?.getComputedTiming().duration ?? 0);
+        if (!(duration < 1)) throw new Error(`press or hover feedback animates for ${duration} ms`);
+      }
+      await Promise.allSettled(running.map((animation) => animation.finished));
+      if (running.length) await window.cmuxPaintFrame();
       const style = getComputedStyle(element);
       return { background: style.backgroundColor, color: style.color, opacity: style.opacity };
     });
@@ -79,6 +89,26 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
           }
         });
       }
+      test("dragging off Next cancels its action and clears press feedback", async () => {
+        const page = await setup();
+        try {
+          const button = page.getByRole("button", { name: "Next", exact: true });
+          const count = page.locator("[data-next-count]");
+          // Prove the fixture observes the component's action before checking cancellation.
+          await button.click();
+          expect(await count.textContent()).toBe("1");
+          await button.hover();
+          await page.mouse.down();
+          expect(await button.getAttribute("data-press-active")).toBe("true");
+          await page.mouse.move(2, 2);
+          expect(await button.getAttribute("data-press-active")).toBeNull();
+          await page.mouse.up();
+          expect(await count.textContent()).toBe("1");
+          expect(await button.getAttribute("data-press-active")).toBeNull();
+        } finally {
+          await page.close();
+        }
+      });
       test("disabled Find actions keep their paint while held", async () => {
         const page = await setup(false);
         try {

@@ -1,5 +1,9 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-03: folding a group never changes the rows' width. Leo: "why when i collapse/expand the cosmic-gray group
+  do the workspace horizontal widths differ?". The list took the clip's width, which a legacy scroller narrows by 11 pt
+  only while the rows overflow (an open long group); `SidebarListView.rowsWidth(in:)` now counts the scroller for its
+  style, never for whether it shows. Regression: `SidebarGroupFoldKeepsRowWidthTests`.
 - 2026-11-02: a remote group's machine mark is a row mark's size. Leo, verbatim: "the sizes of the icons for groups
   and workspaces aren't the same size anymore they should be". #29833 drew each workspace row's trailing marks at a
   status mark's size (`SidebarStyle.statusGlyphSize`) but left the group header's trailing machine mark (from
@@ -586,6 +590,7 @@ the gap, no row left out of place after drop or cancel).
 | [e7de5cd227e](https://github.com/manaflow-ai/cmux/commit/e7de5cd227ece4aca7bf476bba6eb985a5a62d23) | PR [#25654](https://github.com/manaflow-ai/cmux/pull/25654) (issue [#25650](https://github.com/manaflow-ai/cmux/issues/25650), first Cmd-N after launch inserts at the bottom), committed without a `Sidebar-Look:` trailer. No visual change: its only sidebar file, `Store/SidebarDocStore+Intents.swift`, adds `reshow(live:)`, which reprojects the accepted create placement with the store's last connected remotes. Projection timing only; no drawing, row layout or styling. Reviewed and logged for the Sidebar-Look sweep. |
 | [b16f04f365e..b671d11b764](https://github.com/manaflow-ai/cmux/compare/b16f04f365e...b671d11b764) | Group drag rewrite: capped card, frozen base, the pointer alone picks the slot; no blue drop line |
 | [3110ef77bed..7542622b53e](https://github.com/manaflow-ai/cmux/compare/3110ef77bed...7542622b53e) Updated card x (a592: a069f81c3d1 red, 7542622b53e fix) | The "Updated to Nightly" card's x is native again (`SidebarUpdatedCardHost`): it shows on hover at the card's top right (8 by 7 pt inset, 18 pt, the page's old spot) and takes the first click, Escape closes the card. The page's own x never showed or clicked while a Chromium page's window had the key (Lawrence 2026-10-23: "i cant X this out anymore even when hovering on it"). No row, rail or indent change. |
+| lane/update-toast-theme Updated card theme | The "Updated to Nightly" card's glass takes the theme's cast: `SidebarUpdatedCardHost` sets `CardSurfaceView.takesThemeTint`, so its veil is the theme's glass tint (`Palette.glassTint`) at the card veil's opacity instead of the neutral gray (Leo 2026-11-02: "why is the update thing unthemed"). Rim, light hairline and Reduce Transparency fill unchanged; the other sidebar cards keep the neutral veil. `Sidebar-Look: why is the update thing unthemed`. `SidebarCardSurfaceTests.theUpdatedCardTakesTheThemesTint`. |
 | [62c427ab5bd..a1af264c7a7](https://github.com/manaflow-ai/cmux/compare/62c427ab5bd...a1af264c7a7) | The Sidebar-Look gate and SidebarLookContractTests |
 | [89dbae323b5..30d164e1ec6](https://github.com/manaflow-ai/cmux/compare/89dbae323b5...30d164e1ec6) | Row close back to the trailing x (takes back #23783's dog-ear); a row without an icon starts its title at the inset (takes back c779988d57d's empty slot); look gallery test |
 | #24945 Update Ready card switch | The Automatic Updates switch starts its row at the card's text edge and the label follows (Leo 2026-10-22: "he preferred the checkbox on the left"; 2026-10-24: "I thought we said we were gonna put the toggle on the left"). The switch's size, colours, slide and cap-midline alignment, and every other part of the card, are unchanged. No row, rail or indent change. |
@@ -1119,6 +1124,38 @@ An empty group now keeps only its header at rest. The header's existing + appear
 ## Each space owns its pins and groups (2026-10-29)
 
 - Leo 2026-10-29: "could u guys also now work on the per space pins and groups? rn anything u make in teh default space goes across to new ones". No visual change: rows, headers, insets and the Pinned block look the same. What changes is which space draws a group or a Pinned link, tab or app: a new group stores the acting window's space as its `profile`, a Pinned item stores it as `extra.room`, and a window on space S draws only the ones that belong to S (anything made before reads as the default space's). Commits 68c7d49b5bc and 9fcf4ab6c1c carry no trailer; reviewed and logged here as no visual change. A link, tab or app moved into Pinned from another band (the band's Move, a document drag) stores the acting window's space too, in the same change (`item.update {room}`): 4e44c4baef8 and af2b1a3f8eb, no trailer, logged here as no visual change. A machine section's group lists with its parent in every space (`SidebarDocSections.sections`). Test: `SidebarSpaceOwnsPinsAndGroupsTests`. Pending `item.update` fields and a pending New Group's space (28d1f36386e, no trailer) are logged here as no visual change. An item or group naming a space that is gone (deleted, not mirrored back yet) reads as the default space's (`SidebarDocItem.owningRoom`), so none is left in no window; Delete Space with `moveTo` and Move Group to Space move the stored space with it.
+
+## A Cloud or remote workspace is named once, in the hover card's header (2026-11-02)
+
+- Leo 2026-11-02, on the hover card of a Cloud workspace that said Cloud four times (a cloud icon before the title, a
+  "Cloud" row with another cloud icon, "Cloud" under the Terminal tab, and the tiny cloud on the row behind it): "isn't
+  this extremely stupid looking?" / "the tiny cloud icon the repeated cloud cloud cloud". The card's header names the
+  machine once, "Cloud" or the remote machine's name in the secondary ink (its color pick when the person picked one)
+  right after the title, its connection dot beside it; the title has no icon on such a card and the separate Cloud row
+  is gone. A tab row names a machine only when the tab runs somewhere other than the header says; this Mac's rows name
+  no machine either (see the next section). The workspace row draws no machine glyph (the trailing machine mark of #29833, itself replacing #22763's
+  leading glyph); its accessibility label still names the machine. Replaces the hover host row of #30244 and the
+  per-row machine of #31511 on remote cards. Gallery: "Cloud workspace · machine named once · chosen". Tests:
+  `WorkspaceHoverHostIdentityTests.aCloudCardNamesItsMachineExactlyOnce`, `WorkspaceTabHoverCardRichRowsTests`,
+  `SidebarMachineMarkTests.aRowOnAnotherMachineDrawsNoMachineGlyph`, `HoverCardMachineColorTests`.
+
+## Hover card tab rows close on ✕, never flicker, and keep their line short (2026-11-02)
+
+- Leo 2026-11-02 23:55Z: "YOU SHOULD BE ABLE TO CLOSE THESE TABS FROM THE HOVER PREVIEW AND THE HOVER PREVIEW SHOULD NOT
+  MAKE THE SIDEBAR FLICKER ... I HAVE IT AS MY LAST HOVERED THING THEN I LEAVE IT THEN I GO BACK AND IT RE-RENDERS THE
+  SPINNER VIEW" / "PLUS THE PLACEMENT LOOKS LIKE SHIT".
+- A hovered tab row shows a ✕ in its trailing slot (over the unread dot) that sends `SidebarIntent.closeTab`; the card
+  stays open and the closed tab leaves it through `contentChanged`. A card with no `onClose` shows no ✕.
+- Coming back to the row whose card is still fading out shows the same card with no crossfade
+  (`HoverCardMachine.lastShownID`; `HoverCardPanel.present` no longer crossfades a body over itself), so its spinners
+  keep turning in place; a row shown again for the same tab keeps its hover state.
+- The row's spinner sits right after its title, centred on the title line. Its meta line drops "Working" (the spinner
+  says it), names "This Mac" only on the `namesLocalMachine` variant, ends in an ellipsis when too long, and a lane
+  session name ("lane-vm-11/nightly-rollback") shows its last part. Gallery: "Tab rows · spinner after the title ·
+  chosen", "Tab rows · close ✕ on hover · chosen", "Tab rows · only another machine named · chosen". Tests:
+  `WorkspaceTabHoverCardTests.aHoveredRowsCloseButtonClosesItsTabAndKeepsTheCard`,
+  `WorkspaceHoverCardBehaviorTests.comingBackToTheSameRowShowsTheSameCardWithNoCrossfade`,
+  `WorkspaceTabHoverCardRichRowsTests`.
 
 ## Reviewed behavior-only commits
 

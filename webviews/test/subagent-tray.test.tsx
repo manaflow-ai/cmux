@@ -889,7 +889,7 @@ describe("a tray line says what it is and what a click does", () => {
     }
   });
 
-  test("a lone ended line is settled with no card; a headed settled tray keeps its own surface", async () => {
+  test("a lone ended line is settled on the composer's glass; a headed settled tray keeps its own surface", async () => {
     const now = Date.now();
     const ended = agent("Linter", { state: "completed", startedAt: now - 90_000, endedAt: now - 6000 });
     const { root, done } = await render(
@@ -904,7 +904,9 @@ describe("a tray line says what it is and what a click does", () => {
     try {
       const tray = root.querySelector(".acpmux-running-tray")!;
       expect(tray.hasAttribute("data-settled")).toBe(true);
-      expect(tray.hasAttribute("data-card")).toBe(false);
+      // It draws the settled surface, joined to the composer, so the transcript never shows through
+      // it (Leo, 2026-11-02: "this running thing now looks mildly awkward").
+      expect(tray.hasAttribute("data-card")).toBe(true);
     } finally {
       await done();
     }

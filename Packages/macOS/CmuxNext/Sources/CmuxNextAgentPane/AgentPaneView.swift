@@ -142,6 +142,8 @@ public final class AgentPaneView: NSView {
     /// The page lies outside the window until it draws the chat a tab adopted it for
     /// (`AgentPaneView+SessionAdopt`): a Chromium page draws in its own window, over any cover.
     var holdsPageAway = false
+    /// A Chromium page moved here waits for its first layout in a window (`AgentPaneView+MoveCover`).
+    var chromiumMove: ChromiumMove?
     public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
@@ -411,6 +413,7 @@ public final class AgentPaneView: NSView {
         let frame = topBar.contentFrame(in: bounds)
         let shown = holdsPageAway ? Self.awayFrame(of: frame) : frame
         if let page { page.frame = shown } else { webView.frame = shown }
+        placeChromiumMove(at: frame)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         layoutSessionInfo()
         redraw.laidOut(self)

@@ -56,8 +56,8 @@ fn a_machine_is_older_only_by_an_earlier_build_time() {
 
 const OLD_PID: u64 = 4242;
 
-fn seen(daemon_pid: Option<Option<u64>>, outcome_written: bool, staged_present: bool) -> bool {
-    lost_start_began(&AfterLostStart { daemon_pid, outcome_written, staged_present }, OLD_PID)
+fn seen(daemon_pid: Option<Option<u64>>, apply_seen: bool, staged_present: bool) -> bool {
+    lost_start_began(&AfterLostStart { daemon_pid, apply_seen, staged_present }, OLD_PID)
 }
 
 #[test]
@@ -68,7 +68,8 @@ fn a_lost_start_whose_daemon_came_back_on_another_pid_began() {
     assert!(seen(Some(Some(OLD_PID + 1)), false, true));
     // Mid-restart, no daemon answers.
     assert!(seen(None, false, true));
-    // The staged build was renamed over the binary, or the outcome is written.
+    // The staged build was renamed over the binary, or the step wrote its
+    // outcome file (`running` while it still checks the staged build).
     assert!(seen(Some(Some(OLD_PID)), false, false));
     assert!(seen(Some(Some(OLD_PID)), true, true));
 }

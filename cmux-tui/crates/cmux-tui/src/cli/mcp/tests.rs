@@ -62,6 +62,10 @@ struct Fake {
     computer_use: Option<Value>,
     /// The card's answer to `permissions.request`; `granted` when unset.
     setup_outcome: Option<Value>,
+    /// The app's `cloud.machines` answer; an app without it answers `{ran: true}`.
+    cloud_machines: Option<Value>,
+    /// The server was started on another session (`--session`, `--socket`).
+    other_session: bool,
     /// `{method, params, thread}` of each request the app caller got.
     app_calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
     sent: RefCell<Vec<Value>>,
@@ -161,6 +165,10 @@ impl Fake {
 }
 
 impl Backend for Fake {
+    fn app_session(&self) -> bool {
+        !self.other_session
+    }
+
     fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
         let status = self.computer_use.clone()?;
         let outcome = self.setup_outcome.clone().unwrap_or_else(|| json!({"outcome": "granted"}));
@@ -306,6 +314,9 @@ impl Backend for Fake {
                     .topology
                     .clone()
                     .unwrap_or_else(|| json!({"topology": {"windows": [{"id": "win_a"}]}})))
+            }
+            "cloud.machines" if self.cloud_machines.is_some() => {
+                Ok(self.cloud_machines.clone().unwrap_or_default())
             }
             "feed.list" => {
                 let mut live = self.live.borrow_mut();
@@ -1327,6 +1338,14 @@ fn agents_action_tools_send_the_cli_requests_and_move_focus_only_by_purpose() {
     let list = &sent_of(&server, "app")[0];
     assert_eq!(list["method"], "feed.list");
     assert_eq!(list["params"]["pending_only"], false);
+    // A read's receipt reads the app's last snapshot: no read barrier to wait out.
+    let state = &sent_of(&server, "app")[1];
+    assert_eq!(state["method"], "snapshot.get");
+    assert_eq!(state["params"], json!({"after": 0}));
+    server.backend.sent.borrow_mut().clear();
+    call(&mut server, "agents_palette_open", json!({"idempotency_key": "palette-2"}));
+    let state = sent_of(&server, "app").into_iter().find(|s| s["method"] == "snapshot.get");
+    assert_eq!(state.expect("a change's receipt reads the app")["params"], json!({}));
 
     server.backend.sent.borrow_mut().clear();
     let result = call(
@@ -1527,6 +1546,7 @@ mod agent_wait;
 
 mod caller_scope;
 mod catalog;
+mod cloud_workspace_list;
 mod machine_catalog;
 mod retained;
 mod settings;
