@@ -93,13 +93,15 @@ type KeyedRow = { index: number; key: string };
 type Anchor = { tick: TickRef; first: TickRef; index: number; layoutTop: number; y: number };
 
 /// A tick as the rail's state remembers it: its key and its prompt's row id.
-type TickRef = Pick<MinimapTickRow, "key" | "id">;
+type TickRef = Pick<MinimapTickRow, "key" | "id"> & Pick<Partial<MinimapTickRow>, "members">;
 
 /// The index of the tick `ref` names in `ticks`, or -1: by its row first, then by its key. The row
 /// id holds where older turns arrive (a repeated key can move to an older echo, model.ts ticksOf);
 /// the key holds where acpmux's echo replaces this pane's row for a send (a new row, one promptId).
 export function tickIndex(ticks: readonly TickRef[], ref: TickRef, from = 0): number {
   for (let index = from; index < ticks.length; index += 1) if (ticks[index]!.id === ref.id) return index;
+  // A tick folded into a run of other chats' messages since (model.ts `foldIncoming`) is that run's.
+  for (let index = from; index < ticks.length; index += 1) if (ticks[index]!.members?.includes(ref.id)) return index;
   for (let index = from; index < ticks.length; index += 1) if (ticks[index]!.key === ref.key) return index;
   return -1;
 }
@@ -597,7 +599,11 @@ export function ThreadMinimap({
       waiting.current = undefined;
       return;
     }
-    const index = turns.findIndex((turn) => turn.id === pending.id && turn.index >= 0);
+    // A message held only once its page loaded may have folded into a run's tick (model.ts
+    // `foldIncoming`): that tick is its jump.
+    const index = turns.findIndex(
+      (turn) => (turn.id === pending.id || turn.members?.includes(pending.id) === true) && turn.index >= 0,
+    );
     if (index < 0) return;
     waiting.current = undefined;
     jump(index, pending.how);
