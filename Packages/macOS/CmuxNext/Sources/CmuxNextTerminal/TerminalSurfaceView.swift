@@ -246,6 +246,8 @@ public final class TerminalSurfaceView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         syncWindowState()
+        // In another window, its last shown-size change's commit is reported by that window's presenter.
+        frameOwnershipDidReveal()
     }
 
     public override func viewDidHide() {

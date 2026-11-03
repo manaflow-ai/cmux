@@ -5,7 +5,8 @@ import GhosttyNextKit
 import QuartzCore
 
 /// FRAME OWNER REFACTOR S4 (`motion.frameOwner.terminals`, ``TerminalDragTunables/framesOwnedByCommit``): one per
-/// window. A terminal whose size changes asks Ghostty for a frame at the new size (``TerminalSurfaceView/place(_:anchor:)``)
+/// window. The present and the new bounds go together under `[CATransaction lock]` (Ghostty's call-site rule for
+/// `ghostty_surface_host_frame`). A terminal whose size changes asks Ghostty for a frame at the new size (``TerminalSurfaceView/place(_:anchor:)``)
 /// and keeps its old bounds and old frame. Just before Core Animation's commit of every main run-loop turn while a
 /// request waits (a run-loop observer at ``passOrder``), the presenter's pass asks each waiting terminal for that frame
 /// (`ghostty_surface_host_frame`): a drawn one becomes the layer's contents and the view takes the new bounds in that
@@ -181,11 +182,19 @@ final class TerminalFramePresenter {
                 if Self.isReady(view.hostFrame(present: false)) { stats.groupWaits += 1 }
                 continue
             }
+            // Ghostty's call-site rule: the present and the new bounds under the Core Animation lock, so no off-main
+            // commit of another terminal can ship this one's new frame with its old bounds in between.
+            CATransaction.lock()
             let shown = view.hostFrame(present: true)
-            switch shown {
-            case GHOSTTY_HOST_FRAME_PRESENTED, GHOSTTY_HOST_FRAME_SHOWN:
+            let presented = shown == GHOSTTY_HOST_FRAME_PRESENTED || shown == GHOSTTY_HOST_FRAME_SHOWN
+            let followUp = presented ? view.landRequestedFrame() : false
+            CATransaction.unlock()
+            if presented {
                 stats.presented += 1
-                land(view, id: id, watch: false)
+                landed(view, id: id, watch: false, followUp: followUp)
+                continue
+            }
+            switch shown {
             case GHOSTTY_HOST_FRAME_NONE, GHOSTTY_HOST_FRAME_HIDDEN:
                 // Nothing to keep: the bounds go now; a frame that comes later fits them.
                 land(view, id: id, watch: shown == GHOSTTY_HOST_FRAME_NONE)
@@ -204,8 +213,11 @@ final class TerminalFramePresenter {
     /// The view takes the size its shown frame has; one that wants another size since asks for it now (a new
     /// request, presented from the next turn).
     private func land(_ view: TerminalSurfaceView, id: ObjectIdentifier, watch: Bool) {
+        landed(view, id: id, watch: watch, followUp: view.landRequestedFrame())
+    }
+
+    private func landed(_ view: TerminalSurfaceView, id: ObjectIdentifier, watch: Bool, followUp: Bool) {
         requests[id] = nil
-        let followUp = view.landRequestedFrame()
         if watch { watched[id] = Watch(view: view) } else { commits[id] = Watch(view: view) }
         if followUp { view.requestWantedFrame() }
     }

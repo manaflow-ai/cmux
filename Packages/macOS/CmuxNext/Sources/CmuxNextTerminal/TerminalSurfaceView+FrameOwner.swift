@@ -27,6 +27,11 @@ extension TerminalSurfaceView {
         let owned = TerminalDragTunables.framesOwnedByCommit.value
         if owned != frameOwnership.embedderPresents { setFramesOwnedByCommit(owned) }
         guard owned, isShown, window != nil, surface != nil else {
+            // A size that waits gives way: the view takes this frame now (hidden, parked, no window).
+            if frameOwnership.inFlight != nil {
+                framePresenter?.cancel(self)
+                frameOwnership.inFlight = nil
+            }
             if self.frame != frame { self.frame = frame }
             return
         }
@@ -49,8 +54,12 @@ extension TerminalSurfaceView {
 
     /// Asks Ghostty for a frame at the wanted size, keeps the view's size and waits for its window's commit.
     func requestWantedFrame() {
-        guard frameOwnership.embedderPresents, isShown, let wanted = frameOwnership.wanted,
-              let presenter = framePresenter else { return }
+        guard frameOwnership.embedderPresents, let wanted = frameOwnership.wanted else { return }
+        guard isShown, let presenter = framePresenter else {
+            // Not shown (or no window): nothing to keep; the view takes the size it wants now.
+            if frame != wanted { frame = wanted }
+            return
+        }
         guard wanted.size != bounds.size else {
             if frame != wanted { frame = wanted }
             return
