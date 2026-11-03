@@ -60,7 +60,11 @@ public final class BrowserChromeTabState: Sendable {
     public var onToolbarPress: ((BrowserToolbarButton) -> Void)? { didSet { chrome?.toolbarButtons.onPress = onToolbarPress } }
     /// The toolbar's other per-tab sources (shortcut hints, the tab's downloads, media, pins), set on each bind.
     public var configureToolbar: ((BrowserToolbarButtonsView) -> Void)? {
-        didSet { if let chrome { configureToolbar?(chrome.toolbarButtons) } }
+        didSet {
+            guard let buttons = chrome?.toolbarButtons else { return }
+            buttons.configuredFor = self
+            buttons.batchSources { configureToolbar?(buttons) }
+        }
     }
 
     // MARK: Per-tab presentation

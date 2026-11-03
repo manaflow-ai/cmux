@@ -21,7 +21,7 @@ struct BrowserChromeTabHooks {
         let bar = chrome.addressBar
         if let engine = state.suggestionEngine, engine !== bar.suggestionEngine { bar.suggestionEngine = engine }
         bar.tabKey = state.tabKey
-        bar.setProfileBadge(state.profileBadge)
+        if bar.shownProfileBadge != state.profileBadge { bar.setProfileBadge(state.profileBadge) }
         bar.profileBadgeMenu = state.profileBadgeMenu
         bar.machineBadgeMenu = state.machineBadgeMenu
         bar.onBookmarkStar = state.onBookmarkStar
@@ -31,7 +31,12 @@ struct BrowserChromeTabHooks {
         let buttons = chrome.toolbarButtons
         if buttons.profileName != state.profileName { buttons.profileName = state.profileName }
         buttons.onPress = state.onToolbarPress
-        state.configureToolbar?(buttons)
+        // The tab's toolbar sources, once per tab the toolbar has not been configured for (each source re-arms
+        // the toolbar's observation): a switch between tabs already configured sets nothing.
+        if buttons.configuredFor !== state {
+            buttons.configuredFor = state
+            buttons.batchSources { state.configureToolbar?(buttons) }
+        }
         chrome.showsFocusModeIndicator = state.showsFocusModeIndicator
         chrome.focusModeExitArmed = state.focusModeExitArmed
         if chrome.accessoryView !== state.accessory?.view {

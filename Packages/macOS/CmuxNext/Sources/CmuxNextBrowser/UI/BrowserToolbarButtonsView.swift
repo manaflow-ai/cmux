@@ -12,7 +12,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// A button was pressed. The App maps it to its action.
     public var onPress: ((BrowserToolbarButton) -> Void)?
     /// The display text of an action's shortcut, for the tooltips.
-    public var shortcutHint: ((BrowserToolbarButton) -> String?)? { didSet { render() } }
+    public var shortcutHint: ((BrowserToolbarButton) -> String?)? { didSet { rebind() } }
     /// The tab's browser profile name, for the profile button's tooltip.
     public var profileName: String? { didSet { render() } }
     /// The App's downloads, read while rendering so an observable list
@@ -24,6 +24,21 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// The pinned buttons' ids (`browser.toolbarButtons`), read the same way,
     /// so a pin from any window or from cmux.json reaches every toolbar.
     public var pins: (() -> [String])? { didSet { rebind() } }
+    /// The tab whose sources (`BrowserChromeTabState.configureToolbar`) the toolbar has now.
+    weak var configuredFor: AnyObject?
+    private var batching = false
+    private var batchedChange = false
+
+    /// Sets several sources (`shortcutHint`, `downloads`, `media`, `pins`) with one re-observation and render.
+    func batchSources(_ set: () -> Void) {
+        batching = true
+        set()
+        batching = false
+        if batchedChange {
+            batchedChange = false
+            rebind()
+        }
+    }
     /// The media hub's cards, kept between opens.
     public let mediaRows = BrowserMediaRows()
     /// Design mode and color scheme of the bound tab.
@@ -107,6 +122,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     /// An App closure changed after `bind`: observe again so its reads count.
     private func rebind() {
+        guard !batching else { return batchedChange = true }
         guard let tab else { return render() }
         bind(tab)
     }
