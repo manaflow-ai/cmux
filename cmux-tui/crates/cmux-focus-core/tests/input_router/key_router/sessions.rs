@@ -8,10 +8,11 @@ use super::support::{
     terminal_tab, topology,
 };
 use cmux_focus_core::event::{FocusEvent, Source};
+use cmux_focus_core::input::ledger::{Invariant, Ledger};
 use cmux_focus_core::input::{
     Binding, ConsumeReason, DialogScope, DropReason, FieldKind, GoneReason, InputEffect,
-    InputEvent, InputId, KeyPhase, KeyRecord, Modifiers, OfferEnd, SessionEnd, SessionKey,
-    SessionKind, Sink, Tier, Via, WaitReason,
+    InputEvent, InputId, KeyPhase, KeyRecord, LaneLimit, Modifiers, OfferEnd, SessionEnd,
+    SessionKey, SessionKind, Sink, Tier, Via, WaitReason,
 };
 use cmux_focus_core::state::{Resolved, Target};
 use cmux_focus_core::topology::Pane;
@@ -607,4 +608,37 @@ fn a_blocking_dialog_takes_bare_keys_before_a_running_session() {
             key: SessionKey::Letter { letter: 'd', shift: false }
         })
     );
+}
+
+/// The ledger checks the offer rule without the router or the model (DESIGN.md
+/// 4.7, I3): a page answers its keys in key order, so the offers to one page
+/// end in key order. A newer offer's run while an older offer of the same page
+/// is still open breaks it, so an older offer that vanishes with no end (the
+/// expectation before 679b1d1e275) is caught; the order the router emits (the
+/// older offer closed as handled, then the newer key's run) passes.
+#[test]
+fn the_ledger_requires_the_offers_of_a_page_to_end_in_key_order() {
+    let find = chord("w1", F, "find", Tier::Navigation, Some(content("b1")));
+    let offer = |id: u64| InputEffect::Offer {
+        id: InputId(id),
+        sink: content("b1"),
+        via: Via::Responder,
+        action: arc("find"),
+    };
+    let run = InputEffect::Run { id: InputId(2), action: arc("find"), tab: Some(arc("b1")) };
+    let answer = InputEvent::PageUnhandled { id: InputId(2) };
+
+    let mut silent = Ledger::new(LaneLimit::of(SCENARIO_LANE_LIMIT));
+    silent.call(&InputEvent::Key(find.clone()), &[offer(1)]);
+    silent.call(&InputEvent::Key(find.clone()), &[offer(2)]);
+    silent.call(&answer, &[run.clone()]);
+    let broken: Vec<_> = silent.violations().iter().map(|v| (v.invariant, v.id)).collect();
+    assert_eq!(broken, vec![(Invariant::OrderKept, Some(InputId(2)))]);
+
+    let mut ordered = Ledger::new(LaneLimit::of(SCENARIO_LANE_LIMIT));
+    ordered.call(&InputEvent::Key(find.clone()), &[offer(1)]);
+    ordered.call(&InputEvent::Key(find), &[offer(2)]);
+    let closed = InputEffect::OfferClosed { id: InputId(1), reason: OfferEnd::Handled };
+    ordered.call(&answer, &[closed, run]);
+    assert!(ordered.violations().is_empty(), "{:?}", ordered.violations());
 }
