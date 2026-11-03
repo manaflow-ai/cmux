@@ -123,9 +123,15 @@ pub enum Reason {
     /// This build passes no login (the app's `passesHarnessLogin`).
     #[serde(rename = "build-gate-off")]
     BuildGateOff,
-    /// The chat's harness has no transfer here (Codex keeps its broker flow, pi and opencode none).
+    /// The chat's harness has no transfer here: pi and opencode none, and Codex in a Release build
+    /// (its broker is DEV and dogfood only; the Release consent covers the Claude login alone).
     #[serde(rename = "no-transfer-for-harness")]
     NoTransfer,
+    /// Codex: the Mac's broker gives the machine short-lived access before the first prompt. It
+    /// shows its own device-code sign-in (with Cancel) only when the Mac holds no Codex login for
+    /// this account yet; the refresh token stays on the Mac (cmux#33489).
+    #[serde(rename = "codex-broker")]
+    CodexBroker,
     #[serde(rename = "signed-out")]
     SignedOut,
     /// The platform does not say the signed-in caller owns the machine.
@@ -173,6 +179,7 @@ impl Reason {
         match self {
             Self::BuildGateOff => "build-gate-off",
             Self::NoTransfer => "no-transfer-for-harness",
+            Self::CodexBroker => "codex-broker",
             Self::SignedOut => "signed-out",
             Self::CallerNotOwner => "caller-not-owner",
             Self::GuestNotOwner => "guest-not-owner",
@@ -274,13 +281,30 @@ pub struct Decision {
 }
 
 /// Whether a guest of this kind takes the caller's login. A Release copy goes only to an `owner`
-/// guest: "never on team machines, never shared" (Leo, 2026-11-02).
-fn guest_takes_login(kind: Option<&str>, release: bool) -> bool {
-    if release { kind == Some("owner") } else { matches!(kind, Some("owner" | "team")) }
+/// guest: "never on team machines, never shared" (Leo, 2026-11-02). So does Codex's broker access:
+/// acpmux's Codex bridge refuses it on a team guest (`codex_auth_file`), where the team login stays.
+fn guest_takes_login(kind: Option<&str>, release: bool, provider: Option<Provider>) -> bool {
+    if release || provider == Some(Provider::Codex) {
+        kind == Some("owner")
+    } else {
+        matches!(kind, Some("owner" | "team"))
+    }
+}
+
+/// Whether the start passes this provider's login: Claude always (its gate decides), Codex only
+/// outside Release, where the Mac's broker runs (cmux#33489: a Codex start that passed nothing
+/// failed its first prompt until the turn card's broker sign-in).
+fn transfers(d: &Inputs) -> bool {
+    match d.provider {
+        Some(Provider::Claude) => true,
+        Some(Provider::Codex) => !d.release,
+        None => false,
+    }
 }
 
 fn step_and_reason(d: &Inputs) -> (Step, Reason) {
-    // Codex logins are per machine (its refresh token is VM-bound): its broker flow stays the turn card's.
+    // Codex's refresh token never leaves the Mac: the start runs its broker, which delivers only
+    // short-lived access to the machine and renews it (CloudCodexBroker).
     // A Release copy is held by its setting and its remote switch whatever `gate` the caller sent
     // (a pre-resolved request with `release` and `gate` but no `dogfood` gets the same answer).
     if d.release && !release_passes_harness_login(d.setting, d.remote_switch) {
@@ -291,7 +315,7 @@ fn step_and_reason(d: &Inputs) -> (Step, Reason) {
     if !d.gate {
         return (Step::Skip, Reason::BuildGateOff);
     }
-    if d.provider != Some(Provider::Claude) {
+    if !transfers(d) {
         return (Step::Skip, Reason::NoTransfer);
     }
     if !d.signed_in {
@@ -310,8 +334,20 @@ fn step_and_reason(d: &Inputs) -> (Step, Reason) {
     };
     // The caller created the machine: an owner or team guest takes the login
     // (the transfer runs its creator allowance on a team guest).
-    if !guest_takes_login(Some(kind), d.release) {
+    if !guest_takes_login(Some(kind), d.release, d.provider) {
         return (Step::Skip, Reason::GuestNotOwner);
+    }
+    if d.provider == Some(Provider::Codex) {
+        // The machine keeps its own Codex sign-in when asked to; otherwise the broker runs. Its
+        // device-code prompt is its own confirm (with Cancel), so no second one comes first, and a
+        // run that may show no prompt passes nothing rather than refusing the start.
+        let chose_pass = choice == Some(Choice::Pass)
+            && (d.requested_by_person || d.stored == Some(Choice::Pass));
+        return match choice {
+            Some(Choice::Machine) => (Step::Skip, Reason::MachineLoginKept),
+            _ if d.headless && !chose_pass => (Step::Skip, Reason::NeedsLoginChoice),
+            _ => (Step::Install, Reason::CodexBroker),
+        };
     }
     // A machine that already has a working login keeps it, whatever the choice.
     if !d.machine_login.is_none_or(MachineLogin::needs_login) {
@@ -454,11 +490,11 @@ pub fn decide(d: &Inputs) -> Decision {
         guest_kind_probe: GUEST_KIND_PROBE.to_owned(),
         reads_machine: d.gate
             && (!d.release || release_passes_harness_login(d.setting, d.remote_switch))
-            && d.provider == Some(Provider::Claude)
+            && transfers(d)
             && d.signed_in
             && d.caller_owns == Some(true)
             && choice(d) != Some(Choice::None),
-        guest_takes_login: guest_takes_login(kind, d.release),
+        guest_takes_login: guest_takes_login(kind, d.release, d.provider),
         skipped_team_machine: reason == Reason::GuestNotOwner && kind == Some("team"),
         summary: summary(d, step, reason),
     }

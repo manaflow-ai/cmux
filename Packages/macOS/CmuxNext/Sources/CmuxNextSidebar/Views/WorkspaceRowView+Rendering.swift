@@ -98,6 +98,7 @@ extension WorkspaceRowView {
 
     override func layout() {
         super.layout()
+        activity.dotDiameter = SidebarStyle.statusDotSize // one diameter for every status dot (Lawrence msg 19696)
         let full = layoutBounds
         layoutColorRail(in: full)
         // The name lines and the trailing cluster center in the head; the
@@ -202,7 +203,7 @@ extension WorkspaceRowView {
         // the count takes the next slot, a small glyph centered in it.
         if badge.state.isUnread, columnMark?.view !== badge {
             let w = badge.preferredWidth
-            let h = badge.state == .dot ? SidebarStyle.unreadDotSize : SidebarStyle.badgeHeight
+            let h = badge.state == .dot ? SidebarStyle.statusDotSize : SidebarStyle.badgeHeight
             badge.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: h))
             badgeEdge = columns.trailingEdge(before: badge.frame)
         }

@@ -23,6 +23,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-mcp-connect",
  "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-sdk",
@@ -39,6 +40,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "inotify",
+ "jsonschema",
  "libc",
  "memchr",
  "notify",
@@ -1332,6 +1334,17 @@ dependencies = [
  "hmac",
  "sha2 0.10.9",
  "subtle",
+]
+
+[[package]]
+name = "cmux-mcp-connect"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "url",
 ]
 
 [[package]]

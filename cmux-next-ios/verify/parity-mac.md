@@ -111,6 +111,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 
 | Mac action (wording) | Phone | State | Notes |
 | --- | --- | --- | --- |
+| Connect iMessage (Session Info > Connectors): Connect, permission walkthrough, contacts and group chats, Disconnect | — | not from a phone | `chat.db` and Full Disk Access belong to the Mac. The phone’s own Messages app is not readable by cmux; connection and conversation reading stay on the Mac. Every outgoing send still needs the person’s click. |
 | Stop | page menu Stop Agent, composer stop | works | `session/cancel`. |
 | Retry / Send this prompt again | Retry on a failed turn | works | |
 | Retry with another model (`RetryModelMenu.tsx`) | answer's **More** > **Retry with another model** (the chat's models, the current one checked); beside Retry on a failed turn | works (menu-rows batch; live) | `session/set_model`, then the prompt again; a refused model sends nothing. A Claude chat the Mac started refuses the model change (acpmux D13): the chat shows acpmux's own words, "This chat runs with your Mac's Claude permissions. Start a new chat from this device to control it remotely.", and the Mac's chat keeps its model and runs no turn. |
@@ -622,3 +623,9 @@ a file read's timeout racing its last chunk, a written-then-failed-edit file lab
 | --- | --- | --- | --- |
 | Diff: Next Hunk / Previous Hunk (⌃N / ⌃P) | file diff bottom bar: double chevrons | works (menu-rows batch; live) | Each run of changed lines; a folded hunk unfolds. Next / Previous file keep the single chevrons. |
 | Diff: Search (/) | file diff toolbar **Search in File**: a find bar, "N of M", previous / next | works (menu-rows batch; live) | Ignores case and diacritics; matches are highlighted, the current one has a bar at the leading edge; folded context with a match unfolds. |
+
+## Hidden local Chief agent approvals
+
+| Mac action | Mac sends | Phone | State | Notes |
+| --- | --- | --- | --- | --- |
+| Home Allow / Deny for a hidden local owner subagent | Person-proven local `_acpmux/permission_respond`, exact pending request, `allow_once` / `reject_once` | No new phone authority | not from a phone | This surface requires the Mac app's local person proof and a fresh native click. SECURITY.md's “phone acts for the person, but is not the app” rule excludes this proof; existing phone questions retain their separate asking-mode policy. Other-person `ask` children and cloud peers remain excluded. |

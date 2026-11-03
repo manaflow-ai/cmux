@@ -106,6 +106,15 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       };
       const row = (id: string) => document.querySelector(`[data-row-id="${id}"]`);
       const rowLines = (id: string) => lines(row(id));
+      // A message row's first line sits on its own 18px line under the row (messageLineLook.ts
+      // `stacked`, pinned by rowEstimates.test.ts): the row's own lines are those above it, and the
+      // pitch to the row under it is one row line plus that first line.
+      const below = (id: string) => row(id)?.querySelector(".cv-msgline__preview")?.getBoundingClientRect();
+      const lineLines = (id: string) => {
+        const first = below(id);
+        return first ? rowLines(id).filter((line) => line.bottom <= first.top + 0.5) : rowLines(id);
+      };
+      const belowHeight = (id: string) => below(id)?.height ?? 0;
       /** A footer's first glyph, shown or hover-revealed (an earlier turn's row keeps its place). */
       const glyph = (id: string) => {
         const svg = row(id)?.querySelector<SVGElement>(".cv-turn-actions button svg");
@@ -116,9 +125,11 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       const at = (line: Line | undefined) => (line ? (line.top + line.bottom) / 2 : null);
       const diff = (a: number | null | undefined, b: number | null | undefined) =>
         a == null || b == null ? null : Math.round((b - a) * 100) / 100;
+      const minus = (gap: number | null, height: number) =>
+        gap == null ? null : Math.round((gap - height) * 100) / 100;
 
       const long = rowLines("kinds-long");
-      const received = rowLines("kinds-received");
+      const received = lineLines("kinds-received");
       const scheduled = rowLines("backgroundTurn-spacing-scheduled");
       const run = rowLines("kinds-run");
       const short = rowLines("kinds-short");
@@ -130,7 +141,7 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       const gaps: Record<string, number | null> = {
         "body-line": long.length > 1 ? diff(at(long[0]), at(long[1])) : null,
         "footer-to-received": diff(glyph("kinds-footer"), at(received[0])),
-        "received-to-status": diff(at(received.at(-1)), at(scheduled[0])),
+        "received-to-status": minus(diff(at(received.at(-1)), at(scheduled[0])), belowHeight("kinds-received")),
         "status-to-run": diff(at(scheduled.at(-1)), at(run[0])),
         "run-to-child": run.length > 2 ? diff(at(run[0]), at(run[1])) : null,
         "child-pitch": run.length > 2 ? diff(at(run[1]), at(run[2])) : null,
@@ -231,6 +242,14 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       };
       const diff = (a: number | null | undefined, b: number | null | undefined) =>
         a == null || b == null ? null : Math.round((b - a) * 100) / 100;
+      // A message row's first line sits on its own 18px line under the row (messageLineLook.ts
+      // `stacked`): the pitch from it to the row under it is one row line plus that line.
+      const below = (row: Element | undefined) => {
+        const first = row?.querySelector(".cv-msgline__preview")?.getBoundingClientRect();
+        return first && first.height > 0 ? first.height : 0;
+      };
+      const after = (row: Element | undefined, gap: number | null) =>
+        gap == null ? null : Math.round((gap - below(row)) * 100) / 100;
       const live = rows.find(
         (row) => row.classList.contains("acpmux-thinking") || row.classList.contains("acpmux-working"),
       );
@@ -246,8 +265,8 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
         "live-to-waiting": diff(head(live), head(byClass("acpmux-pendingMessages"))),
         "reply-footer-to-received":
           footer && footer.height > 0 ? diff((footer.top + footer.bottom) / 2, head(received)) : null,
-        "received-to-sent": diff(head(received), head(sent)),
-        "sent-to-live": diff(head(sent), head(live)),
+        "received-to-sent": after(received, diff(head(received), head(sent))),
+        "sent-to-live": after(sent, diff(head(sent), head(live))),
         "status-to-prompt": diff(head(byClass("acpmux-subagentDone")), bubble?.top),
         "prompt-to-sent": diff(bubble?.bottom, head(document.querySelector('[data-row-id="sp-sent"]') ?? undefined)),
         "note-to-live": diff(head(document.querySelector('[data-row-id="notes-last"]') ?? undefined), head(live)),
@@ -255,9 +274,12 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       const chips = [...document.querySelectorAll<HTMLElement>(".cv-agent-tag")].filter(shown).map((chip) => {
         const label = lines(chip)[0];
         const box = chip.getBoundingClientRect();
-        // The row's own words: a received line's preview, a sent line's verb.
+        // The row's own words: a received line's preview, a sent line's verb; stacked, a received
+        // line's first line is under it, so its line's own size (the sender's words) stands in.
         const row = chip.closest("[data-row-id]") ?? document.body;
-        const words = row.querySelector(".cv-received__preview, .cv-agentmsg__words, .cv-agentmsg__preview");
+        const words =
+          row.querySelector(".cv-received__preview, .cv-agentmsg__words, .cv-agentmsg__preview") ??
+          row.querySelector(".cv-disclosure__line, .cv-agentmsg__line");
         const size = (element: Element) => parseFloat(getComputedStyle(element).fontSize);
         return {
           overText: label ? Math.round((box.height - (label.bottom - label.top)) * 100) / 100 : 99,
