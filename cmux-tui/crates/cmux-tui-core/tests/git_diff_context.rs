@@ -414,9 +414,8 @@ fn git_diff_untracked_pages_include_every_file_and_large_line_counts() {
         write(&repo, &format!("files/{index:04}.txt"), "first\nlast");
     }
     // 4 MiB plus an unterminated Unicode line, after the old 200-file cutoff.
-    let mut large = std::io::BufWriter::new(
-        std::fs::File::create(repo.join("files/1024.txt")).unwrap(),
-    );
+    let mut large =
+        std::io::BufWriter::new(std::fs::File::create(repo.join("files/1024.txt")).unwrap());
     let mut block = [b'x'; 1024];
     block[1023] = b'\n';
     for _ in 0..4096 {
@@ -463,10 +462,8 @@ fn git_diff_untracked_pages_include_every_file_and_large_line_counts() {
         assert!(names.len() < 1025);
     }
     assert_eq!(names, (0..1025).map(|index| format!("files/{index:04}.txt")).collect::<Vec<_>>());
-    let one = client.read(
-        "git.diff",
-        json!({"path":path,"scope":"uncommitted","paths":["files/1024.txt"]}),
-    );
+    let one = client
+        .read("git.diff", json!({"path":path,"scope":"uncommitted","paths":["files/1024.txt"]}));
     assert_eq!(one["total_files"], 1, "{one}");
     assert_eq!(one["additions"], 4097, "{one}");
     mux.shutdown();
@@ -499,10 +496,8 @@ fn git_diff_untracked_large_text_and_binary_probe_keep_their_semantics() {
     let socket = dir.join("s.sock");
     server::serve(mux.clone(), Some(socket.clone())).unwrap();
     let mut client = Client::connect(&socket);
-    let result = client.read(
-        "git.diff",
-        json!({"path":repo.to_string_lossy(),"scope":"uncommitted"}),
-    );
+    let result =
+        client.read("git.diff", json!({"path":repo.to_string_lossy(),"scope":"uncommitted"}));
     let files = result["files"].as_array().unwrap();
     let find = |name: &str| files.iter().find(|file| file["path"] == name).unwrap();
     assert_eq!(find("binary.dat")["binary"], true, "{result}");
@@ -541,10 +536,8 @@ fn git_diff_untracked_performance() {
     let mut samples = Vec::new();
     for index in 0..23 {
         let started = Instant::now();
-        let result = client.read(
-            "git.diff",
-            json!({"path":repo.to_string_lossy(),"scope":"uncommitted"}),
-        );
+        let result =
+            client.read("git.diff", json!({"path":repo.to_string_lossy(),"scope":"uncommitted"}));
         let elapsed = started.elapsed().as_secs_f64() * 1000.0;
         assert_eq!(result["total_files"], 16, "{result}");
         assert_eq!(result["additions"], 512, "{result}");
