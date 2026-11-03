@@ -45,7 +45,7 @@ export const defaultHandId = (scope: DefaultHandScope): string => {
   return `hand_${out}`
 }
 
-type ReadReply = { ok: true; value: unknown } | { ok: false; code: string; message: string }
+type ReadReply = { ok: true; value: unknown; revision: string } | { ok: false; code: string; message: string }
 interface ReadStub { readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadReply> }
 export interface DefaultCloud extends ReadStub {
   automationExec(entity: string, owner: string, machine: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<MachineExecReply>
