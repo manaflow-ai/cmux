@@ -72,7 +72,7 @@ struct CloudBringBack {
         let toastID = "cloud-bring-back-" + tab.id
         let tabID = tab.id
         let retries = services.cloud.bringBackRetries
-        CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: .seconds(600))
+        CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: CloudMove.working)
         let work: ActionWork = Task { @MainActor in
             do {
                 _ = try await body()
@@ -133,7 +133,7 @@ struct CloudBringBack {
         if update {
             let toastID = "cloud-bring-back-" + tab.id
             try await CloudMachineUpdate.run(services, name: name, socket: machineSocket, cli: cli, toast: toastID, retry: again.updating)
-            CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: .seconds(600))
+            CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: CloudMove.working)
         }
         let pulled: CloudMoveCLI.Answer
         do {

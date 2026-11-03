@@ -68,6 +68,10 @@ public final class CmuxToastCenter {
             guard let handle else { return }
             self?.setHovered(hovered, handle)
         }
+        // A one-window toast ends its copy in every other window (``CmuxToast/oneWindow``).
+        if toast.oneWindow {
+            for (other, entry) in entries where entry.handle.toast.id == toast.id && entry.window !== window { end(other, .replaced) }
+        }
         let key = ObjectIdentifier(window)
         var stack = stacks[key] ?? CmuxToastStack()
         let newest = stack.serials.last
