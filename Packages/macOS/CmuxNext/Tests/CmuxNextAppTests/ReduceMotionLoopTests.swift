@@ -69,20 +69,31 @@ import Testing
     }
 
     /// Reduce Motion turning on while a transcript typing row runs stills its dots and stops its breath.
+    /// Both pins: once `HomeReduceMotion` is installed (any earlier test that built Home), the row
+    /// also reads Home's loop gate, `Motion.home.animatesLoops`, which follows `Motion`'s pin or else
+    /// the system setting. Pinning only the vendored view left the gate on the system setting, and
+    /// Blacksmith's macOS VMs have Reduce Motion on, so the row never looped to begin with.
     @Test func reduceMotionTurningOnStillsARunningTypingRow() {
+        Motion.reduceMotionOverride = false
         MessagesLabHomeView.reduceMotionOverride = false
-        defer { MessagesLabHomeView.reduceMotionOverride = nil }
+        defer {
+            Motion.reduceMotionOverride = nil
+            MessagesLabHomeView.reduceMotionOverride = nil
+        }
         let cell = RowCell(frame: CGRect(x: 0, y: 0, width: 400, height: 40))
         cell.startTypingDots(begin: CACurrentMediaTime())
         cell.startTypingBreath(insert: CACurrentMediaTime())
         let typing = cell.dots + cell.typingDiscs + [cell.typingContainer, cell.typingClip]
         #expect(typing.flatMap { Self.loops(under: $0) } != [], "the typing row should loop before Reduce Motion")
+        Motion.reduceMotionOverride = true
         MessagesLabHomeView.reduceMotionOverride = true
         cell.applyReduceMotion()
         #expect(typing.flatMap { Self.loops(under: $0) } == [], "the typing row keeps looping after Reduce Motion turned on")
         // A later breath start (the row's next update) stops a breath too, not only skips it.
+        Motion.reduceMotionOverride = false
         MessagesLabHomeView.reduceMotionOverride = false
         cell.startTypingBreath(insert: CACurrentMediaTime())
+        Motion.reduceMotionOverride = true
         MessagesLabHomeView.reduceMotionOverride = true
         cell.startTypingBreath(insert: CACurrentMediaTime())
         // Hoisted: #expect wraps a rethrowing call in a throwing closure ("call can throw").

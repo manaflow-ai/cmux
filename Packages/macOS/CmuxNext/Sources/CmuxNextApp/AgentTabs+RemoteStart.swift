@@ -20,6 +20,10 @@ extension AgentTabStore {
         guard let (record, store) = lookup(key), let tab = store.tab(id: key), !ProvisionalTab.isProvisional(key) else {
             return nil
         }
+        if let session = sessions[key] ?? record.session {
+            let seed = await remoteSeeds[key]?.peek()
+            onRemoteChatStarted?(record.host, session, seed?.cwd ?? tab.cwd, record.harness)
+        }
         return (tab.surface.rawValue, sessions[key] ?? record.session)
     }
 
@@ -54,48 +58,55 @@ extension AgentTabStore {
             throw AgentRemoteStartRefusal(code: "agent_session.unknown_tab", machine: machine)
         }
         let surface = tab.surface.rawValue
-        if let session = sessions[key] ?? record.session { return .init(surface: surface, session: session) }
+        let seed = await remoteSeeds[key]?.peek()
+        if let session = sessions[key] ?? record.session {
+            onRemoteChatStarted?(record.host, session, chosen ?? seed?.cwd, chosenHarness ?? record.harness)
+            return .init(surface: surface, session: session)
+        }
         // A teammate's Cloud machine (the Cloud API's answer on its link): its owner starts chats
         // there, so none is sent, and the card offers New Cloud Machine (cmux#29214). The owner
         // check below is unchanged: only an owner answer ever sends a start.
         if ownerLink != nil, let teammate, await teammate() { throw AgentRemoteStartRefusal.teamMachine(machine: machine) }
-        let seed = await remoteSeeds[key]?.peek()
         // Only an absolute folder of that machine (a `~` or relative one is not its path).
         let absolute = { (path: String?) in path.flatMap { $0.hasPrefix("/") ? $0 : nil } }
-        // No folder picked and none in its workspace: that machine's own work folder (`~/work`,
-        // `agent-session-folders`), never a dead end (Leo, 2026-10-31). An older daemon has none.
-        // Its own connection, so the start's owner-checked one is made for the start alone.
-        var fallback = absolute(chosen) ?? absolute(seed?.cwd) ?? remoteFolder?(key)
+        // Non-Cloud hosts retain the folder picker fallback. A Cloud host owns
+        // the no-folder choice in Rust and receives no cwd so it can create a
+        // fresh `~/chats/<chat-id>` folder on the machine.
+        var fallback = absolute(chosen) ?? absolute(seed?.cwd) ?? (ownerLink == nil ? remoteFolder?(key) : nil)
+        var supportsNoCwd = false
         if fallback == nil {
             let lister = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
-            fallback = try? await lister.folders().work
+            if ownerLink != nil { supportsNoCwd = (try? await lister.supportsNoCwd()) == true }
+            if !supportsNoCwd { fallback = try? await lister.folders().work }
             await lister.close()
         }
-        guard let cwd = fallback else {
+        if fallback == nil && !supportsNoCwd {
             throw AgentRemoteStartRefusal.folderNeeded(machine: machine)
         }
         let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, reconnect: reconnect, endpoint: endpoint)
         let result: Result<String, any Error>
-        let home = existingView(key)?.model.transport.remoteHomeChosen.contains(cwd) == true // the person's Use Home Folder (cx-1bhjj)
+        let home = fallback.map { existingView(key)?.model.transport.remoteHomeChosen.contains($0) == true } ?? false // the person's Use Home Folder (cx-1bhjj)
         let harness = chosenHarness ?? seed?.harness
         // A default model pick is omitted by the page. After a harness switch it must remain
         // that harness's default, rather than restoring the previous harness's seeded model.
         let model = chosenModel ?? (harness == seed?.harness ? seed?.model : nil)
-        do { result = .success(try await client.start(cwd: cwd, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model)) } catch { result = .failure(error) }
+        do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model)) } catch { result = .failure(error) }
         await client.close()
         switch result {
         case .success(let session):
             // The daemon bound the session on its tab (it is the record's writer); this is the view mirror.
             if lookup(resolveRemote(key)) != nil { sessions[resolveRemote(key)] = session }
+            onRemoteChatStarted?(record.host, session, fallback, harness)
             return .init(surface: surface, session: session)
         case .failure(let error as AgentSessionAttachError):
             // A start whose answer was lost already bound the tab: show that chat.
             if error.code == "agent_session.bound", let session = lookup(resolveRemote(key))?.record.session {
+                onRemoteChatStarted?(record.host, session, fallback, harness)
                 return .init(surface: surface, session: session)
             }
             // A link that came up as a teammate's while the start connected is refused as one.
             let code = AgentSessionAttachError.classified(error.code, teammate: await teammate?() ?? false)
-            throw AgentRemoteStartRefusal(code: code, machine: machine, folder: cwd, detail: error.message,
+            throw AgentRemoteStartRefusal(code: code, machine: machine, folder: fallback, detail: error.message,
                                           keyedRestartSafe: error.keyedRestartSafe)
         case .failure(let error):
             throw error

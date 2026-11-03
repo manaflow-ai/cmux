@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 
 import yaml
 from nightly_workflow_text import nightly_text
@@ -49,6 +50,12 @@ def feed(*entries: str) -> str:
 """ + "".join(entries) + """    </channel>
 </rss>
 """)
+
+
+def sourced(entry: str, sha: str) -> str:
+    """ENTRY with a bare <cmux:sourceCommit>, as the live feed of 2026-11-01 carried
+    it: bound by nothing, since that feed's <rss> root declared only sparkle:."""
+    return entry.replace("        </item>", f"            <cmux:sourceCommit>{sha}</cmux:sourceCommit>\n        </item>")
 
 
 def offered(text: str, allowed: set[str]) -> list[str]:
@@ -155,6 +162,13 @@ class LegacyTests(unittest.TestCase):
         self.assertEqual(offered(out, PRE_RING_BUILD), ["200"])
         self.assertEqual(offered(out, MAIN_BUILD), [])
 
+    def test_a_carried_item_with_an_unbound_cmux_prefix_is_bound_on_the_new_root(self):
+        current = feed(sourced(item("200"), "b" * 40))
+        out, _ = ring.legacy(feed(item("300")), current, "on", self.verdicts(b200=True))
+        root = ET.fromstring(out)
+        self.assertEqual(root.findtext(".//{https://cmux.com/xml-namespaces/cmux}sourceCommit"), "b" * 40)
+        self.assertEqual(out.count("xmlns:cmux="), 1)
+
     def test_a_promoted_build_replaces_the_older_nightly_item(self):
         current = feed(item("300", "cmux-next-dev"), item("200"))
         out, summary = ring.legacy(feed(item("400")), current, "on", self.verdicts(b200=True, b300=True))
@@ -249,6 +263,17 @@ printf {live_code}
             self.assertEqual(result.returncode, 1, body)
             self.assertIn("answered 200 with no appcast items", result.stdout)
 
+    def test_a_live_feed_with_an_unbound_cmux_prefix_is_still_kept(self):
+        # 2026-11-01: the live feed used cmux: without declaring it on <rss>. The
+        # readability check must not refuse it, and the merged feed must parse.
+        live = feed(item("300", "cmux-next-dev"), sourced(item("200"), "b" * 40))
+        with self.assertRaises(ET.ParseError):
+            ET.fromstring(live)
+        result, out = self.run_script(200, live)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(offered(out, NIGHTLY_RING), ["200"])
+        ET.fromstring(out)  # nightly-next-guard.py appcast reads it next, with ElementTree
+
     def test_ring_off_leaves_the_feed_alone(self):
         result, out = self.run_script(503, ring="off")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -334,6 +359,21 @@ cp "${url#file://}" "$out"
     def test_an_unreadable_next_feed_supersedes_nothing(self):
         result, out = self.run_script("250", feed(dated(item("200"), FRESH)), None)
         self.assertEqual((result.returncode, out), (0, "skip=false\n"), result.stderr)
+
+
+class LegacyTargetTests(unittest.TestCase):
+    """scripts/ci/nightly-next-legacy-target.py reads the live cmux NEXT feed."""
+
+    def test_a_next_feed_with_an_unbound_cmux_prefix_is_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            next_feed, old_feed = Path(tmp) / "next.xml", Path(tmp) / "old.xml"
+            next_feed.write_text(feed(sourced(item("300"), "c" * 40), sourced(item("200"), "b" * 40)))
+            old_feed.write_text(feed(item("200")))
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/ci/nightly-next-legacy-target.py"), str(next_feed), str(old_feed),
+                 "cmux-nightly-next-macos-arm64-"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("action=new\nbuild=300\n", result.stdout)
 
 
 class CliTests(unittest.TestCase):

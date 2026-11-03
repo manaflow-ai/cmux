@@ -973,6 +973,17 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// the chat's pane, as the Mac opens a fork in a tab of its own. acpmux refuses a fork of a
     /// Claude chat the Mac started (D13); its reason is shown as the Mac words it.
     public func forkAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await forkChat(tab, through: nil, in: workspace)
+    }
+
+    /// Edit and Resend of an earlier prompt: acpmux `acp.session.fork {sessionId, throughSeq}`
+    /// (the copy holds the chat through that turn; the Mac's pane sends the same), then a tab of
+    /// the copy in the chat's pane, as Fork does.
+    public func forkAgentChat(_ tab: WorkspaceTab, through seq: Int, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await forkChat(tab, through: seq, in: workspace)
+    }
+
+    private func forkChat(_ tab: WorkspaceTab, through seq: Int?, in workspace: Workspace) async throws -> WorkspaceTab {
         let (client, _) = try target(tab, in: workspace)
         guard let acpmux, acpmux.isReady else {
             throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
@@ -983,7 +994,9 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
         let forked: String
         do {
-            let reply = try await acpmux.request("session/fork", .object(["sessionId": .string(session)]), timeout: .seconds(60))
+            var params: [String: JSONValue] = ["sessionId": .string(session)]
+            if let seq { params["throughSeq"] = .number(Double(seq)) }
+            let reply = try await acpmux.request(seq == nil ? "session/fork" : "acp.session.fork", .object(params), timeout: .seconds(60))
             guard let id = reply["sessionId"]?.stringValue, !id.isEmpty else { throw WorkspaceCreationError("The Mac didn't fork the chat") }
             forked = id
         } catch let error as AcpmuxConnection.RPCError {

@@ -378,8 +378,8 @@ func within<T: Sendable>(_ limit: Duration, _ work: @escaping @Sendable () async
 let waitWatchdog: Duration = .seconds(60)
 
 /// A wall-clock stop for a wait whose main thread stays busy but keeps coming back to
-/// it: only a backstop. A main thread blocked for good stops the wait too; the suite's
-/// time limit ends that.
+/// it, whatever watchdog the wait asked for: only a backstop. A main thread blocked
+/// for good stops the wait too; the suite's time limit ends that.
 let waitBackstop: Duration = .seconds(600)
 
 /// Whether `condition` came to hold within `watchdog` of the wait's own running time,
@@ -390,7 +390,7 @@ let waitBackstop: Duration = .seconds(600)
 /// the time it asked for, so a hold never uses up the wait.
 @MainActor func eventually(watchdog: Duration = waitWatchdog, tick: Duration = .milliseconds(20),
                            _ condition: @MainActor () -> Bool) async -> Bool {
-    let backstop = ContinuousClock.now.advanced(by: max(watchdog, waitBackstop))
+    let backstop = ContinuousClock.now.advanced(by: waitBackstop)
     var left = watchdog
     while true {
         let wake = Wake()

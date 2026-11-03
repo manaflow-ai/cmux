@@ -140,14 +140,11 @@ describe("acpmuxSendBatch", () => {
     expect(acpmuxSendCalls(bash('for f in *.md; do wc -l "$f"; done'))).toBeUndefined();
   });
 
-  test("a batch draws as one group of sent-message rows, one per recipient", () => {
+  test("a batch draws one sent-message row per recipient, each on its own", () => {
     const call = bash(FUNCTION_BATCH, { output: "queued\nsteered" });
     const groups = toolGroups([{ kind: "tool", text: call.title, tool: call }]);
-    expect(groups.length).toBe(1);
-    const group = groups[0]!;
-    expect(group.type).toBe("messages");
-    if (group.type !== "messages") return;
-    expect(group.members.map((member) => (member.type === "send" ? member.send.target : ""))).toEqual([
+    expect(groups.map((group) => group.type)).toEqual(["send", "send"]);
+    expect(groups.map((group) => (group.type === "send" ? group.send.target : ""))).toEqual([
       "build-box/nightly",
       "gcp-lane/acpmux-owner",
     ]);

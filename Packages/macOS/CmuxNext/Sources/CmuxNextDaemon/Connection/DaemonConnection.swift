@@ -21,7 +21,9 @@ import os
 /// crashed daemon). Attempts are spaced by one capped backoff across
 /// consecutive drops (reset only after a connection stays up for
 /// `healthyAfter`), and after `retry.timedRetries` failures no timer runs:
-/// the loop waits for the daemon socket to change or `retryWake` to fire.
+/// the loop waits for the daemon socket to change or `retryWake` to fire,
+/// unless `retry.keepsTrying` (the app's local daemon, whose start can fail
+/// for a cause that ends with no event: one attempt per backoff cap).
 /// After `retry.socketRetries` failures that a new socket woke (a daemon
 /// that dies on connect) only `retryWake` does.
 public actor DaemonConnection {
@@ -293,10 +295,14 @@ public actor DaemonConnection {
         phase = .connecting
         serial += 1
         let serial = serial
+        // A failed attempt closes what it opened: left open, its reader kept running and the daemon,
+        // which already took the pipelined `subscribe`, streamed events into a gate that never opens.
+        var opened: LineTransport?
         do {
             let endpoint = try await endpointProvider()
             DaemonLaunchTimings.shared.mark("daemon.endpoint_resolved")
-            let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
+            let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge, latency: configuration.requestLatency)
+            opened = transport
             DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
             let continuation = continuation
@@ -341,6 +347,7 @@ public actor DaemonConnection {
             logger.info("connected to cmux-tui \(identity.session, privacy: .public) pid \(identity.pid) gen \(identity.generation.rawValue, privacy: .public)")
             return identity
         } catch {
+            opened?.close()
             if case .connecting = phase { phase = .waiting }
             throw error
         }
@@ -388,7 +395,7 @@ public actor DaemonConnection {
     }
 
     private func reconnectLoop() async {
-        // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only)
+        // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only, or the cap with `keepsTrying`)
         while !Task.isCancelled {
             // A drop or a failed attempt: space the next one (events only past the budget;
             // in a crash loop a new socket no longer counts, `RetryPolicy.socketRetries`).

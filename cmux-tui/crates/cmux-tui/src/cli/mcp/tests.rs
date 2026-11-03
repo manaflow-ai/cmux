@@ -21,6 +21,8 @@ struct Fake {
     fail_apps: bool,
     /// The app refuses every `action.run`, as for a path it cannot open.
     refuse_actions: bool,
+    /// The app applied an open action but lost the acknowledgement.
+    lose_open_transport: bool,
     daemon_snapshot: Option<Value>,
     /// The answer to every daemon request but `session.snapshot`; else
     /// `daemon_snapshot`.
@@ -43,6 +45,9 @@ struct Fake {
     caller: Option<Value>,
     /// The app's `beside` with `caller`: the column right of the chat.
     beside: Value,
+    /// The app's `browser` with `caller`: the browser nearest it; unset
+    /// answers as an app from before #26648 (no `browser`).
+    browser: Option<Value>,
     /// Every `.list` read answers no items (with `resource_result` set).
     empty_lists: bool,
     /// `Backend::identity` fails, as with no app on the socket.
@@ -57,6 +62,10 @@ struct Fake {
     computer_use: Option<Value>,
     /// The card's answer to `permissions.request`; `granted` when unset.
     setup_outcome: Option<Value>,
+    /// The app's `cloud.machines` answer; an app without it answers `{ran: true}`.
+    cloud_machines: Option<Value>,
+    /// The server was started on another session (`--session`, `--socket`).
+    other_session: bool,
     /// `{method, params, thread}` of each request the app caller got.
     app_calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
     sent: RefCell<Vec<Value>>,
@@ -156,6 +165,10 @@ impl Fake {
 }
 
 impl Backend for Fake {
+    fn app_session(&self) -> bool {
+        !self.other_session
+    }
+
     fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
         let status = self.computer_use.clone()?;
         let outcome = self.setup_outcome.clone().unwrap_or_else(|| json!({"outcome": "granted"}));
@@ -283,6 +296,15 @@ impl Backend for Fake {
                 idempotency_key: None,
             });
         }
+        if self.lose_open_transport && method == "action.run" {
+            // A real app can apply action.run before its acknowledgement is lost.
+            return Err(CallFailure {
+                kind: FailureKind::InProgress,
+                error: json!({"code": "app.transport", "message": "reply lost",
+                              "retryable": true}),
+                idempotency_key: Some("open-viewer-app-key".into()),
+            });
+        }
         match method {
             "action.list" => Ok(self.actions.clone()),
             "snapshot.get" => {
@@ -292,6 +314,9 @@ impl Backend for Fake {
                     .topology
                     .clone()
                     .unwrap_or_else(|| json!({"topology": {"windows": [{"id": "win_a"}]}})))
+            }
+            "cloud.machines" if self.cloud_machines.is_some() => {
+                Ok(self.cloud_machines.clone().unwrap_or_default())
             }
             "feed.list" => {
                 let mut live = self.live.borrow_mut();
@@ -345,6 +370,37 @@ impl Backend for Fake {
         }
     }
 
+    // The fake's chat rows stand in for scoped acpmux info, separate from the
+    // daemon's terminal/agent records and the app's visible tab topology.
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::super::agents::chat::ChatCommand,
+        _idempotency_key: Option<&str>,
+        _origin: &str,
+    ) -> Result<Value, CallFailure> {
+        let super::super::agents::chat::ChatCommand::State { target } = command else {
+            return Err(CallFailure::local(FailureKind::NotRun, "usage.invalid", "read only"));
+        };
+        self.sent.borrow_mut().push(json!({"kind": "chat", "session": session, "target": target}));
+        let mut live = self.live.borrow_mut();
+        live.settle();
+        let chat = live
+            .daemon
+            .as_ref()
+            .or(self.daemon_snapshot.as_ref())
+            .and_then(|daemon| daemon["chats"].as_array())
+            .and_then(|chats| chats.iter().find(|chat| chat["chat"] == target.as_str()));
+        match chat {
+            Some(chat) => Ok(json!({"schema_version": 1, "action": "chat.state", "result": chat})),
+            None => Err(CallFailure::local(
+                FailureKind::NotRun,
+                "selector.not_found",
+                "no scoped acpmux chat",
+            )),
+        }
+    }
+
     fn browser(
         &self,
         request: browser_tools::Request,
@@ -365,7 +421,13 @@ impl Backend for Fake {
         if self.identity_fails {
             return Err(CallFailure::local(FailureKind::NotRun, "socket.no_app", "no cmux app"));
         }
-        Ok(self.caller.clone().map(|caller| json!({"caller": caller, "beside": self.beside})))
+        Ok(self.caller.clone().map(|caller| {
+            let mut identity = json!({"caller": caller, "beside": self.beside});
+            if let Some(browser) = &self.browser {
+                identity["browser"] = browser.clone();
+            }
+            identity
+        }))
     }
 
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
@@ -836,6 +898,17 @@ fn json_rpc_lifecycle_and_errors() {
                         "params": {"name": "no_such_tool"}}))
         .unwrap();
     assert_eq!(missing["error"]["code"], -32602);
+    assert_eq!(missing["error"]["message"], "unknown tool: no_such_tool", "{missing}");
+    // A typo of a real tool names the tool it was likely meant to be.
+    let typo = server
+        .handle(&json!({"jsonrpc": "2.0", "id": "t", "method": "tools/call",
+                        "params": {"name": "workspace_lst"}}))
+        .unwrap();
+    assert_eq!(typo["error"]["code"], -32602);
+    assert_eq!(
+        typo["error"]["message"], "unknown tool: workspace_lst; did you mean workspace_list?",
+        "{typo}"
+    );
 
     let listed = server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"}));
     let tools = listed.unwrap()["result"]["tools"].as_array().cloned().unwrap();
@@ -1265,6 +1338,14 @@ fn agents_action_tools_send_the_cli_requests_and_move_focus_only_by_purpose() {
     let list = &sent_of(&server, "app")[0];
     assert_eq!(list["method"], "feed.list");
     assert_eq!(list["params"]["pending_only"], false);
+    // A read's receipt reads the app's last snapshot: no read barrier to wait out.
+    let state = &sent_of(&server, "app")[1];
+    assert_eq!(state["method"], "snapshot.get");
+    assert_eq!(state["params"], json!({"after": 0}));
+    server.backend.sent.borrow_mut().clear();
+    call(&mut server, "agents_palette_open", json!({"idempotency_key": "palette-2"}));
+    let state = sent_of(&server, "app").into_iter().find(|s| s["method"] == "snapshot.get");
+    assert_eq!(state.expect("a change's receipt reads the app")["params"], json!({}));
 
     server.backend.sent.borrow_mut().clear();
     let result = call(
@@ -1275,7 +1356,10 @@ fn agents_action_tools_send_the_cli_requests_and_move_focus_only_by_purpose() {
     assert_eq!(result["structuredContent"]["action"], "dialog.answer", "{result}");
     let reply = &sent_of(&server, "app")[0];
     assert_eq!(reply["method"], "feed.question.reply");
-    assert_eq!(reply["params"], json!({"request_id": "request_a", "selections": ["one", "two"]}));
+    // The tool names who answers (origin, and the caller when it is an agent session).
+    assert_eq!(reply["params"]["request_id"], "request_a");
+    assert_eq!(reply["params"]["selections"], json!(["one", "two"]));
+    assert_eq!(reply["params"]["origin"], "mcp");
 }
 
 #[test]
@@ -1346,7 +1430,9 @@ fn agents_dialog_answer_only_denies_permissions_over_mcp() {
     assert_eq!(result["isError"], false, "{result}");
     let reply = &sent_of(&server, "app")[0];
     assert_eq!(reply["method"], "feed.permission.reply");
-    assert_eq!(reply["params"], json!({"request_id": "request_a", "mode": "deny"}));
+    assert_eq!(reply["params"]["request_id"], "request_a");
+    assert_eq!(reply["params"]["mode"], "deny");
+    assert_eq!(reply["params"]["origin"], "mcp");
 
     let listed =
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
@@ -1465,7 +1551,9 @@ mod agent_wait;
 
 mod caller_scope;
 mod catalog;
+mod cloud_workspace_list;
 mod machine_catalog;
+mod retained;
 mod settings;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
@@ -1475,7 +1563,7 @@ fn code_mode_server(fake: Fake) -> Server<Fake> {
 }
 
 #[test]
-fn code_mode_lists_only_cmux_exec_and_a_script_reaches_every_tool() {
+fn code_mode_lists_exec_and_workflow_and_a_script_reaches_every_tool() {
     let mut server = code_mode_server(Fake::with_actions());
     let initialize =
         server.handle(&json!({"jsonrpc": "2.0", "id": "i", "method": "initialize"})).unwrap();
@@ -1484,13 +1572,27 @@ fn code_mode_lists_only_cmux_exec_and_a_script_reaches_every_tool() {
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
     let tools = listed["result"]["tools"].as_array().cloned().unwrap();
     let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<Vec<_>>();
-    // Only cmux_exec (Lawrence 2026-10-23): a script searches with
-    // `cmux.docs(query)`, and `cmux_docs` stays callable for old prompts.
-    assert_eq!(names, ["cmux_exec"]);
+    // Scripts search the underlying catalog with cmux.docs; durable runs
+    // also have a direct lifecycle tool beside the code-mode entry point.
+    assert_eq!(names, ["cmux_exec", "cmux_workflow"]);
     let bytes = serde_json::to_vec(&tools).unwrap().len();
     assert!(bytes < 8 << 10, "the code-mode list is {bytes} bytes");
     let all = server.list();
     assert!(all.len() > 100, "the full list stays the API");
+    // An unknown name's hint names only what tools/list offers here.
+    let typo = server
+        .handle(&json!({"jsonrpc": "2.0", "id": "t", "method": "tools/call",
+                        "params": {"name": "workspace_lst"}}))
+        .unwrap();
+    assert_eq!(typo["error"]["message"], "unknown tool: workspace_lst", "{typo}");
+    let typo = server
+        .handle(&json!({"jsonrpc": "2.0", "id": "x", "method": "tools/call",
+                        "params": {"name": "cmux_exce"}}))
+        .unwrap();
+    assert_eq!(
+        typo["error"]["message"], "unknown tool: cmux_exce; did you mean cmux_exec?",
+        "{typo}"
+    );
     assert!(tools[0]["description"].as_str().unwrap().contains("app (3)"));
 
     // Docs returns a matching tool's schema, best match first: the daemon's
@@ -2006,6 +2108,78 @@ fn open_splits_and_opens_in_one_call() {
     let close = sent.iter().find(|s| s["request"]["operation"] == "pane.close");
     let close = close.unwrap_or_else(|| panic!("the split stays: {sent:?}"));
     assert!(close["request"].to_string().contains(pane), "{close}");
+    drop(sent);
+
+    // A lost acknowledgement is ambiguous: the app may already have opened the viewer.
+    // Preserve that new pane and return its ID so a caller can reconcile the result.
+    let lost = Fake {
+        actions: actions.clone(),
+        resource_result: Some(json!({"pane_id": pane, "id": tab, "focused": true})),
+        lose_open_transport: true,
+        ..Fake::default()
+    };
+    let mut uncertain = Server::new(lost, None);
+    let result = uncertain
+        .call(&json!({"name": "open",
+                       "arguments": {"kind": "file", "path": "/work/docs/notes.md",
+                                     "where": "below"}}))
+        .expect("a tool result");
+    assert_eq!(result["isError"], true, "{result}");
+    assert_eq!(result["structuredContent"]["state"], "in_progress", "{result}");
+    assert_eq!(result["structuredContent"]["idempotency_key"], "open-viewer-app-key");
+    assert_eq!(result["structuredContent"]["created_pane"], pane, "{result}");
+    assert!(
+        result["structuredContent"]["recovery"]
+            .as_str()
+            .is_some_and(|s| s.contains("Inspect created_pane")),
+        "the pending open needs a usable recovery hint: {result}"
+    );
+    let sent = uncertain.backend.sent.borrow();
+    assert!(sent.iter().any(|s| s["method"] == "action.run"), "{sent:?}");
+    assert!(
+        !sent.iter().any(|s| s["request"]["operation"] == "pane.close"),
+        "a lost acknowledgement must never close a possibly successful viewer: {sent:?}"
+    );
+    drop(sent);
+
+    // The same composite ID replays a split and app action under the same
+    // stage keys even if the app drops its acknowledgement twice.
+    uncertain.backend.sent.borrow_mut().clear();
+    let args = json!({"name": "open",
+        "arguments": {"kind": "file", "path": "/work/docs/notes.md", "where": "below",
+                      "idempotency_key": "same-open-request"}});
+    for _ in 0..2 {
+        let result = uncertain.call(&args).expect("open tool result");
+        assert_eq!(result["isError"], true, "{result}");
+        assert_eq!(result["structuredContent"]["state"], "in_progress", "{result}");
+        assert_eq!(result["structuredContent"]["created_pane"], pane, "{result}");
+        assert_eq!(
+            result["structuredContent"]["open_idempotency_key"], "same-open-request",
+            "{result}"
+        );
+    }
+    let sent = uncertain.backend.sent.borrow();
+    let keys = |operation: &str| {
+        sent.iter()
+            .filter(|s| s["request"]["operation"] == operation)
+            .filter_map(|s| s["request"]["idempotency_key"].as_str())
+            .collect::<Vec<_>>()
+    };
+    let splits = keys("pane.split");
+    assert_eq!(splits.len(), 2, "{sent:?}");
+    assert_eq!(splits[0], splits[1], "same split key must be replayed");
+    let actions = sent.iter().filter(|s| s["method"] == "action.run").collect::<Vec<_>>();
+    assert_eq!(actions.len(), 2, "{sent:?}");
+    assert_eq!(actions[0]["key"], actions[1]["key"], "same app run key must be replayed");
+    assert!(
+        actions[0]["key"].as_str().is_some_and(|key| !key.is_empty()),
+        "a composite open must send a stable app action key"
+    );
+    assert!(splits[0] != actions[0]["key"].as_str().unwrap_or_default());
+    assert!(
+        !sent.iter().any(|s| s["request"]["operation"] == "pane.close"),
+        "an uncertain open never rolls back its stage: {sent:?}"
+    );
     drop(sent);
 
     // `where` as an object names its workspace: the page goes there, not to the right.

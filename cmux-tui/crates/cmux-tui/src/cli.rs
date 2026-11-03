@@ -23,6 +23,8 @@ mod app_focus;
 #[cfg(unix)]
 mod apps_list;
 #[cfg(unix)]
+mod apps_place;
+#[cfg(unix)]
 mod apps_run;
 #[cfg(unix)]
 mod auth_token;
@@ -33,6 +35,8 @@ mod automation_cloud;
 mod beside;
 #[cfg(unix)]
 mod billing;
+#[cfg(unix)]
+mod caller_browser;
 mod capability_cache;
 #[cfg(unix)]
 mod chief;
@@ -41,9 +45,17 @@ mod chief_target;
 mod cloud_client_session;
 mod cloud_help;
 #[cfg(unix)]
+mod cloud_machine_io;
+#[cfg(unix)]
 mod cloud_machines;
 #[cfg(unix)]
+mod cloud_repo;
+#[cfg(unix)]
 mod cloud_secret;
+#[cfg(unix)]
+mod cloud_start_chat;
+#[cfg(unix)]
+mod cloud_workspaces;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
@@ -87,7 +99,8 @@ mod machine_doctor;
 mod machine_join;
 #[cfg(unix)]
 pub(crate) use machine_join::{
-    device_credential as joined_machine_credential, rows_for_devices as joined_machine_rows,
+    CallError as PlatformCallError, Platform, device_credential as joined_machine_credential,
+    platform_origin, rows_for_devices as joined_machine_rows,
 };
 mod machine_server;
 #[cfg(test)]
@@ -116,6 +129,8 @@ mod tab_capabilities;
 mod terminal_talk;
 mod topology_help;
 mod wire;
+#[cfg(unix)]
+mod workflow;
 use surface::MACHINE_CATALOG_HELP;
 pub(super) use surface::{BIN, Surface};
 
@@ -142,6 +157,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "attention",
     "agent",
     "room",
+    "space",
     "closed",
     "git",
     "conversation",
@@ -152,6 +168,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "settings",
     "config",
     "raw",
+    "workflow",
 ];
 
 /// Scopes only the `cmux-tui` name accepts. Cloud VM guest scripts
@@ -387,7 +404,7 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
 /// agents` answered "unknown resource scope".
 pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "agents", "chats", "harness", "remote", "script", "host", "github", "avatar", "chief", "setup",
-    "device",
+    "device", "workflow",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -458,6 +475,17 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `vm add|revoke|rotate|doctor` is `machine …` (`vm` is `machine`'s old name).
+    #[cfg(unix)]
+    let alias_args;
+    #[cfg(unix)]
+    let args = match vm::machine_alias(args) {
+        Some(rewritten) => {
+            alias_args = rewritten;
+            alias_args.as_slice()
+        }
+        None => args,
+    };
     // `machine list --cloud-token-file F`: the flags are for its joined rows, not the daemon.
     #[cfg(unix)]
     let list_args;
@@ -469,8 +497,23 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `chat send` from a coding agent is the agent's message, not the owner's
+    // (chief/chat_scope.rs): a Chief's chat is sent here, any other chat runs
+    // the app action with its text labelled.
+    #[cfg(unix)]
+    let chat_args;
+    #[cfg(unix)]
+    let args = match chief::chat_scope::run_if_requested(args) {
+        Some(chief::chat_scope::Chat::Exit(code)) => return code,
+        Some(chief::chat_scope::Chat::Rewritten(rewritten)) => {
+            chat_args = rewritten;
+            chat_args.as_slice()
+        }
+        None => args,
+    };
     #[cfg(unix)]
     if let Some(code) = mcp::run_if_requested(args)
+        .or_else(|| workflow::run_if_requested(args))
         .or_else(|| agents::run_if_requested(args))
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
@@ -482,10 +525,14 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_start_chat::run_if_requested(args))
+        .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
+        .or_else(|| cloud_machine_io::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
+        .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -862,6 +909,20 @@ fn scan_globals(
             index += 1;
             continue;
         }
+        // Cloud repo actions name a chat, not a daemon, with --session.
+        if command.get(..2).is_some_and(|words| words == ["cloud", "repo"])
+            && (value == "--session" || value.starts_with("--session="))
+        {
+            command.push(value.clone());
+            if value == "--session"
+                && let Some(next) = args.get(index + 1)
+            {
+                command.push(next.clone());
+                index += 1;
+            }
+            index += 1;
+            continue;
+        }
         // After `action run <id>`, `--session` and `--machine` are the
         // action's arguments (`agent.openSessionWorkspace --session`): they
         // name a daemon, which an app action never reaches.
@@ -965,6 +1026,7 @@ fn scan_globals(
             _ => {
                 command.push(value.clone());
                 if option_takes_value(value)
+                    && !own_switch(&command, value)
                     && let Some(next) = args.get(index + 1)
                 {
                     command.push(next.clone());
@@ -975,6 +1037,20 @@ fn scan_globals(
         }
     }
     Ok((global, command))
+}
+
+/// `machine add|vault`'s value-less switches (`machine_join::own_switch`); none on Windows,
+/// where those verbs do not exist.
+fn own_switch(command: &[String], flag: &str) -> bool {
+    #[cfg(unix)]
+    {
+        machine_join::own_switch(command, flag)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (command, flag);
+        false
+    }
 }
 
 /// Option arity is shared with resource tokenization. Values such as --help or
@@ -1058,7 +1134,9 @@ fn set_output_mode(
 fn print_scope_help(scope: Option<&str>, surface: Surface) {
     let catalog = crate::localization::catalog();
     let text = match (scope, surface) {
-        (Some("machine"), Surface::Cmux) => Cow::Borrowed(MACHINE_CATALOG_HELP),
+        (Some("machine"), Surface::Cmux) => {
+            Cow::Owned(format!("{MACHINE_CATALOG_HELP}\n{}", surface::MACHINE_VM_HELP))
+        }
         (Some(scope), _) => scope_help(scope),
         (None, Surface::Cmux) => {
             let root = catalog.local_server.cmux_root_help;
@@ -1095,7 +1173,7 @@ fn scope_help_for(
         "server stats" => Cow::Borrowed(catalog.local_server.stats_help),
         "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
         "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
-        "machine" => Cow::Borrowed(MACHINE_HELP),
+        "machine" => Cow::Owned(format!("{MACHINE_HELP}\n{}", surface::MACHINE_VM_HELP)),
         "session" => Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server)),
         "client" => Cow::Borrowed(CLIENT_HELP),
         "workspace" => Cow::Borrowed(WORKSPACE_HELP),
@@ -1116,6 +1194,7 @@ fn scope_help_for(
         }
         "cloud" => Cow::Owned(cloud_help::overview(catalog.is_japanese())),
         "room" => Cow::Borrowed(scope_help::ROOM_HELP),
+        "space" => Cow::Borrowed(scope_help::SPACE_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
         "git" => Cow::Borrowed(scope_help::GIT_HELP),
         "conversation" => Cow::Borrowed(scope_help::CONVERSATION_HELP),
@@ -1181,6 +1260,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   attention     Mark the tab where the person must act (no focus change)
   agent         List and report agent state
   room          Organize workspaces into rooms
+  space         List and organize spaces
   closed        List and reopen closed tabs, screens, workspaces
   git           Read a repository's status and changes; capture checkpoints
   status        Show loading indicators for scripts and agents
@@ -1207,7 +1287,7 @@ fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
 
 const MACHINE_HELP: &str = "\
 USAGE
-  cmux machine list
+  cmux machine ls
   cmux machine <selector> show
   cmux machine <selector> session list
   cmux machine <selector> session <selector> open
@@ -1266,7 +1346,7 @@ USAGE
 
 const AGENT_HELP: &str = "\
 USAGE
-  cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]
+  cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]
   cmux agent open-tab <session id> [--target PANE_OR_TAB] [--host HOST] [--focus]
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
   cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->

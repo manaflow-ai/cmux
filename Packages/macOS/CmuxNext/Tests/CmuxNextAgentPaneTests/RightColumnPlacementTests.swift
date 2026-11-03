@@ -127,6 +127,27 @@ struct RightColumnPlacementTests {
         #expect(Rule.decide(browser) == .splitBelow("web"))
     }
 
+    /// Leo 2026-11-03, of the Changes viewer: "just put it in a tab???". A diff is a tab in the lowest
+    /// pane on the right whatever it holds, never a lower split; with nothing there a split right, even narrow.
+    @Test func aDiffIsATabInThePaneOnTheRight() {
+        let browser = Rule.Column(sourceWidth: 1400, panes: ["web"], widths: ["web": 700], kinds: ["web": [.browser]])
+        #expect(Rule.decide(browser, opening: .document) == .tab("web"))
+        #expect(Rule.decide(.init(sourceWidth: 1400, panes: ["web", "shell"]), opening: .document) == .tab("shell"))
+        #expect(Rule.decide(.init(sourceWidth: 479, panes: ["web"]), opening: .document) == .tab("web"))
+        #expect(Rule.decide(.init(sourceWidth: 1400), opening: .document) == .splitRight)
+        #expect(Rule.decide(.init(sourceWidth: 959), opening: .document) == .splitRight, "never a tab beside the chat")
+    }
+
+    /// Lawrence 2026-11-03: View changes opens the diff in the pane split right of the chat. A pane
+    /// on the right that already shows a diff takes the next one, wherever it sits in the column, so
+    /// diffs gather in one pane instead of landing under a browser or terminal.
+    @Test func aDiffGoesToThePaneThatAlreadyShowsADiff() {
+        let column = Rule.Column(sourceWidth: 1400, panes: ["diffs", "shell"], kinds: ["diffs": [.document], "shell": [.terminal]])
+        #expect(Rule.decide(column, opening: .document) == .tab("diffs"))
+        let lowest = Rule.Column(sourceWidth: 1400, panes: ["web", "diffs"], kinds: ["web": [.browser], "diffs": [.document]])
+        #expect(Rule.decide(lowest, opening: .document) == .tab("diffs"))
+    }
+
     @MainActor @Test func closingTheLowerPaneCollapsesTheSplitAndTheNextOpenSplitsAgain() {
         let window = RightColumnWindow()
         window.occupy("diff")

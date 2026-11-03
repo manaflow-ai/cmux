@@ -20,7 +20,7 @@ mod command;
 pub(crate) mod session_tmp;
 pub(crate) use command::{
     REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, harness_command,
-    host_environment, pinned_preview_format, preview_format,
+    host_environment, pinned_preview_format, preview_format, resolved_profile_env,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -725,6 +725,7 @@ impl ChildAgent {
         let launch = crate::hub::LaunchServers::read(
             &Launch::of(&cmd, cwd),
             crate::config::derive_family(name, profile),
+            profile.kind,
         )
         .await;
         let preview_format = Some(pinned_preview_format(&cmd));

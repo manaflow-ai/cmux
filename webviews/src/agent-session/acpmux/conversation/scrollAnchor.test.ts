@@ -66,6 +66,25 @@ test("does not move the row itself when its streaming text grows", () => {
   expect(next).toBe(oldTop);
 });
 
+test("keeps a reader's anchor when a live activity row is appended below it", () => {
+  const oldRows = [row("prompt", "prompt"), row("anchor", "the row in view"), row("reply", "reply")];
+  const activity = row("subagent-done", "Subagent finished");
+  activity.kind = "activity";
+  const newRows = [...oldRows, activity];
+  const oldLayout = layoutConversation(oldRows, 420);
+  const newLayout = layoutConversation(newRows, 420);
+  const oldTop = oldLayout.tops[1]! + 9;
+  const next = preserveScrollAnchorTop({
+    oldLayout,
+    newLayout,
+    oldRows,
+    newRows,
+    liveTop: oldTop,
+    anchorTop: oldTop,
+  });
+  expect(next! - newLayout.tops[1]!).toBe(9);
+});
+
 test("finds the same anchor after older history is inserted above it", () => {
   const oldRows = [row("before", "before"), row("anchor", "the row in view"), row("tail", "tail")];
   const inserted = Array.from({ length: 120 }, (_, index) => row(`old-${index}`, `old ${index}`));

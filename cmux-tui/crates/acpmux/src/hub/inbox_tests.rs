@@ -22,6 +22,7 @@ fn item(
         at,
         text: text.to_owned(),
         details: None,
+        tool_notice: None,
         noticed: false,
         read: false,
         answer: None,
@@ -222,6 +223,38 @@ fn a_whole_notice_keeps_every_message_as_it_was_sent() {
     assert!(render(&refs).1[0].get("messages").is_none());
 }
 
+/// A tool's notice in the inbox (`prompt_provenance::notice`) keeps its structure in the notice's
+/// thread parts, and a thread says its loudest severity, so a fold never hides a fire.
+#[test]
+fn a_tools_notice_keeps_its_structure_in_the_inbox_notice() {
+    let notice =
+        |severity: &str| json!({"sender": "base-red-watch", "severity": severity, "title": "t"});
+    let mut warn = item("n1", "from:base-red-watch", "base-red-watch", PromptClass::Result, 1, "w");
+    warn.tool_notice = Some(notice("warn"));
+    let mut fire = item("n2", "from:base-red-watch", "base-red-watch", PromptClass::Result, 2, "f");
+    fire.tool_notice = Some(notice("fire"));
+    let plain = item("m1", "from:lane-a", "lane-a", PromptClass::Result, 3, "merged");
+    let items = [warn, fire, plain];
+    let refs: Vec<&Item> = items.iter().collect();
+    let (_, parts) = render(&refs);
+    let thread =
+        |key: &str| parts.as_array().unwrap().iter().find(|p| p["threadId"] == key).unwrap();
+    let notices = thread("from:base-red-watch");
+    assert_eq!(notices["severity"], "fire", "{notices}");
+    assert_eq!(notices["messages"][0]["notice"], notice("warn"));
+    assert_eq!(notices["messages"][1]["notice"], notice("fire"));
+    let messages = thread("from:lane-a");
+    assert!(messages.get("severity").is_none(), "{messages}");
+    assert!(messages["messages"][0].get("notice").is_none(), "{messages}");
+    // A notice's provenance is a plain message from another agent: it joins the inbox.
+    assert!(plain_kind(Some(&crate::prompt_provenance::notice(&notice("info"), "s"))));
+    assert_eq!(
+        tool_notice_of(Some(&crate::prompt_provenance::notice(&notice("info"), "s"))),
+        Some(notice("info"))
+    );
+    assert_eq!(tool_notice_of(Some(&json!({"kind": "agent_message", "notice": {}}))), None);
+}
+
 #[test]
 fn class_aliases_name_the_inbox_kinds() {
     assert_eq!(PromptClass::parse("blocker"), Some(PromptClass::Block));
@@ -395,4 +428,20 @@ async fn a_notice_reader_has_tools_only_by_its_last_launch_and_its_next_spawn() 
         let session = hub.resolve("inbox-reader").unwrap();
         assert_eq!(hub.notice_reader_has_tools(&session).await, has, "{case}");
     }
+}
+
+/// Only the person's own prompt makes a turn theirs (`persons_prompt`): never another agent's
+/// message, nor acpmux's own prompts (a notice, a digest, the turn cap's notice, a subagent's
+/// retry, a cut turn's continuation), whose turns take notices as before.
+#[test]
+fn only_the_persons_own_prompt_makes_a_turn_theirs() {
+    assert!(persons_prompt(None, None));
+    assert!(persons_prompt(None, Some(&json!({"kind": "something_else"}))));
+    assert!(!persons_prompt(Some("lane-a"), None));
+    let retry = super::super::subagent_retry::PROVENANCE_KIND;
+    for kind in [NOTICE_KIND, "inbox_digest", "auto_resume", retry] {
+        assert!(!persons_prompt(None, Some(&json!({"kind": kind}))), "{kind}");
+    }
+    let cap = json!({"kind": super::super::turn_cap::NOTICE_KIND});
+    assert!(!persons_prompt(None, Some(&cap)), "{cap}");
 }

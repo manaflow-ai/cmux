@@ -1,9 +1,12 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextAppCore
 import CmuxNextBridge
+import CmuxNextBrowserTabs
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextFocus
 import CmuxNextLayout
 import CmuxNextSettings
@@ -16,9 +19,9 @@ import CmuxNextWakeups
 /// An agent chat that is its screen's main pane (``MainPaneLayout``, `layout.mainPane`) never holds what it opens: that is a
 /// tab in the column on its right, or the lone chat docks left to make that column.
 ///
-/// A new tab for the pane on the right opens there, selected and focused. A new split or column is
-/// made by opening the tab unselected in the source pane and moving it there in one daemon move
-/// (`TabMoves`), the way an agent's tab reaches the column beside its chat (``AgentBesidePlacement``):
+/// A new tab for the pane on the right opens there, selected and focused. A web link's split is made
+/// with its tab in one daemon commit where served (``SplitMake``); else a new split or column is made
+/// by opening the tab unselected in the source pane and moving it there in one daemon move (`TabMoves`), the way an agent's tab reaches the column beside its chat (``AgentBesidePlacement``):
 /// the source keeps showing what it showed, and its strip never lists the tab (``OutboundTab``).
 @MainActor
 final class LinkOpener {
@@ -26,6 +29,10 @@ final class LinkOpener {
     /// focused); else the tab must open unselected and report its surface to `placed`, which moves
     /// it. Returns false when nothing opened (the opener reported why).
     typealias Make = @MainActor (_ pane: PaneController, _ placed: (@MainActor (SurfaceID) -> Void)?) -> Bool
+    /// Opens the item straight in a new split of `pane` on `direction` and calls `finished` once the daemon
+    /// answered; nil when `pane`'s daemon cannot (the open falls back to ``Make`` and a move).
+    typealias SplitMake = @MainActor (_ pane: PaneController, _ direction: SplitDirection,
+                                      _ finished: @escaping @MainActor (SurfaceID?) -> Void) -> Bool?
 
     /// How long a move waits for the store to list the new tab.
     static let listLimit: Duration = .seconds(30)
@@ -129,36 +136,40 @@ final class LinkOpener {
     /// one has landed, from the column it made.
     @discardableResult
     func open(from source: PaneController?, background: Bool = false, mainPane: Bool = true, besideChat: Bool = false, kind: RightColumnPlacement.Kind? = nil,
-              _ make: @escaping Make) -> Bool {
+              focusing focus: FocusState.Target = .content, split: SplitMake? = nil, _ make: @escaping Make) -> Bool {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
         var opened = true
         let now = turns.serially(beside: source.layoutPaneID) { [weak self, weak source] done in
             guard let self, let source else { return done() }
-            opened = self.place(from: source, background: background, mainPane: mainPane, besideChat: besideChat, kind: kind, make, done: done)
+            opened = self.place(from: source, background: background, mainPane: mainPane, besideChat: besideChat, kind: kind, focusing: focus,
+                                split: split, make, done: done)
         }
         return now ? opened : true
     }
 
     /// ``open(from:background:mainPane:_:)`` in its turn: `done` runs once the open has landed or
     /// failed, so the next open beside `source` reads the column it left.
-    private func place(from source: PaneController, background: Bool, mainPane: Bool, besideChat: Bool, kind: RightColumnPlacement.Kind?, _ make: Make,
-                       done: @escaping @MainActor () -> Void) -> Bool {
+    private func place(from source: PaneController, background: Bool, mainPane: Bool, besideChat: Bool, kind: RightColumnPlacement.Kind?, focusing focus: FocusState.Target,
+                       split: SplitMake?, _ make: Make, done: @escaping @MainActor () -> Void) -> Bool {
         switch target(from: source, mainPane: mainPane, besideChat: besideChat, kind: kind) {
         case .pane(let id):
             defer { done() }
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
         case .splitRight:
-            return moved(from: source, to: .split(.right), background: background, make, done: done)
+            if let opened = split?(source, .right, { _ in done() }) { if !opened { done() }; return opened }
+            return moved(from: source, to: .split(.right), background: background, focusing: focus, make, done: done)
         case .splitBelow(let id):
             // Made unselected in the pane on the right, which keeps showing what it shows, then moved below it.
             guard let right = source.workspace?.panes[id] else { defer { done() }; return make(source, nil) }
-            return moved(from: right, to: .split(.bottom), background: background, make, done: done)
+            if let opened = split?(right, .down, { _ in done() }) { if !opened { done() }; return opened }
+            return moved(from: right, to: .split(.bottom), background: background, focusing: focus, make, done: done)
         case .newColumn:
-            return moved(from: source, to: .besideColumn, background: background, make, done: done)
+            return moved(from: source, to: .besideColumn, background: background, focusing: focus, make, done: done)
         case .besideDock:
             // A lone pinned dock closed to tabs: the daemon makes a tab aimed at it in a new column
             // right of it. Home's dock takes tabs, so the tab is made there and moves to the right,
-            // left out of the dock's strip on the way (``OutboundTab``): it first shows on the right.
+            // left out of the dock's strip on the way (``OutboundTab``): it first shows on the right. Split-first: one create.
+            if let opened = split?(source, .right, { _ in done() }) { if !opened { done() }; return opened }
             guard source.isOpenPinnedDockPane else { defer { done() }; return make(source, nil) }
             let outbound = OutboundTab.begin(in: source)
             shownInPlace = false
@@ -194,13 +205,13 @@ final class LinkOpener {
 
     /// `make`'s tab, made unselected in `pane` and kept out of its strip (``OutboundTab``), moved to
     /// `destination`; `done` once the move has landed or failed.
-    private func moved(from pane: PaneController, to destination: Destination, background: Bool, _ make: Make,
+    private func moved(from pane: PaneController, to destination: Destination, background: Bool, focusing focus: FocusState.Target = .content, _ make: Make,
                        done: @escaping @MainActor () -> Void) -> Bool {
         let outbound = OutboundTab.begin(in: pane)
         shownInPlace = false
         let made = outbound.started(make(pane) { [weak self, weak pane] surface in
             guard let self, let pane else { done(); return outbound.finish(moved: false) }
-            self.move(surface, from: pane, to: destination, focus: !background, outbound: outbound, then: done)
+            self.move(surface, from: pane, to: destination, focus: !background, target: focus, outbound: outbound, then: done)
         })
         return ended(made, outbound, done)
     }
@@ -231,7 +242,7 @@ final class LinkOpener {
             pane.focusContent()
             return true
         }
-        return open(from: from, background: background, kind: .browser) { [weak self, weak from] pane, placed in
+        return open(from: from, background: background, kind: .browser, split: background ? nil : browserSplit(url, returningTo: from)) { [weak self, weak from] pane, placed in
             let here = pane === from && placed == nil
             // A pane-local tab keeps Chrome's opener relationship. When placement moves the new
             // tab into another pane, the source pane must not claim it as a child; the placement
@@ -249,21 +260,24 @@ final class LinkOpener {
         }
     }
 
-    /// The existing pane a target opens in, or below (a lower split): nil for a new split, column or dock move.
-    static func existingPane(of target: LinkOpenPlacement<LayoutPaneID>.Target) -> LayoutPaneID? {
-        switch target {
-        case .pane(let id), .splitBelow(of: let id): id
-        default: nil
+    /// A web page at `url` (nil: the New Tab page) made straight in a new split, never in the source first (Leo 2026-11-03); its close gives the focus back to `from`. Nil, so the open makes and moves (which refuses or opens a column), from a chat dock or a pane with no room (#23032 review); Home's dock alone needs no room.
+    func browserSplit(_ url: URL?, profile: String? = nil, returningTo from: PaneController? = nil) -> SplitMake {
+        { [weak self, weak from] (pane: PaneController, direction: SplitDirection, finished: @escaping @MainActor (SurfaceID?) -> Void) -> Bool? in
+            let opener = PaneBrowserTabOpener(controller: pane), room = pane.services.splitRoom(for: pane.pane, edge: direction == .right ? .right : .bottom)
+            guard direction == .right && opener.opensBesideDockInSplit || opener.opensInSplit && { if case .split = room { true } else { false } }() else { return nil }
+            return pane.newBrowserTab(url: url, profile: profile, split: BrowserTabSplitRequest(direction: direction) { [weak self, weak from] surface in
+                if let surface, let from, let content = from.workspace { self?.returnFocus(of: surface, to: from.layoutPaneID, in: content) }; finished(surface)
+            })
         }
     }
 
-    /// A browser tab of `pane` showing `url`'s page (``SidebarBridge/samePage(_:_:)``) at the same
+    /// A browser tab of `pane` showing `url`'s page (``BrowserTabMatch/samePage(_:_:)``) at the same
     /// fragment, so a link to a comment still opens at it: the live page first, else the daemon's record.
     func browserTab(showing url: URL, in pane: PaneController) -> TabModel? {
         pane.pane.tabs.first { tab in
             guard tab.kind == .browser, !ProvisionalTab.isProvisional(tab.id),
                   let shown = services?.cache.existingBrowser(tab.id)?.tab.state.url ?? tab.url.flatMap(URL.init(string:)) else { return false }
-            return SidebarBridge.samePage(shown, url) && shown.fragment == url.fragment
+            return BrowserTabMatch.samePage(shown, url) && shown.fragment == url.fragment
         }
     }
 
@@ -291,16 +305,21 @@ final class LinkOpener {
     /// A file: the Markdown page, the code editor or the browser tab's preview (``FilePageOpener``).
     /// A tab that already shows the file is selected where it is. False when it did not open (the
     /// refusal shows). `position` (a Find result): the code editor opens with the cursor there.
+    /// `machine`: the file lives on that machine; nil or the local daemon opens this Mac’s file.
     @discardableResult
     /// `asText` (Open as Text, u9489): a page cmux renders (Markdown, HTML, SVG) opens as its source
     /// in the code editor, placed as any open is.
-    func openFile(_ file: URL, from source: PaneController?, markdown: Bool = false, asText: Bool = false,
+    func openFile(_ file: URL, on machine: DaemonService? = nil, from source: PaneController?, markdown: Bool = false, asText: Bool = false,
                   at position: FilePosition? = nil) -> Bool {
         open(from: source) { [weak self] pane, placed in
             // A tab that already shows the file is selected where it is and never reports to `placed`:
             // it says so, so its turn ends now (review of the #28044 carry at 1eb458cf).
             var inPlace: (@MainActor () -> Void)?
             if placed != nil { inPlace = { self?.openedInPlace() } }
+            if let machine, !machine.isLocal {
+                return pane.services.viewers.openFile(file, on: machine, in: pane, asText: asText, at: position, placed: placed,
+                                                      shownInPlace: inPlace)
+            }
             return pane.services.viewers.openFile(file, in: pane, markdown: markdown, asText: asText, at: position, placed: placed,
                                                   shownInPlace: inPlace)
         }
@@ -475,29 +494,24 @@ extension LinkOpener {
         var widths: [String: CGFloat] = [:], kinds: [String: Set<RightColumnPlacement.Kind>] = [:]
         for pane in panes {
             widths[pane.rawValue] = content.panes[pane].flatMap(width(of:))
-            kinds[pane.rawValue] = content.panes[pane].map { pane in Set([.terminal, .browser].filter { holds(pane, $0) }) }
+            kinds[pane.rawValue] = content.panes[pane].map { pane in Set([.terminal, .browser, .document].filter { holds(pane, $0) }) }
         }
         return .init(sourceWidth: width(of: source), panes: panes.map(\.rawValue), widths: widths, kinds: kinds)
     }
 
-    /// Whether `pane` holds a tab of `kind`: a local or remote terminal, or a browser tab.
+    /// Whether `pane` holds a tab of `kind` (``RightColumnPlacement/Kind/isHeld(by:document:)``).
     static func holds(_ pane: PaneController, _ kind: RightColumnPlacement.Kind) -> Bool {
-        pane.pane.tabs.contains { tab in
-            switch (kind, tab.kind) {
-            case (.terminal, .pty), (.terminal, .remoteTerminal), (.browser, .browser): true
-            default: false
-            }
-        }
+        pane.pane.tabs.contains { kind.isHeld(by: $0, document: $0.page == InternalPageID.diff.rawValue) }
     }
 
-    /// `pane`'s width as the window shows it, nil until it is in a window: a pane view starts at its
-    /// 400 pt placeholder frame (PaneContentView) before any layout, which is no measure, so an unshown
-    /// pane sets no floor and is never taken for one too narrow to split (fleet runs of #28044 at
-    /// 8e520360 and caf8e69e: SideOpenStripTests' windowless pane opened its links in place).
+    /// `pane`'s width once its layout lands (``LayoutRootView/restingContentWidth(of:)``), what every open on the
+    /// right reads (links, and agent opens through ``rightColumn(beside:)``). Not its view's bounds: right after a
+    /// split the source still shows its old width and the new pane a sliver, so a link opened at once in a narrow
+    /// window split below the pane on the right instead of a tab in it (review of #29787 at 29861047). Nil for a
+    /// pane its workspace has not laid out (its view's 400 pt placeholder is no measure, so it sets no floor:
+    /// fleet runs of #28044 at 8e520360 and caf8e69e, SideOpenStripTests' windowless pane opened links in place).
     static func width(of pane: PaneController) -> CGFloat? {
-        guard pane.view.window != nil else { return nil }
-        let width = pane.view.bounds.width
-        return width > 0 ? width : nil
+        pane.workspace?.layoutView.restingContentWidth(of: pane.layoutPaneID)
     }
 
     /// The panes right of `source` in `content`, top to bottom, from the pane frames of the screen

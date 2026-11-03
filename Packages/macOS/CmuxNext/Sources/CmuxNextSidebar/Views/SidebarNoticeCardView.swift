@@ -10,8 +10,10 @@ import CmuxNextIcons
 /// two buttons (the call to action filled, the others quiet) with an
 /// optional shortcut beside them, and an x. Rows a notice does not use take
 /// no room. Hidden without a notice. It sits on the composer's surface
-/// (`CardSurfaceView`, Leo 2026-10-13), as every sidebar card does: the
-/// theme's text tint over the wallpaper, opaque under Reduce Transparency.
+/// (`CardSurfaceView`, Leo 2026-10-13), as every sidebar card does, its
+/// veil in the theme's glass tint (``CardSurfaceView/takesThemeTint``, as
+/// the Updated card's): opaque under Reduce Transparency. Leo 2026-11-03,
+/// on the Downloading Update card: "will this be themeed properly?"
 final class SidebarNoticeCardView: NSView {
     /// A button: the notice's id and the action's id.
     var onAction: ((String, String) -> Void)?
@@ -25,11 +27,14 @@ final class SidebarNoticeCardView: NSView {
     private var lineLabels: [ChromeLabel] = []
     private let icon = DecorativeImageView() // the card's title says what it is
     private let spinner = StatusIndicatorView.spinner()
-    private let track = CALayer()
-    private let bar = CALayer()
+    /// The progress row: the bar fills the track in the theme's accent.
+    let track = CALayer()
+    let bar = CALayer()
     private(set) var actionButtons: [SidebarUpdateButton] = []
     /// The action drawn as a switch (``SidebarNoticeCard/Action/isSwitch``), right of the buttons; nil until one shows.
     private(set) var actionSwitch: SidebarCardSwitch?
+    /// The notice the card shows (or last showed, during its exit) has a switch action.
+    private var hasSwitch = false
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
     /// The control on the right, vertically centred in the card (``SidebarNoticeCard/trailing``):
     /// a running download's cancel.
@@ -57,6 +62,7 @@ final class SidebarNoticeCardView: NSView {
         self.motionPolicy = motionPolicy
         super.init(frame: frame)
         wantsLayer = true
+        surface.takesThemeTint = true
         addSubview(surface)
         addSubview(content)
         for label in [eyebrowLabel, titleLabel, shortcutLabel] {
@@ -70,6 +76,9 @@ final class SidebarNoticeCardView: NSView {
         shortcutLabel.alignment = .right
         icon.imageScaling = .scaleProportionallyDown
         content.wantsLayer = true
+        // Nothing draws past the card's rounded edge: a card laid out narrower than its rows (a sidebar laid out
+        // small) drew its switch past its leading edge, alone, with no card around it (Lawrence msg 19185).
+        content.layer?.masksToBounds = true
         track.cornerRadius = 1.5
         bar.cornerRadius = 1.5
         // The bar lives in the track, which clips it: the unmeasured sweep never leaves the track.
@@ -233,6 +242,7 @@ final class SidebarNoticeCardView: NSView {
             content.addSubview(control)
             actionSwitch = control
         }
+        hasSwitch = toggle != nil
         actionSwitch?.isHidden = toggle == nil
         actionSwitch?.configure(title: toggle?.title ?? "", identifier: toggle.map { "cmux.sidebar.notice.action.\($0.id)" })
         actionSwitch?.onFlip = { [weak self] in
@@ -360,10 +370,14 @@ final class SidebarNoticeCardView: NSView {
             button.frame = NSRect(x: x, y: rowY, width: buttonWidth, height: SidebarUpdateButton.height)
             x = button.frame.maxX + Metrics.space2
         }
-        if let actionSwitch, !actionSwitch.isHidden {
+        if let actionSwitch {
+            // The switch shows whole on the button row, after the buttons, or not at all: squeezed, it drew its
+            // control past its own leading edge (Lawrence msg 19185).
             let size = actionSwitch.fittingSize
-            actionSwitch.frame = NSRect(x: max(x, b.width - pad - size.width), y: rowY + (SidebarUpdateButton.height - size.height) / 2,
-                                        width: min(size.width, max(0, b.width - pad - x)), height: size.height)
+            let fits = hasSwitch && b.width - pad - x >= size.width
+            actionSwitch.isHidden = !fits
+            actionSwitch.frame = fits ? NSRect(x: b.width - pad - size.width, y: rowY + (SidebarUpdateButton.height - size.height) / 2,
+                                               width: size.width, height: size.height) : .zero
         }
         shortcutLabel.frame = NSRect(x: x, y: rowY + (SidebarUpdateButton.height - line.caption) / 2,
                                      width: max(0, b.width - pad - x), height: line.caption)
@@ -464,7 +478,8 @@ final class SidebarNoticeCardView: NSView {
             icon.contentTintColor = Palette.textSecondary
             icon.image = notice?.symbol.map { NSImage.icon(symbol: $0, size: .iconRowSize(forLabelPointSize: Typography.bodyEmphasized.pointSize)) }
             track.backgroundColor = Palette.hoverFill.cgColor
-            bar.backgroundColor = Palette.textSecondary.cgColor
+            // The bar is the theme's accent (the primary text with none chosen), never a fixed gray.
+            bar.backgroundColor = Palette.accentFill.cgColor
         }
     }
 

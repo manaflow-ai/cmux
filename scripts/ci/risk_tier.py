@@ -9,12 +9,12 @@ The policy, and the regression audit behind every rule, is docs/ci/risk-tiers.md
           checks, then auto-merge. Nothing here waits for a person.
   high    auth and credentials, socket and relay access policy (with peer and code-signature
           trust), stored-data migrations, release, signing, notarization and the updater, the
-          risk gate itself, code that adds a delete of user data, and a workflow that adds a
+          pre-push hook's trust boundary, the risk gate itself, code that adds a delete of user data, and a workflow that adds a
           pull_request_target or workflow_run trigger. Read for
           a review verdict on the head: an independent review's `Review (<reviewer>): SHIP at <full
           head sha>` line in the description or leading a comment, an approving review on the head
-          commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head holds it; no verdict
-          yet is a warning, not a hold.
+          commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head, or no verdict yet,
+          is a warning: the lander refuses a BLOCK, and risk-tier.yml turns red only on a takeback.
 
 Size is not a rule: in the audit, the changes that broke things were as often small as large.
 Separately from the tier, a pull request that takes back what another pull request merged in the
@@ -178,6 +178,18 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("high", "release, signing, notarization or update path", (
         ".github/workflows/nightly*.yml", RELEASE_WORDS, NEXT + "CmuxNextUpdater/*", "Packages/macOS/CmuxUpdater/*",
         "scripts/ci/lib/*",
+    )),
+    # The pre-push hook's trust boundary (docs/contributor-verification.md): what decides which check code the hook
+    # runs on a push (web_lint_prepush.py; prepush-gate.py, which picks the reviewed copy or the pushed code for each
+    # of its checks; push_range.py, which commits a push owns, and so which changes to check code the hook sees),
+    # the hook itself, and how its reviewed copy is installed and refreshed (install-git-hooks.sh,
+    # refresh_checks.py, and post-merge, which decides when the checkout reinstalls it). A normal change could make the
+    # hook run code a push controls; #34124 finds and closes several such routes. The lint rules it runs
+    # (scripts/cmux-next/check-*.py, guardrails.py, the package check scripts, run-check-pieces.py) stay normal.
+    ("high", "the pre-push hook's trust boundary", (
+        "scripts/web_lint_prepush.py", "scripts/cmux-next/prepush-gate.py", "scripts/cmux-next/push_range.py",
+        "scripts/git-hooks/pre-push",
+        "scripts/git-hooks/post-merge", "scripts/git-hooks/refresh_checks.py", "scripts/install-git-hooks.sh",
     )),
     # The gate grades every other pull request, so a change to it gets a person.
     ("high", "the risk gate itself", (
@@ -572,10 +584,11 @@ SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from an 
 def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
                      taken_back: list[int] | None = None, blocked: bool = False,
                      unread: bool = False) -> list[str]:
-    """What still holds the merge. Empty means nothing does. A high pull request is held only by a
-    BLOCK (or FIX, or a change request) that is the newest verdict on its head; with no verdict yet
-    it gets a warning (pending_review), not a hold. A takeback holds any tier until the description
-    owns it."""
+    """What the summary lists as held. Empty means nothing is. A high pull request is listed only for a
+    BLOCK (or FIX, or a change request) that is the newest verdict on its head, which risk-tier.yml
+    only warns on (the lander refuses it); with no verdict yet it gets a warning (pending_review). A
+    takeback is listed for any tier until the description owns it, and only that turns the check red
+    (unowned_takebacks)."""
     missing = []
     if tier == "high" and unread and not human_ok:
         missing.append("the review verdicts on the head commit could not be read (a GitHub API error), so a "
@@ -583,13 +596,17 @@ def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
     elif tier == "high" and blocked and not human_ok:
         missing.append(f"the newest review verdict on the head commit is a BLOCK, FIX or change request. "
                        f"Address it and push; a review of the new head clears it: {SIGN_OFF_HOW}")
-    acknowledged = {int(n) for n in TAKES_BACK.findall(strip_comments(body or ""))}
-    for number in sorted(set(taken_back or [])):
-        if number not in acknowledged:
-            missing.append(
-                f"this takes back #{number}'s change from the last {RECENT_DAYS} days. If the base is stale, "
-                f"merge it and push; if it's on purpose, add a line `Takes back #{number}: <why>`")
+    for number in unowned_takebacks(body, taken_back):
+        missing.append(
+            f"this takes back #{number}'s change from the last {RECENT_DAYS} days. If the base is stale, "
+            f"merge it and push; if it's on purpose, add a line `Takes back #{number}: <why>`")
     return missing
+
+
+def unowned_takebacks(body: str = "", taken_back: list[int] | None = None) -> list[int]:
+    """The pull requests this one takes back without a `Takes back #N: <why>` line owning it."""
+    acknowledged = {int(n) for n in TAKES_BACK.findall(strip_comments(body or ""))}
+    return [number for number in sorted(set(taken_back or [])) if number not in acknowledged]
 
 
 def pending_review(tier: str, human_ok: bool = False, blocked: bool = False) -> str:
@@ -836,7 +853,7 @@ def pr_mode(args: argparse.Namespace) -> int:
             signed, blocked = human_ok_by(args.repo, args.number, pr)
         except (subprocess.CalledProcessError, ValueError, TypeError):
             # An unreadable comment, review or label read (or one past the page cap) could hide a
-            # BLOCK: hold, never warn.
+            # BLOCK: list it as held (risk-tier.yml then warns; the lander reads the verdict itself).
             signed, blocked, unread = None, False, True
     missing = missing_evidence(grade.tier, signed is not None, pr.get("body") or "", list(undone), blocked,
                                unread)
@@ -851,6 +868,10 @@ def pr_mode(args: argparse.Namespace) -> int:
         with Path(args.github_output).open("a") as out:
             out.write(f"tier={grade.tier}\nlabel={LABELS[grade.tier]}\n")
             out.write(f"ready={'false' if missing else 'true'}\n")
+            # Only an unowned takeback keeps the check red (risk-tier.yml): it is a stale-base squash
+            # quietly reverting a merged change. A BLOCK on the head is the lander's to refuse.
+            takes_back = bool(unowned_takebacks(pr.get("body") or "", list(undone)))
+            out.write(f"takes_back={'true' if takes_back else 'false'}\n")
     return 0
 
 

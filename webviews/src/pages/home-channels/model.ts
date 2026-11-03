@@ -14,6 +14,7 @@ import type {
   HomeThreadStats,
   HomeThreadStatus,
 } from "./types";
+import { sliceWhole } from "../../ui/wholeChars";
 
 /** Messages closer than this from the same author share one head. */
 const GROUP_GAP_MS = 5 * 60 * 1000;
@@ -118,7 +119,7 @@ export function threadTitle(root: HomeMessage): string {
     // Paired emphasis and code marks only: `fix_sidebar_bug` and `~/path` keep their characters.
     .replace(/(\*\*|__|~~|\*|_|`)(\S(?:.*?\S)?)\1/g, "$2")
     .replace(/[:;,]\s*$/, "");
-  return plain.length > TITLE_MAX ? `${plain.slice(0, TITLE_MAX - 1)}…` : plain;
+  return plain.length > TITLE_MAX ? `${sliceWhole(plain, TITLE_MAX - 1)}…` : plain;
 }
 
 /** The thread a message belongs to (its root's id), or undefined for a top-level message. A reply

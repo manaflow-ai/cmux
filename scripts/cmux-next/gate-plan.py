@@ -276,7 +276,8 @@ def main(argv: list[str]) -> int:
 
     if rust_wide:
         steps.append(CMUX_CI + " " + shlex.join(["run", "--class", "isolated", "--script", "scripts/ci/cmux-tui-rust-check.sh",
-                                                 "--ref", head, "--arg", "all", "--key", f"{args.lane}-rust-{head[:12]}"]))
+                                                 "--ref", head, "--os", "linux", "--arg", "all",
+                                                 "--key", f"{args.lane}-rust-{head[:12]}"]))
         notes.append("#   Rust workspace file or spec changed: the whole-workspace check (bindings and SDK tests too)")
     else:
         left_out.append("full cmux-tui suite (verify-cmux-tui-hosted.sh --full, cmux-tui-rust-check.sh): no Cargo.toml,"

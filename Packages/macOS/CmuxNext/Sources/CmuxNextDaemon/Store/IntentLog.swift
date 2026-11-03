@@ -38,6 +38,8 @@ enum IntentUndo: Equatable {
     /// The provisional screen shown in workspace `key`, and whether the workspace itself was the
     /// provisional one (inserted) rather than the daemon's.
     case createdWorkspace(key: WorkspaceKey, inserted: Bool)
+    /// What a dock's overlay changed (``ProvisionalDock``).
+    case dockTab(ProvisionalDock.Undo)
 }
 
 struct PendingIntent {
@@ -185,6 +187,7 @@ struct IntentLog {
     /// sequence from the previous one no longer compares: an intent whose
     /// reply came settles with the new connection's first snapshot.
     mutating func connectionReplaced() {
+        replacedStandIns.removeAll() // another daemon may reuse their surfaces
         entries = entries.map { entry in
             var entry = entry
             if entry.settleSequence != nil {
@@ -214,6 +217,15 @@ struct IntentLog {
 
     func wasCancelled(_ transaction: ClientTransactionID) -> Bool { cancelled.contains(transaction) }
 
+    /// The daemon surface each recently created stand-in tab became, by the stand-in's tab id
+    /// (bounded), still known after its intent left the log: a pane's strip shows the records one
+    /// observation step late, and a key acting on the stand-in it still selects acts on that tab
+    /// (``DaemonCreations/replacement(ofStandIn:in:)``).
+    private var replacedStandIns: [(standIn: String, surface: SurfaceID)] = []
+    private static let replacedStandInLimit = 64
+
+    func replacement(ofStandIn id: String) -> SurfaceID? { replacedStandIns.last { $0.standIn == id }?.surface }
+
     /// False when `transaction` is not pending.
     mutating func markCloseWhenCreated(_ transaction: ClientTransactionID) -> Bool {
         guard entries.modifyFirst(where: { $0.transaction == transaction }, { $0.closeWhenCreated = true }) else { return false }
@@ -238,8 +250,7 @@ struct IntentLog {
     /// The daemon reported the pane under public id `paneID`: the split that mints it saw its pane.
     mutating func noteDaemonPane(_ paneID: String) {
         entries.modifyFirst(where: { entry in
-            guard case .splitPane(_, _, _, let provisional) = entry.kind else { return false }
-            return provisional.paneID == paneID
+            entry.kind.provisionalPane?.paneID == paneID
         }) { $0.daemonPaneSeen = true }
     }
 
@@ -255,6 +266,12 @@ struct IntentLog {
             if confirmed { $0.createdConfirmed = true }
         }
         guard confirmed else { return }
+        if case .createTab(_, let provisional)? = entries.first(where: { $0.transaction == transaction })?.kind,
+           let standIn = provisional.tabResourceID?.rawValue {
+            replacedStandIns.removeAll { $0.standIn == standIn }
+            replacedStandIns.append((standIn, surface))
+            if replacedStandIns.count > Self.replacedStandInLimit { replacedStandIns.removeFirst(replacedStandIns.count - Self.replacedStandInLimit) }
+        }
         entries = entries.map { entry in
             guard entry.transaction != transaction, entry.createdSurface == surface, !entry.createdConfirmed else { return entry }
             var entry = entry

@@ -72,6 +72,8 @@ export const MARKDOWN_CHANGES = "cmux.markdown.changes";
 export const MARKDOWN_LOOK = "cmux.markdown.look";
 export const MARKDOWN_CONFLICT = "cmux.markdown.conflict";
 export const MARKDOWN_READ_ONLY = "cmux.markdown.read_only";
+/** The file's machine cannot answer (#25581, a Cloud workspace's file): `message` is the host's reason. */
+export const MARKDOWN_UNAVAILABLE = "cmux.markdown.unavailable";
 
 /**
  * Why a file opens read only (FileReadOnlyReason in the host): not valid UTF-8, binary, not
@@ -138,12 +140,17 @@ export interface MarkdownSaveResult {
   hash: string;
 }
 
-/** A change of the file on disk. `text` is the new content; `deleted` when the file is gone. */
+/**
+ * A change of the file on disk. `text` is the new content; `deleted` when the file is gone.
+ * `unavailable` (hash null) reports the file's machine instead (#25581, a Cloud workspace's
+ * file): its reason while it cannot answer, null once it answers again; the file is unchanged.
+ */
 export interface MarkdownChange {
   path: string;
   hash: string | null;
   text?: string;
   deleted?: boolean;
+  unavailable?: string | null;
 }
 
 /** The details of a `cmux.markdown.conflict` error. */

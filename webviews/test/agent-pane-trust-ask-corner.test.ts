@@ -58,8 +58,9 @@ await requireBrowserLane("agent-pane-trust-ask-corner.test.ts", async () => {
   });
 
   // The layout pass's "orphan caption": "Answer the trust question first" stood between the bar
-  // that asks it and the card. The question says it; Send's tooltip keeps the reason.
-  test("no caption stands between the open trust question and the card", async () => {
+  // that asks it and the card. The question says it. Since Leo's P0 of 2026-10-21 Send stays on
+  // under the open question: a prompt sent then waits in the pane until Trust (trustHeld.ts).
+  test("no caption stands between the open trust question and the card, and Send stays on", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 1100, height: 760 } });
     await page.goto(
@@ -75,8 +76,8 @@ await requireBrowserLane("agent-pane-trust-ask-corner.test.ts", async () => {
     await page.keyboard.type("next step");
     const send = page.locator(".acpmux-send:not(.acpmux-cancel)").first();
     await send.waitFor({ timeout: 10_000 });
-    expect(await send.getAttribute("title")).toBe("Answer the trust question first");
-    expect(await send.isDisabled()).toBe(true);
+    expect(await send.getAttribute("title")).not.toBe("Answer the trust question first");
+    expect(await send.isDisabled()).toBe(false);
     await page.close();
   });
 });

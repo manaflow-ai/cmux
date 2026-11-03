@@ -17,12 +17,15 @@ type Phase =
 /// The card's one share button and its one status line, for a teammate's machine only
 /// (machineShare.ts). One button at a time keeps the card compact: Share with Me, and once that is
 /// refused (only the creator or an admin shares), Ask the Owner in its place. A share that went
-/// through retries the start (`onShared`); once the owner was asked, Retry looks for their share
-/// first (`retry`). The state belongs to one refusal: a new one starts over.
+/// through starts the chat again and resends the refused prompt (`onShared`: the refusal handed it
+/// back to the composer, and a chat on another machine starts only with a send). Once the owner was
+/// asked, Retry looks for their share first (`retry`): shared resends, else a plain retry. The state
+/// belongs to one refusal: a new one starts over.
 export function useMachineShare(
   share: MachineShareProps | undefined,
   refusal: { code?: string; error?: string } | undefined,
-  onShared: () => void,
+  onRetry: () => void,
+  onShared: () => void = onRetry,
 ): { button?: ReactNode; line?: string; retry?: () => void } {
   const t = useT();
   const key = `${refusal?.code ?? ""}\n${refusal?.error ?? ""}`;
@@ -48,7 +51,8 @@ export function useMachineShare(
   // when the person is on its grants), then starts again either way.
   const recheck = async () => {
     const outcome = await shareMachineWithMe(share.call);
-    if (outcome.kind === "shared") set({ kind: "idle" });
+    if (outcome.kind !== "shared") return onRetry();
+    set({ kind: "idle" });
     onShared();
   };
   const button = asking ? (

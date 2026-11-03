@@ -91,8 +91,8 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
 /// subagent gets its own set, kept until the app-server exits), so a tokio
 /// worker per core in each one adds up: about 100 tasks a set on a 32-core
 /// machine, which filled the sessions slice's task cap on a fleet host.
-const STDIO_MCP_SERVERS: [&str; 6] =
-    ["acpmux-mcp", "subsession-mcp", "forum-mcp", "offer-mcp", "secret-mcp", "cua-mcp"];
+const STDIO_MCP_SERVERS: [&str; 7] =
+    ["acpmux-mcp", "subsession-mcp", "forum-mcp", "offer-mcp", "secret-mcp", "cua-mcp", "repo-mcp"];
 
 /// Worker threads of a stdio MCP server: it answers one client's requests
 /// on one pipe. Still a multi-thread runtime, so `block_in_place` works.
@@ -214,12 +214,14 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::DaemonRun {
             listen,
             token,
+            insecure_network_listen,
             memory,
             log,
             ready_fd,
             person_key_fd,
             allow_dev_origin,
             dev,
+            take_over,
         }) => {
             tracing_subscriber::fmt()
                 .with_env_filter(
@@ -231,11 +233,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             let result = crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
+                insecure_network_listen,
                 memory,
                 ready_fd,
                 person_key_fd,
                 dev_origins: allow_dev_origin,
                 dev,
+                take_over,
             })
             .await;
             if let Err(error) = result {
@@ -243,7 +247,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 // this home. Keep its lock refusal a distinct, prevented
                 // restart status; detached clients still use the readiness
                 // line and retry through `connect`.
-                if error.to_string().starts_with("another acpmux daemon holds ") {
+                // A supervised owner (`--take-over`) exits 1 instead: the unit restarts it
+                // (`Restart=always`) until the home is its own, never leaving the unit failed.
+                if !take_over && error.to_string().starts_with("another acpmux daemon holds ") {
                     let error: anyhow::Error = crate::cli::errors::AppError::new(
                         crate::cli::errors::Code::Runtime,
                         "daemon_lock_held",
@@ -352,6 +358,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::OfferMcp) => crate::offer_mcp::run().await,
         Some(Command::SubsessionMcp) => crate::subsession_mcp::run().await,
         Some(Command::ForumMcp) => crate::forum_mcp::run().await,
+        Some(Command::RepoMcp) => crate::cloud_repo_mcp::run().await,
         Some(Command::AcpmuxMcp) => crate::acpmux_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;
@@ -359,6 +366,12 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             Ok(())
         }
         // No daemon: what this binary serves (`capabilities.rs`).
+        Some(Command::TriggerChat { protocol, principal_fd }) => {
+            match crate::cli::trigger_chat::run(&protocol, principal_fd).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
+        }
         Some(Command::Capabilities) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::capabilities::render(cli.json).as_bytes());
@@ -394,9 +407,15 @@ mod tests {
 
     #[test]
     fn a_stdio_mcp_server_runs_on_a_small_runtime() {
-        for name in
-            ["acpmux-mcp", "subsession-mcp", "forum-mcp", "offer-mcp", "secret-mcp", "cua-mcp"]
-        {
+        for name in [
+            "acpmux-mcp",
+            "subsession-mcp",
+            "forum-mcp",
+            "offer-mcp",
+            "secret-mcp",
+            "cua-mcp",
+            "repo-mcp",
+        ] {
             assert_eq!(runtime_workers(&os(&[name])), Some(MCP_WORKERS), "{name}");
             assert_eq!(runtime_workers(&os(&["--json", name])), Some(MCP_WORKERS), "{name}");
         }

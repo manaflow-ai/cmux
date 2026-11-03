@@ -24,6 +24,7 @@ impl Io for Fake {
         st.sent.push(v["handoff_report"].clone());
         st.replies.pop_front().unwrap_or_else(|| panic!("no reply scripted for {line}"))
     }
+    async fn notify(&self, _line: String) {}
 }
 
 impl Fake {

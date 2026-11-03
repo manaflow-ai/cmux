@@ -7,6 +7,11 @@ const files = [
   "src/agent-session/acpmux/conversation/ActivityLine.tsx",
   "src/agent-session/acpmux/conversation/WorkingFor.tsx",
   "src/agent-session/acpmux/subagents/SubagentGroup.tsx",
+  // Per-card second timers (plans/cmux-next/resource-efficiency-DESIGN.md section 9, row 6).
+  "src/pages/home-channels/RunCard.tsx",
+  "src/agent-session/acpmux/CloudStartView.tsx",
+  "src/agent-session/acpmux/newtab/NewTabExtras.tsx",
+  "src/agent-session/acpmux/newtab/NowPlayingPlayer.tsx",
 ];
 
 test("clock consumers use the page-owned clock and declare no private repeating timer", () => {

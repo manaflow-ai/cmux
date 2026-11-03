@@ -37,7 +37,7 @@ GUARDED: dict[str, tuple[str, ...]] = {
 # Jobs of a GUARDED workflow that run on every label event, and why.
 UNGUARDED_JOBS: dict[tuple[str, str], str] = {
     ("ci.yml", "ci-status"): "a skipped ci-status newer than a red or pending one would read as passing to a "
-    "newest-by-name merge gate (gh-merge-green); into feat-cmux-next it passes at once",
+    "newest-by-name merge gate (gh-merge-green); pull requests into feat-cmux-next skip it, label events too",
 }
 
 # Label-triggered workflows that may run on any label, and why.

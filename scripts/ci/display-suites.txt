@@ -5,6 +5,7 @@ Packages/Shared/CmuxAuthRuntime CmuxAuthRuntimeTests.KeychainStackTokenStoreTest
 Packages/macOS/CmuxNext CmuxNextAppTests.BrowserPageNativeInputTests
 Packages/macOS/CmuxNext CmuxNextAppTests.ChatDockToolPlacementTests
 Packages/macOS/CmuxNext CmuxNextAppTests.GroupPaletteDefaultTests
+Packages/macOS/CmuxNext CmuxNextAppTests.HibernationWakeCoverTests
 Packages/macOS/CmuxNext CmuxNextAppTests.HostPressureBannerToastTests
 Packages/macOS/CmuxNext CmuxNextAppTests.IconPickerMotionTests
 Packages/macOS/CmuxNext CmuxNextAppTests.LaunchFirstFrameRevealTests
@@ -13,6 +14,7 @@ Packages/macOS/CmuxNext CmuxNextAppTests.NewColumnKeepsWidthJourneyTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarBackgroundChangeCalmTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarCalmMotionTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarCloseWhileScrolledTests
+Packages/macOS/CmuxNext CmuxNextAppTests.SidebarInsertBurstTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarInsertWhileDisplayAsleepTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarMultiViewHomeTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarMultiViewWindowTests
@@ -35,6 +37,8 @@ Packages/macOS/CmuxNext CmuxNextBrowserTests.ToolbarButtonsStateTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.CaptureBackdropSnapshotTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.DialogFadeTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.MotionScreenTests
+Packages/macOS/CmuxNext CmuxNextDesignTests.NativePopupCompletionTests
+Packages/macOS/CmuxNext CmuxNextDesignTests.NativePopupReplacementTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.PagePopupMotionTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.PopupGrowMotionTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.TabHoverCardAttachTests

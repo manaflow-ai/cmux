@@ -163,7 +163,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// A host read uses the daemon reply path, including its bounds, ids and reply filtering.
     func receiveLocalReply(_ text: String) { arrived(text) }
 
-    private func arrived(_ received: String) {
+    private func arrived(_ frame: String) {
+        let received = Self.nativeUTF8(frame)
         let bytes = received.utf8.count
         let (start, overflow) = state.withLock { state -> (Bool, Bool) in
             guard state.closed == nil else { return (false, false) }
@@ -181,8 +182,37 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         if start { inbound.async { [self] in process() } }
     }
 
-    /// One pass after another over the waiting daemon frames, in order: the duplicate check, one
-    /// parse, the observers (from that parse), the fresh serialization; then one wake for the page.
+    /// The frame as native UTF-8. URLSessionWebSocketTask hands a text frame over as a bridged
+    /// NSString (UTF-16 for any non-ASCII text), and every later byte read (the size, the
+    /// duplicate-key check, the method scan, `contains`) would walk it one character at a time
+    /// through `characterAtIndex:`. One bulk transcode here makes each of those a native read.
+    /// A native string comes back as it is.
+    static func nativeUTF8(_ text: String) -> String {
+        if text.utf8.withContiguousStorageIfAvailable({ _ in true }) == true { return text }
+        #if canImport(ObjectiveC)
+        let cocoa = text as NSString
+        let utf8 = String.Encoding.utf8.rawValue
+        let count = cocoa.lengthOfBytes(using: utf8)
+        var complete = false
+        let native = String(unsafeUninitializedCapacity: count) { buffer in
+            var used = 0
+            var rest = NSRange(location: 0, length: 0)
+            complete = cocoa.getBytes(buffer.baseAddress, maxLength: count, usedLength: &used, encoding: utf8,
+                                      options: [], range: NSRange(location: 0, length: cocoa.length), remaining: &rest)
+                && rest.length == 0 && used == count
+            return complete ? used : 0
+        }
+        if complete { return native }
+        #endif
+        // Not UTF-8 encodable in bulk (an unpaired surrogate): the standard library's repairing copy.
+        var copy = text
+        copy.makeContiguousUTF8()
+        return copy
+    }
+
+    /// One pass after another over the waiting daemon frames, in order: the duplicate check, the
+    /// observer parse when needed, and the page enqueue. Opaque notifications stay as their
+    /// original text, avoiding a parse and re-encode on the hot streaming path.
     private func process() {
         var batch = takeRaw()
         while !batch.isEmpty {
@@ -199,18 +229,27 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     state.withLock { $0.processing = false }
                     return close(code: 1008, reason: "duplicate key", error: .duplicateKey)
                 case .page(let fresh, let object, let method):
-                    if method == AcpmuxPaneMethods.initialize { readChallenge(object) }
-                    // The observers read the same parse the page gets.
-                    options.observe(object, replyTo: method)
-                    sessions.observe(object)
-                    sessions.observeFolder(object, replyTo: method)
-                    if wire != nil { sessions.observeTabSession(object, replyTo: method) }
-                    let questionVersion = decisions.pendingQuestionVersion()
-                    decisions.observe(object, replyTo: method)
-                    questionsChanged = questionsChanged || decisions.pendingQuestionVersion() != questionVersion
-                    replacements.observe(object, replyTo: method, connection: connection)
-                    if Self.pageWaits(on: object) { awaited += 1 }
-                    if Self.answersPage(object) { answers += 1 }
+                    if let object {
+                        if method == AcpmuxPaneMethods.initialize { readChallenge(object) }
+                        // The observers read the same parse the page gets.
+                        options.observe(object, replyTo: method)
+                        sessions.observe(object)
+                        sessions.observeFolder(object, replyTo: method)
+                        if wire != nil { sessions.observeTabSession(object, replyTo: method) }
+                        // Any pending change, a tool permission's too: the other-install line reads them all.
+                        let questionVersion = decisions.pendingQuestionVersion()
+                        let pendingVersion = decisions.pendingVersion()
+                        decisions.observe(object, replyTo: method)
+                        questionsChanged = questionsChanged || decisions.pendingQuestionVersion() != questionVersion
+                            || decisions.pendingVersion() != pendingVersion
+                        replacements.observe(object, replyTo: method, connection: connection)
+                        if Self.pageWaits(on: object) { awaited += 1 }
+                        if Self.answersPage(object) { answers += 1 }
+                    } else if Self.pageWaits(on: fresh) {
+                        // Opaque notifications still wake a hidden page for the small set of
+                        // delivery-boundary events; their raw text is enough to identify them.
+                        awaited += 1
+                    }
                     page.append(fresh)
                 case .complete(let object, let pageID, let subject):
                     switch AgentPaneAgentReply.step(object, pageID: pageID, subject: subject, sessions: sessions,

@@ -11,8 +11,9 @@ import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
 import type { Subagent } from "./subagentFold";
 import { agentTone, AgentTonesContext } from "./agentTones";
-import { AgentIdentity, isRepeatedAgentKind } from "./AgentIdentity";
+import { AgentIdentity, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "./AgentIdentity";
 import { subagentProgress } from "./subagentProgress";
+import { subagentDisplayName } from "./subsessions";
 import { waveProps } from "../../../ui/wave";
 
 /// The chat's harness (claude, codex, ...): its subagents run on it, so their avatars carry its mark.
@@ -21,8 +22,8 @@ export const SubagentHarnessContext = createContext<string | undefined>(undefine
 /// Opens a subagent's own view in the pane, or the session's own with undefined (App.tsx).
 export const SubagentNavContext = createContext<((id: string | undefined) => void) | undefined>(undefined);
 
-/// Shows a subagent in a pane of its own right of the chat, or in this pane when none opens
-/// (App.tsx, subagentPanes.ts). A group's subagent line uses it; the child view's pill goes back
+/// Shows a subagent in a pane of its own right of the chat while the summary card's switch is on,
+/// else in this pane (App.tsx, subagentPanes.ts). A group's subagent line uses it; the child view's pill goes back
 /// in place.
 export const SubagentPaneContext = createContext<((id: string) => void) | undefined>(undefined);
 
@@ -83,7 +84,7 @@ export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
       style={style}
       data-state={agent.state}
     >
-      <AgentIdentity harness={harness} tone={agentTone(agent.id)} size={14} />
+      <AgentIdentity harness={harness} tone={agentTone(agent.id)} size={14} fallback={SUBAGENT_FALLBACK} />
     </span>
   );
 }
@@ -169,7 +170,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
     <>
       <Avatar agent={agent} />
       <span className="cv-subagent__text">
-        <span className="cv-subagent__name">{agent.name}</span>
+        <span className="cv-subagent__name">{subagentDisplayName(t, agent)}</span>
         <span className="cv-subagent__state">{state}</span>
       </span>
       <span className="cv-subagent__time">{formatDuration(elapsed(agent, now))}</span>
@@ -194,7 +195,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       className="cv-subagent"
       data-edge={row.status}
       data-agent-tone={tones?.get(agent.id)}
-      aria-label={t("subagents.open", { name: agent.name })}
+      aria-label={t("subagents.open", { name: subagentDisplayName(t, agent) })}
       // tooltip-allow: its kind, which the line no longer shows
       title={kind}
       onClick={() => open(agent.id)}
@@ -216,10 +217,21 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
 /// A running subagent's stop button. It stays off while Claude has the request (and after Claude
 /// takes it, until the subagent ends); when acpmux or Claude refuses, it says so and can be tried
 /// again.
-export function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string) => Promise<unknown> }) {
+export function StopButton({
+  agent,
+  stop,
+  solid = false,
+}: {
+  agent: Subagent;
+  stop: (id: string) => Promise<unknown>;
+  /// A filled square, as Claude Desktop's running rows draw it (the running tray's lines).
+  solid?: boolean;
+}) {
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
-  const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name: agent.name });
+  const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", {
+    name: subagentDisplayName(t, agent),
+  });
   return (
     <button
       type="button"
@@ -233,7 +245,7 @@ export function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string
         stop(agent.id).catch(() => setState("failed"));
       }}
     >
-      <Icon name="action.stop" size={12} />
+      <Icon name="action.stop" size={12} selected={solid} />
     </button>
   );
 }

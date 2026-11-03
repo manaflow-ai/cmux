@@ -104,7 +104,9 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
             }
         }
         "suggest_tasks" => suggest_tasks(daemon, session, &request).await,
-        other => error_result(format!("unknown tool: {other}")),
+        other => {
+            error_result(crate::mcp_hint::unknown_tool(other, crate::mcp_hint::names(&tools())))
+        }
     }
 }
 

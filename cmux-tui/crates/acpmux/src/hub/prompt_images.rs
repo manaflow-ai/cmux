@@ -13,7 +13,6 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-const MAX_DISPLAY_PARTS: usize = 256;
 const MAX_DISPLAY_NAME: usize = 256;
 const MAX_DISPLAY_MIME: usize = 128;
 const MAX_DISPLAY_RANGE: u64 = 4 * 1024 * 1024;
@@ -341,10 +340,7 @@ pub(crate) fn validated_display_parts(
     blocks: &[Value],
 ) -> HashMap<usize, Value> {
     let Some(Value::Array(parts)) = raw else { return HashMap::new() };
-    if parts.len() > MAX_DISPLAY_PARTS {
-        return HashMap::new();
-    }
-    let mut validated = HashMap::with_capacity(parts.len());
+    let mut validated = HashMap::with_capacity(parts.len().min(blocks.len()));
     for part in parts {
         let Some(object) = part.as_object() else { continue };
         let Some(kind) = object.get("kind").and_then(Value::as_str) else { continue };
@@ -538,6 +534,8 @@ impl Hub {
         if blocks.iter().any(crate::prompt_context::is_context) {
             msg.set("hiddenContext", Value::Bool(true));
         }
+        // A turn Claude Code started on its own and still runs: the rest is this prompt's turn.
+        self.end_background_turn(session, "prompt");
         self.append(session, "mux", "user_message", msg);
     }
 

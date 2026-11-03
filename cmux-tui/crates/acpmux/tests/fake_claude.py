@@ -618,12 +618,29 @@ while True:
                                                ("sidecar", "3599", False))}
             with open(os.environ["FAKE_CLAUDE_IDLE_CHILDREN"], "w") as f:
                 f.write(json.dumps(pids))
+        # FAKE_CLAUDE_RUN_USER_MCP=<file>: the harness starts each stdio server its user config
+        # ($CLAUDE_CONFIG_DIR/.claude.json mcpServers) names, as Claude Code does, and writes their
+        # pids there.
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_RUN_USER_MCP"):
+            import subprocess
+            with open(os.path.join(os.environ["CLAUDE_CONFIG_DIR"], ".claude.json")) as f:
+                servers = json.load(f).get("mcpServers") or {}
+            pids = [subprocess.Popen([s["command"], *s.get("args", [])], stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).pid
+                    for s in servers.values()]
+            with open(os.environ["FAKE_CLAUDE_RUN_USER_MCP"], "w") as f:
+                f.write("".join(f"{pid}\n" for pid in pids))
         answer = {}
         if request.get("subtype") == "initialize" and SKILLS:
             answer = {"commands": COMMANDS}
         if (request.get("subtype") == "get_context_usage" and os.environ.get("FAKE_CLAUDE_CONTEXT") == "1"
                 and not LIMITED):
             answer = CONTEXT_USAGE
+        # An idle side_question answers as Claude Code 2.1.310 does: the side answer and whether it
+        # is synthetic; FAKE_CLAUDE_SIDE_ANSWER names its text (the question echoed otherwise).
+        if request.get("subtype") == "side_question":
+            said = os.environ.get("FAKE_CLAUDE_SIDE_ANSWER", "side: " + str(request.get("question")))
+            answer = {"response": said, "synthetic": False}
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": answer}})
         if request.get("subtype") == "apply_flag_settings":
             FLAG_SETTINGS.append(request.get("settings"))
@@ -667,6 +684,8 @@ while True:
                                "awsProfile": env.get("AWS_PROFILE"), "via": env.get("FAKE_CLAUDE_VIA"),
                                "loginOnly": sorted(k for k in ("GITHUB_TOKEN", "GH_TOKEN", "NPM_TOKEN", "MISE_GITHUB_TOKEN",
                                                                "NVM_AUTH_HEADER", "DEMO_KEY") if os.environ.get(k)),
+                               "machineMatches": (os.environ.get("DEMO_KEY") == os.environ["FAKE_CLAUDE_MACHINE_EXPECTED"])
+                                                 if "FAKE_CLAUDE_MACHINE_EXPECTED" in os.environ else None,
                                "miseDataDir": os.environ.get("MISE_DATA_DIR"), "proxy": os.environ.get("HTTPS_PROXY"),
                                "cloudMlRegion": os.environ.get("CLOUD_ML_REGION"),
                                "vertexRegions": sorted(k for k in os.environ if k.startswith("VERTEX_REGION_")),
@@ -737,7 +756,7 @@ while True:
             at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
             with open(stored(SESSION), "a") as f:
                 f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at, "message": {"role": "user", "content": said}}) + "\n")
-                reply = {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}
+                reply = {"role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": "ok"}]}
                 # FAKE_CLAUDE_TRANSCRIPT_USAGE=1: the reply carries its call's model and usage, as Claude Code's does.
                 if os.environ.get("FAKE_CLAUDE_TRANSCRIPT_USAGE") == "1":
                     reply.update({"id": "msg_" + uuid.uuid4().hex, "model": "claude-opus-5-5", "usage": {
@@ -1175,6 +1194,26 @@ while True:
                       "tool_use_id": "toolu_bgag", "status": "completed", "output_file": "", "summary": "Reviewed"})
 
             threading.Thread(target=end_background_agent, daemon=True).start()
+        # "own-turn: FIFO :: TEXT": once the test writes FIFO, while the chat is idle, a background
+        # shell ends and Claude Code runs a turn of its own for its task notification that says
+        # TEXT (acpmux hub/background_turn.rs).
+        if said.strip().startswith("own-turn:"):
+            gate, text = said.strip()[len("own-turn:"):].split(" :: ", 1)
+            gate = gate.strip()
+
+            def own_turn():
+                with open(gate) as g:
+                    g.read()
+                send({"type": "system", "subtype": "task_notification", "task_id": "own1",
+                      "tool_use_id": "toolu_own1", "status": "completed", "output_file": "", "summary": "Built"})
+                send(init())
+                send({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "msg_own1"}}})
+                send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                         "delta": {"type": "text_delta", "text": text}}})
+                send({"type": "result", "subtype": "success", "result": text, "num_turns": 1,
+                      "duration_api_ms": 1, "usage": {"input_tokens": 1, "output_tokens": 1}})
+
+            threading.Thread(target=own_turn, daemon=True).start()
         if said.strip() == "late-agent-ask":
             send({"type": "control_request", "request_id": "late-1", "request": {"subtype": "can_use_tool",
                   "tool_name": "Write", "tool_use_id": "toolu_late_w", "input": {"file_path": "late.txt", "content": "x"}}})

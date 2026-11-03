@@ -35,6 +35,22 @@ const load = (path: string): Workflow => {
   return parseWorkflow(text, path);
 };
 
+// Repository workflows resolve their runners from this required variable,
+// fromJSON(vars.RUNNER_POOLS).<pool>. scripts/ci/runner_pools.py keeps every
+// pool declared in .github/runners.json set to one of its members, so the
+// fixture holds each declared pool's first member, as an enrolled repository
+// does, instead of treating the unset test environment as a production outage.
+// `linux` keeps the fleet label so trigger planning sees a fleet candidate.
+const declaredPools = (): Record<string, string> => {
+  const text = workingTree.read(".github/runners.json");
+  if (text === undefined) throw new Error("missing .github/runners.json");
+  const pools = (JSON.parse(text) as { pools: Record<string, { members?: string[] }> }).pools;
+  return Object.fromEntries(Object.entries(pools).flatMap(([name, spec]) =>
+    name.startsWith("$") || spec.members?.[0] === undefined ? [] : [[name, spec.members[0]]]));
+};
+const POOLS: Readonly<Record<string, string>> = { ...declaredPools(), linux: "fleet-linux" };
+const DEFAULT_VARS: Readonly<Record<string, string>> = { RUNNER_POOLS: JSON.stringify(POOLS) };
+
 const eventsFor = (workflow: Workflow): Array<{ event: RunEvent; inputs?: ValueObject }> => {
   const out: Array<{ event: RunEvent; inputs?: ValueObject }> = [];
   if ("push" in workflow.on) out.push({ event: pushEvent({ repository: REPOSITORY, ref: "refs/heads/main", sha: SHA_A }) });
@@ -111,7 +127,7 @@ describe.each(workflowPaths())("%s", (path) => {
   it("plans every consumed trigger without errors", () => {
     const workflow = load(path);
     for (const { event, inputs } of eventsFor(workflow)) {
-      const simulation = simulateRun(workflow, inputs === undefined ? { event, files: workingTree } : { event, inputs, files: workingTree });
+      const simulation = simulateRun(workflow, inputs === undefined ? { event, vars: DEFAULT_VARS, files: workingTree } : { event, inputs, vars: DEFAULT_VARS, files: workingTree });
       expect(simulation.errors, event.name).toEqual([]);
       for (const job of simulation.jobs.filter((item) => item.status === "run")) {
         const resolved = job.label !== null || (job.detail ?? "").startsWith("runs-on waits for needs outputs");
@@ -162,7 +178,7 @@ describe("fixture coverage", () => {
       const workflow = load(path);
       for (const { event, inputs } of eventsFor(workflow)) {
         totals.plans += 1;
-        const simulation = simulateRun(workflow, inputs === undefined ? { event, files: workingTree } : { event, inputs, files: workingTree });
+        const simulation = simulateRun(workflow, inputs === undefined ? { event, vars: DEFAULT_VARS, files: workingTree } : { event, inputs, vars: DEFAULT_VARS, files: workingTree });
         for (const job of simulation.jobs) {
           totals.jobs += 1;
           if (job.status === "run") {
@@ -187,12 +203,17 @@ describe("fixture coverage", () => {
 
 describe("iOS kit picker fallback", () => {
   const workflow = () => load(".github/workflows/cmux-next-ios-kit.yml");
+  // The picker reads the eight vCPU pool unless a bounded LINUX_RUNNER (4/8/16) or the overflow flag picks another.
+  const moved = JSON.stringify({ ...POOLS, linux_8: "blacksmith-16vcpu-ubuntu-2404" });
   const cases: Array<[string, Record<string, string>, string]> = [
-    ["unset variables", {}, "blacksmith-4vcpu-ubuntu-2404"],
-    ["empty pool", { RUNNER_POOLS: "", LINUX_RUNNER: "fleet-linux" }, "fleet-linux"],
-    ["fleet before paid pool", { LINUX_RUNNER: "fleet-linux", RUNNER_POOLS: '{"linux":"blacksmith-8vcpu-ubuntu-2404"}' }, "fleet-linux"],
-    ["live pool before paid fallback", { LINUX_RUNNER: "blacksmith-4vcpu-ubuntu-2404", RUNNER_POOLS: '{"linux":"fleet-linux"}' }, "fleet-linux"],
-    ["missing pool member", { RUNNER_POOLS: "{}", LINUX_RUNNER: "blacksmith-8vcpu-ubuntu-2404" }, "blacksmith-8vcpu-ubuntu-2404"],
+    ["declared pools read the eight vCPU pool", { ...DEFAULT_VARS }, "blacksmith-8vcpu-ubuntu-2404"],
+    ["a moved eight vCPU pool is followed", { RUNNER_POOLS: moved }, "blacksmith-16vcpu-ubuntu-2404"],
+    ["a fleet LINUX_RUNNER is rejected for the pool", { ...DEFAULT_VARS, LINUX_RUNNER: "fleet-linux" }, "blacksmith-8vcpu-ubuntu-2404"],
+    ["four vCPU is accepted", { ...DEFAULT_VARS, LINUX_RUNNER: "blacksmith-4vcpu-ubuntu-2404" }, "blacksmith-4vcpu-ubuntu-2404"],
+    ["eight vCPU is accepted", { ...DEFAULT_VARS, LINUX_RUNNER: "blacksmith-8vcpu-ubuntu-2404" }, "blacksmith-8vcpu-ubuntu-2404"],
+    ["sixteen vCPU is accepted", { ...DEFAULT_VARS, LINUX_RUNNER: "blacksmith-16vcpu-ubuntu-2404" }, "blacksmith-16vcpu-ubuntu-2404"],
+    ["an invalid LINUX_RUNNER falls back to the eight vCPU pool", { ...DEFAULT_VARS, LINUX_RUNNER: "glaeda-std-xcode-26.6" }, "blacksmith-8vcpu-ubuntu-2404"],
+    ["saved overflow reads the sixteen vCPU pool", { ...DEFAULT_VARS, CI_CLOUD_OVERFLOW_SAVED: "true" }, "blacksmith-16vcpu-ubuntu-2404"],
   ];
 
   it.each(cases)("runs picker and tests with %s", (_name, vars, expected) => {

@@ -47,7 +47,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
 # in the comment is the authority for its fields.
 RUNTIME_DECODED_REQUEST_FIELDS = {
     # server/bookmarks.rs `import` decodes each node into
-    # workspace_registry/personal_bookmarks.rs `BookmarkImportNode`.
+    # cmux-bookmarks-core `BookmarkImportNode` (re-exported by workspace_registry/personal_bookmarks.rs).
     ("import-bookmarks", "nodes"): ("Vec<Value>", "array<ref<BookmarkImportNode>>"),
 }
 

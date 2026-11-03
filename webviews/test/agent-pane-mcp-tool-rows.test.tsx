@@ -303,7 +303,9 @@ test("a hook-blocked cmux_exec call uses the same clean MCP details", async () =
   expect(activityText(item)).toContain("Run the checks first.");
   expect(activityText(item)).not.toContain("PreToolUse");
 });
-test("three running MCP calls keep activity only in their group header", async () => {
+// Leo, 2026-10-31: "I FUCKING HATE THESE SPINNERS FOR TOOL CALLS AND SHIT" (#32196): the group and its
+// rows keep their glyphs while they run.
+test("three running MCP calls show no spinner, header or rows", async () => {
   const items = [1, 2, 3].map((n) => {
     const item = claudeCall(`spinner-mcp-${n}`, "read_thread", { threadId: THREAD });
     return { ...item, tool: { ...item.tool!, status: "in_progress" } };
@@ -312,8 +314,7 @@ test("three running MCP calls keep activity only in their group header", async (
   expect(toggles()).toHaveLength(1);
   await click(toggles()[0]!);
   expect(host.querySelectorAll(".cv-tool-group button.cv-tool")).toHaveLength(3);
-  expect(host.querySelectorAll(".cv-tool-group .cv-spinner")).toHaveLength(0);
-  expect(host.querySelectorAll(".cv-spinner")).toHaveLength(1);
+  expect(host.querySelectorAll(".cv-spinner")).toHaveLength(0);
   await render([items[0]!]);
-  expect(host.querySelectorAll(".cv-spinner")).toHaveLength(1);
+  expect(host.querySelectorAll(".cv-spinner")).toHaveLength(0);
 });
