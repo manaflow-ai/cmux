@@ -2,60 +2,142 @@ import AppKit
 import Testing
 @testable import MessagesLabSidebar
 
-/// The gallery of a Chief avatar's motion: for each style (rows) at idle and while working, one period
-/// sampled into eight frames of a synthetic face, the loop's own keyframes applied. One sheet written to
-/// the package's `.build/chief-avatar-motion-gallery.png` (ignored by git), which a fleet step returns
-/// with `cmux-ci run --artifact Packages/Shared/CmuxMessagesLab/.build/chief-avatar-motion-gallery.png`.
+/// The gallery of a Chief avatar's state looks: one row per style, one strip per state (idle, working,
+/// waiting, failed) and one for the cues (a turn ending, a failure), each sampled into eight frames of a
+/// synthetic orb. Each frame is drawn from the real look: ``SidebarAvatarLooks/show(_:on:seed:)`` builds
+/// its layers and animations, and the sheet applies their keyframes at that frame's time. One sheet is
+/// written to the package's `.build/chief-avatar-motion-gallery.png` (ignored by git), which a fleet step
+/// returns with `cmux-ci run --artifact Packages/Shared/CmuxMessagesLab/.build/chief-avatar-motion-gallery.png`.
 @MainActor
 @Suite(.serialized)
 struct ChiefAvatarMotionGalleryTests {
     static let frames = 8
     static let cell: CGFloat = 56
+    static let size: CGFloat = 36
 
-    /// The face at one frame of `shape`: offset, scaled or turned about its centre as the layer would be.
-    func drawFace(at origin: NSPoint, value: Double, keyPath: String) {
-        let size: CGFloat = 36
-        let transform = NSAffineTransform()
-        transform.translateX(by: origin.x + Self.cell / 2, yBy: origin.y + Self.cell / 2)
-        switch keyPath {
-        case "transform.translation.y": transform.translateX(by: 0, yBy: -value * 4)  // 4x so a point reads on the sheet
-        case "transform.scale": transform.scale(by: 1 + (value - 1) * 4)
-        case "transform.rotation.z": transform.rotate(byRadians: value * 2)
-        default: break
+    /// A property animation's value at `time` seconds (linear between keyframes, which reads well enough
+    /// on a sheet; the loop's own timing curve is in the code).
+    static func value(_ animation: CAAnimation?, at time: CFTimeInterval) -> Double? {
+        guard let animation, animation.duration > 0 else { return nil }
+        let t = ((time + animation.timeOffset).truncatingRemainder(dividingBy: animation.duration)) / animation.duration
+        if let basic = animation as? CABasicAnimation {
+            let from = (basic.fromValue as? NSNumber)?.doubleValue ?? 0
+            guard let to = (basic.toValue as? NSNumber)?.doubleValue else { return from }
+            return from + (to - from) * t
         }
-        NSGraphicsContext.saveGraphicsState()
-        transform.concat()
-        let rect = NSRect(x: -size / 2, y: -size / 2, width: size, height: size)
-        NSColor.systemOrange.setFill()
-        NSBezierPath(ovalIn: rect).fill()
-        NSColor.white.setFill()
-        NSBezierPath(ovalIn: NSRect(x: -9, y: 2, width: 6, height: 6)).fill()
-        NSBezierPath(ovalIn: NSRect(x: 3, y: 2, width: 6, height: 6)).fill()
-        NSBezierPath(roundedRect: NSRect(x: -7, y: -9, width: 14, height: 4), xRadius: 2, yRadius: 2).fill()
-        NSGraphicsContext.restoreGraphicsState()
+        guard let frames = animation as? CAKeyframeAnimation, let values = frames.values as? [NSNumber], !values.isEmpty else { return nil }
+        let times = (frames.keyTimes?.map(\.doubleValue)) ?? values.indices.map { Double($0) / Double(max(values.count - 1, 1)) }
+        for i in 1..<values.count where t <= times[i] {
+            let span = max(times[i] - times[i - 1], 1e-9)
+            let f = (t - times[i - 1]) / span
+            return values[i - 1].doubleValue + (values[i].doubleValue - values[i - 1].doubleValue) * f
+        }
+        return values.last?.doubleValue
     }
 
-    @Test func drawsEveryStyleIdleAndWorking() throws {
+    /// Draws `avatar`'s look at `time`: the glow, the face (turned and scaled by the avatar's own loop
+    /// or cue), the glint across it and the ring on its edge.
+    func draw(_ avatar: CALayer, at time: CFTimeInterval, cue: CAAnimation?, in rect: NSRect) {
+        let key = SidebarAvatarMotion.animationKey
+        var turn = 0.0, scale = 1.0
+        for animation in [avatar.animation(forKey: key), cue].compactMap({ $0 as? CAPropertyAnimation }) {
+            let v = Self.value(animation, at: time) ?? 0
+            if animation.keyPath == "transform.rotation.z" { turn += v }
+            if animation.keyPath == "transform.scale" { scale *= v }
+        }
+        let d = Self.size
+        let face = NSRect(x: -d / 2, y: -d / 2, width: d, height: d)
+        let transform = NSAffineTransform()
+        transform.translateX(by: rect.midX, yBy: rect.midY)
+        transform.rotate(byRadians: turn)
+        transform.scale(by: scale)
+        NSGraphicsContext.saveGraphicsState()
+        transform.concat()
+        if avatar.shadowOpacity > 0, let color = avatar.shadowColor.flatMap(NSColor.init(cgColor:)) {
+            let shadow = NSShadow()
+            shadow.shadowColor = color.withAlphaComponent(CGFloat(avatar.shadowOpacity))
+            shadow.shadowBlurRadius = avatar.shadowRadius * 1.5
+            shadow.set()
+        }
+        NSColor(calibratedRed: 0.42, green: 0.48, blue: 0.95, alpha: 1).setFill()
+        NSBezierPath(ovalIn: face).fill()
+        NSShadow().set()
+        NSColor.white.setFill()
+        NSBezierPath(ovalIn: NSRect(x: -9, y: 1, width: 6, height: 7)).fill()
+        NSBezierPath(ovalIn: NSRect(x: 3, y: 1, width: 6, height: 7)).fill()
+        // The glint: its band's x from the band's own loop, clipped to the face.
+        if let glint = avatar.sublayers?.first(where: { $0.name == SidebarAvatarLooks.glintName }),
+           let x = Self.value(glint.sublayers?.first?.animation(forKey: key), at: time) {
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(ovalIn: face).addClip()
+            let band = NSBezierPath(rect: NSRect(x: -d / 2 + x - d * 0.12, y: -d, width: d * 0.24, height: d * 2))
+            let skew = NSAffineTransform()
+            skew.rotate(byDegrees: -20)
+            band.transform(using: skew as AffineTransform)
+            NSColor(white: 1, alpha: 0.5).setFill()
+            band.fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        // The ring stays on the avatar's place (it turns, the face does not move).
+        if let ring = avatar.sublayers?.first(where: { $0.name == SidebarAvatarLooks.ringName }) as? CAShapeLayer,
+           let color = ring.strokeColor.flatMap(NSColor.init(cgColor:)) {
+            let spin = Self.value(ring.animation(forKey: key), at: time) ?? 0
+            let width = SidebarAvatarLooks.ringWidth(CGRect(x: 0, y: 0, width: d, height: d)) * 1.5
+            let start = 90 + spin * 180 / .pi
+            let sweep = Double(ring.strokeEnd - ring.strokeStart) * 360
+            let path = NSBezierPath()
+            path.appendArc(withCenter: NSPoint(x: rect.midX, y: rect.midY), radius: d / 2 + width,
+                           startAngle: start, endAngle: start - sweep, clockwise: true)
+            path.lineWidth = width
+            path.lineCapStyle = .round
+            color.withAlphaComponent(CGFloat(ring.opacity)).setStroke()
+            path.stroke()
+        }
+    }
+
+    @Test func drawsEveryStyleInEveryStateAndItsCues() throws {
         let styles = CmuxSidebarAvatarMotionStyle.allCases
-        let modes: [SidebarAvatarMotion.Mode] = [.idle, .working]
+        let modes = SidebarAvatarMotion.Mode.allCases
+        // The strips: each state, then the cues (a turn ending, a failure).
+        let strips = modes.count + 2
         let gap: CGFloat = 16
         let strip = CGFloat(Self.frames) * Self.cell
-        let sheet = NSImage(size: NSSize(width: CGFloat(modes.count) * (strip + gap) + gap,
+        let sheet = NSImage(size: NSSize(width: CGFloat(strips) * (strip + gap) + gap,
                                          height: CGFloat(styles.count) * (Self.cell + gap) + gap))
         sheet.lockFocus()
         NSColor(white: 0.96, alpha: 1).setFill()
         NSRect(origin: .zero, size: sheet.size).fill()
         for (row, style) in styles.enumerated() {
-            for (column, mode) in modes.enumerated() {
-                let loop = SidebarAvatarMotion.animation(style, mode: mode, seed: "gallery")
-                let values = try #require(loop.values as? [NSNumber]).map(\.doubleValue)
-                #expect(values.count > Self.frames)
+            for column in 0..<strips {
+                let avatar = CALayer()
+                avatar.bounds = CGRect(x: 0, y: 0, width: Self.size, height: Self.size)
+                var cue: CAAnimation?
+                var period: CFTimeInterval = 1
+                if column < modes.count {
+                    let mode = modes[column]
+                    if style != .still {
+                        SidebarAvatarLooks.show(.init(style: style, mode: mode, moving: true), on: avatar, seed: "gallery")
+                    }
+                    let loops = ([avatar] + (avatar.sublayers ?? []).flatMap { [$0] + ($0.sublayers ?? []) })
+                        .compactMap { $0.animation(forKey: SidebarAvatarMotion.animationKey) }
+                    // An idle look rests most of its period: sample its first second, where it moves.
+                    period = loops.map { min($0.duration, 1.2) }.max() ?? 1
+                } else {
+                    let (from, to): (SidebarAvatarMotion.Mode, SidebarAvatarMotion.Mode) = column == modes.count ? (.working, .waiting) : (.idle, .failed)
+                    if style != .still {
+                        SidebarAvatarLooks.show(.init(style: style, mode: to, moving: true), on: avatar, seed: "gallery")
+                        SidebarAvatarLooks.cue(avatar, style: style, from: from, to: to)
+                    }
+                    cue = avatar.animation(forKey: SidebarAvatarMotion.cueKey)
+                    period = cue?.duration ?? 1
+                }
                 for frame in 0..<Self.frames {
-                    let value = values[frame * (values.count - 1) / Self.frames]
                     // Top row first: AppKit's y grows upward.
                     let origin = NSPoint(x: gap + CGFloat(column) * (strip + gap) + CGFloat(frame) * Self.cell,
                                          y: gap + CGFloat(styles.count - 1 - row) * (Self.cell + gap))
-                    drawFace(at: origin, value: value, keyPath: try #require(loop.keyPath))
+                    let time = period * Double(frame) / Double(Self.frames)
+                    draw(avatar, at: time, cue: cue, in: NSRect(origin: origin, size: NSSize(width: Self.cell, height: Self.cell)))
                 }
             }
         }
