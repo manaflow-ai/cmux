@@ -274,8 +274,8 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch }: NodeP
       </button>
     );
   } else if (tappable) {
+    // oxlint-disable jsx-a11y/prefer-tag-over-role -- Composite scene children may contain inputs or controls, which cannot be nested in a button.
     rendered = (
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- Composite scene children may contain inputs or controls, which cannot be nested in a button.
       <div
         {...shared}
         role="button"
@@ -295,6 +295,7 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch }: NodeP
         {content}
       </div>
     );
+    // oxlint-enable jsx-a11y/prefer-tag-over-role
   } else {
     rendered = (
       <div {...shared} role={node.type === "Divider" ? "separator" : undefined}>
