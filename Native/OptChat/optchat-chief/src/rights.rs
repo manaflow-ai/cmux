@@ -10,7 +10,7 @@
 //! {"version": 1,
 //!  "chief_cap_usd_day": 20.0,
 //!  "people": {
-//!    "user_ben": {"name": "Ben", "allow": ["Read", "Bash(git status*)"],
+//!    "user_ben": {"name": "Ben", "allow": ["Read", "Bash(ls*)"],
 //!                 "cap_usd_day": 2.0},
 //!    "user_ana": {"name": "Ana", "approver": true},
 //!    "chief:ben-chief": {"name": "Ben's Chief", "owner": "user_ben",
