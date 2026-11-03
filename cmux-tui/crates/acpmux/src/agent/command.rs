@@ -79,6 +79,10 @@ pub(crate) fn harness_command(
     env.remove(crate::routes::PROFILE_ROUTE_KEY);
     // The session's workspace is for its computer use server only (agent_displays.rs).
     env.remove(crate::agent_displays::WORKSPACE_KEY);
+    // So are its Computer Use card labels (`cua_v2::Labels`).
+    for key in crate::cua_v2::labels::KEYS {
+        env.remove(key);
+    }
     // The chat's turned-off servers are for the fold only (agent_tools.rs).
     env.remove(crate::agent_tools::OFF_ENV);
     // OpenCode asked to ask (`opencode_ask.rs`): its config is set below.

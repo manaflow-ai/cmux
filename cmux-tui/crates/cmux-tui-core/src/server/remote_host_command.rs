@@ -10,6 +10,14 @@
 //!   a session stopped). Raising (sharing on, a viewer to Ask from None, View
 //!   or Full) needs the verified app: an agent in a terminal never grants a
 //!   device access to this Mac.
+//!   Computer Use approvals (docs/computer-use-approvals.md, "Controls"):
+//!   any local Unix connection may read (`computer_use.status`,
+//!   `computer_use.approvals.list`, `computer_use.approvals.pending`), lower
+//!   trust (`computer_use.approvals.revoke`, `computer_use.approvals.deny`)
+//!   and ask the local collector to show a pending question again
+//!   (`computer_use.approvals.prompt`, which decides nothing). No method
+//!   approves, saves an app or raises the mode: only a protected collector
+//!   answers, and only the box owner sets the mode.
 //! - `remote-host-config {computer_use, screen_sharing, headless}`: the
 //!   person's switches, from the verified app.
 //! - `remote-host-app`: the app socket's credentials for the verified app's
@@ -49,7 +57,10 @@ struct Caller {
 
 fn caller(mux: &Mux, client: u64) -> Result<Caller, RemoteRefused> {
     let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let record = state.clients.get(&client).ok_or_else(|| forbidden("needs a registered local connection"))?;
+    let record = state
+        .clients
+        .get(&client)
+        .ok_or_else(|| forbidden("needs a registered local connection"))?;
     if !matches!(record.transport, ClientTransport::Unix) {
         return Err(forbidden("needs a local Unix socket connection"));
     }
@@ -97,19 +108,29 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
     let host = &mux.control_clients.remote_host;
     match method {
         "status" | "refresh" | "request" | "open_settings" | "restart" | "screen.stop_session" => {}
+        method if method.starts_with(COMPUTER_USE_PREFIX) => computer_use_method(method, &params)?,
         "screen.share" => {
-            let on = params.get("on").and_then(Value::as_bool).ok_or_else(|| {
-                RemoteRefused { code: "bad_request", message: "screen.share needs on: true or false".into() }
+            let on = params.get("on").and_then(Value::as_bool).ok_or_else(|| RemoteRefused {
+                code: "bad_request",
+                message: "screen.share needs on: true or false".into(),
             })?;
             if on && !caller.verified_app {
-                return Err(forbidden("Share This Mac on needs the cmux app (palette or Settings)").into());
+                return Err(forbidden(
+                    "Share This Mac on needs the cmux app (palette or Settings)",
+                )
+                .into());
             }
         }
         "screen.access" => {
             let device = params.get("device").and_then(Value::as_str).unwrap_or_default();
-            let wanted = params.get("scope").and_then(Value::as_str).and_then(rank).ok_or_else(|| {
-                RemoteRefused { code: "bad_request", message: "screen.access needs device and scope (none, ask, view, full)".into() }
-            })?;
+            let wanted =
+                params.get("scope").and_then(Value::as_str).and_then(rank).ok_or_else(|| {
+                    RemoteRefused {
+                        code: "bad_request",
+                        message: "screen.access needs device and scope (none, ask, view, full)"
+                            .into(),
+                    }
+                })?;
             if !caller.verified_app {
                 // The worker and the hub refuse a raise too; this is the daemon's own first check.
                 let current = host
@@ -120,12 +141,19 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
                     .and_then(|entry| entry["access"].as_str())
                     .and_then(rank);
                 if current.is_none_or(|current| wanted > current) {
-                    return Err(forbidden("raising a device's access needs the cmux app (palette or Settings)").into());
+                    return Err(forbidden(
+                        "raising a device's access needs the cmux app (palette or Settings)",
+                    )
+                    .into());
                 }
             }
         }
         _ => {
-            return Err(RemoteRefused { code: "bad_request", message: format!("unknown cmux Remote method {method}") }.into());
+            return Err(RemoteRefused {
+                code: "bad_request",
+                message: format!("unknown cmux Remote method {method}"),
+            }
+            .into());
         }
     }
     let mut answer = host.call(method, params).map_err(unavailable)?;
@@ -136,6 +164,51 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
         screen.remove("devices");
     }
     Ok(answer)
+}
+
+const COMPUTER_USE_PREFIX: &str = "computer_use.";
+
+/// The Computer Use methods any local connection may send, with their
+/// params checked. Every other `computer_use.*` method is refused here, so a
+/// host never sees an approve or a raise from this command.
+fn computer_use_method(method: &str, params: &Value) -> Result<(), RemoteRefused> {
+    let bad = |message: &str| RemoteRefused { code: "bad_request", message: message.to_owned() };
+    match method {
+        "computer_use.status"
+        | "computer_use.approvals.list"
+        | "computer_use.approvals.pending" => Ok(()),
+        "computer_use.approvals.deny" | "computer_use.approvals.prompt" => {
+            match params.get("id").and_then(Value::as_str) {
+                Some(id) if !id.is_empty() => Ok(()),
+                _ => Err(bad(&format!("{method} needs the pending question's id"))),
+            }
+        }
+        "computer_use.approvals.revoke" => match params.get("scope").and_then(Value::as_str) {
+            Some("all") => Ok(()),
+            Some("app") => {
+                let app = params.get("app").and_then(Value::as_object);
+                let named = app.is_some_and(|app| {
+                    ["bundle_id", "executable", "name"].iter().any(|key| {
+                        app.get(*key).and_then(Value::as_str).is_some_and(|v| !v.is_empty())
+                    })
+                });
+                if named {
+                    Ok(())
+                } else {
+                    Err(bad(
+                        "computer_use.approvals.revoke needs app.bundle_id, app.executable or app.name",
+                    ))
+                }
+            }
+            _ => Err(bad("computer_use.approvals.revoke needs scope: all or app")),
+        },
+        _ => Err(RemoteRefused {
+            code: ORIGIN_FORBIDDEN,
+            message: format!(
+                "cmux Remote does not take {method} from a command: approvals come only from the person on a protected collector, and the mode only from the box owner"
+            ),
+        }),
+    }
 }
 
 pub(super) fn config(mux: &Mux, client: u64, update: Value) -> anyhow::Result<Value> {
@@ -157,10 +230,64 @@ pub(super) fn app(mux: &Mux, client: u64) -> anyhow::Result<Value> {
 
 #[cfg(target_os = "macos")]
 fn app_stamp(pid: u32) -> Option<Value> {
-    crate::remote_host::process_stamp(pid).map(|(seconds, micros)| json!({"pid": pid, "start_sec": seconds, "start_usec": micros}))
+    crate::remote_host::process_stamp(pid)
+        .map(|(seconds, micros)| json!({"pid": pid, "start_sec": seconds, "start_usec": micros}))
 }
 
 #[cfg(not(target_os = "macos"))]
 fn app_stamp(_pid: u32) -> Option<Value> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn code(method: &str, params: Value) -> Option<&'static str> {
+        computer_use_method(method, &params).err().map(|refused| refused.code)
+    }
+
+    #[test]
+    fn reads_and_lowering_reach_the_host() {
+        assert_eq!(code("computer_use.status", json!({})), None);
+        assert_eq!(code("computer_use.approvals.list", json!({})), None);
+        assert_eq!(code("computer_use.approvals.pending", json!({})), None);
+        assert_eq!(code("computer_use.approvals.revoke", json!({"scope": "all"})), None);
+        assert_eq!(
+            code(
+                "computer_use.approvals.revoke",
+                json!({"scope": "app", "app": {"bundle_id": "com.apple.Safari"}})
+            ),
+            None
+        );
+        assert_eq!(code("computer_use.approvals.deny", json!({"id": "7"})), None);
+        assert_eq!(code("computer_use.approvals.prompt", json!({"id": "7"})), None);
+    }
+
+    #[test]
+    fn approving_saving_or_raising_is_refused() {
+        for method in [
+            "computer_use.approvals.approve",
+            "computer_use.approvals.answer",
+            "computer_use.approvals.save",
+            "computer_use.mode.set",
+            "computer_use.setup",
+        ] {
+            assert_eq!(
+                code(method, json!({"id": "7", "decision": "always"})),
+                Some(ORIGIN_FORBIDDEN),
+                "{method}"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_lowering_is_a_bad_request() {
+        assert_eq!(code("computer_use.approvals.revoke", json!({})), Some("bad_request"));
+        assert_eq!(
+            code("computer_use.approvals.revoke", json!({"scope": "app", "app": {}})),
+            Some("bad_request")
+        );
+        assert_eq!(code("computer_use.approvals.deny", json!({})), Some("bad_request"));
+    }
 }

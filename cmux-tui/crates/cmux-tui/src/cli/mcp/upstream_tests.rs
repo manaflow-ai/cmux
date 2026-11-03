@@ -64,7 +64,8 @@ fn code_mode_runs_the_chats_other_servers_behind_it() {
     // index carries its own instructions.
     let listed =
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
-    assert!(listed["result"]["tools"][0]["description"].as_str().unwrap().contains("cua (3)"));
+    // Its 3 tools and cmux's own cua_status, cua_approvals_list, cua_approvals_revoke.
+    assert!(listed["result"]["tools"][0]["description"].as_str().unwrap().contains("cua (6)"));
     // Listed directly (every tool), each carries its server's rules.
     let all = server.list();
     let look = all.iter().find(|t| t["name"] == "cua_look").expect("cua_look is listed");
@@ -72,7 +73,14 @@ fn code_mode_runs_the_chats_other_servers_behind_it() {
     let index = call(&mut server, "cmux_docs", json!({}));
     assert_eq!(
         index["structuredContent"]["families"]["cua"],
-        json!(["cua_look", "cua_fail", "cua_hold"])
+        json!([
+            "cua_status",
+            "cua_approvals_list",
+            "cua_approvals_revoke",
+            "cua_look",
+            "cua_fail",
+            "cua_hold"
+        ])
     );
     // cmux's own computer use rules come first, then the server's.
     let rules = format!("{}\n\nAsk before you click.", acpmux::agent_tools::CUA_RULES);

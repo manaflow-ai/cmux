@@ -12,7 +12,8 @@ import Testing
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let data = try Data(contentsOf: repo.appending(path: "schemas/computer-use/approval-fixtures.json"))
-        return try #require(try JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+        let file = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return try #require(file["cases"] as? [[String: Any]])
     }
 
     @Test func everyFixtureEncodesToItsCanonicalBytesAndDigest() throws {

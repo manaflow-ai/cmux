@@ -25,6 +25,7 @@ mod browser_tools;
 mod caller_scope;
 mod code_mode;
 mod computer_use_gate;
+pub(super) mod computer_use_tools;
 mod config;
 mod keybinding_tools;
 mod messages;
@@ -161,7 +162,11 @@ pub(super) trait Backend {
     ) -> Result<Value, CallFailure>;
     /// One legacy daemon command (cmux Remote's `remote-host-*`).
     fn daemon(&self, _request: Value) -> Result<Value, CallFailure> {
-        Err(CallFailure::local(FailureKind::NotRun, "daemon.unavailable", "this server cannot reach the daemon"))
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "daemon.unavailable",
+            "this server cannot reach the daemon",
+        ))
     }
     /// One harness-agnostic agent dispatch request. The acpmux daemon owns
     /// target selection, brief persistence and sender attribution; this
@@ -259,7 +264,8 @@ impl Backend for LiveBackend {
     #[cfg(unix)]
     fn daemon(&self, mut request: Value) -> Result<Value, CallFailure> {
         request["id"] = json!(1);
-        super::remote_host::daemon_value(&self.global, &request).map_err(remote_tools::daemon_failure)
+        super::remote_host::daemon_value(&self.global, &request)
+            .map_err(remote_tools::daemon_failure)
     }
     fn resource(
         &self,
@@ -657,6 +663,11 @@ impl<B: Backend> Server<B> {
         tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
         tools.extend(remote_tools::TOOLS.iter().map(remote_tools::RemoteTool::descriptor_json));
+        tools.extend(
+            computer_use_tools::TOOLS
+                .iter()
+                .map(computer_use_tools::ComputerUseTool::descriptor_json),
+        );
         tools
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(
@@ -878,6 +889,9 @@ impl<B: Backend> Server<B> {
             return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(tool) = remote_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
+        }
+        if let Some(tool) = computer_use_tools::find(name) {
             return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(tool) = keybinding_tools::find(name) {

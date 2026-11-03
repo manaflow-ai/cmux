@@ -1,98 +1,206 @@
-[
-  {
-    "request": {
-      "v": 1,
-      "nonce": "0123456789abcdef0123456789abcdef",
-      "client": "com.cmuxterm.app.debug.cu1",
-      "machine": "mac-mini-7",
-      "session": "5f1c2a9be0d34c8f9a7b6c5d4e3f2a10",
-      "agent": "Claude",
-      "workspace": "api-server",
-      "target": {
-        "bundle_id": "com.apple.Safari",
-        "executable": null,
-        "name": "Safari"
+{
+  "version": 1,
+  "about": "Canonical JSON and digest of Computer Use approval requests (docs/computer-use-approvals.md). digest = sha256(canonical(request without digest)). Every implementation (Swift host, Rust host, device hub) tests against these cases.",
+  "cases": [
+    {
+      "name": "worker-1",
+      "request": {
+        "v": 1,
+        "nonce": "0123456789abcdef0123456789abcdef",
+        "client": "com.cmuxterm.app.debug.cu1",
+        "machine": "mac-mini-7",
+        "session": "5f1c2a9be0d34c8f9a7b6c5d4e3f2a10",
+        "agent": "Claude",
+        "workspace": "api-server",
+        "target": {
+          "bundle_id": "com.apple.Safari",
+          "executable": null,
+          "name": "Safari"
+        },
+        "tool": "click",
+        "risk": "R1",
+        "created_ms": 1793400000000,
+        "wait_until_ms": 1793400120000,
+        "answerable_until_ms": 1793400600000,
+        "digest": "1bebb4c589cc51e742fc461191c9d62a74ba3b2d1ccebcf905b212ddda651de7"
       },
-      "tool": "click",
-      "risk": "R1",
-      "created_ms": 1793400000000,
-      "wait_until_ms": 1793400120000,
-      "answerable_until_ms": 1793400600000,
+      "canonical": "{\"agent\":\"Claude\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app.debug.cu1\",\"created_ms\":1793400000000,\"machine\":\"mac-mini-7\",\"nonce\":\"0123456789abcdef0123456789abcdef\",\"risk\":\"R1\",\"session\":\"5f1c2a9be0d34c8f9a7b6c5d4e3f2a10\",\"target\":{\"bundle_id\":\"com.apple.Safari\",\"executable\":null,\"name\":\"Safari\"},\"tool\":\"click\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"api-server\"}",
       "digest": "1bebb4c589cc51e742fc461191c9d62a74ba3b2d1ccebcf905b212ddda651de7"
     },
-    "canonical": "{\"agent\":\"Claude\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app.debug.cu1\",\"created_ms\":1793400000000,\"machine\":\"mac-mini-7\",\"nonce\":\"0123456789abcdef0123456789abcdef\",\"risk\":\"R1\",\"session\":\"5f1c2a9be0d34c8f9a7b6c5d4e3f2a10\",\"target\":{\"bundle_id\":\"com.apple.Safari\",\"executable\":null,\"name\":\"Safari\"},\"tool\":\"click\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"api-server\"}",
-    "digest": "1bebb4c589cc51e742fc461191c9d62a74ba3b2d1ccebcf905b212ddda651de7"
-  },
-  {
-    "request": {
-      "v": 1,
-      "nonce": "ffffffffffffffffffffffffffffffff",
-      "client": "com.cmuxterm.app",
-      "machine": "build-box.example.internal",
-      "session": "5f1c2a9be0d34c8f9a7b6c5d4e3f2a10",
-      "agent": "Codex",
-      "workspace": "",
-      "target": {
-        "bundle_id": null,
-        "executable": "/usr/bin/gedit",
-        "name": "Text Editor"
+    {
+      "name": "worker-2",
+      "request": {
+        "v": 1,
+        "nonce": "ffffffffffffffffffffffffffffffff",
+        "client": "com.cmuxterm.app",
+        "machine": "build-box.example.internal",
+        "session": "5f1c2a9be0d34c8f9a7b6c5d4e3f2a10",
+        "agent": "Codex",
+        "workspace": "",
+        "target": {
+          "bundle_id": null,
+          "executable": "/usr/bin/gedit",
+          "name": "Text Editor"
+        },
+        "tool": "type_text",
+        "risk": "R1",
+        "created_ms": 1793400000000,
+        "wait_until_ms": 1793400120000,
+        "answerable_until_ms": 1793400600000,
+        "digest": "346d1fcb7ea67887b4925fdc1a008d710e1e4211a9da09b341c09cad34ee9012"
       },
-      "tool": "type_text",
-      "risk": "R1",
-      "created_ms": 1793400000000,
-      "wait_until_ms": 1793400120000,
-      "answerable_until_ms": 1793400600000,
+      "canonical": "{\"agent\":\"Codex\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app\",\"created_ms\":1793400000000,\"machine\":\"build-box.example.internal\",\"nonce\":\"ffffffffffffffffffffffffffffffff\",\"risk\":\"R1\",\"session\":\"5f1c2a9be0d34c8f9a7b6c5d4e3f2a10\",\"target\":{\"bundle_id\":null,\"executable\":\"/usr/bin/gedit\",\"name\":\"Text Editor\"},\"tool\":\"type_text\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"\"}",
       "digest": "346d1fcb7ea67887b4925fdc1a008d710e1e4211a9da09b341c09cad34ee9012"
     },
-    "canonical": "{\"agent\":\"Codex\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app\",\"created_ms\":1793400000000,\"machine\":\"build-box.example.internal\",\"nonce\":\"ffffffffffffffffffffffffffffffff\",\"risk\":\"R1\",\"session\":\"5f1c2a9be0d34c8f9a7b6c5d4e3f2a10\",\"target\":{\"bundle_id\":null,\"executable\":\"/usr/bin/gedit\",\"name\":\"Text Editor\"},\"tool\":\"type_text\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"\"}",
-    "digest": "346d1fcb7ea67887b4925fdc1a008d710e1e4211a9da09b341c09cad34ee9012"
-  },
-  {
-    "request": {
-      "v": 1,
-      "nonce": "0123456789abcdef0123456789abcdef",
-      "client": "com.cmuxterm.app.debug.cu1",
-      "machine": "mac-mini-7",
-      "session": "5f1c2a9be0d34c8f9a7b6c5d4e3f2a10",
-      "agent": "Claude \"Opus\" \\ agent",
-      "workspace": "line1\nline2\ttab\r\u0001\u001f/slash",
-      "target": {
-        "bundle_id": "com.example.Café",
-        "executable": null,
-        "name": "Café 日本 🚀"
+    {
+      "name": "worker-3",
+      "request": {
+        "v": 1,
+        "nonce": "0123456789abcdef0123456789abcdef",
+        "client": "com.cmuxterm.app.debug.cu1",
+        "machine": "mac-mini-7",
+        "session": "5f1c2a9be0d34c8f9a7b6c5d4e3f2a10",
+        "agent": "Claude \"Opus\" \\ agent",
+        "workspace": "line1\nline2\ttab\r\u0001\u001f/slash",
+        "target": {
+          "bundle_id": "com.example.Café",
+          "executable": null,
+          "name": "Café 日本 🚀"
+        },
+        "tool": "get_window_state",
+        "risk": "R3",
+        "created_ms": 1793400000000,
+        "wait_until_ms": 1793400120000,
+        "answerable_until_ms": 1793400600000,
+        "digest": "9f1da366112c8b8373eb9849e834064257b09aea3d5bc262dc640afebae4e1de"
       },
-      "tool": "get_window_state",
-      "risk": "R3",
-      "created_ms": 1793400000000,
-      "wait_until_ms": 1793400120000,
-      "answerable_until_ms": 1793400600000,
+      "canonical": "{\"agent\":\"Claude \\\"Opus\\\" \\\\ agent\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app.debug.cu1\",\"created_ms\":1793400000000,\"machine\":\"mac-mini-7\",\"nonce\":\"0123456789abcdef0123456789abcdef\",\"risk\":\"R3\",\"session\":\"5f1c2a9be0d34c8f9a7b6c5d4e3f2a10\",\"target\":{\"bundle_id\":\"com.example.Café\",\"executable\":null,\"name\":\"Café 日本 🚀\"},\"tool\":\"get_window_state\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"line1\\nline2\\ttab\\r\\u0001\\u001f/slash\"}",
       "digest": "9f1da366112c8b8373eb9849e834064257b09aea3d5bc262dc640afebae4e1de"
     },
-    "canonical": "{\"agent\":\"Claude \\\"Opus\\\" \\\\ agent\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app.debug.cu1\",\"created_ms\":1793400000000,\"machine\":\"mac-mini-7\",\"nonce\":\"0123456789abcdef0123456789abcdef\",\"risk\":\"R3\",\"session\":\"5f1c2a9be0d34c8f9a7b6c5d4e3f2a10\",\"target\":{\"bundle_id\":\"com.example.Café\",\"executable\":null,\"name\":\"Café 日本 🚀\"},\"tool\":\"get_window_state\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"line1\\nline2\\ttab\\r\\u0001\\u001f/slash\"}",
-    "digest": "9f1da366112c8b8373eb9849e834064257b09aea3d5bc262dc640afebae4e1de"
-  },
-  {
-    "request": {
-      "v": 1,
-      "nonce": "0123456789abcdef0123456789abcdef",
-      "client": "com.cmuxterm.app.nightly",
-      "machine": "WIN-DESKTOP-01",
-      "session": "5f1c2a9be0d34c8f9a7b6c5d4e3f2a10",
-      "agent": "Claude",
-      "workspace": "api-server",
-      "target": {
-        "bundle_id": null,
-        "executable": "C:\\Program Files\\Notepad++\\notepad++.exe",
-        "name": "Notepad++"
+    {
+      "name": "worker-4",
+      "request": {
+        "v": 1,
+        "nonce": "0123456789abcdef0123456789abcdef",
+        "client": "com.cmuxterm.app.nightly",
+        "machine": "WIN-DESKTOP-01",
+        "session": "5f1c2a9be0d34c8f9a7b6c5d4e3f2a10",
+        "agent": "Claude",
+        "workspace": "api-server",
+        "target": {
+          "bundle_id": null,
+          "executable": "C:\\Program Files\\Notepad++\\notepad++.exe",
+          "name": "Notepad++"
+        },
+        "tool": "launch_app",
+        "risk": "R1",
+        "created_ms": 0,
+        "wait_until_ms": 120000,
+        "answerable_until_ms": 600000,
+        "digest": "766bb176797d80c04d6abb7a77d361323138250d13d0c32ccd7f636b03418c12"
       },
-      "tool": "launch_app",
-      "risk": "R1",
-      "created_ms": 0,
-      "wait_until_ms": 120000,
-      "answerable_until_ms": 600000,
+      "canonical": "{\"agent\":\"Claude\",\"answerable_until_ms\":600000,\"client\":\"com.cmuxterm.app.nightly\",\"created_ms\":0,\"machine\":\"WIN-DESKTOP-01\",\"nonce\":\"0123456789abcdef0123456789abcdef\",\"risk\":\"R1\",\"session\":\"5f1c2a9be0d34c8f9a7b6c5d4e3f2a10\",\"target\":{\"bundle_id\":null,\"executable\":\"C:\\\\Program Files\\\\Notepad++\\\\notepad++.exe\",\"name\":\"Notepad++\"},\"tool\":\"launch_app\",\"v\":1,\"wait_until_ms\":120000,\"workspace\":\"api-server\"}",
       "digest": "766bb176797d80c04d6abb7a77d361323138250d13d0c32ccd7f636b03418c12"
     },
-    "canonical": "{\"agent\":\"Claude\",\"answerable_until_ms\":600000,\"client\":\"com.cmuxterm.app.nightly\",\"created_ms\":0,\"machine\":\"WIN-DESKTOP-01\",\"nonce\":\"0123456789abcdef0123456789abcdef\",\"risk\":\"R1\",\"session\":\"5f1c2a9be0d34c8f9a7b6c5d4e3f2a10\",\"target\":{\"bundle_id\":null,\"executable\":\"C:\\\\Program Files\\\\Notepad++\\\\notepad++.exe\",\"name\":\"Notepad++\"},\"tool\":\"launch_app\",\"v\":1,\"wait_until_ms\":120000,\"workspace\":\"api-server\"}",
-    "digest": "766bb176797d80c04d6abb7a77d361323138250d13d0c32ccd7f636b03418c12"
-  }
-]
+    {
+      "name": "macos-safari-click",
+      "request": {
+        "v": 1,
+        "nonce": "9f86d081884c7d659a2feaa0c55ad015",
+        "client": "com.cmuxterm.app.debug.cu1",
+        "machine": "mac-studio.local",
+        "session": "c-7f3a",
+        "agent": "Claude",
+        "workspace": "api-server",
+        "target": {
+          "bundle_id": "com.apple.Safari",
+          "executable": null,
+          "name": "Safari"
+        },
+        "tool": "click",
+        "risk": "R1",
+        "created_ms": 1793400000000,
+        "wait_until_ms": 1793400120000,
+        "answerable_until_ms": 1793400600000,
+        "digest": "dfebfc168699d158a3e81a30e0e1ddc16ce1bec46c83dada6d4bd0fccffc3654"
+      },
+      "canonical": "{\"agent\":\"Claude\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app.debug.cu1\",\"created_ms\":1793400000000,\"machine\":\"mac-studio.local\",\"nonce\":\"9f86d081884c7d659a2feaa0c55ad015\",\"risk\":\"R1\",\"session\":\"c-7f3a\",\"target\":{\"bundle_id\":\"com.apple.Safari\",\"executable\":null,\"name\":\"Safari\"},\"tool\":\"click\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"api-server\"}",
+      "digest": "dfebfc168699d158a3e81a30e0e1ddc16ce1bec46c83dada6d4bd0fccffc3654"
+    },
+    {
+      "name": "linux-executable",
+      "request": {
+        "v": 1,
+        "nonce": "9f86d081884c7d659a2feaa0c55ad015",
+        "client": "cmux-tui",
+        "machine": "ubuntu-box",
+        "session": "c-7f3a",
+        "agent": "Codex",
+        "workspace": "infra/deploy",
+        "target": {
+          "bundle_id": null,
+          "executable": "/usr/bin/firefox",
+          "name": "Firefox"
+        },
+        "tool": "type_text",
+        "risk": "R2",
+        "created_ms": 1793400000000,
+        "wait_until_ms": 1793400120000,
+        "answerable_until_ms": 1793400600000,
+        "digest": "0c027ac8f427580c2aa6155d84ef874e7849c197e4605a1344a6897537aa0da0"
+      },
+      "canonical": "{\"agent\":\"Codex\",\"answerable_until_ms\":1793400600000,\"client\":\"cmux-tui\",\"created_ms\":1793400000000,\"machine\":\"ubuntu-box\",\"nonce\":\"9f86d081884c7d659a2feaa0c55ad015\",\"risk\":\"R2\",\"session\":\"c-7f3a\",\"target\":{\"bundle_id\":null,\"executable\":\"/usr/bin/firefox\",\"name\":\"Firefox\"},\"tool\":\"type_text\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"infra/deploy\"}",
+      "digest": "0c027ac8f427580c2aa6155d84ef874e7849c197e4605a1344a6897537aa0da0"
+    },
+    {
+      "name": "escapes-and-unicode",
+      "request": {
+        "v": 1,
+        "nonce": "9f86d081884c7d659a2feaa0c55ad015",
+        "client": "com.cmuxterm.app.debug.cu1",
+        "machine": "mac-studio.local",
+        "session": "s/1",
+        "agent": "Agent \"Q\" \\ tab\there\nline\u0001",
+        "workspace": "Café ✓ 日本 😀",
+        "target": {
+          "bundle_id": "com.example.App",
+          "executable": null,
+          "name": "Ünïcode App"
+        },
+        "tool": "click",
+        "risk": "R1",
+        "created_ms": 1793400000000,
+        "wait_until_ms": 1793400120000,
+        "answerable_until_ms": 1793400600000,
+        "digest": "2d1f123a1973837935917e170b539eb8fa1c4468284441c2e769308e463d9a68"
+      },
+      "canonical": "{\"agent\":\"Agent \\\"Q\\\" \\\\ tab\\there\\nline\\u0001\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app.debug.cu1\",\"created_ms\":1793400000000,\"machine\":\"mac-studio.local\",\"nonce\":\"9f86d081884c7d659a2feaa0c55ad015\",\"risk\":\"R1\",\"session\":\"s/1\",\"target\":{\"bundle_id\":\"com.example.App\",\"executable\":null,\"name\":\"Ünïcode App\"},\"tool\":\"click\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"Café ✓ 日本 😀\"}",
+      "digest": "2d1f123a1973837935917e170b539eb8fa1c4468284441c2e769308e463d9a68"
+    },
+    {
+      "name": "windows-paths",
+      "request": {
+        "v": 1,
+        "nonce": "9f86d081884c7d659a2feaa0c55ad015",
+        "client": "cmux-tui",
+        "machine": "WIN-11",
+        "session": "c-7f3a",
+        "agent": "Claude",
+        "workspace": "C:\\work\\repo",
+        "target": {
+          "bundle_id": null,
+          "executable": "C:\\Program Files\\App\\app.exe",
+          "name": "App"
+        },
+        "tool": "launch_app",
+        "risk": "R3",
+        "created_ms": 1793400000000,
+        "wait_until_ms": 1793400120000,
+        "answerable_until_ms": 1793400600000,
+        "digest": "aeaba40d69b08bad2b007c0b4795739105fd99fcbac697d90094bced892bf996"
+      },
+      "canonical": "{\"agent\":\"Claude\",\"answerable_until_ms\":1793400600000,\"client\":\"cmux-tui\",\"created_ms\":1793400000000,\"machine\":\"WIN-11\",\"nonce\":\"9f86d081884c7d659a2feaa0c55ad015\",\"risk\":\"R3\",\"session\":\"c-7f3a\",\"target\":{\"bundle_id\":null,\"executable\":\"C:\\\\Program Files\\\\App\\\\app.exe\",\"name\":\"App\"},\"tool\":\"launch_app\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"C:\\\\work\\\\repo\"}",
+      "digest": "aeaba40d69b08bad2b007c0b4795739105fd99fcbac697d90094bced892bf996"
+    }
+  ]
+}

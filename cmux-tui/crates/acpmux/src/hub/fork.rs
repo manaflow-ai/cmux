@@ -69,6 +69,13 @@ impl Hub {
             .clone()
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
+        // The Computer Use card's labels for the fork (`cua_v2::Labels`).
+        crate::cua_v2::Labels::for_session(
+            &parent_meta.harness,
+            &cwd,
+            crate::cua_v2::labels::CHAT_CLIENT,
+        )
+        .mark(&mut fork_env);
         // The fork's own folder as it is now, not the parent's start (`git_state.rs`).
         let git = {
             let cwd = cwd.clone();

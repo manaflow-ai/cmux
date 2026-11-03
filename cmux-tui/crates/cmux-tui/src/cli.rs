@@ -41,6 +41,7 @@ mod code_mode;
 mod coderouter;
 mod codex_app_server;
 mod command;
+mod computer_use;
 #[cfg(unix)]
 mod dev;
 mod docs;
@@ -86,13 +87,13 @@ pub(crate) use machine_server::is_lifecycle_scope;
 #[cfg(unix)]
 mod mcp;
 mod raw;
+#[cfg(unix)]
+mod remote_host;
 mod resolve;
 mod scope_help;
 mod screen_help;
 #[cfg(unix)]
 mod script;
-#[cfg(unix)]
-mod remote_host;
 #[cfg(unix)]
 mod setup;
 mod shorthand;
@@ -376,8 +377,19 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
 /// the parser whose `help <scope>` knows only its own scopes, so `cmux help
 /// agents` answered "unknown resource scope".
 pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
-    "agents", "chats", "harness", "remote", "script", "host", "github", "avatar", "chief", "setup",
-    "device", "remote-host",
+    "agents",
+    "chats",
+    "harness",
+    "remote",
+    "script",
+    "host",
+    "github",
+    "avatar",
+    "chief",
+    "setup",
+    "device",
+    "remote-host",
+    "computer-use",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -459,6 +471,10 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // Every platform: on Windows `setup` sets the mode through UAC.
+    if let Some(code) = computer_use::run_if_requested(args) {
+        return code;
+    }
     #[cfg(unix)]
     if let Some(code) = mcp::run_if_requested(args)
         .or_else(|| agents::run_if_requested(args))

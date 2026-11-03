@@ -79,6 +79,17 @@ pub(super) async fn route(
     if let Some(reply) = super::secrets::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    // `cmux computer-use` reaches the Computer Use worker through this
+    // daemon's own bridge child (`cua_v2/cli_bridge.rs`): the local unix
+    // socket only, and never a peer.
+    if m == crate::rpc::method::MUX_COMPUTER_USE_MCP {
+        if conn.origin != Origin::Local {
+            return Err(RpcError::invalid_params(
+                "Computer Use is reached only over the local unix socket",
+            ));
+        }
+        return crate::cua_v2::cli_bridge::request(&params).await;
+    }
     // A one-shot completion runs a harness CLI with the user's own login:
     // the unix socket only. `Hub::complete` is its one gate (it never reaches
     // `remote_guard` or a peer).

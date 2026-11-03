@@ -25,6 +25,14 @@
 //! daemon connection; a child environment or request never picks the authority.
 //! Missing support, malformed replies and a two-second timeout deny the action.
 //!
+//! After admission the bridge sends `session/hello` with the session's
+//! display labels ([`Labels`]: agent, workspace, client), which acpmux set
+//! in the bridge's env when it spawned the session; never authority. A call
+//! the worker refuses with `approval_timeout`, `approval_denied` or
+//! `approval_pending` becomes a tool error that says the person was asked
+//! ([`ApprovalRefusal`]); the connection, and with it the session's grants,
+//! stays open (docs/computer-use-approvals.md).
+//!
 //! Tool names and arguments stay upstream-shaped. The trusted bridge adds
 //! the session's target allow-list to the helper envelope, outside model
 //! arguments; the Swift host resolves targets and enforces the policy.
@@ -38,7 +46,13 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufRea
 #[cfg(unix)]
 use tokio::net::UnixStream;
 
+mod approval;
+pub mod cli_bridge;
+pub mod labels;
 mod liveness;
+
+pub use approval::{ApprovalRefusal, WorkerError};
+pub use labels::Labels;
 
 pub use liveness::Owner;
 #[cfg(target_os = "macos")]
@@ -152,6 +166,9 @@ pub fn read_endpoint(dir: &Path) -> Result<Endpoint> {
     Err(crate::platform::unsupported("the Computer Use helper v2 endpoint"))
 }
 
+/// The id of `session/hello`; requests count from 1.
+const HELLO_ID: u64 = 0;
+
 /// One admitted connection to the helper socket (JSON lines).
 pub struct Helper<S> {
     stream: BufReader<S>,
@@ -243,6 +260,14 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         self.exchange(method, name, arguments).await
     }
 
+    /// `session/hello` with the session's display labels, sent once after
+    /// admission. Its answer (id 0) is skipped by later requests, so an
+    /// older worker that refuses the method is still usable.
+    pub async fn hello(&mut self, labels: &Labels) -> Result<()> {
+        self.send(&json!({"id": HELLO_ID, "method": "session/hello", "params": labels.params()}))
+            .await
+    }
+
     async fn exchange(
         &mut self,
         method: &str,
@@ -258,15 +283,19 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
             // The helper owns target policy. This process's env is caller-controlled.
         }
         self.send(&message).await?;
-        // One request at a time, so the next reply is ours.
-        let reply = self.receive().await?;
+        // One request at a time, so the next reply is ours (or the hello's).
+        let mut reply = self.receive().await?;
+        while reply["id"] == json!(HELLO_ID) {
+            reply = self.receive().await?;
+        }
         if reply["id"] != json!(id) {
             bail!("the Computer Use helper answered request {} for {id}", reply["id"]);
         }
         if reply["ok"] == json!(true) {
             Ok(reply.get("result").cloned().unwrap_or(Value::Null))
         } else {
-            bail!("{}", reply["error"].as_str().unwrap_or("the Computer Use helper failed"))
+            // The worker answered: a refusal, not a broken connection.
+            Err(WorkerError::from_reply(&reply).into())
         }
     }
 
@@ -297,7 +326,14 @@ pub async fn run_bridge() -> Result<()> {
     let dir = dir_from_env().ok_or_else(|| anyhow!("{ENDPOINT_DIR_ENV} is not set"))?;
     let stdin = BufReader::new(tokio::io::stdin());
     let stdout = tokio::io::stdout();
-    serve(stdin, stdout, || async { Helper::connect(&read_endpoint(&dir)?).await }).await
+    // Set by acpmux when it spawned this session (agent_tools.rs), never by the agent.
+    let labels = Labels::from_env(|key| std::env::var(key).ok());
+    serve(stdin, stdout, || async {
+        let mut helper = Helper::connect(&read_endpoint(&dir)?).await?;
+        helper.hello(&labels).await?;
+        Ok(helper)
+    })
+    .await
 }
 
 /// The MCP loop, generic over the transport and the helper connection.
@@ -335,7 +371,8 @@ where
             "ping" => Ok(json!({})),
             "tools/list" => forward(&mut helper, &connect, "tools/list", None, Value::Null)
                 .await
-                .map(tools_list_result),
+                .map(tools_list_result)
+                .map_err(Failure::into_rpc),
             "tools/call" => {
                 let name = message["params"]["name"].as_str().unwrap_or_default().to_owned();
                 let arguments =
@@ -344,7 +381,8 @@ where
                     match forward(&mut helper, &connect, "tools/call", Some(&name), arguments).await
                     {
                         Ok(result) => call_result(result),
-                        Err((_, text)) => {
+                        Err(Failure::Approval(refusal, app)) => refusal.tool_result(app.as_deref()),
+                        Err(Failure::Rpc(_, text)) => {
                             json!({"content": [{"type":"text", "text":text}], "isError":true})
                         }
                     },
@@ -385,15 +423,35 @@ fn require_tool_consent(read_only: bool, status: &Value) -> Result<()> {
     Ok(())
 }
 
+/// Why a forwarded request has no result.
+enum Failure {
+    /// A JSON-RPC error code and its text.
+    Rpc(i64, String),
+    /// The worker asked the person and has no answer to run on (yet), with
+    /// the app's name when the worker gave it.
+    Approval(ApprovalRefusal, Option<String>),
+}
+
+impl Failure {
+    fn into_rpc(self) -> (i64, String) {
+        match self {
+            Failure::Rpc(code, text) => (code, text),
+            Failure::Approval(refusal, app) => (-32021, refusal.message(app.as_deref())),
+        }
+    }
+}
+
 /// Forwards one request, connecting on first use and once more after a
 /// dropped connection (the helper restarts with a new socket and secret).
+/// A refusal the worker answered keeps the connection: it is the session,
+/// and closing it would revoke the session's grants (a late Allow included).
 async fn forward<S, C, F>(
     helper: &mut Option<Helper<S>>,
     connect: &C,
     method: &str,
     name: Option<&str>,
     arguments: Value,
-) -> Result<Value, (i64, String)>
+) -> Result<Value, Failure>
 where
     S: tokio::io::AsyncRead + AsyncWrite + Unpin,
     C: Fn() -> F,
@@ -401,23 +459,32 @@ where
 {
     for attempt in 0..2 {
         if helper.is_none() {
-            *helper = Some(connect().await.map_err(|e| (-32000, format!("{e:#}")))?);
+            *helper = Some(connect().await.map_err(|e| Failure::Rpc(-32000, format!("{e:#}")))?);
         }
         let Some(current) = helper.as_mut() else { continue };
         match current.request(method, name, arguments.clone()).await {
             Ok(result) => return Ok(result),
             Err(e) => {
                 if e.to_string() == crate::cli::cloud_join::CONSENT_REQUIRED {
-                    return Err((-32020, crate::cli::cloud_join::CONSENT_REQUIRED.to_owned()));
+                    return Err(Failure::Rpc(
+                        -32020,
+                        crate::cli::cloud_join::CONSENT_REQUIRED.to_owned(),
+                    ));
+                }
+                if let Some(refused) = e.downcast_ref::<WorkerError>() {
+                    return Err(match refused.approval() {
+                        Some(refusal) => Failure::Approval(refusal, refused.app.clone()),
+                        None => Failure::Rpc(-32000, refused.message.clone()),
+                    });
                 }
                 *helper = None;
                 if attempt == 1 || !is_connection_error(&e) {
-                    return Err((-32000, format!("{e:#}")));
+                    return Err(Failure::Rpc(-32000, format!("{e:#}")));
                 }
             }
         }
     }
-    Err((-32000, "the Computer Use helper is unavailable".into()))
+    Err(Failure::Rpc(-32000, "the Computer Use helper is unavailable".into()))
 }
 
 fn is_connection_error(e: &anyhow::Error) -> bool {

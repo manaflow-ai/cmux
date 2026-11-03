@@ -124,8 +124,12 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
     let grouped = families(tools);
     // A harness that shows one tool must still find computer use in it: a
     // chat asked to "open Calculator" used osascript (2026-10-27).
-    let computer_use =
-        if grouped.contains_key(COMPUTER_USE_FAMILY) { COMPUTER_USE_NOTE } else { "" };
+    // cmux's own status and approval tools (`cua_status`, ...) share the
+    // family and are always listed: only a driver tool means the chat has it.
+    let driver = grouped.get(COMPUTER_USE_FAMILY).is_some_and(|names| {
+        names.iter().any(|name| super::computer_use_tools::find(name).is_none())
+    });
+    let computer_use = if driver { COMPUTER_USE_NOTE } else { "" };
     let families = grouped
         .iter()
         .map(|(family, names)| format!("{family} ({})", names.len()))

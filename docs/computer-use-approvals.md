@@ -56,7 +56,13 @@ the worker.
   session.
 - After admission the bridge sends `{"id":0,"method":"session/hello","params":{"agent":S,"workspace":S,"client":S}}`.
   These are display labels for the approval card, set by acpmux from the
-  session it spawned, never authority.
+  session it spawned, never authority. acpmux marks them at spawn (agent: the
+  harness, `claude`; workspace: the session folder's name; client: `cmux` for
+  an agent chat, `cli` for `cmux computer-use`) in the bridge's own env
+  (`ACPMUX_CUA_LABEL_AGENT|WORKSPACE|CLIENT`, after any profile or preset,
+  never in the harness's env). Each label is one printable line of at most 80
+  characters. The worker answers `{"id":0,"ok":true}`; the bridge skips any
+  reply with id 0, so an older worker that refuses the method still works.
 - Under `ask` the session's manifest (version 3) allows every tool in the
   driver's inventory except opaque dispatch (`run_script`,
   `replay_trajectory`), `resources.desktop.display: false`,
@@ -94,12 +100,25 @@ host → worker, any time: `{"type":"approved_apps","apps":[{"bundle_id"|"execut
 (the client's saved list, replacing the previous one) and
 `{"type":"revoke","scope":"all"|"app","app":{…}}`.
 
-Canonical JSON: keys sorted, no whitespace, UTF-8; the same bytes in Swift
-and Rust (`schemas/computer-use/approval-fixtures.json` is the shared
-conformance fixture).
+Canonical JSON: keys sorted by their UTF-8 bytes at every depth, no
+whitespace, UTF-8; strings escape only `"`, `\` and characters below U+0020
+(`\b \f \n \r \t` by name, the rest `\u00xx` lowercase), so `/` and
+non-ASCII stay as they are (Swift: `.withoutEscapingSlashes`); numbers are
+integers only (a float is refused). The same bytes in Swift and Rust
+(`cmux-tui/crates/cmux-computer-use-approval`; `schemas/computer-use/approval-fixtures.json`,
+`{"version":1,"cases":[{"name","request","canonical","digest"}]}`, is the shared
+conformance fixture, where `request` has no `digest` key).
 
 Rules:
 
+- A refused call answers the bridge `{"id":N,"ok":false,"code":"approval_timeout"|"approval_denied"|"approval_pending",
+  "error":"<text>","target":{"name":"Safari"}}` (`target` optional, for the
+  agent's text only). The bridge also reads the code from `error.code` or a
+  bare `error` of that code. It turns them into the MCP tool error
+  `computer_use.approval_*` (acpmux `cua_v2/approval.rs`) that says the person
+  was asked and what to do now, and keeps the connection, so the session's
+  grants (and a late Allow) survive. A worker refusal never closes the
+  connection; only a broken connection does.
 - The call waits until `wait_until_ms` (2 minutes), then fails with
   `approval_timeout`. The question stays answerable until
   `answerable_until_ms` (10 minutes): a later Allow grants the session (or
@@ -277,3 +296,62 @@ answer from any collector wins; the app then sends `cu_approval_done`.
   `computerUse.mode`: a lower mode at once, a higher one only after the person
   confirms a cmux dialog (`{ok:false, declined:true}` otherwise).
   `computer_use.status` → `{mode, phone_always_allow, saved, pending, worker}`.
+### How the CLI and MCP reach it
+
+Status and approvals (CLI and MCP share one code path,
+`cmux-tui/src/cli/mcp/computer_use_tools.rs`) are daemon commands
+`{"cmd":"remote-host-call","method":M,"params":P}` that the daemon forwards to
+the host, which answers from its state or asks the worker:
+
+| `M` | `P` | Who may call |
+| --- | --- | --- |
+| `computer_use.status` | `{}` | any local Unix connection |
+| `computer_use.approvals.list` | `{}` | any local Unix connection |
+| `computer_use.approvals.pending` | `{}` | any local Unix connection |
+| `computer_use.approvals.revoke` | `{"scope":"all"}` or `{"scope":"app","app":{"bundle_id"\|"executable"\|"name":S}}` | any local Unix connection (lowers) |
+| `computer_use.approvals.deny` | `{"id":S}` | any local Unix connection (lowers) |
+| `computer_use.approvals.prompt` | `{"id":S}` | any local Unix connection; shows the question again, decides nothing |
+
+The daemon refuses every other `computer_use.*` method with
+`origin.forbidden` (`cmux-tui-core/src/server/remote_host_command.rs`): no
+command approves, saves an app or raises the mode. On macOS `approve` calls
+the app's `computer_use.approvals.prompt {id}` instead, which shows the card.
+
+The driver's tools from the CLI (`tools`, `call`, `screenshot`) go through the
+acpmux daemon: `_acpmux/computer_use_mcp {"message": <MCP tools/list or
+tools/call request>}`, local Unix socket only, answered with the MCP response.
+The daemon runs one `acpmux cua-mcp` bridge child of its own
+(`acpmux/src/cua_v2/cli_bridge.rs`), so the worker's admission is unchanged:
+the peer is acpmux code, its ancestor is the registered acpmux daemon, and it
+presents the secret from `endpoint.json`, which the CLI never sees. That child
+is one session labelled `{"agent":"cmux computer-use","client":"cli"}` for
+every CLI caller of the daemon: Allow for This Session covers later CLI calls,
+and a late Allow lets the next call run. Calls run one at a time; one that
+waits for the person holds the next for at most 2 minutes. The session ends
+with the daemon or when the worker ends it.
+
+Residual (the same documented limit as above): any local process of the user
+can reach `_acpmux/computer_use_mcp`, including an agent's own shell, so an
+agent can use the `cli` session and any app the person allowed for it. It gets
+no more than the person granted that session, every new app still asks the
+person (labelled `cmux computer-use`, client `cli`), and the person's Revoke
+or Deny applies to it. A per-caller session needs a caller identity the daemon
+can verify; it is not in this version.
+
+### `setup` on Linux and Windows
+
+`cmux computer-use setup --mode M [--manifest FILE] [--i-understand-unrestricted]`
+writes `{"version":1,"mode":M,"manifest"?:<capability manifest v3>,"env"?:{"CUA_DRIVER_PERMISSION_MODE":"unrestricted","CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS":"1"}}`:
+
+| OS | File | Writer |
+| --- | --- | --- |
+| Linux | `/etc/cmux/computer-use.json` (0644, in a root-owned 0755 folder; refused if the folder is not root's or is group/world writable) | root; otherwise `sudo` from a terminal |
+| Windows | `%ProgramData%\cmux\computer-use.json` (folder owned by Administrators, ACL SYSTEM and Administrators full, Users read, inheritance off) | an elevated administrator or SYSTEM; otherwise UAC from a terminal |
+
+`bounded` needs `--manifest` (a JSON object with `"version": 3`), and only
+`bounded` takes one. `unrestricted` needs both upstream env vars set in the
+invoking shell and `--i-understand-unrestricted`. Without a terminal and
+without root/elevation, setup refuses; it never writes a file the user owns.
+The host must read the file only when its owner and ACL are as above. On
+macOS, `setup --mode M` is `settings.set computerUse.mode` with
+`confirm: true`: the app asks the person before a raise.
