@@ -469,6 +469,9 @@ struct Worker {
     bootstrap: Option<super::bootstrap_role::WorkerBridge>,
     bootstrap_retry_at: Option<u64>,
     bootstrap_backoff: Backoff,
+    /// The Native receiving failure last logged, so a retry loop logs each
+    /// new reason once instead of failing silently or flooding the journal.
+    bootstrap_last_error: Option<String>,
     paths: Paths,
     store: FileStore,
     instance_id: String,
@@ -511,6 +514,7 @@ impl Worker {
             bootstrap: None,
             bootstrap_retry_at: None,
             bootstrap_backoff: Backoff::new(1_000, 30_000),
+            bootstrap_last_error: None,
             store: FileStore::new(paths.clone()),
             paths,
             instance_id,
