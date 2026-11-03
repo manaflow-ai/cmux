@@ -772,6 +772,9 @@ pub fn run_as(
     via: &str,
 ) -> Result<String, String> {
     let path = Rights::path(optchat_root);
+    // One change at a time: read, change, save and audit under one lock, so
+    // a concurrent change never saves a stale table over a revoke.
+    let _lock = lock_table(optchat_root)?;
     let mut rights = Rights::load(&path)?;
     let json = words.iter().any(|w| w == "--json");
     let words: Vec<&str> = words
@@ -865,6 +868,23 @@ pub fn run_as(
         return Err(format!("{changed}, but auditing the change failed: {e}"));
     }
     Ok(changed)
+}
+
+/// An exclusive `flock` on `rights.lock` beside the table, held until dropped.
+fn lock_table(optchat_root: &Path) -> Result<std::fs::File, String> {
+    use std::os::unix::io::AsRawFd;
+    std::fs::create_dir_all(optchat_root).map_err(|e| e.to_string())?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(optchat_root.join("rights.lock"))
+        .map_err(|e| format!("rights.lock: {e}"))?;
+    // SAFETY: flock on a descriptor we own; blocks until held.
+    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        return Err(format!("rights.lock: {}", std::io::Error::last_os_error()));
+    }
+    Ok(lock)
 }
 
 pub const USAGE: &str = "usage: rights [show] [--json] | grant PERSON PATTERN... | revoke PERSON [PATTERN...] | approver PERSON on|off | cap PERSON USD|off | chief-cap USD|off | auth KIND|auto | name PERSON NAME | check PERSON TOOL [INPUT_JSON]";
@@ -1139,6 +1159,26 @@ mod tests {
         let out = hook("pre", Path::new("/nonexistent/tools.sock"), &mut "{\"tool_name\":\"Bash\"}".as_bytes());
         assert!(out.contains("\"deny\""), "{out}");
         assert_eq!(hook("post", Path::new("/nonexistent/tools.sock"), &mut "{}".as_bytes()), "");
+    }
+
+    #[test]
+    fn concurrent_changes_never_lose_one() {
+        let dir = std::env::temp_dir().join(format!("rights-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let threads: Vec<_> = (0..8)
+            .map(|i| {
+                let dir = dir.clone();
+                std::thread::spawn(move || {
+                    let w = vec!["grant".to_owned(), format!("user_{i}"), "Read".to_owned()];
+                    run(&w, &dir, OWNER).unwrap();
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap();
+        }
+        assert_eq!(Rights::load(&Rights::path(&dir)).unwrap().people.len(), 8);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

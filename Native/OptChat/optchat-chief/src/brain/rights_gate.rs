@@ -391,6 +391,9 @@ impl Brain {
             && ctx.turn_people.is_empty()
         {
             ctx.turn_people.push(owner);
+            if let Some(key) = &ctx.turn_key {
+                save_turn_people(&ctx.root, key, &ctx.turn_people);
+            }
         }
     }
 
@@ -418,6 +421,9 @@ impl Brain {
             }
         }
         ctx.turn_people = people;
+        if let Some(key) = &ctx.turn_key {
+            save_turn_people(&ctx.root, key, &ctx.turn_people);
+        }
     }
 
     /// Forgets the authors of `items` once they are in the turn for good
@@ -456,13 +462,25 @@ impl Brain {
         let tool = payload.get("tool_name").and_then(Value::as_str).unwrap_or("").to_owned();
         let input = payload.get("tool_input");
         let owner = self.settings.membership.owner.clone();
-        let people = if self.state.turn.is_some() && !ctx.turn_people.is_empty() {
+        // The turn's people as this host recorded them; after a restart, as
+        // the last host saved them for the same turn; else nobody known, and
+        // every call outside the Chief's own tools is refused (fail closed).
+        let current = self.state.turn.as_ref().map(|t| t.key.clone());
+        let people = if !ctx.turn_people.is_empty() {
             ctx.turn_people.clone()
-        } else if self.turn_ask || self.last_turn_ask {
-            vec![UNKNOWN.to_owned()]
         } else {
-            vec![owner.clone()]
+            match (current.as_deref(), load_turn_people(&ctx.root)) {
+                (Some(key), Some((saved, people))) if saved == key && !people.is_empty() => {
+                    if let Some(c) = self.rights.as_mut() {
+                        c.turn_people = people.clone();
+                        c.turn_key = Some(saved);
+                    }
+                    people
+                }
+                _ => vec![UNKNOWN.to_owned()],
+            }
         };
+        let ctx = self.rights.clone().unwrap_or(ctx);
         let what = crate::approval::describe(&tool, input);
         let input_sha = input.map(|i| audit::sha256(i.to_string().as_bytes()));
         let cwd = payload.get("cwd").and_then(Value::as_str).map(str::to_owned);
@@ -635,6 +653,39 @@ impl Brain {
             ..Entry::default()
         });
     }
+}
+
+/// The running turn's people, saved so a host that restarts mid-turn still
+/// holds the turn's tool calls to them (`rights-turn.json`, 0600).
+fn save_turn_people(root: &std::path::Path, key: &str, people: &[String]) {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let path = root.join("rights-turn.json");
+    let tmp = root.join(format!("rights-turn.json.{}.tmp", std::process::id()));
+    let body = json!({"turn": key, "people": people}).to_string();
+    let ok = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&tmp)
+        .and_then(|mut f| f.write_all(body.as_bytes()))
+        .and_then(|_| std::fs::rename(&tmp, &path));
+    if ok.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
+fn load_turn_people(root: &std::path::Path) -> Option<(String, Vec<String>)> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(root.join("rights-turn.json")).ok()?).ok()?;
+    let key = v.get("turn")?.as_str()?.to_owned();
+    let people = v
+        .get("people")?
+        .as_array()?
+        .iter()
+        .filter_map(|p| p.as_str().map(str::to_owned))
+        .collect();
+    Some((key, people))
 }
 
 fn usage_of(verb: &str) -> &'static str {
