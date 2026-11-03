@@ -390,6 +390,14 @@ fn main() -> std::process::ExitCode {
                                     s.show_subagent_workspaces =
                                         optchat_chief::chief_settings::parse_bool(value)?
                                 }
+                                optchat_chief::chief_settings::TRUST_AGENTS => {
+                                    s.trust_agents =
+                                        optchat_chief::chief_settings::parse_bool(value)?
+                                }
+                                optchat_chief::chief_settings::TRUSTED_AGENTS => {
+                                    s.trusted_agents =
+                                        optchat_chief::chief_settings::parse_trusted_agents(value)?
+                                }
                                 _ => return Err(format!("unknown setting {key:?}")),
                             }
                             s.save(&file)

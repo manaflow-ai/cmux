@@ -1216,3 +1216,40 @@ button.cv-subagent > :last-child {
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
 }
+
+/* The header's panel button (trayOpen.experiment.ts): its own button over the header's open slot, in
+   the lines' Stop column right before the chevron, centred on the header's row. Its hover lights the
+   button alone, never the header (Leo, 2026-10-27: a highlight covers only its control). */
+.acpmux-running-tray[data-opens="button"] {
+  position: relative;
+}
+.acpmux-running-tray__open-slot {
+  flex: 0 0 var(--acpmux-tray-stop-width);
+  width: var(--acpmux-tray-stop-width);
+}
+.acpmux-running-tray__open {
+  position: absolute;
+  top: 0;
+  right: calc(var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + var(--acpmux-tray-gap));
+  box-sizing: border-box;
+  width: var(--acpmux-tray-stop-width);
+  height: var(--ui-row-height, 28px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-control, 6px);
+  background: transparent;
+  color: var(--agent-muted);
+  cursor: default;
+}
+.acpmux-running-tray__open:hover {
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  color: var(--agent-text);
+}
+.acpmux-running-tray__open:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
