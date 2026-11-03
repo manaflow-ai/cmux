@@ -72,18 +72,6 @@ impl Hub {
         description: Option<String>,
         notify: bool,
     ) -> Result<Value, RpcError> {
-        self.bg_start_with_id(session, command, cwd, None).await
-    }
-
-    /// Workflow-only stable identity. The durable claim is written before spawning, so an
-    /// uncertain launch is never executed a second time after a daemon crash.
-    pub(crate) async fn bg_start_with_id(
-        &self,
-        session: &Arc<Session>,
-        command: &str,
-        cwd: Option<PathBuf>,
-        fixed_id: Option<&str>,
-    ) -> Result<Value, RpcError> {
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
         }
