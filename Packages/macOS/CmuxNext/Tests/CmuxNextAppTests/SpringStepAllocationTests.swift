@@ -41,8 +41,17 @@ struct SpringStepAllocationTests {
         let perFrame = Double(allocations) / Double(frames)
         print("HPA-COUNT case=spring-step springs=\(springs) frames=\(frames) allocations=\(allocations) per_frame=\(String(format: "%.1f", perFrame))")
         try #require(springs >= 12)
-        // The floor is the two key lists (one per spring kind); one allocation per spring is the defect.
-        #expect(perFrame <= 4, "\(springs) springs stepped with \(String(format: "%.1f", perFrame)) allocations per frame")
+        // The floor is the two key lists (one per spring kind); one allocation per spring is the defect. An unoptimized
+        // build allocates in accessors and closures where an optimized one does not (56 per frame in Debug, fleet step
+        // fa75e0c69d5b3961702cdad2), so the bound is the optimized build's rule (as KeyRouterBench); `#if DEBUG` is not
+        // the optimization level (the Release suite lane also passes -DDEBUG).
+        if _isDebugAssertConfiguration() {
+            withKnownIssue("an unoptimized build allocates in accessors; run in Release for the rule", isIntermittent: true) {
+                #expect(perFrame <= 4, "\(springs) springs stepped with \(String(format: "%.1f", perFrame)) allocations per frame")
+            }
+        } else {
+            #expect(perFrame <= 4, "\(springs) springs stepped with \(String(format: "%.1f", perFrame)) allocations per frame")
+        }
     }
 }
 
