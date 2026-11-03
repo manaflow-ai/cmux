@@ -1950,6 +1950,12 @@
       "title" : "Run New Workspaces in Cloud",
       "type" : "boolean"
     },
+    "cloud.tunnel.enabled" : {
+      "default" : false,
+      "description" : "Lets every app on this Mac reach your Cloud machines' private addresses, like a VPN for your Cloud network only. macOS asks you to allow the cmux network extension once. cmux itself does not need it.",
+      "title" : "Cloud Tunnel",
+      "type" : "boolean"
+    },
     "cloud.useMyClaudeLoginOnMyCloudMachines" : {
       "default" : false,
       "description" : "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
@@ -2515,6 +2521,12 @@
       ],
       "title" : "Copy Terminal Notifications to the Feed",
       "type" : "string"
+    },
+    "feed.needsYouInChief" : {
+      "default" : false,
+      "description" : "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.",
+      "title" : "Pin Needs You in Chief",
+      "type" : "boolean"
     },
     "files.textEditor" : {
       "default" : "",

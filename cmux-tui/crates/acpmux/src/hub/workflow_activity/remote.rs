@@ -35,7 +35,7 @@ fn remote_request(
         "cwd":options.get("cwd").cloned().unwrap_or_else(||json!(run.cwd)),"policy":"ask","allowedTools":allowed,"wait":true});
     for field in ["harness", "preset", "model", "effort", "route", "policy"] {
         if let Some(value) = options.get(field) {
-            request[field] = value.clone();
+            request.set(field, value.clone());
         }
     }
     request
@@ -192,7 +192,7 @@ impl Hub {
                 .get(&child_id)
                 && let Some(token) = previous.policy.pointer("/remoteDispatch/receiptToken")
             {
-                request["receiptToken"] = token.clone();
+                request.set("receiptToken", token.clone());
             }
             self.workflow_runs
                 .store()
@@ -319,8 +319,8 @@ impl Hub {
                 "remote workflow child differs from its dispatch intent",
             ));
         }
-        request["action"] = json!("cancel");
-        request["wait"] = json!(false);
+        request.set("action", json!("cancel"));
+        request.set("wait", json!(false));
         Box::pin(crate::server::workflow_owner_call(
             self,
             &run.owner_session_id,
