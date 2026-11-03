@@ -1612,7 +1612,7 @@
     "agent-pane.subagent-tray#geometry": 0.01824,
     "agent-pane.subagent-tray#grid-31": 0.0503,
     "agent-pane.subagent-tray#many-folded": 0,
-    "agent-pane.subagent-tray#one-agent-two-commands": 0,
+    "agent-pane.subagent-tray#one-agent-two-commands": 0.01487,
     "agent-pane.subagent-tray#one-command": 0,
     "agent-pane.subagent-tray#one-running": 0,
     "agent-pane.subagent-tray#panel-118": 0.08372,
