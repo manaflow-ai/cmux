@@ -565,8 +565,9 @@ fn untracked(root: &Path, path: String) -> ChangedFile {
     file
 }
 
-/// Opens a regular file without following a link or waiting on a FIFO.
-fn open_regular(path: &Path) -> Option<File> {
+/// Opens a regular file without following a link or waiting on a FIFO. Read
+/// its initial extent so concurrent appends cannot keep this request running.
+fn open_regular(path: &Path) -> Option<std::io::Take<File>> {
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -576,7 +577,7 @@ fn open_regular(path: &Path) -> Option<File> {
     }
     let handle = options.open(path).ok()?;
     let metadata = handle.metadata().ok()?;
-    metadata.is_file().then_some(handle)
+    metadata.is_file().then(|| handle.take(metadata.len()))
 }
 
 /// The request's paths, which must stay inside the repository.
