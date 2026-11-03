@@ -69,8 +69,8 @@ measured from the input send. This is the number to drive under one frame next.
 
 The policy already exists and is correct in shape; this work keeps it:
 
-- Terminals: hidden surfaces sit in one LRU (`WarmSetBudget`): 1/64 of physical
-  memory at about 48 MB each, 8 to 24 surfaces, 6 under a pressure warning, 0 when
+- Terminals: hidden surfaces sit in one LRU (`WarmSetBudget`): 1/32 of physical
+  memory at about 20 MB each, 8 to 64 surfaces, 6 under a pressure warning, 0 when
   critical. An evicted surface re-attaches with a daemon replay.
 - Chromium pages freeze after 30 s hidden (`browser.freezeHiddenTabs`) and
   hibernate after 60 min (`browser.hibernation`, `moderate`), earlier under memory

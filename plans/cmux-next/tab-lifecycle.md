@@ -60,8 +60,9 @@ tab's page window covers the pane (`foreign_pages`).
   strip at once and queues `showSelected` on the frame scheduler, so holding
   Ctrl-Tab creates, attaches or reveals content only for the tab selected
   when the frame runs.
-- Terminal warm set sized by memory (`WarmSetBudget`: 1/128 of RAM at 48 MB a
-  surface, 4 to 12 hidden surfaces; pressure warning 4, critical 0). Browser
+- Terminal warm set sized by memory (`WarmSetBudget`: 1/32 of RAM at 20 MB a
+  terminal, 8 to 64 hidden terminals, so the visible panes of the last 2 to 3
+  workspaces stay warm; pressure warning 6, critical 0). Browser
   pages no longer count in (or evict terminals from) that LRU; hibernation
   manages their memory.
 - Workspace switches park the previous workspace (`WindowController.parked`):

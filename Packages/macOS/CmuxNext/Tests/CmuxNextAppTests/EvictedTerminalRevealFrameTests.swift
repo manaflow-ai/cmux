@@ -125,7 +125,7 @@ import Testing
         window.contentView = host
         window.orderFrontRegardless()
         var frames = TerminalLastFrames()
-        // The warm set of a 16 GB Mac (WarmSetBudget.forMemory: 8): 9 terminals leave it.
+        // A warm set of 8 (the floor of WarmSetBudget.forMemory): 9 terminals leave it.
         let capacity = 8
         for index in 0..<9 {
             let io = ScriptedTerminalIO()
