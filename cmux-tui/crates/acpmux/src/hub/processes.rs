@@ -750,7 +750,17 @@ impl Hub {
     /// request: refused. With no turn running, nothing runs in the
     /// foreground: `backgrounded: false`, and Claude Code is not asked.
     pub async fn background_work(&self, key: &str, tool: Option<&str>) -> Result<Value, RpcError> {
-        let session = self.resolve(key)?;
+        self.background_session(&self.resolve(key)?, tool, false).await
+    }
+
+    /// [`Self::background_work`] for `session`. `auto`: acpmux moves it on its own
+    /// (`auto_background.rs`), not the person, so what moves keeps origin `auto_backgrounded`.
+    pub(super) async fn background_session(
+        &self,
+        session: &Arc<Session>,
+        tool: Option<&str>,
+        auto: bool,
+    ) -> Result<Value, RpcError> {
         if !session.backgrounds_work.load(Ordering::SeqCst) {
             return Err(RpcError::invalid_params(
                 "only Claude Code can move running work to the background",
@@ -772,6 +782,7 @@ impl Hub {
             "sessionId": session.meta().agent_session_id,
             "toolCallId": tool,
             "timeoutMs": u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+            "auto": auto,
         });
         let ask = child.request(crate::claude_stdio::BACKGROUND_TASKS, params);
         match tokio::time::timeout(timeout, ask).await {

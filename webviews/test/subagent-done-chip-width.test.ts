@@ -111,7 +111,9 @@ await requireBrowserLane("subagent-done-chip-width.test.ts", async () => {
   });
 
   test("a failure with a long error: the error is cut first, the chip keeps its whole name", async () => {
-    const [line] = await lines("failed-long-error", 420);
+    // At 900px the name fits beside the line's other parts and only the error overflows; at 420px
+    // the name alone does not fit, so both are cut.
+    const [line] = await lines("failed-long-error", 900);
     expect(line?.suffix?.cut).toBe(true);
     expect(line!.chip.cut).toBe(false);
   });

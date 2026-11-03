@@ -33,9 +33,12 @@ import "../../src/agent-session/acpmux/keys.css";
 import "../../src/agent-session/acpmux/newtab/screen.css";
 import "../../src/agent-session/acpmux/newtab/history.css";
 import "../../src/agent-session/acpmux/threadMinimap/threadMinimap.css";
-// The motion tests measure the compact (Codex) rail; `?layout=full` shows the full-height map.
+// The motion tests measure the compact (Codex) rail; `?layout=full` shows the full-height map, and
+// `?wave=stepped` (or another wave.experiment.ts arm) picks the hover wave's shape.
+const query = new URLSearchParams(location.search);
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
-  "thread-minimap-layout": new URLSearchParams(location.search).get("layout") === "full" ? "full" : "compact",
+  "thread-minimap-layout": query.get("layout") === "full" ? "full" : "compact",
+  ...(query.get("wave") ? { "thread-minimap-wave": query.get("wave")! } : {}),
 };
 
 const root = document.getElementById("root")!;

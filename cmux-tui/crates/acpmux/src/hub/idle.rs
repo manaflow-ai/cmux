@@ -453,14 +453,7 @@ impl Hub {
             if session.child.try_lock().map(|c| c.is_some()).unwrap_or(true) {
                 return Some("a running agent");
             }
-            if session.turn().is_some()
-                || session.harness_turn.load(Ordering::SeqCst)
-                || session.queued() > 0
-                || !session.pending_permissions().is_empty()
-                || session.asks_in_flight.load(Ordering::SeqCst) > 0
-                || session.agent_requests.load(Ordering::SeqCst) > 0
-                || self.continuation_pending(&session)
-            {
+            if self.turn_at_work(&session) {
                 return Some("a turn");
             }
             if self.bg_running(&session) {
@@ -474,6 +467,38 @@ impl Hub {
             return Some("an agent host");
         }
         None
+    }
+}
+
+impl Hub {
+    /// A turn or anything one waits on: running (by acpmux or by the harness), queued, a
+    /// permission or question pending, an agent request on its way, or a continuation of a cut
+    /// turn still due.
+    fn turn_at_work(&self, session: &Session) -> bool {
+        session.turn().is_some()
+            || session.harness_turn.load(Ordering::SeqCst)
+            || session.queued() > 0
+            || !session.pending_permissions().is_empty()
+            || session.asks_in_flight.load(Ordering::SeqCst) > 0
+            || session.agent_requests.load(Ordering::SeqCst) > 0
+            || self.continuation_pending(session)
+    }
+
+    /// This daemon's own sessions at work: a turn or anything one waits on, a background task
+    /// running, or a background subagent or sub-session at work. A Cloud machine counts them as open sessions in its activity report
+    /// (`daemon/cloud_activity.rs`), so it is never paused for idleness mid-turn. Reads each
+    /// chat's background-task records, so call it off the async workers.
+    pub(crate) fn sessions_at_work(&self) -> usize {
+        self.sessions()
+            .iter()
+            .filter(|s| {
+                self.turn_at_work(s)
+                    || s.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running()
+                        > 0
+                    || s.work_below_since.lock().map_or(true, |v| *v != 0)
+                    || self.bg_running(s)
+            })
+            .count()
     }
 }
 

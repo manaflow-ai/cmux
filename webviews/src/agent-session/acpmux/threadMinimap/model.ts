@@ -127,6 +127,64 @@ export function tickProgress(distance: number | undefined): number {
 /// The drawn length of a tick at `progress`: 6 px at rest, 26 px hovered.
 export const tickLength = (progress: number) => TICK_BOX * (0.2308 + 0.7692 * progress);
 
+/// The hover wave's shapes (wave.experiment.ts): how magnified a tick is (0 to 1) at `distance` rows
+/// from the pointer, measured from the tick's middle to the pointer's fractional row. Each is smooth
+/// and reaches 0 at its `reach`, so a tick past it rests.
+export type WaveShape = { reach: number; at(distance: number): number };
+const SIGMA = 1.4;
+const bell = (distance: number) => Math.exp(-(distance * distance) / (2 * SIGMA * SIGMA));
+export const WAVE_SHAPES = {
+  "cosine-4": { reach: 4, at: (distance: number) => 0.5 + 0.5 * Math.cos((Math.PI * distance) / 4) },
+  "cosine-5": { reach: 5, at: (distance: number) => 0.5 + 0.5 * Math.cos((Math.PI * distance) / 5) },
+  // The bell less its value at the reach, scaled back to 1 at the peak, so it meets rest at 4.5 rows.
+  gaussian: { reach: 4.5, at: (distance: number) => (bell(distance) - bell(4.5)) / (1 - bell(4.5)) },
+} as const satisfies Record<string, WaveShape>;
+export type WaveShapeId = keyof typeof WAVE_SHAPES;
+
+/// How magnified the tick at `index` is with the pointer at fractional row `focus` (row `i` spans
+/// `i` to `i + 1`, its middle at `i + 0.5`), at `amplitude` of the full bump.
+export function waveProgress(shape: WaveShape, index: number, focus: number, amplitude = 1): number {
+  const distance = Math.abs(index + 0.5 - focus);
+  return distance >= shape.reach ? 0 : amplitude * shape.at(distance);
+}
+
+/// The wave's time constant as it follows the pointer: the bump closes 95% of the way to a still
+/// pointer in 3 of these (90 ms), inside the motion scale's micro step, so a sweep reads as one
+/// smooth wave and a flick never jumps.
+export const WAVE_FOLLOW_MS = 30;
+/// The rail's spring (threadMinimap.css `--acpmux-minimap-spring`, about 0.8% overshoot) as points
+/// of progress over its duration: the wave grows in on it when the pointer arrives.
+const SPRING: ReadonlyArray<readonly [number, number]> = [
+  [0, 0],
+  [0.1, 0.398],
+  [0.2, 0.682],
+  [0.3, 0.843],
+  [0.4, 0.925],
+  [0.5, 0.972],
+  [0.6, 1.004],
+  [0.7, 1.008],
+  [0.8, 1.003],
+  [1, 1],
+];
+export const WAVE_IN_MS = MOTION_MS.micro;
+/// The wave's amplitude `elapsed` ms after the pointer arrived: the spring over the micro step.
+export function waveAmplitude(elapsed: number): number {
+  const at = Math.max(0, Math.min(1, elapsed / WAVE_IN_MS));
+  for (let index = 1; index < SPRING.length; index += 1) {
+    const [x1, y1] = SPRING[index]!;
+    if (at > x1) continue;
+    const [x0, y0] = SPRING[index - 1]!;
+    return y0 + ((y1 - y0) * (at - x0)) / (x1 - x0);
+  }
+  return 1;
+}
+/// The pointer's fractional row a wave eases toward this frame, `elapsed` ms after the last.
+export function waveFollow(focus: number, target: number, elapsed: number): number {
+  const next = focus + (target - focus) * (1 - Math.exp(-Math.max(0, elapsed) / WAVE_FOLLOW_MS));
+  // Within a hundredth of a row (0.1 px) it is there: the loop stops.
+  return Math.abs(target - next) < 0.01 ? target : next;
+}
+
 /// The transcript's soft edges (conversation.css `.acpmux-scroll[data-fade-*]`): its mask fades
 /// rows out over this many px under the top once scrolled from the start, and above the view's foot
 /// (the bottom stack's top) while more lies below. The composer edge is always 18 px, including
