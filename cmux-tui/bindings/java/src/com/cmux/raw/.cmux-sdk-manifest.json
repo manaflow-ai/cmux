@@ -1277,8 +1277,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "aee5e9f2fcc43818d1a689d990d678a224026b331fecf392e27b6df5bdcc1e25",
-      "size": 18534
+      "sha256": "f8b6f56ca9500b8ea2b52e663cd6cf1f601be2569b1f49e2ccd876a24dd3532d",
+      "size": 19036
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -2137,8 +2137,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "266b37b9c3ed934fca407692d0577d9dfd211d39a42840625f9da8f4111b7226",
-      "size": 7584
+      "sha256": "4b60650c189bfea292c664376c0997ebca6e239394745716248c53e6e957db65",
+      "size": 7767
     },
     {
       "path": "ProtocolEvent.java",
@@ -2489,6 +2489,21 @@
       "path": "SelectWorkspaceRequest.java",
       "sha256": "01a9e3aaefc343ead2d5d88c8cac31d3b7b67af31e29edaf92afbdf1987a0ae8",
       "size": 2594
+    },
+    {
+      "path": "SelectionChangedEvent.java",
+      "sha256": "b332ceea4094e155542acbcee7b9dd7e35e0e49c86091edbfa5daa160f667077",
+      "size": 4762
+    },
+    {
+      "path": "SelectionPane.java",
+      "sha256": "7f3a5b23c08f40e57cd68be15680daa5c80e59b3e3348ab575576457cbbb43cb",
+      "size": 3290
+    },
+    {
+      "path": "SelectionScreen.java",
+      "sha256": "4d1174faaf74a2faa5313b9c0c41ad84e88f1fe6355c9740127b17acbac0f689",
+      "size": 3989
     },
     {
       "path": "SendExpectAgent.java",
@@ -3441,6 +3456,11 @@
       "size": 8092
     },
     {
+      "path": "WorkspacePresentationChangedEvent.java",
+      "sha256": "b0b4e461d56155dcf1755ce7a2f3248292d5a3a35a7a3a937726c9251d5112bc",
+      "size": 3240
+    },
+    {
       "path": "WorkspaceRenamedEvent.java",
       "sha256": "ca8ba6cadcb7d66e8d20afe9bdf08186a10b9c2d47955de02a68bcfed76c4189",
       "size": 6820
@@ -3467,7 +3487,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b",
+  "ir_sha256": "e1376b26094dcc4058ebfae8b8708916c1f9f204117cba1fee8a626ff0266943",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

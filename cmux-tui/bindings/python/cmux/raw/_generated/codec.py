@@ -128,6 +128,8 @@ MODEL_BY_PATH = {
     'types/SavedTabGroupMember': models.SavedTabGroupMember,
     'types/SavedTabGroupRecord': models.SavedTabGroupRecord,
     'types/Screen': models.Screen,
+    'types/SelectionPane': models.SelectionPane,
+    'types/SelectionScreen': models.SelectionScreen,
     'types/SendExpectAgent': models.SendExpectAgent,
     'types/ServerStatsConnections': models.ServerStatsConnections,
     'types/ServerStatsHistogram': models.ServerStatsHistogram,
@@ -604,6 +606,7 @@ MODEL_BY_PATH = {
     'events/screen-closed/payload': models.ScreenClosedEvent,
     'events/screen-renamed/payload': models.ScreenRenamedEvent,
     'events/scroll-changed/payload': models.ScrollChangedEvent,
+    'events/selection-changed/payload': models.SelectionChangedEvent,
     'events/settings-changed/payload': models.SettingsChangedEvent,
     'events/size-state/payload': models.SizeStateEvent,
     'events/status/payload': models.StatusEvent,
@@ -629,6 +632,7 @@ MODEL_BY_PATH = {
     'events/workspace-changed/payload': models.WorkspaceChangedEvent,
     'events/workspace-closed/payload': models.WorkspaceClosedEvent,
     'events/workspace-moved/payload': models.WorkspaceMovedEvent,
+    'events/workspace-presentation-changed/payload': models.WorkspacePresentationChangedEvent,
     'events/workspace-renamed/payload': models.WorkspaceRenamedEvent
 }
 

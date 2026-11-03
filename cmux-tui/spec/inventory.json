@@ -924,6 +924,18 @@
       ]
     },
     {
+      "name": "selection-changed",
+      "streams": [
+        "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "workspace-presentation-changed",
+      "streams": [
+        "subscribe-deltas"
+      ]
+    },
+    {
       "name": "scroll-changed",
       "streams": [
         "subscribe",
