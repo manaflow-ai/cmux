@@ -499,6 +499,10 @@ extension AgentPaneTransport {
             localAppToken = nil
         } else {
             noteSent(facts, relayID: relayID)
+            // A Sign in that took the person's click opens its page too, with no second click.
+            if facts.needsGesture, facts.method == "_acpmux/agent_login/start" {
+                signInPageCredit.give(connection: id, at: gestures.uptime)
+            }
             // The switch's queued prompt goes out: its pick tickets end, but each other prompt
             // keeps its own send proof for the rapid-send case.
             if facts.method == "session/prompt" {

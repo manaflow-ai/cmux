@@ -70,6 +70,8 @@ struct CloudMachineUpdateFollowTests {
         #expect(!CloudMachineUpdateTarget.mayHaveRestarted(CloudMoveCLI.Answer(ok: true, updated: false, build: "abc123def456")))
         #expect(!CloudMachineUpdateTarget.mayHaveRestarted(CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_busy")))
         #expect(!CloudMachineUpdateTarget.mayHaveRestarted(CloudMoveCLI.Answer(ok: false, errorCode: "machine_unreachable")))
+        #expect(!CloudMachineUpdateTarget.mayHaveRestarted(CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_foreign_daemon")),
+                "a daemon on someone's own build was left alone")
         #expect(CloudMachineUpdateTarget.mayHaveRestarted(CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_rolled_back")))
         #expect(CloudMachineUpdateTarget.mayHaveRestarted(CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_unresolved")))
         #expect(CloudMachineUpdateTarget.mayHaveRestarted(nil), "the CLI gave no answer")

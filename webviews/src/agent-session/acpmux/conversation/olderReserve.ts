@@ -12,8 +12,10 @@
 //
 // The room keeps one row (the pin) where it was placed: room + the pin's top among the rows is held
 // constant, so rows that land or draw above the pin take the room they fill, and the pin and every
-// row under it never move. Only a wrong estimate shows: the room runs out with history still to
-// load (a new estimate, one step of the thumb), or the last page leaves room over (it goes, one step).
+// row under it never move as pages land. Estimate once on the first nonempty layout, using the
+// prompt count already available while the prompt index loads. Later counts never add room, even
+// after it runs out. Row shrinkage can only give room back to the document, never refill the reserve;
+// the last page removes any leftover room.
 
 import type { AcpmuxRow } from "../model";
 
@@ -25,15 +27,11 @@ export type OlderReserve = {
   /// The row the room is held against, and where it was last found.
   pinId: string;
   pinIndex: number;
-  /// The pin's index when the room was estimated: still there, no page has landed since.
-  pinFirst: number;
   rowCount: number;
-  /// The room plus the pin's top among the rows: constant while the pin is held.
+  /// The room plus the pin's top among the rows: held as pages land, reduced if rows shrink.
   end: number;
   /// The room this pass held.
   room: number;
-  /// The counts the estimate read (`earlier`, `promptCount`): a count that arrives later estimates again.
-  counts: string;
 };
 
 export type OlderReserveInput = {
@@ -57,8 +55,6 @@ function findPin(state: OlderReserve, rows: readonly AcpmuxRow[]): number {
   if (rows[shifted]?.id === state.pinId) return shifted;
   return rows.findIndex((row) => row.id === state.pinId);
 }
-
-const countsOf = (input: OlderReserveInput) => `${input.earlier ?? ""}:${input.promptCount ?? ""}`;
 
 /// The first prompt among the rows (bounded: a page starts with whole turns), else the first row.
 function firstPrompt(rows: readonly AcpmuxRow[]): number {
@@ -88,33 +84,30 @@ export function olderReserve(
   input: OlderReserveInput,
 ): { reserve: number; state: OlderReserve | undefined } {
   const { rows } = input;
-  if (!input.canLoadOlder || rows.length === 0) return { reserve: 0, state: undefined };
-  if (state && state.sessionId === input.sessionId) {
-    const pin = findPin(state, rows);
-    if (pin >= 0) {
-      const reserve = Math.max(0, state.end - input.rowTop(pin));
-      // Still room, or the estimate already ran out for these rows and counts: no new count until a
-      // page lands or a count arrives.
-      if (reserve > 0 || (pin === state.pinFirst && state.room === 0 && state.counts === countsOf(input)))
-        return { reserve, state: { ...state, pinIndex: pin, rowCount: rows.length, room: reserve } };
-    }
-  }
-  // A new chat, a pin that left, or room that ran out with history still to load: estimate again,
-  // held against the first prompt. Not a row above it: a date divider there is replaced when the
-  // turn before it lands, and a pin that leaves would estimate again on every page.
-  const estimate = estimateOlderHeight(input) ?? 0;
-  const pin = firstPrompt(rows);
+  const previous = state?.sessionId === input.sessionId ? state : undefined;
+  // Zero is final for this session; no pin search or row scan is needed after exhaustion.
+  if (previous?.room === 0) return { reserve: 0, state: previous };
+  // An initial empty snapshot has nothing to estimate. Once a layout has held room, keep its
+  // exhausted state through an empty snapshot so the same session cannot seed it again.
+  if (rows.length === 0) return { reserve: 0, state: previous ? { ...previous, room: 0, end: 0 } : undefined };
+  const found = previous ? findPin(previous, rows) : -1;
+  const pin = found >= 0 ? found : firstPrompt(rows);
+  const top = input.rowTop(pin);
+  const reserve = !input.canLoadOlder
+    ? 0
+    : previous
+      ? Math.min(previous.room, Math.max(0, found >= 0 ? previous.end - top : previous.room))
+      : (estimateOlderHeight(input) ?? 0);
   return {
-    reserve: estimate,
+    reserve,
     state: {
       sessionId: input.sessionId,
       pinId: rows[pin]!.id,
       pinIndex: pin,
-      pinFirst: pin,
-      counts: countsOf(input),
       rowCount: rows.length,
-      end: estimate + input.rowTop(pin),
-      room: estimate,
+      // Rebase after shrinkage, or a pin that left: later growth consumes the room still held.
+      end: reserve + top,
+      room: reserve,
     },
   };
 }

@@ -6,6 +6,8 @@
 // card and the Sessions by usage list read these numbers; acpmux recomputes them on each list
 // read and at turn end, so the pane adds no timer and no per-token work for them.
 
+import type { Translate } from "./i18n";
+
 /** acpmux's `usageStats` (ao-vis-data's contract). Absent while the harness has no readable
  *  transcript; a number acpmux could not read is absent here too. */
 export type SessionUsageStats = {
@@ -29,11 +31,23 @@ export type SessionUsageStats = {
   /** Input, output, cache read and cache write tokens of the last 24 hours. */
   tokens24h?: number;
   costUsd24h?: number;
+  /** Model calls of the last 24 hours, subagents' included. */
+  calls24h?: number;
+  /** Of those calls' prompt tokens (input, cache reads and cache writes), the share the prompt
+   *  cache served, 0 to 1. Leo, 2026-11-03, on the hour-long prompt cache: "holy shit that's such a
+   *  big win that cmux-next/acpmux can get....": the share and the cost per call show the win. */
+  cacheReadShare24h?: number;
+  /** `costUsd24h` over the priced calls: what one call costs at list prices. */
+  costPerCallUsd24h?: number;
   updatedAt: number;
 };
 
 const count = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+const share = (value: unknown) => {
+  const n = count(value);
+  return n !== undefined && n <= 1 ? n : undefined;
+};
 const label = (value: unknown) => (typeof value === "string" && value ? value : undefined);
 
 /** acpmux's `usageStats`, or undefined when it sent none or sent something else. */
@@ -57,6 +71,9 @@ export function usageStatsOf(value: unknown): SessionUsageStats | undefined {
     ...optional("subagents24h", count(raw.subagents24h)),
     ...optional("tokens24h", count(raw.tokens24h)),
     ...optional("costUsd24h", count(raw.costUsd24h)),
+    ...optional("calls24h", count(raw.calls24h)),
+    ...optional("cacheReadShare24h", share(raw.cacheReadShare24h)),
+    ...optional("costPerCallUsd24h", count(raw.costPerCallUsd24h)),
     updatedAt,
   };
 }
@@ -79,6 +96,47 @@ export function usageCost(usd: number, locale?: string): string {
     maximumFractionDigits: usd >= 100 ? 0 : 2,
     minimumFractionDigits: usd >= 100 ? 0 : 2,
   }).format(usd);
+}
+
+/** "94.3%" from 0.9431: one decimal, so a 94.3% and a 98.1% chat read apart. */
+export function usageShare(share: number, locale?: string): string {
+  return new Intl.NumberFormat(locale, { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(
+    share,
+  );
+}
+
+/** "$0.35", "$0.004": a call can cost under a cent, so small costs keep two significant digits. */
+export function usageCallCost(usd: number, locale?: string): string {
+  if (usd >= 0.01) return usageCost(usd, locale);
+  return new Intl.NumberFormat(locale, { style: "currency", currency: "USD", maximumSignificantDigits: 2 }).format(usd);
+}
+
+/** How Usage draws the prompt cache's numbers: two rows (shipped), or one row with both. */
+export type UsageCacheLayout = "rows" | "combined";
+
+/** Usage's prompt cache rows for this chat (web and native panels): the share of prompt tokens
+ *  the cache served and the cost of one call, each over the last 24 hours. A number acpmux did
+ *  not send reads as the unknown mark. */
+export function cacheUsageRows(
+  t: Translate,
+  stats: SessionUsageStats,
+  locale?: string,
+  layout: UsageCacheLayout = "rows",
+): { id: string; name: string; value: string }[] {
+  const shareText = stats.cacheReadShare24h === undefined ? UNKNOWN : usageShare(stats.cacheReadShare24h, locale);
+  const costText = stats.costPerCallUsd24h === undefined ? UNKNOWN : usageCallCost(stats.costPerCallUsd24h, locale);
+  if (layout === "combined")
+    return [
+      {
+        id: "cache",
+        name: t("sessionInfo.usage.promptCache24h"),
+        value: t("sessionInfo.usage.promptCacheValue", { share: shareText, cost: costText }),
+      },
+    ];
+  return [
+    { id: "cache-read", name: t("sessionInfo.usage.cacheRead24h"), value: shareText },
+    { id: "call-cost", name: t("sessionInfo.usage.costPerCall24h"), value: costText },
+  ];
 }
 
 /** What an unknown number shows: never a synthesized 0 or $0.00. */
@@ -111,15 +169,25 @@ export function byUsage<T extends { sessionId: string; usageStats?: SessionUsage
     );
 }
 
-/** The context `usage` read against the window the session compacts at: its autocompact cap when
- *  that is under the model's window, as Claude Code's own /context reads it (Leo 2026-10-20, of a
- *  ring that read "213.1K of 1M tokens": "I usually have, like, 400K on my typical [Claude]
- *  sessions"). `usage` itself when there is no smaller cap. */
+/** The context `usage` read against the window the session compacts at, as Claude Code's own
+ *  /context reads it (Leo 2026-10-20, of a ring that read "213.1K of 1M tokens": "I usually have,
+ *  like, 400K on my typical [Claude] sessions"; 2026-11-02, of "/ 1M" on a 400k chat: "whatever a
+ *  user set their compact window to it should be that instead of always showing the defautl"). The
+ *  smaller of the window /context itself names (`breakdown.maxTokens`, which already reads the
+ *  person's autocompact setting) and acpmux's autocompact cap, each only when it is under the
+ *  model's window. `usage` itself when neither is. */
 export function compactingUsage<U extends { used: number; size: number }>(
   usage: U | undefined,
   stats: SessionUsageStats | undefined,
+  breakdown?: { maxTokens?: unknown },
 ): U | undefined {
-  const cap = stats?.autocompact === "capped" ? stats.autocompactCap : undefined;
-  if (!usage || !cap || cap <= 0 || (usage.size > 0 && cap >= usage.size)) return usage;
-  return { ...usage, size: cap };
+  if (!usage) return usage;
+  const under = (n: unknown) =>
+    typeof n === "number" && Number.isFinite(n) && n > 0 && (usage.size <= 0 || n < usage.size) ? n : undefined;
+  const windows = [
+    under(breakdown?.maxTokens),
+    under(stats?.autocompact === "capped" ? stats.autocompactCap : undefined),
+  ];
+  const known = windows.filter((n): n is number => n !== undefined);
+  return known.length === 0 ? usage : { ...usage, size: Math.min(...known) };
 }

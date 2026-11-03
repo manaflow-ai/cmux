@@ -162,6 +162,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
 
+      - name: Validate push triggers name their branches
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_push_trigger_branches.py
+
       - name: Validate the CI timing readout
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_timing_readout.py
@@ -193,6 +197,12 @@ jobs:
       - name: Validate attachment admission caps
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_attachment_caps_guard.py
+
+      # No new size or count cap in the send path, as a shrink-only ratchet
+      # (tests/send-path-cap-allowlist.json).
+      - name: Validate send-path caps
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_send_path_caps.py
 
       - name: Validate the PR perf section check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -579,6 +589,12 @@ jobs:
       - name: Validate the machine join E2E harness
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: bun test scripts/cmux-next/machine-join-e2e.test.ts
+
+      # The machine vault E2E harness: cleanup, refusal, skip and leak paths (fake fetch and
+      # fake CLIs; no network, no secret).
+      - name: Validate the machine vault E2E harness
+        if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
+        run: bun test scripts/cmux-next/machine-vault-e2e.test.ts
 
       - name: Set up Python 3.9 for nightly prune compatibility
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
@@ -1740,6 +1756,10 @@ jobs:
       - name: Validate nightly-next ships as cmux NEXT beside classic NIGHTLY
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_identity.py
+
+      - name: Validate the rolling nightly-next DMG is the cmux NIGHTLY build
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_rolling_dmg_identity.py
 
       - name: Validate nightly signing admission and its shadow mode
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

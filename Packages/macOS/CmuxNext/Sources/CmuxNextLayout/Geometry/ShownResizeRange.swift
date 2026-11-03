@@ -7,13 +7,17 @@ public import CoreGraphics
 public nonisolated struct ShownResizeRange {
     let geometry: ScreenGeometry
     let style: LayoutStyle
+    /// The device pixels per point the geometry was placed on (`ScreenGeometry.compute`'s `scale`).
+    let scale: CGFloat
 
     /// - Parameters:
     ///   - geometry: The screen's geometry at its rest (the one its springs head for).
     ///   - style: The style that geometry was computed with.
-    public init(geometry: ScreenGeometry, style: LayoutStyle) {
+    ///   - scale: The backing scale that geometry was computed at.
+    public init(geometry: ScreenGeometry, style: LayoutStyle, scale: CGFloat = 2) {
         self.geometry = geometry
         self.style = style
+        self.scale = scale
     }
 
     /// The ratios of `split` that place its divider somewhere new: each side keeps its minimum extent.
@@ -52,10 +56,21 @@ public nonisolated struct ShownResizeRange {
         let fills = !style.rowsEnabled || sum <= 1000
         // Permille as placed: a filled stack scales every row by 1000 / sum.
         let scale = fills && sum > 0 ? Double(sum) / 1000 : 1
+        /// The largest stored permille at which `row` still shows at its minimum height on this screen's pixel grid
+        /// (as `RowStackGeometry.compute` places it: the placed height rounded to a pixel, held at the minimum rounded
+        /// up to one): below it nothing moves, above it the edge moves. Searched from the exact estimate; a few steps.
         func floor(_ row: LayoutRow) -> Int {
-            let points = SplitGeometry.minimumSize(of: row.root, style: style).height
-            let placed = Double(RowStackGeometry.permille(forPixelHeight: points, columnHeight: stack.frame.height, gap: stack.gap))
-            return max(LayoutRow.heightRange.lowerBound, Int((placed * scale).rounded(.up)))
+            let minimum = SplitGeometry.ceilToPixel(SplitGeometry.minimumSize(of: row.root, style: style).height, scale: self.scale)
+            func shown(_ stored: Int) -> CGFloat {
+                SplitGeometry.roundToPixel(RowStackGeometry.pixelHeight(permille: Double(stored) / scale, columnHeight: stack.frame.height,
+                                                                         gap: stack.gap), scale: self.scale)
+            }
+            let range = LayoutRow.heightRange
+            let exact = Double((minimum + stack.gap) / (stack.frame.height + stack.gap)) * 1000 * scale
+            var stored = min(max(Int(exact.rounded(.down)), range.lowerBound), range.upperBound)
+            while stored > range.lowerBound, shown(stored) > minimum { stored -= 1 }
+            while stored < range.upperBound, shown(stored + 1) <= minimum { stored += 1 }
+            return stored
         }
         let step = Int((delta * 1000 * scale).rounded())
         guard step != 0 else { return nil }
@@ -65,10 +80,16 @@ public nonisolated struct ShownResizeRange {
         let shownUpper = max(rows[upper].height, floor(rows[upper]))
         /// From where the row shows, one step toward `next`, inside `low...high`; nil when nothing would move, so a
         /// press never moves the edge the wrong way or sends a height the model refuses.
+        /// Each direction checks only its own bound: Up (shrinking the upper row) stops at `low`, Down at `high`. Where
+        /// the two rows' minimums cannot both fit (`low > high`), Up can still bring the upper row to its minimum (the
+        /// lower row only grows).
         func stepped(low: Int, high: Int) -> Int? {
-            guard low <= high else { return nil }
-            let next = step > 0 ? min(shownUpper + step, high) : max(shownUpper + step, low)
-            return (step > 0 ? next > shownUpper : next < shownUpper) ? next : nil
+            if step > 0 {
+                let next = min(shownUpper + step, high)
+                return next > shownUpper ? next : nil
+            }
+            let next = max(shownUpper + step, low)
+            return next < shownUpper ? next : nil
         }
         if fills {
             let pair = rows[upper].height + rows[upper + 1].height

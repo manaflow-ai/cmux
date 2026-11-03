@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1274,
+    "entries": 1281,
     "shortcuts": 189
   },
   "sections": [
@@ -20,6 +20,12 @@
           "title": "Add People to Group…",
           "shortcut": null,
           "command": "cmux home add-members"
+        },
+        {
+          "id": "home.agentMessagePlayground",
+          "title": "Agent Messages Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "home.attachFiles",
@@ -216,6 +222,12 @@
         {
           "id": "recentlyFocused",
           "title": "Location History…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "home.mcpConnectPlayground",
+          "title": "MCP Connect Card Playground",
           "shortcut": null,
           "command": null
         },
@@ -1986,7 +1998,7 @@
         {
           "id": "newColumn",
           "title": "New Column Right",
-          "shortcut": "⌃⌘D",
+          "shortcut": "⌃⌘X",
           "command": "cmux pane new-column"
         },
         {
@@ -1998,7 +2010,7 @@
         {
           "id": "newRow",
           "title": "New Row",
-          "shortcut": "⌃⇧⌘D",
+          "shortcut": "⌃⇧⌘X",
           "command": "cmux pane new-row"
         },
         {
@@ -4806,13 +4818,13 @@
         {
           "id": "splitBrowserDown",
           "title": "Split Browser Down",
-          "shortcut": "⌥⇧⌘D",
+          "shortcut": "⌥⇧⌘X",
           "command": "cmux browser split-down"
         },
         {
           "id": "splitBrowserRight",
           "title": "Split Browser Right",
-          "shortcut": "⌥⌘D",
+          "shortcut": "⌥⌘X",
           "command": "cmux browser split-right"
         },
         {
@@ -6010,6 +6022,12 @@
           "command": null
         },
         {
+          "id": "agent.share.invite",
+          "title": "Invite People to Chat…",
+          "shortcut": null,
+          "command": "cmux share invite"
+        },
+        {
           "id": "palette.launchClaudeTeams",
           "title": "Launch Claude Teams",
           "shortcut": null,
@@ -6440,6 +6458,12 @@
           "title": "Connect Account to CodeRouter…",
           "shortcut": null,
           "command": "cmux accounts connect"
+        },
+        {
+          "id": "accounts.githubConnect",
+          "title": "Connect GitHub",
+          "shortcut": null,
+          "command": "cmux accounts github-connect"
         },
         {
           "id": "cloudCopyMachineID",
@@ -6922,6 +6946,12 @@
           "command": "cmux servers add"
         },
         {
+          "id": "debug.allThemesPlayground",
+          "title": "All Themes Playground",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "layout.centerFocusedColumn.always",
           "title": "Always Center Focused Column",
           "shortcut": null,
@@ -7112,6 +7142,12 @@
           "title": "Increase Interface Size",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "updates.installEarlierBuild",
+          "title": "Install an Earlier Nightly…",
+          "shortcut": null,
+          "command": "cmux settings install-earlier-nightly"
         },
         {
           "id": "app.install",
@@ -7406,6 +7442,12 @@
           "title": "Switch Update Channel…",
           "shortcut": null,
           "command": "cmux settings switch-update-channel"
+        },
+        {
+          "id": "debug.tabBarPlayground",
+          "title": "Tab Bar Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "tabs.overflow.scroll",

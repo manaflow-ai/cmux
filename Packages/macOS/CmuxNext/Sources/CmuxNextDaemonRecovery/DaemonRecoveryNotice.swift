@@ -19,7 +19,8 @@ extension DaemonService {
 /// the launch window's controls (`DaemonRecoveryControls`) show only before the first workspace,
 /// so a daemon that died later left every window on its old content, "disconnected", with
 /// nothing to press. While the local daemon is disconnected after it was connected, Restart
-/// cmux-tui is offered (`DaemonRecovery.offersRestart`) and no restart runs, one notice shows that
+/// cmux-tui is offered (`DaemonRecovery.offersRestart`), its starts keep failing
+/// (`DaemonRecovery.startFailurePersists`) and no restart runs, one notice shows that
 /// stays until it ends: why cmux-tui is not running (a full disk is named) and Restart cmux-tui,
 /// which asks first as the launch window's button does. The raw failure is the notice's detail.
 /// It goes to the workspace window the key or main window acts for, else the frontmost visible
@@ -99,6 +100,10 @@ final class DaemonRecoveryNotice {
         }
         let recovery = daemon.recovery
         guard recovery.offersRestart, !recovery.isRestarting else { return .hidden }
+        // A start that failed once or twice, or only for a short while, is cmux retrying by itself (a daemon that
+        // restarts for a version handoff or on a loaded Mac): no notice until it stays down, or the person's own
+        // Restart failed; a failed automatic restart waits like any failed start (`DaemonRecovery.startFailurePersists`).
+        if recovery.startFailure != nil, !recovery.startFailurePersists, !recovery.requestedRestartFailed { return .hidden }
         let failure = recovery.startFailure
         return .offer(message: DaemonRecoveryStrings.startFailed(failure), detail: failure?.detail ?? recovery.restartFailure)
     }

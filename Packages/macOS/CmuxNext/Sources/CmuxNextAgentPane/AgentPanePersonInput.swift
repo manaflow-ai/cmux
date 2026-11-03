@@ -163,6 +163,10 @@ public struct PersonInputCheck: Sendable {
         }
     }
 
+    /// SECURITY: whether `event` is the person's own input, by the ledger's check (the app's ledger:
+    /// ``PersonInputCheck``, the strict HID-system check a consent prompt's Allow takes).
+    public func isPerson(_ event: NSEvent) -> Bool { check(event) }
+
     public func record(_ event: NSEvent) {
         last = (event.timestamp > 0 ? event.timestamp : ProcessInfo.processInfo.systemUptime, check(event))
     }

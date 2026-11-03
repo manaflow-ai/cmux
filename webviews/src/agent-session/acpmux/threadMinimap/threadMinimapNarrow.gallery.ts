@@ -60,6 +60,19 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
       },
     },
+    // Session Info beside the chat narrows its column but not the pane, so the rail keeps its pane-edge
+    // inset and rests dimmed over the text's edge; hovering its drawn ticks reveals it (Leo, 2026-11-03:
+    // "when the scroll rail resizes i can no longer hover on it :(").
+    "session-info-hovered": {
+      note: "Session Info open: the chat column is narrower than the pane, the dimmed rail rests over the text's edge, and hovering its drawn ticks reveals it with its preview.",
+      snapshot: chat(rows, { title: "Prompt rail beside Session Info, hovered" }),
+      native: { "pane.tabState": { inspector: true } },
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".acpmux-minimap__strip" });
+        await ctx.hover({ selector: '[data-tick="0"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
+      },
+    },
     // Settings > Agent Chat > Prompt Rail Side, or the rail's right-click menu (railSide.ts).
     "right-resting": {
       note: "Moved to the right edge: the same pane-edge inset from that edge, ticks growing toward the text, and the narrow pane's live strip at the right edge.",

@@ -22,6 +22,7 @@ mod launch;
 mod link;
 mod messages;
 mod pipe;
+mod primary;
 pub(in crate::cli) mod registry;
 mod relocate;
 mod render;
@@ -79,6 +80,9 @@ pub(super) struct Args {
     /// `--no-wait-agents`: pipe mode ends with the turn that answers the
     /// message, not after the subagents it started (E22).
     pub no_wait_agents: bool,
+    /// `--no-wait`: pipe mode exits once the message is in the Chief's
+    /// conversation, without waiting for the Chief to read or answer it.
+    pub no_wait: bool,
     /// `--chat`, `--cloud` and the cloud lease flags (script.rs).
     pub target: script::TargetArgs,
     /// `--from NAME`: the acpmux session that sends `-p` (default:
@@ -186,6 +190,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
                 parsed.chief = Some(id);
             }
             "--no-wait-agents" => parsed.no_wait_agents = true,
+            "--no-wait" => parsed.no_wait = true,
             "--chat" | "--cloud" | "--cloud-api" | "--cloud-token-file" | "--cloud-auth" => {
                 parsed.target.flag(flag, &mut value)?;
             }
@@ -215,6 +220,9 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     let m = messages();
     if args.first().is_some_and(|word| registry::WORDS.contains(&word.as_str())) {
         return registry::run(&global, args);
+    }
+    if args.first().is_some_and(|word| word == "primary") {
+        return primary::run(&global, &args[1..]);
     }
     if args.first().is_some_and(|word| word == "move") {
         return relocate::run(&global, &args[1..]);

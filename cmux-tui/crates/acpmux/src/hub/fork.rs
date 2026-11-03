@@ -247,12 +247,12 @@ impl Hub {
             }
             // The list the parent's agent got at its start (`spawn.rs`).
             let all = child.all_tools.load(std::sync::atomic::Ordering::Relaxed);
-            let asked = child
-                .request(
-                    method::SESSION_FORK,
-                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id, all)}),
-                )
-                .await;
+            let mut fork_params = json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id, all)});
+            // The parent's folders, as its own start gave them (`additional_dirs.rs`).
+            if let Some(dirs) = super::additional_dirs::acp_value(&parent_meta) {
+                fork_params.set(super::additional_dirs::FIELD, dirs);
+            }
+            let asked = child.request(method::SESSION_FORK, fork_params).await;
             let working_now =
                 matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting);
             match asked {
@@ -305,6 +305,8 @@ impl Hub {
         let name_given = name.is_some();
         let name = name.unwrap_or_else(|| self.unique_name(&format!("{}-fork", parent_meta.name)));
         let now = now_ms();
+        let fork_dirs =
+            super::additional_dirs::without_cwd(parent_meta.additional_directories.clone(), &cwd);
         let meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
@@ -318,6 +320,8 @@ impl Hub {
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
             cwd,
+            // A fork sees what its parent saw, but never its own folder twice.
+            additional_directories: fork_dirs,
             // A fork is a new chat. Its parent transcript is authorized through parent_id; it
             // must not inherit the parent's historical native session ids as its own.
             previous_agent_session_ids: Vec::new(),
@@ -332,6 +336,7 @@ impl Hub {
             created_at: now,
             updated_at: now,
             last_seq: 0,
+            transcript_seq: 0,
             parent_id: Some(session.id.clone()),
             fork_seq: if empty { None } else { Some(fork_seq) },
             fork_before: before.as_ref().map(|(_, b)| b.clone()),

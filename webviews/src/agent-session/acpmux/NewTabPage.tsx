@@ -2,6 +2,7 @@ import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
+import { useScrollEdges } from "../../ui/scrollEdges";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
 import { agentDisplayName } from "./agents";
 import { seedLastPicks, useLastPick } from "./lastPick";
@@ -494,13 +495,15 @@ export function NewTabPage({
   // With no room under the field for every row, the rows go past the window's edge (cx-6k6cg).
   // A dismiss there (another app, a resize) hides the rows until the query changes; the text stays.
   const [dismissed, setDismissed] = useState<string>();
+  const listEdges = useScrollEdges();
   const escape = useEscapingList("bottom", 10, () => setDismissed(queryRef.current));
   const attachList = useCallback(
     (node: HTMLDivElement | null) => {
       list.current = node;
+      listEdges(node);
       escape?.(node);
     },
-    [escape],
+    [escape, listEdges],
   );
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
@@ -567,7 +570,8 @@ export function NewTabPage({
     const element = field.current?.element();
     setDropHost(element ? (element.closest(".acpmux-newtab") ?? element.ownerDocument.body) : null);
   }, [fieldReady]);
-  const dropLandingTarget = useCallback(() => field.current?.element()?.parentElement ?? null, []);
+  // The input card, which a file drag rings (composer/DropOverlay.tsx).
+  const dropLandingTarget = useCallback(() => field.current?.element()?.closest(".acpmux-newtab-box") ?? null, []);
   // Cmd-V anywhere on the page outside a text field (a row, a card, the empty page) goes into the
   // field, caret at the end, as in a chat (composer/pasteAnywhere.ts; Leo 2026-10-22: "cmd v anywhere
   // in chat should put it in chat").
@@ -937,7 +941,7 @@ export function NewTabPage({
         {rows.length > 0 && (
           <div
             ref={attachList}
-            className="acpmux-omni ui-popup ui-glass"
+            className="acpmux-omni ui-popup ui-glass ui-scroll-edge-fade"
             id="acpmux-omni"
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"

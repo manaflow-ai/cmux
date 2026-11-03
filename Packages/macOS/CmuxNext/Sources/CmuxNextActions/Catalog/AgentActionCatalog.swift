@@ -129,7 +129,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "agentPane.showSubagents",
                 title: String(localized: "action.agentPane.showSubagents", defaultValue: "Show Subagents in Session Info", bundle: .module),
-                keywords: ["agent", "chat", "subagents", "agents", "session info", "inspector", "children"],
+                keywords: ["agent", "chat", "subagents", "agents", "session info", "children"],
                 category: .agents, symbol: "person.2", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent show-subagents",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
@@ -137,7 +137,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "agentPane.showBackgroundTasks",
                 title: String(localized: "action.agentPane.showBackgroundTasks", defaultValue: "Show Background Tasks in Session Info", bundle: .module),
-                keywords: ["agent", "chat", "background", "tasks", "commands", "servers", "session info", "inspector"],
+                keywords: ["agent", "chat", "background", "tasks", "commands", "servers", "session info"],
                 category: .agents, symbol: "gearshape", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent show-background-tasks",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
@@ -166,14 +166,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "scope", surfaces: [.palette, .keyboard, .contextMenu],
                 cliName: "agent toggle-ui-pointer",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
+                    // Web content only (the agent chat's HTML/React page): native menus never offer it.
                     ContextMenuPlacement(.agentChat, .inspect, 1, folder: .tools, label: "Inspect Element"),
-                    ContextMenuPlacement(.tab, .inspect, 510, label: "Inspect Element"),
-                    ContextMenuPlacement(.pane, .inspect, 510, label: "Inspect Element"),
-                    ContextMenuPlacement(.newTab, .inspect, 510, label: "Inspect Element"),
-                    ContextMenuPlacement(.workspaceRow, .inspect, 510, label: "Inspect Element"),
-                    ContextMenuPlacement(.sidebarItem, .inspect, 510, label: "Inspect Element"),
-                    ContextMenuPlacement(.sidebarSection, .inspect, 510, folder: .options, label: "Inspect Element"),
-                    ContextMenuPlacement(.windowBackground, .inspect, 510, label: "Inspect Element"),
                 ])
             ),
             ActionDescriptor(
@@ -585,6 +579,18 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                            suggestions: ActionSuggestions(source: ActionSuggestions.chiefMoveTargets, pinned: []))],
                 destructive: true,
                 // `cmux chief move --to` and the Chief's MCP `move` tool run the same move (one implementation).
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.familyMember), contextMenuExemption: .noObject)
+            ),
+            // Roll Back Chief Move (chief-migration-DESIGN.md 4): this Mac's Chief answers here again and the
+            // target is marked moved back; the Teleport menu (the Home header's location chip, the Chief card)
+            // offers it while the Chief's home is marked moved.
+            ActionDescriptor(
+                id: "chief.moveRollback",
+                title: String(localized: "action.chief.moveRollback", defaultValue: "Roll Back Chief Move", bundle: .module),
+                keywords: ["chief", "move", "teleport", "rollback", "roll back", "undo", "back", "this mac", "cloud"],
+                category: .agents, symbol: "arrow.uturn.backward.circle", surfaces: [.palette],
+                destructive: true,
+                // `cmux chief move rollback` and the Chief's MCP `move {action: rollback}` run the same rollback.
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.familyMember), contextMenuExemption: .noObject)
             ),
             // Import Memories… (chief-memory-import-DESIGN.md): finds what Claude Code, Codex, ChatGPT and claude.ai

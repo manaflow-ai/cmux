@@ -498,6 +498,8 @@ impl Started {
             {
                 *fast = true;
             }
+            tr.prompt_suggestions.store(t.prompt_suggestions, std::sync::atomic::Ordering::SeqCst);
+            tr.set_recap(t.recap.as_deref());
             if let Some(sid) = &t.claude_session_id
                 && let Ok(mut slot) = tr.session_id.try_lock()
             {

@@ -29,8 +29,35 @@ struct CloudStartChatLoginTests {
         #expect(!CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: false, defaults: defaults))
         defaults.set(false, forKey: "cmux.cloud.passHarnessLogin")
         #expect(!CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: true, defaults: defaults))
+        // Release: the setting alone never turns it on; only the remote switch, and NO keeps it off.
         defaults.set(true, forKey: "cmux.cloud.passHarnessLogin")
-        #expect(CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: false, defaults: defaults))
+        #expect(CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: true, defaults: defaults))
+        #expect(!CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: false, defaults: defaults))
+        #expect(CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: false, defaults: defaults, remoteSwitch: true))
+        #expect(!CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: false, defaults: defaults, remoteSwitch: false))
+        defaults.set(false, forKey: "cmux.cloud.passHarnessLogin")
+        #expect(!CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: false, defaults: defaults, remoteSwitch: true))
+    }
+
+    /// Leo, 2026-11-02: Release copies the login only with the switch on, after the one-time consent,
+    /// and only to an owner guest. The cases are Rust's; this checks the app's fields reach them.
+    @Test func releaseAsksConsentOnceAndFollowsTheSwitch() {
+        var start = Decision(dogfood: false, setting: nil, harness: nil, signedIn: true)
+        start.remoteSwitch = true
+        start.callerOwns = true
+        start.guestStdout = "vm-kind:owner\n"
+        start.machineProbe = .init(exitCode: 0, stdout: "none\n")
+        #expect(start.step == .askConsent && start.reason == .consentFirst)
+        start.consent = true
+        #expect(start.step == .install && start.reason == .installChosen)
+        start.consent = false
+        #expect(start.step == .skip && start.reason == .consentDeclined)
+        start.consent = true
+        start.remoteSwitch = nil
+        #expect(start.step == .skip && start.reason == .remoteSwitchOff && !start.gate)
+        start.remoteSwitch = true
+        start.guestStdout = "vm-kind:team\n"
+        #expect(start.reason == .guestNotOwner && !start.guestTakesLogin)
     }
 
     /// The decision's rules and their cases are Rust's (cmux-cloud-start-core `harness_login`); this
