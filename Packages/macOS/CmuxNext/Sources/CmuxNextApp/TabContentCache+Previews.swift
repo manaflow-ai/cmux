@@ -43,7 +43,7 @@ extension TabContentCache {
     func capturePagePreview(_ entry: BrowserEntry, key: String, token: ContentLifecycle<String>.Token) {
         guard let request = beginPageCapture(entry, key: key) else { return }
         Task { [weak self] in
-            _ = await self?.finishPageCapture(request, key: key) { [weak self] in
+            _ = await self?.finishPageCapture(request, key: key, priority: .utility) { [weak self] in  // the leave: nobody waits for it
                 guard let self, self.browsers[key] === entry, self.lifecycle.accepts(key, token) else {
                     self?.trace(key, "preview \(token) dropped (stale)")
                     return false
@@ -72,7 +72,7 @@ extension TabContentCache {
     }
 
     /// Awaits a capture ``beginPageCapture(_:key:)`` started, under the capture deadline, and keeps it when `accepts`.
-    private func finishPageCapture(_ capture: (request: BrowserPictureRequest, version: Int), key: String, accepts: @escaping () -> Bool) async -> CGImage? {
+    private func finishPageCapture(_ capture: (request: BrowserPictureRequest, version: Int), key: String, priority: TaskPriority = .userInitiated, accepts: @escaping () -> Bool) async -> CGImage? { // priority: the compression's (a person may wait: drag ghost, hover card)
         defer { pageCapturesInFlight.remove(key) }
         let version = capture.version, budget = pageCaptureDeadline
         guard let image = try? await ControlDeadline.shared.run(method: "preview.capture", deadline: .now + budget, { @MainActor in
@@ -83,7 +83,7 @@ extension TabContentCache {
         // Kept compressed, once per tab, for the tab's life (Chrome's ThumbnailImage): a hibernated Chromium tab wakes
         // to this picture (fork API 24 pictures no hidden page), and decoded 640 px pictures in the 16 MB budget kept
         // only about 14 pages' (fleet e2fb152d, 05f0ba3c).
-        let kept = await HibernationSnapshots.compress(fitted, priority: .utility)  // nobody waits for it, as ThumbnailStats
+        let kept = await HibernationSnapshots.compress(fitted, priority: priority)
         guard accepts() else { return nil }
         if let kept, let bytes = kept.data?.count { pageThumbnails.insert(kept.image, for: key, cost: bytes) } else { pageThumbnails.insert(fitted, for: key) }
         pageThumbnailVersions[key] = blank ? nil : version
