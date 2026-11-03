@@ -79,6 +79,7 @@
 }
 .cv-disclosure__toggle:not(:has(> .cv-disclosure__label:not(:empty), > .cv-disclosure__icon)) {
   padding-inline-start: 0;
+  margin-inline-start: calc(-1 * var(--ds-space-1));
 }
 .cv-disclosure__label {
   min-width: 0;

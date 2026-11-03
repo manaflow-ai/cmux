@@ -135,6 +135,13 @@ button.cv-agentmsg__name:focus-visible {
   > .cv-agentmsg__chevron {
   color: var(--cv-text);
 }
+/* Stacked or opened, the toggle holds no words and has no box of its own: the line, which the
+   pointer already toggles, shows its focus. */
+.cv-agentmsg__line:has(.cv-agentmsg__toggle:focus-visible > .cv-agentmsg__preview:empty) {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: -1.5px;
+  border-radius: 6px;
+}
 .cv-agentmsg__toggle:focus-visible {
   /* Inset: the transcript row clips paint (`contain: paint`). */
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
@@ -222,13 +229,6 @@ button.cv-agentmsg__name:focus-visible {
    yes, 2026-11-02, to splitting "Sent to <chip> · and 5 more commands <preview>" so the chip and
    count read on the first line and the preview below). The row's one tone, never lit on hover.
    model.ts adds its --cv-message-preview-line (MESSAGE_PREVIEW_LINE_PT) under the 22px row. */
-/* In a column that spaces its parts by the tool group's inner gap (`.cv-agentmsg`, `.cv-disclosure`),
-   the first line still sits right under its row, as a send's does: the row and its first line are
-   one entry (model.ts `messagePreviewLine`, 18px under the row). */
-.cv-agentmsg > .cv-msgline__preview,
-.cv-disclosure > .cv-msgline__preview {
-  margin-top: calc(-1 * var(--grid-gap-inner));
-}
 .cv-msgline__preview {
   box-sizing: border-box;
   height: var(--cv-message-preview-line);
@@ -243,4 +243,11 @@ button.cv-agentmsg__name:focus-visible {
   letter-spacing: var(--text-detail--letter-spacing);
   cursor: default;
   user-select: none;
+}
+/* In a column that spaces its parts by the tool group's inner gap (`.cv-agentmsg`, `.cv-disclosure`),
+   the first line still sits right under its row, as a send's does: the row and its first line are
+   one entry (model.ts `messagePreviewLine`, 18px under the row). */
+.cv-agentmsg > .cv-msgline__preview,
+.cv-disclosure > .cv-msgline__preview {
+  margin-top: calc(-1 * var(--grid-gap-inner));
 }
