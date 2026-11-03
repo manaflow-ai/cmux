@@ -193,9 +193,14 @@ export function Thinking({
   // (App.tsx counts nothing while the tray lists it).
   const counts = useContext(WorkingCountsContext);
   const tokens = counts?.tokens;
-  const showTokens = Boolean(tokens) && timed;
+  // A send's line names who it goes to and for how long; the turn's token counts there are noise
+  // (Leo, 2026-11-02, on "Sending message to … 3m 56s · ↓1.4K out ↑819.5K in" among the message
+  // rows: "i also think this is quite weird looking").
+  const sending = doing !== undefined && sendName !== undefined;
+  const showTokens = Boolean(tokens) && timed && !sending;
   // One count, as Claude Code's live line says it ("47.4K tokens"): the turn's output, with the
-  // split on hover (liveLineTokens.experiment.ts).
+  // split on hover (liveLineTokens.experiment.ts). Never "↓ out ↑ in" in the line's words (the
+  // coordinator, relaying Leo's capture of "Thinking 7m 34s · ↓ 4.5K out ↑ 1.4M in").
   const oneCount = experimentArm(liveLineTokens) === "total";
   // The label already names the subagents it waits on: no second count of them.
   const parts = (counts && !waiting ? workingParts(t, counts) : []).filter(

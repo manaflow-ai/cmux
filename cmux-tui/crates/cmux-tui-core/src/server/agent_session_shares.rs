@@ -738,8 +738,15 @@ impl LinkShares {
                 }
             };
             share.live()?;
-            let reply =
-                |g: &Guest| json!({"share_id": p.share_id, "guest_id": g.guest_id, "name": g.name});
+            let reply = |g: &Guest| {
+                let mut answer =
+                    json!({"share_id": p.share_id, "guest_id": g.guest_id, "name": g.name});
+                // An invitee's role (a link guest has none): the room hands it to the page.
+                if let Some(role) = g.role {
+                    answer["role"] = json!(role);
+                }
+                answer
+            };
             if let Some(guest) = share.guests.iter().find(|g| same(&g.attempt_id_sha256, &attempt))
             {
                 // An attempt is one account's: another account (or a link guest) never gets it.

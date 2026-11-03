@@ -11,6 +11,18 @@
     "sessionInfo.subagents.limit.startedChats": {"comment":"Agent pane: Session Info's Subagents, the limit line for the chats this chat's agent started with start_session (not its own Agent subagents): {running} of them run a turn now, at most {max} at once","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"المحادثات المبدوءة: {running} من {max} في آن واحد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokrenuti chatovi: {running} od {max} odjednom"}},"da":{"stringUnit":{"state":"needs_review","value":"Startede chats: {running} af {max} ad gangen"}},"de":{"stringUnit":{"state":"needs_review","value":"Gestartete Chats: {running} von {max} gleichzeitig"}},"en":{"stringUnit":{"state":"translated","value":"Started chats: {running} of {max} at once"}},"es":{"stringUnit":{"state":"needs_review","value":"Chats iniciados: {running} de {max} a la vez"}},"fr":{"stringUnit":{"state":"needs_review","value":"Chats lancés : {running} sur {max} à la fois"}},"it":{"stringUnit":{"state":"needs_review","value":"Chat avviate: {running} di {max} alla volta"}},"ja":{"stringUnit":{"state":"needs_review","value":"開始したチャット: 同時に {max} 件中 {running} 件"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកដែលបានចាប់ផ្តើម: {running} ក្នុងចំណោម {max} ក្នុងពេលតែមួយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"시작한 채팅: 동시에 {max}개 중 {running}개"}},"nb":{"stringUnit":{"state":"needs_review","value":"Startede chatter: {running} av {max} om gangen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchomione czaty: {running} z {max} naraz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Chats iniciados: {running} de {max} por vez"}},"ru":{"stringUnit":{"state":"needs_review","value":"Запущенные чаты: {running} из {max} одновременно"}},"th":{"stringUnit":{"state":"needs_review","value":"แชทที่เริ่ม: {running} จาก {max} พร้อมกัน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başlatılan sohbetler: aynı anda {max} içinden {running}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Запущені чати: {running} з {max} одночасно"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện đã bắt đầu: {running} / {max} cùng lúc"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已启动的聊天：同时 {running} / {max}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已啟動的聊天：同時 {running} / {max}"}}}},
     "tools.mcp.using": {"comment":"Agent pane: an MCP call in flight, as Claude Code words it (Using repo: repo grep); {server} is the MCP server, {tool} the tool's name in words and what it acts on","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Using {server}: {tool}"}},"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ استخدام {server}: {tool}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Koristi se {server}: {tool}"}},"da":{"stringUnit":{"state":"needs_review","value":"Bruger {server}: {tool}"}},"de":{"stringUnit":{"state":"needs_review","value":"Verwende {server}: {tool}"}},"es":{"stringUnit":{"state":"needs_review","value":"Usando {server}: {tool}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Utilisation de {server} : {tool}"}},"it":{"stringUnit":{"state":"needs_review","value":"Uso di {server}: {tool}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{server} を使用中: {tool}"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងប្រើ {server}: {tool}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{server} 사용 중: {tool}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Bruker {server}: {tool}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Używanie {server}: {tool}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Usando {server}: {tool}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Используется {server}: {tool}"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังใช้ {server}: {tool}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{server} kullanılıyor: {tool}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Використовується {server}: {tool}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang dùng {server}: {tool}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在使用 {server}：{tool}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在使用 {server}：{tool}"}}}},
     "tools.mcp.used": {"comment":"Agent pane: a finished MCP call, as Claude Code words it (Used repo: repo grep); {server} is the MCP server, {tool} the tool's name in words and what it acts on","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Used {server}: {tool}"}},"ar":{"stringUnit":{"state":"needs_review","value":"تم استخدام {server}: {tool}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Korišteno {server}: {tool}"}},"da":{"stringUnit":{"state":"needs_review","value":"Brugte {server}: {tool}"}},"de":{"stringUnit":{"state":"needs_review","value":"{server} verwendet: {tool}"}},"es":{"stringUnit":{"state":"needs_review","value":"Se usó {server}: {tool}"}},"fr":{"stringUnit":{"state":"needs_review","value":"{server} utilisé : {tool}"}},"it":{"stringUnit":{"state":"needs_review","value":"Usato {server}: {tool}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{server} を使用: {tool}"}},"km":{"stringUnit":{"state":"needs_review","value":"បានប្រើ {server}: {tool}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{server} 사용함: {tool}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Brukte {server}: {tool}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Użyto {server}: {tool}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Usou {server}: {tool}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Использовано {server}: {tool}"}},"th":{"stringUnit":{"state":"needs_review","value":"ใช้ {server} แล้ว: {tool}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{server} kullanıldı: {tool}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Використано {server}: {tool}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã dùng {server}: {tool}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已使用 {server}：{tool}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已使用 {server}：{tool}"}}}},
+    "imessage.connect": {"comment":"Session Info Connect iMessage connector: Connect","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connect"}},"ar":{"stringUnit":{"state":"translated","value":"اتصال"}},"bs":{"stringUnit":{"state":"translated","value":"Poveži"}},"da":{"stringUnit":{"state":"translated","value":"Forbind"}},"de":{"stringUnit":{"state":"translated","value":"Verbinden"}},"es":{"stringUnit":{"state":"translated","value":"Conectar"}},"fr":{"stringUnit":{"state":"translated","value":"Connecter"}},"it":{"stringUnit":{"state":"translated","value":"Connetti"}},"ja":{"stringUnit":{"state":"translated","value":"接続"}},"km":{"stringUnit":{"state":"translated","value":"ភ្ជាប់"}},"ko":{"stringUnit":{"state":"translated","value":"연결"}},"nb":{"stringUnit":{"state":"translated","value":"Koble til"}},"pl":{"stringUnit":{"state":"translated","value":"Połącz"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Conectar"}},"ru":{"stringUnit":{"state":"translated","value":"Подключить"}},"th":{"stringUnit":{"state":"translated","value":"เชื่อมต่อ"}},"tr":{"stringUnit":{"state":"translated","value":"Bağlan"}},"uk":{"stringUnit":{"state":"translated","value":"Підключити"}},"vi":{"stringUnit":{"state":"translated","value":"Kết nối"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"连接"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"連接"}}}},
+    "imessage.disconnect": {"comment":"Session Info Connect iMessage connector: Disconnect","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Disconnect"}},"ar":{"stringUnit":{"state":"translated","value":"قطع الاتصال"}},"bs":{"stringUnit":{"state":"translated","value":"Prekini vezu"}},"da":{"stringUnit":{"state":"translated","value":"Afbryd forbindelse"}},"de":{"stringUnit":{"state":"translated","value":"Trennen"}},"es":{"stringUnit":{"state":"translated","value":"Desconectar"}},"fr":{"stringUnit":{"state":"translated","value":"Déconnecter"}},"it":{"stringUnit":{"state":"translated","value":"Disconnetti"}},"ja":{"stringUnit":{"state":"translated","value":"接続を解除"}},"km":{"stringUnit":{"state":"translated","value":"ផ្ដាច់ការតភ្ជាប់"}},"ko":{"stringUnit":{"state":"translated","value":"연결 해제"}},"nb":{"stringUnit":{"state":"translated","value":"Koble fra"}},"pl":{"stringUnit":{"state":"translated","value":"Rozłącz"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Desconectar"}},"ru":{"stringUnit":{"state":"translated","value":"Отключить"}},"th":{"stringUnit":{"state":"translated","value":"ยกเลิกการเชื่อมต่อ"}},"tr":{"stringUnit":{"state":"translated","value":"Bağlantıyı kes"}},"uk":{"stringUnit":{"state":"translated","value":"Відключити"}},"vi":{"stringUnit":{"state":"translated","value":"Ngắt kết nối"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"断开连接"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"中斷連線"}}}},
+    "imessage.setup": {"comment":"Session Info Connect iMessage connector: Finish setup","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Finish setup"}},"ar":{"stringUnit":{"state":"translated","value":"إكمال الإعداد"}},"bs":{"stringUnit":{"state":"translated","value":"Dovrši postavljanje"}},"da":{"stringUnit":{"state":"translated","value":"Afslut opsætning"}},"de":{"stringUnit":{"state":"translated","value":"Einrichtung abschließen"}},"es":{"stringUnit":{"state":"translated","value":"Completar configuración"}},"fr":{"stringUnit":{"state":"translated","value":"Terminer la configuration"}},"it":{"stringUnit":{"state":"translated","value":"Completa configurazione"}},"ja":{"stringUnit":{"state":"translated","value":"設定を完了"}},"km":{"stringUnit":{"state":"translated","value":"បញ្ចប់ការដំឡើង"}},"ko":{"stringUnit":{"state":"translated","value":"설정 완료"}},"nb":{"stringUnit":{"state":"translated","value":"Fullfør oppsett"}},"pl":{"stringUnit":{"state":"translated","value":"Dokończ konfigurację"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Concluir configuração"}},"ru":{"stringUnit":{"state":"translated","value":"Завершить настройку"}},"th":{"stringUnit":{"state":"translated","value":"ตั้งค่าให้เสร็จ"}},"tr":{"stringUnit":{"state":"translated","value":"Kurulumu tamamla"}},"uk":{"stringUnit":{"state":"translated","value":"Завершити налаштування"}},"vi":{"stringUnit":{"state":"translated","value":"Hoàn tất thiết lập"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"完成设置"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"完成設定"}}}},
+    "imessage.diskHelp": {"comment":"Session Info Connect iMessage connector: Full Disk Access lets cmux read your Messages on this Mac.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Full Disk Access lets cmux read your Messages on this Mac."}},"ar":{"stringUnit":{"state":"translated","value":"يتيح الوصول الكامل إلى القرص لـ cmux قراءة رسائلك على هذا الـ Mac."}},"bs":{"stringUnit":{"state":"translated","value":"Puni pristup disku omogućava cmuxu čitanje vaših poruka na ovom Macu."}},"da":{"stringUnit":{"state":"translated","value":"Fuld diskadgang giver cmux adgang til at læse dine beskeder på denne Mac."}},"de":{"stringUnit":{"state":"translated","value":"Mit Festplattenvollzugriff kann cmux deine Nachrichten auf diesem Mac lesen."}},"es":{"stringUnit":{"state":"translated","value":"El acceso total al disco permite que cmux lea tus mensajes en este Mac."}},"fr":{"stringUnit":{"state":"translated","value":"L’accès complet au disque permet à cmux de lire vos messages sur ce Mac."}},"it":{"stringUnit":{"state":"translated","value":"L’accesso completo al disco consente a cmux di leggere i tuoi messaggi su questo Mac."}},"ja":{"stringUnit":{"state":"translated","value":"フルディスクアクセスを許可すると、cmux がこの Mac のメッセージを読み取れます。"}},"km":{"stringUnit":{"state":"translated","value":"ការចូលប្រើថាសពេញលេញអនុញ្ញាតឱ្យ cmux អានសាររបស់អ្នកនៅលើ Mac នេះ។"}},"ko":{"stringUnit":{"state":"translated","value":"전체 디스크 접근 권한을 허용하면 cmux가 이 Mac의 메시지를 읽을 수 있습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Full disktilgang lar cmux lese meldingene dine på denne Macen."}},"pl":{"stringUnit":{"state":"translated","value":"Pełny dostęp do dysku pozwala cmux czytać wiadomości na tym Macu."}},"pt-BR":{"stringUnit":{"state":"translated","value":"O Acesso Total ao Disco permite que o cmux leia suas mensagens neste Mac."}},"ru":{"stringUnit":{"state":"translated","value":"Полный доступ к диску позволяет cmux читать ваши сообщения на этом Mac."}},"th":{"stringUnit":{"state":"translated","value":"การเข้าถึงดิสก์แบบเต็มช่วยให้ cmux อ่านข้อความของคุณบน Mac เครื่องนี้ได้"}},"tr":{"stringUnit":{"state":"translated","value":"Tam Disk Erişimi, cmux’un bu Mac’teki mesajlarınızı okumasını sağlar."}},"uk":{"stringUnit":{"state":"translated","value":"Повний доступ до диска дозволяє cmux читати ваші повідомлення на цьому Mac."}},"vi":{"stringUnit":{"state":"translated","value":"Quyền truy cập toàn bộ ổ đĩa cho phép cmux đọc tin nhắn của bạn trên máy Mac này."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"完全磁盘访问权限允许 cmux 读取此 Mac 上的信息。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"完整磁碟存取權限允許 cmux 讀取此 Mac 上的訊息。"}}}},
+    "imessage.grantDisk": {"comment":"Session Info Connect iMessage connector: Grant Full Disk Access","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Grant Full Disk Access"}},"ar":{"stringUnit":{"state":"translated","value":"منح الوصول الكامل إلى القرص"}},"bs":{"stringUnit":{"state":"translated","value":"Odobri puni pristup disku"}},"da":{"stringUnit":{"state":"translated","value":"Giv fuld diskadgang"}},"de":{"stringUnit":{"state":"translated","value":"Festplattenvollzugriff gewähren"}},"es":{"stringUnit":{"state":"translated","value":"Conceder acceso total al disco"}},"fr":{"stringUnit":{"state":"translated","value":"Accorder l’accès complet au disque"}},"it":{"stringUnit":{"state":"translated","value":"Concedi accesso completo al disco"}},"ja":{"stringUnit":{"state":"translated","value":"フルディスクアクセスを許可"}},"km":{"stringUnit":{"state":"translated","value":"ផ្ដល់ការចូលប្រើថាសពេញលេញ"}},"ko":{"stringUnit":{"state":"translated","value":"전체 디스크 접근 허용"}},"nb":{"stringUnit":{"state":"translated","value":"Gi full disktilgang"}},"pl":{"stringUnit":{"state":"translated","value":"Przyznaj pełny dostęp do dysku"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Conceder Acesso Total ao Disco"}},"ru":{"stringUnit":{"state":"translated","value":"Предоставить полный доступ к диску"}},"th":{"stringUnit":{"state":"translated","value":"อนุญาตการเข้าถึงดิสก์แบบเต็ม"}},"tr":{"stringUnit":{"state":"translated","value":"Tam Disk Erişimi ver"}},"uk":{"stringUnit":{"state":"translated","value":"Надати повний доступ до диска"}},"vi":{"stringUnit":{"state":"translated","value":"Cấp quyền truy cập toàn bộ ổ đĩa"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"授予完全磁盘访问权限"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"授予完整磁碟存取權限"}}}},
+    "imessage.automationHelp": {"comment":"Session Info Connect iMessage connector: Sends need permission to control Messages. Open Messages, then allow access or skip for now.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sends need permission to control Messages. Open Messages, then allow access or skip for now."}},"ar":{"stringUnit":{"state":"translated","value":"يتطلب الإرسال إذنًا للتحكم في تطبيق الرسائل. افتح تطبيق الرسائل، ثم اسمح بالوصول أو تخطَّ هذه الخطوة الآن."}},"bs":{"stringUnit":{"state":"translated","value":"Slanje zahtijeva dozvolu za upravljanje aplikacijom Poruke. Otvorite Poruke, pa dozvolite pristup ili zasad preskočite ovaj korak."}},"da":{"stringUnit":{"state":"translated","value":"Afsendelse kræver tilladelse til at styre Beskeder. Åbn Beskeder, og tillad adgang eller spring over for nu."}},"de":{"stringUnit":{"state":"translated","value":"Zum Senden ist die Erlaubnis zur Steuerung von Nachrichten nötig. Öffne Nachrichten und erlaube den Zugriff oder überspringe diesen Schritt vorerst."}},"es":{"stringUnit":{"state":"translated","value":"Enviar requiere permiso para controlar Mensajes. Abre Mensajes y permite el acceso u omite este paso por ahora."}},"fr":{"stringUnit":{"state":"translated","value":"L’envoi nécessite l’autorisation de contrôler Messages. Ouvrez Messages, puis autorisez l’accès ou ignorez cette étape pour le moment."}},"it":{"stringUnit":{"state":"translated","value":"L’invio richiede il permesso di controllare Messaggi. Apri Messaggi, poi consenti l’accesso o salta questo passaggio per ora."}},"ja":{"stringUnit":{"state":"translated","value":"送信には「メッセージ」を操作する許可が必要です。「メッセージ」を開いてアクセスを許可するか、今はスキップしてください。"}},"km":{"stringUnit":{"state":"translated","value":"ការផ្ញើត្រូវការការអនុញ្ញាតដើម្បីគ្រប់គ្រងកម្មវិធីសារ។ បើកកម្មវិធីសារ រួចអនុញ្ញាតការចូលប្រើ ឬរំលងជំហាននេះសិន។"}},"ko":{"stringUnit":{"state":"translated","value":"전송하려면 메시지를 제어할 권한이 필요합니다. 메시지를 연 다음 접근을 허용하거나 지금은 건너뛰세요."}},"nb":{"stringUnit":{"state":"translated","value":"Sending krever tillatelse til å styre Meldinger. Åpne Meldinger, og tillat tilgang eller hopp over dette nå."}},"pl":{"stringUnit":{"state":"translated","value":"Wysyłanie wymaga pozwolenia na sterowanie aplikacją Wiadomości. Otwórz Wiadomości, a następnie zezwól na dostęp lub na razie pomiń ten krok."}},"pt-BR":{"stringUnit":{"state":"translated","value":"O envio exige permissão para controlar o Mensagens. Abra o Mensagens e permita o acesso ou pule esta etapa por enquanto."}},"ru":{"stringUnit":{"state":"translated","value":"Для отправки нужно разрешение на управление Сообщениями. Откройте Сообщения, затем разрешите доступ или пока пропустите этот шаг."}},"th":{"stringUnit":{"state":"translated","value":"การส่งต้องได้รับอนุญาตให้ควบคุมแอปข้อความ เปิดแอปข้อความ แล้วอนุญาตการเข้าถึงหรือข้ามขั้นตอนนี้ไปก่อน"}},"tr":{"stringUnit":{"state":"translated","value":"Göndermek için Mesajlar’ı denetleme izni gerekir. Mesajlar’ı açın, ardından erişime izin verin veya şimdilik bu adımı atlayın."}},"uk":{"stringUnit":{"state":"translated","value":"Надсилання потребує дозволу на керування програмою Повідомлення. Відкрийте Повідомлення, а потім дозвольте доступ або поки пропустіть цей крок."}},"vi":{"stringUnit":{"state":"translated","value":"Việc gửi cần quyền điều khiển Tin nhắn. Hãy mở Tin nhắn, rồi cho phép truy cập hoặc tạm bỏ qua bước này."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"发送需要控制“信息”的权限。打开“信息”，然后允许访问或暂时跳过此步骤。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"傳送需要控制「訊息」的權限。打開「訊息」，然後允許取用或暫時略過此步驟。"}}}},
+    "imessage.allowMessages": {"comment":"Session Info Connect iMessage connector: Allow Messages","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Allow Messages"}},"ar":{"stringUnit":{"state":"translated","value":"السماح بالرسائل"}},"bs":{"stringUnit":{"state":"translated","value":"Dozvoli Poruke"}},"da":{"stringUnit":{"state":"translated","value":"Tillad Beskeder"}},"de":{"stringUnit":{"state":"translated","value":"Nachrichten erlauben"}},"es":{"stringUnit":{"state":"translated","value":"Permitir Mensajes"}},"fr":{"stringUnit":{"state":"translated","value":"Autoriser Messages"}},"it":{"stringUnit":{"state":"translated","value":"Consenti Messaggi"}},"ja":{"stringUnit":{"state":"translated","value":"メッセージを許可"}},"km":{"stringUnit":{"state":"translated","value":"អនុញ្ញាតកម្មវិធីសារ"}},"ko":{"stringUnit":{"state":"translated","value":"메시지 허용"}},"nb":{"stringUnit":{"state":"translated","value":"Tillat Meldinger"}},"pl":{"stringUnit":{"state":"translated","value":"Zezwól na Wiadomości"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Permitir Mensagens"}},"ru":{"stringUnit":{"state":"translated","value":"Разрешить Сообщения"}},"th":{"stringUnit":{"state":"translated","value":"อนุญาตข้อความ"}},"tr":{"stringUnit":{"state":"translated","value":"Mesajlar’a izin ver"}},"uk":{"stringUnit":{"state":"translated","value":"Дозволити Повідомлення"}},"vi":{"stringUnit":{"state":"translated","value":"Cho phép Tin nhắn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"允许信息"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"允許訊息"}}}},
+    "imessage.sendClick": {"comment":"Session Info Connect iMessage connector: Every outgoing message needs your click.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Every outgoing message needs your click."}},"ar":{"stringUnit":{"state":"translated","value":"تحتاج كل رسالة صادرة إلى نقرة منك."}},"bs":{"stringUnit":{"state":"translated","value":"Svaka odlazna poruka zahtijeva vaš klik."}},"da":{"stringUnit":{"state":"translated","value":"Hver udgående besked kræver dit klik."}},"de":{"stringUnit":{"state":"translated","value":"Jede ausgehende Nachricht erfordert deinen Klick."}},"es":{"stringUnit":{"state":"translated","value":"Cada mensaje saliente requiere que hagas clic."}},"fr":{"stringUnit":{"state":"translated","value":"Chaque message sortant nécessite votre clic."}},"it":{"stringUnit":{"state":"translated","value":"Ogni messaggio in uscita richiede un tuo clic."}},"ja":{"stringUnit":{"state":"translated","value":"送信するたびにクリックによる確認が必要です。"}},"km":{"stringUnit":{"state":"translated","value":"សារចេញនីមួយៗត្រូវការការចុចរបស់អ្នក។"}},"ko":{"stringUnit":{"state":"translated","value":"보내는 모든 메시지는 클릭으로 확인해야 합니다."}},"nb":{"stringUnit":{"state":"translated","value":"Hver utgående melding krever ditt klikk."}},"pl":{"stringUnit":{"state":"translated","value":"Każda wysyłana wiadomość wymaga kliknięcia."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Cada mensagem enviada exige seu clique."}},"ru":{"stringUnit":{"state":"translated","value":"Каждое исходящее сообщение требует вашего нажатия."}},"th":{"stringUnit":{"state":"translated","value":"ทุกข้อความที่ส่งต้องได้รับการคลิกยืนยันจากคุณ"}},"tr":{"stringUnit":{"state":"translated","value":"Gönderilen her mesaj için tıklamanız gerekir."}},"uk":{"stringUnit":{"state":"translated","value":"Кожне вихідне повідомлення потребує вашого натискання."}},"vi":{"stringUnit":{"state":"translated","value":"Mỗi tin nhắn gửi đi đều cần bạn nhấp xác nhận."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"每条发出的信息都需要你点击确认。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"每則傳出的訊息都需要你點擊確認。"}}}},
+    "imessage.contactsGroups": {"comment":"Session Info Connect iMessage connector: Contacts and group chats","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Contacts and group chats"}},"ar":{"stringUnit":{"state":"translated","value":"جهات الاتصال والدردشات الجماعية"}},"bs":{"stringUnit":{"state":"translated","value":"Kontakti i grupni razgovori"}},"da":{"stringUnit":{"state":"translated","value":"Kontakter og gruppechats"}},"de":{"stringUnit":{"state":"translated","value":"Kontakte und Gruppenchats"}},"es":{"stringUnit":{"state":"translated","value":"Contactos y chats de grupo"}},"fr":{"stringUnit":{"state":"translated","value":"Contacts et conversations de groupe"}},"it":{"stringUnit":{"state":"translated","value":"Contatti e chat di gruppo"}},"ja":{"stringUnit":{"state":"translated","value":"連絡先とグループチャット"}},"km":{"stringUnit":{"state":"translated","value":"ទំនាក់ទំនង និងការជជែកជាក្រុម"}},"ko":{"stringUnit":{"state":"translated","value":"연락처 및 그룹 채팅"}},"nb":{"stringUnit":{"state":"translated","value":"Kontakter og gruppechatter"}},"pl":{"stringUnit":{"state":"translated","value":"Kontakty i czaty grupowe"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Contatos e conversas em grupo"}},"ru":{"stringUnit":{"state":"translated","value":"Контакты и групповые чаты"}},"th":{"stringUnit":{"state":"translated","value":"รายชื่อและแชตกลุ่ม"}},"tr":{"stringUnit":{"state":"translated","value":"Kişiler ve grup sohbetleri"}},"uk":{"stringUnit":{"state":"translated","value":"Контакти та групові чати"}},"vi":{"stringUnit":{"state":"translated","value":"Danh bạ và trò chuyện nhóm"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"联系人和群聊"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"聯絡人和群組對話"}}}},
+    "imessage.noThreads": {"comment":"Session Info Connect iMessage connector: No conversations yet.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No conversations yet."}},"ar":{"stringUnit":{"state":"translated","value":"لا توجد محادثات بعد."}},"bs":{"stringUnit":{"state":"translated","value":"Još nema razgovora."}},"da":{"stringUnit":{"state":"translated","value":"Ingen samtaler endnu."}},"de":{"stringUnit":{"state":"translated","value":"Noch keine Unterhaltungen."}},"es":{"stringUnit":{"state":"translated","value":"Aún no hay conversaciones."}},"fr":{"stringUnit":{"state":"translated","value":"Aucune conversation pour le moment."}},"it":{"stringUnit":{"state":"translated","value":"Nessuna conversazione ancora."}},"ja":{"stringUnit":{"state":"translated","value":"まだ会話がありません。"}},"km":{"stringUnit":{"state":"translated","value":"មិនទាន់មានការសន្ទនាទេ។"}},"ko":{"stringUnit":{"state":"translated","value":"아직 대화가 없습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Ingen samtaler ennå."}},"pl":{"stringUnit":{"state":"translated","value":"Nie ma jeszcze rozmów."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Ainda não há conversas."}},"ru":{"stringUnit":{"state":"translated","value":"Разговоров пока нет."}},"th":{"stringUnit":{"state":"translated","value":"ยังไม่มีการสนทนา"}},"tr":{"stringUnit":{"state":"translated","value":"Henüz sohbet yok."}},"uk":{"stringUnit":{"state":"translated","value":"Розмов поки немає."}},"vi":{"stringUnit":{"state":"translated","value":"Chưa có cuộc trò chuyện nào."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"还没有对话。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"還沒有對話。"}}}},
+    "imessage.missing": {"comment":"Session Info Connect iMessage connector: Messages database not found. Open Messages on this Mac first.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Messages database not found. Open Messages on this Mac first."}},"ar":{"stringUnit":{"state":"translated","value":"لم يتم العثور على قاعدة بيانات الرسائل. افتح تطبيق الرسائل على هذا الـ Mac أولًا."}},"bs":{"stringUnit":{"state":"translated","value":"Baza podataka Poruka nije pronađena. Prvo otvorite Poruke na ovom Macu."}},"da":{"stringUnit":{"state":"translated","value":"Beskeddatabasen blev ikke fundet. Åbn først Beskeder på denne Mac."}},"de":{"stringUnit":{"state":"translated","value":"Nachrichtendatenbank nicht gefunden. Öffne zuerst Nachrichten auf diesem Mac."}},"es":{"stringUnit":{"state":"translated","value":"No se encontró la base de datos de Mensajes. Abre Mensajes en este Mac primero."}},"fr":{"stringUnit":{"state":"translated","value":"Base de données Messages introuvable. Ouvrez d’abord Messages sur ce Mac."}},"it":{"stringUnit":{"state":"translated","value":"Database di Messaggi non trovato. Apri prima Messaggi su questo Mac."}},"ja":{"stringUnit":{"state":"translated","value":"メッセージのデータベースが見つかりません。まずこの Mac で「メッセージ」を開いてください。"}},"km":{"stringUnit":{"state":"translated","value":"រកមិនឃើញមូលដ្ឋានទិន្នន័យសារ។ សូមបើកកម្មវិធីសារនៅលើ Mac នេះសិន។"}},"ko":{"stringUnit":{"state":"translated","value":"메시지 데이터베이스를 찾을 수 없습니다. 먼저 이 Mac에서 메시지를 여세요."}},"nb":{"stringUnit":{"state":"translated","value":"Fant ikke meldingsdatabasen. Åpne først Meldinger på denne Macen."}},"pl":{"stringUnit":{"state":"translated","value":"Nie znaleziono bazy danych Wiadomości. Najpierw otwórz Wiadomości na tym Macu."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Banco de dados do Mensagens não encontrado. Abra o Mensagens neste Mac primeiro."}},"ru":{"stringUnit":{"state":"translated","value":"База данных Сообщений не найдена. Сначала откройте Сообщения на этом Mac."}},"th":{"stringUnit":{"state":"translated","value":"ไม่พบฐานข้อมูลข้อความ โปรดเปิดแอปข้อความบน Mac เครื่องนี้ก่อน"}},"tr":{"stringUnit":{"state":"translated","value":"Mesajlar veritabanı bulunamadı. Önce bu Mac’te Mesajlar’ı açın."}},"uk":{"stringUnit":{"state":"translated","value":"Базу даних Повідомлень не знайдено. Спочатку відкрийте Повідомлення на цьому Mac."}},"vi":{"stringUnit":{"state":"translated","value":"Không tìm thấy cơ sở dữ liệu Tin nhắn. Hãy mở Tin nhắn trên máy Mac này trước."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"未找到信息数据库。请先在此 Mac 上打开“信息”。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"找不到訊息資料庫。請先在此 Mac 上開啟「訊息」。"}}}},
+    "imessage.unavailable": {"comment":"Session Info Connect iMessage connector: iMessage is unavailable. Try again.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"iMessage is unavailable. Try again."}},"ar":{"stringUnit":{"state":"translated","value":"iMessage غير متاح. حاول مجددًا."}},"bs":{"stringUnit":{"state":"translated","value":"iMessage nije dostupan. Pokušajte ponovo."}},"da":{"stringUnit":{"state":"translated","value":"iMessage er ikke tilgængelig. Prøv igen."}},"de":{"stringUnit":{"state":"translated","value":"iMessage ist nicht verfügbar. Versuche es erneut."}},"es":{"stringUnit":{"state":"translated","value":"iMessage no está disponible. Inténtalo de nuevo."}},"fr":{"stringUnit":{"state":"translated","value":"iMessage est indisponible. Réessayez."}},"it":{"stringUnit":{"state":"translated","value":"iMessage non è disponibile. Riprova."}},"ja":{"stringUnit":{"state":"translated","value":"iMessage を利用できません。もう一度お試しください。"}},"km":{"stringUnit":{"state":"translated","value":"មិនអាចប្រើ iMessage បានទេ។ សូមព្យាយាមម្ដងទៀត។"}},"ko":{"stringUnit":{"state":"translated","value":"iMessage를 사용할 수 없습니다. 다시 시도하세요."}},"nb":{"stringUnit":{"state":"translated","value":"iMessage er utilgjengelig. Prøv igjen."}},"pl":{"stringUnit":{"state":"translated","value":"iMessage jest niedostępny. Spróbuj ponownie."}},"pt-BR":{"stringUnit":{"state":"translated","value":"O iMessage está indisponível. Tente novamente."}},"ru":{"stringUnit":{"state":"translated","value":"iMessage недоступен. Попробуйте ещё раз."}},"th":{"stringUnit":{"state":"translated","value":"ไม่สามารถใช้ iMessage ได้ โปรดลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"translated","value":"iMessage kullanılamıyor. Yeniden deneyin."}},"uk":{"stringUnit":{"state":"translated","value":"iMessage недоступний. Спробуйте ще раз."}},"vi":{"stringUnit":{"state":"translated","value":"iMessage không khả dụng. Hãy thử lại."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"iMessage 不可用。请重试。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"iMessage 無法使用。請再試一次。"}}}},
     "transcript.sentFrom": {"comment":"Agent pane: small muted line, beside the Chief's avatar, above a prompt the Chief sent this chat on the person's behalf; {name} is the Chief's name","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أُرسلت من {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Poslano iz {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"Sendt fra {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"Gesendet von {name}"}},"en":{"stringUnit":{"state":"translated","value":"Sent from {name}"}},"es":{"stringUnit":{"state":"needs_review","value":"Enviado desde {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Envoyé depuis {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"Inviato da {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name} から送信"}},"km":{"stringUnit":{"state":"needs_review","value":"បានផ្ញើពី {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name}에서 보냄"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sendt fra {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wysłano z {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enviado de {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отправлено из {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่งจาก {name}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} üzerinden gönderildi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Надіслано з {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Gửi từ {name}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"从 {name} 发送"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"從 {name} 傳送"}}}},
     "needsYou.expand": {"comment":"Agent pane Needs you: button that expands an ask's row to its whole text, options and next steps","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إظهار المزيد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži više"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis mere"}},"de":{"stringUnit":{"state":"needs_review","value":"Mehr anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show more"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar más"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher plus"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra altro"}},"ja":{"stringUnit":{"state":"needs_review","value":"さらに表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញបន្ថែម"}},"ko":{"stringUnit":{"state":"needs_review","value":"더 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis mer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż więcej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar mais"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать больше"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงเพิ่มเติม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Daha fazla göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати більше"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện thêm"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示更多"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示更多"}}}},
     "needsYou.collapse": {"comment":"Agent pane Needs you: button that folds an expanded ask's row back to one card","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إظهار أقل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži manje"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis mindre"}},"de":{"stringUnit":{"state":"needs_review","value":"Weniger anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show less"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar menos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher moins"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra meno"}},"ja":{"stringUnit":{"state":"needs_review","value":"表示を減らす"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញតិច"}},"ko":{"stringUnit":{"state":"needs_review","value":"간단히 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis mindre"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż mniej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar menos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать меньше"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงน้อยลง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Daha az göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати менше"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn bớt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"收起"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"收合"}}}},
@@ -57937,6 +57949,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "執行了 {n} 個指令"
+          }
+        }
+      }
+    },
+    "toolRun.finishedBackground.one": {
+      "comment": "Agent pane: lead phrase of a run of tool calls' summary when one background task it started has ended, lower case as it reads inside a line, e.g. \"Finished a background task, ran 3 commands\" (conversation/toolRunSummary.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أنهى مهمة في الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "završen jedan pozadinski zadatak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "afsluttede en baggrundsopgave"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "eine Hintergrundaufgabe beendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "finished a background task"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "terminó una tarea en segundo plano"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "a terminé une tâche en arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "completata un'attività in background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "バックグラウンドタスクを1件完了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបញ្ចប់កិច្ចការផ្ទៃខាងក្រោយមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "백그라운드 작업 1개 완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "fullførte en bakgrunnsoppgave"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "zakończono zadanie w tle"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "concluiu uma tarefa em segundo plano"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "завершена фоновая задача"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "งานเบื้องหลังเสร็จ 1 งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bir arka plan görevi bitti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "завершено фонове завдання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "đã xong một tác vụ nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完成了 1 个后台任务"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完成了 1 個背景工作"
+          }
+        }
+      }
+    },
+    "toolRun.finishedBackground.other": {
+      "comment": "Agent pane: lead phrase of a run of tool calls' summary when background tasks it started have ended; {n} is how many (2 or more), e.g. \"Finished 6 background tasks, ran 5 commands (4 failed)\" (conversation/toolRunSummary.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أنهى {n} مهام في الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "završeno pozadinskih zadataka: {n}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "afsluttede {n} baggrundsopgaver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} Hintergrundaufgaben beendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "finished {n} background tasks"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "terminó {n} tareas en segundo plano"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "a terminé {n} tâches en arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "completate {n} attività in background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "バックグラウンドタスクを{n}件完了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបញ្ចប់កិច្ចការផ្ទៃខាងក្រោយ {n}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "백그라운드 작업 {n}개 완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "fullførte {n} bakgrunnsoppgaver"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "zakończono zadania w tle: {n}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "concluiu {n} tarefas em segundo plano"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "завершено фоновых задач: {n}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "งานเบื้องหลังเสร็จ {n} งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} arka plan görevi bitti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "завершено фонових завдань: {n}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "đã xong {n} tác vụ nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完成了 {n} 个后台任务"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完成了 {n} 個背景工作"
           }
         }
       }
@@ -171070,6 +171346,1326 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "背景工作"
+          }
+        }
+      }
+    },
+    "bgTask.completedLead": {
+      "comment": "Agent pane: muted lead of a transcript note when a shell the agent ran in the background finished; the command follows it in full ink, e.g. \"Background command completed  pytest -x\" (conversation/BackgroundTaskNote.tsx)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اكتمل أمر في الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozadinska naredba završena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baggrundskommando fuldført"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hintergrundbefehl abgeschlossen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background command completed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando en segundo plano completado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commande en arrière-plan terminée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando in background completato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "バックグラウンドコマンドが完了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យបញ្ជាផ្ទៃខាងក្រោយបានបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "백그라운드 명령 완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bakgrunnskommando fullført"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Polecenie w tle zakończone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando em segundo plano concluído"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фоновая команда завершена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำสั่งเบื้องหลังเสร็จสิ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arka plan komutu tamamlandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фонову команду завершено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lệnh nền đã hoàn tất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "后台命令已完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景命令已完成"
+          }
+        }
+      }
+    },
+    "bgTask.failedLead": {
+      "comment": "Agent pane: muted lead of a transcript note when a shell the agent ran in the background failed; the command follows it in full ink (conversation/BackgroundTaskNote.tsx)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فشل أمر في الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozadinska naredba nije uspjela"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baggrundskommando mislykkedes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hintergrundbefehl fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background command failed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando en segundo plano fallido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Échec de la commande en arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando in background non riuscito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "バックグラウンドコマンドが失敗"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យបញ្ជាផ្ទៃខាងក្រោយបានបរាជ័យ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "백그라운드 명령 실패"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bakgrunnskommando mislyktes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Polecenie w tle nie powiodło się"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comando em segundo plano falhou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фоновая команда завершилась с ошибкой"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำสั่งเบื้องหลังล้มเหลว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arka plan komutu başarısız oldu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фонова команда завершилася з помилкою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lệnh nền thất bại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "后台命令失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景命令失敗"
+          }
+        }
+      }
+    },
+    "bgStatus.completed.one": {
+      "comment": "Agent pane: first part of an opened run's background status line, one background command finished, e.g. \"1 background command completed, 1 running\" (conversation/BackgroundStatusLine.tsx); {n} is 1",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اكتمل {n} أمر في الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} pozadinska naredba završena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} baggrundskommando fuldført"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} Hintergrundbefehl abgeschlossen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} background command completed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comando en segundo plano completado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} commande en arrière-plan terminée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comando in background completato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "バックグラウンドコマンド {n} 件完了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យបញ្ជាផ្ទៃខាងក្រោយ {n} បានបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "백그라운드 명령 {n}개 완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} bakgrunnskommando fullført"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} polecenie w tle zakończone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comando em segundo plano concluído"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} фоновая команда завершена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำสั่งเบื้องหลังเสร็จ {n} คำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} arka plan komutu tamamlandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} фонову команду завершено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} lệnh nền đã hoàn tất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 个后台命令已完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 個背景命令已完成"
+          }
+        }
+      }
+    },
+    "bgStatus.completed.other": {
+      "comment": "Agent pane: first part of an opened run's background status line, background commands finished; {n} is how many (2 or more) (conversation/BackgroundStatusLine.tsx)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اكتملت {n} أوامر في الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Završeno pozadinskih naredbi: {n}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} baggrundskommandoer fuldført"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} Hintergrundbefehle abgeschlossen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} background commands completed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comandos en segundo plano completados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} commandes en arrière-plan terminées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comandi in background completati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "バックグラウンドコマンド {n} 件完了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យបញ្ជាផ្ទៃខាងក្រោយ {n} បានបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "백그라운드 명령 {n}개 완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} bakgrunnskommandoer fullført"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zakończone polecenia w tle: {n}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comandos em segundo plano concluídos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завершено фоновых команд: {n}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำสั่งเบื้องหลังเสร็จ {n} คำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} arka plan komutu tamamlandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завершено фонових команд: {n}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} lệnh nền đã hoàn tất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 个后台命令已完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 個背景命令已完成"
+          }
+        }
+      }
+    },
+    "bgStatus.failed.one": {
+      "comment": "Agent pane: first part of an opened run's background status line when none completed, one background command failed (conversation/BackgroundStatusLine.tsx); {n} is 1",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فشل {n} أمر في الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} pozadinska naredba nije uspjela"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} baggrundskommando mislykkedes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} Hintergrundbefehl fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} background command failed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comando en segundo plano fallido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} commande en arrière-plan en échec"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comando in background non riuscito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "バックグラウンドコマンド {n} 件失敗"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យបញ្ជាផ្ទៃខាងក្រោយ {n} បានបរាជ័យ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "백그라운드 명령 {n}개 실패"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} bakgrunnskommando mislyktes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} polecenie w tle nie powiodło się"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comando em segundo plano falhou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} фоновая команда с ошибкой"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำสั่งเบื้องหลังล้มเหลว {n} คำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} arka plan komutu başarısız"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} фонова команда з помилкою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} lệnh nền thất bại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 个后台命令失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 個背景命令失敗"
+          }
+        }
+      }
+    },
+    "bgStatus.failed.other": {
+      "comment": "Agent pane: first part of an opened run's background status line when none completed, background commands failed; {n} is how many (2 or more) (conversation/BackgroundStatusLine.tsx)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فشلت {n} أوامر في الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neuspjelih pozadinskih naredbi: {n}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} baggrundskommandoer mislykkedes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} Hintergrundbefehle fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} background commands failed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comandos en segundo plano fallidos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} commandes en arrière-plan en échec"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comandi in background non riusciti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "バックグラウンドコマンド {n} 件失敗"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យបញ្ជាផ្ទៃខាងក្រោយ {n} បានបរាជ័យ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "백그라운드 명령 {n}개 실패"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} bakgrunnskommandoer mislyktes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nieudane polecenia w tle: {n}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comandos em segundo plano falharam"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фоновых команд с ошибкой: {n}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำสั่งเบื้องหลังล้มเหลว {n} คำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} arka plan komutu başarısız"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фонових команд з помилкою: {n}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} lệnh nền thất bại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 个后台命令失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 個背景命令失敗"
+          }
+        }
+      }
+    },
+    "bgStatus.running.one": {
+      "comment": "Agent pane: an opened run's background status line when the only background commands still run, one of them (conversation/BackgroundStatusLine.tsx); {n} is 1",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} أمر قيد التشغيل في الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} pozadinska naredba radi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} baggrundskommando kører"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} Hintergrundbefehl läuft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} background command running"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comando en segundo plano en curso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} commande en arrière-plan en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comando in background in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "バックグラウンドコマンド {n} 件実行中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យបញ្ជាផ្ទៃខាងក្រោយ {n} កំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "백그라운드 명령 {n}개 실행 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} bakgrunnskommando kjører"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} polecenie w tle działa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comando em segundo plano em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} фоновая команда выполняется"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำสั่งเบื้องหลังกำลังทำงาน {n} คำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} arka plan komutu çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} фонова команда виконується"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} lệnh nền đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 个后台命令运行中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 個背景命令執行中"
+          }
+        }
+      }
+    },
+    "bgStatus.running.other": {
+      "comment": "Agent pane: an opened run's background status line when the only background commands still run; {n} is how many (2 or more) (conversation/BackgroundStatusLine.tsx)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} أوامر قيد التشغيل في الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozadinskih naredbi u radu: {n}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} baggrundskommandoer kører"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} Hintergrundbefehle laufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} background commands running"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comandos en segundo plano en curso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} commandes en arrière-plan en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comandi in background in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "バックグラウンドコマンド {n} 件実行中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យបញ្ជាផ្ទៃខាងក្រោយ {n} កំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "백그라운드 명령 {n}개 실행 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} bakgrunnskommandoer kjører"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Polecenia w tle w toku: {n}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} comandos em segundo plano em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выполняется фоновых команд: {n}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำสั่งเบื้องหลังกำลังทำงาน {n} คำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} arka plan komutu çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виконується фонових команд: {n}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} lệnh nền đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 个后台命令运行中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 個背景命令執行中"
+          }
+        }
+      }
+    },
+    "bgStatus.completedCount": {
+      "comment": "Agent pane: a later part of an opened run's background status line, how many background commands completed, after the failed ones (conversation/BackgroundStatusLine.tsx); {n} is how many",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} مكتملة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "završeno: {n}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} fuldført"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} abgeschlossen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} completed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} completados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} terminées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} completati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 件完了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} បានបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n}개 완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} fullført"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "zakończone: {n}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} concluídos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "завершено: {n}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสร็จ {n}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} tamamlandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "завершено: {n}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} đã xong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 个已完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 個已完成"
+          }
+        }
+      }
+    },
+    "bgStatus.runningCount": {
+      "comment": "Agent pane: the last part of an opened run's background status line, how many background commands still run, e.g. \"1 background command completed, 1 running\" (conversation/BackgroundStatusLine.tsx); {n} is how many",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} قيد التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "u radu: {n}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} kører"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} laufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} running"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} en curso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 件実行中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} កំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n}개 실행 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} kjører"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "w toku: {n}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "выполняется: {n}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังทำงาน {n}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "виконується: {n}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 个运行中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 個執行中"
           }
         }
       }

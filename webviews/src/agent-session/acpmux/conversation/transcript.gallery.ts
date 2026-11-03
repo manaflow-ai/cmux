@@ -826,8 +826,12 @@ const liveLineClear = async (ctx: PlayContext) => {
   const doc = ctx.document;
   await ctx.waitFor(() => doc.querySelector(".cv-worked.is-below .cv-thinking"));
   const words = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!.getBoundingClientRect();
-  const over = [...doc.querySelectorAll(".cv-tool, .cv-md")]
-    .map((node) => ({ step: node.matches(".cv-tool"), bottom: node.getBoundingClientRect().bottom }))
+  // A stacked message row's first line under it (messageLineLook.ts) is the row's last line.
+  const over = [...doc.querySelectorAll(".cv-tool, .cv-msgline__preview, .cv-md")]
+    .map((node) => ({
+      step: node.matches(".cv-tool, .cv-msgline__preview"),
+      bottom: node.getBoundingClientRect().bottom,
+    }))
     .filter(({ bottom }) => bottom <= words.top + 1);
   if (!over.length) throw new Error("no tool row or reply draws over the live line");
   const nearest = over.reduce((a, b) => (b.bottom > a.bottom ? b : a));

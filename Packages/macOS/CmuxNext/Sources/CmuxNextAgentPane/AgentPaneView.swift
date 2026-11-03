@@ -139,6 +139,9 @@ public final class AgentPaneView: NSView {
     /// Bounded reports from the app-owned webview UI picker.
     /// Receives a bounded element report while the debug UI pointer is active.
     public var uiPointerReport: (@MainActor (JSONValue) -> Void)?
+    /// Where (screen points) and when (system uptime) this page's context menu last opened:
+    /// Inspect Element starts the picker there, with no app-wide right-click monitor.
+    public internal(set) var lastContextMenu: (point: NSPoint, uptime: TimeInterval)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
     /// The page lies outside the window until it draws the chat a tab adopted it for

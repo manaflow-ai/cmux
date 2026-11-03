@@ -567,6 +567,8 @@ pub struct Agents {
     pub prompt_ids: Vec<String>,
     pub events: BTreeMap<String, Vec<AcpmuxEvent>>,
     pub ended: Vec<String>,
+    /// `prompt <session>` and `end <session>`, in the order they ran.
+    pub calls: Vec<String>,
     /// Turns held before they run, released by `release`.
     pub hold: bool,
     pub released: usize,
@@ -886,6 +888,7 @@ impl AgentPort for FakeAgents {
             inner.prompts.push(blocks.clone());
             inner.prompt_ids.push(prompt_id.to_owned());
             inner.prompt_sessions.push(session.to_owned());
+            inner.calls.push(format!("prompt {session}"));
             inner.signals.insert(session.to_owned(), signals.clone());
             inner.turn_over.remove(session);
             inner.prompts.len() - 1
@@ -951,7 +954,9 @@ impl AgentPort for FakeAgents {
     }
 
     fn end_session(&self, session: &str) -> Result<(), String> {
-        self.inner.lock().unwrap().ended.push(session.to_owned());
+        let mut inner = self.inner.lock().unwrap();
+        inner.ended.push(session.to_owned());
+        inner.calls.push(format!("end {session}"));
         Ok(())
     }
 
@@ -1310,10 +1315,16 @@ impl Harness {
 
     /// A new message in the conversation, as the subscription delivers it.
     pub fn say(&mut self, author: &str, text: &str) -> Message {
+        self.say_at(author, text, "")
+    }
+
+    /// `say`, with the owner's `created_at` stamp (RFC 3339).
+    pub fn say_at(&mut self, author: &str, text: &str, created_at: &str) -> Message {
         let m = {
             let mut owner = self.owner.lock().unwrap();
             let seq = owner.messages.len() as u64 + 1;
-            let m = message(seq, author, text);
+            let mut m = message(seq, author, text);
+            m.created_at = created_at.to_owned();
             owner.messages.push(m.clone());
             m
         };

@@ -6,6 +6,7 @@ import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
+import { useScrollEdges } from "../../ui/scrollEdges";
 import { ComposerListLayer, useComposerListBox } from "./backdropLayer";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
@@ -415,6 +416,8 @@ type Props = {
   authBlock?: string;
   /// Keeps auth refusal blocking sends when its text is represented by another notice.
   authBlocked?: boolean;
+  /// A pending check disables Send and explains its tooltip without adding a temporary layout row.
+  authChecking?: boolean;
   /// Opens Session Info at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
 };
@@ -490,6 +493,7 @@ export function Composer({
   locked = false,
   authBlock,
   authBlocked = false,
+  authChecking = false,
   placeholder,
   onOpenContext,
 }: Props) {
@@ -2256,7 +2260,7 @@ export function Composer({
           {t(remote.note)}
         </p>
       )}
-      {!remote.note && authBlock && (
+      {!remote.note && authBlock && !authChecking && (
         <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="alert">
           {authBlock}
         </p>
@@ -2574,13 +2578,15 @@ function SlashMenu({
   const end = virtual ? view.end : matches.length;
 
   // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
+  const listEdges = useScrollEdges();
   const escape = useEscapingList("top", 6, undefined, box);
   const setList = useCallback(
     (node: HTMLDivElement | null) => {
       list.current = node;
+      listEdges(node);
       escape?.(node);
     },
-    [escape],
+    [escape, listEdges],
   );
   // The menu may be squeezed below its CSS 296px cap in a short pane.
   useLayoutEffect(() => {
@@ -2627,7 +2633,7 @@ function SlashMenu({
   return (
     <div
       ref={setList}
-      className="ui-popup ui-glass acpmux-slash-menu"
+      className="ui-popup ui-glass acpmux-slash-menu ui-scroll-edge-fade"
       id="acpmux-slash-menu"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"
