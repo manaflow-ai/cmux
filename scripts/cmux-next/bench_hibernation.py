@@ -30,11 +30,13 @@ Then each tab is selected in turn and timed:
 
 With --pressure a second set of tabs is opened (with --pressure-reuse, the
 bench tabs themselves, woken by the wake phase), plus one page that plays
-media and one an agent keeps calling, and critical memory pressure is fed in
+sound that is heard, one whose media its own page mutes and one an agent keeps
+calling, and critical memory pressure is fed in
 (`debug.hibernation.pressure` when the build has it, else `sudo -n
 memory_pressure -S -l critical`). Printed: the time until every eligible
-hidden page hibernated, the footprint before and after, and whether the media
-page or the driven page ever hibernated (they must not).
+hidden page hibernated, the footprint before and after, whether the audible
+page or the driven page ever hibernated (they must not), and whether the
+page-muted page did (it must: nothing is heard).
 
 Usage (a fleet or capture mini, never a laptop; DEV build, it reads debug.surfaces):
   bench_hibernation.py --app BUNDLE [--tabs 6] [--heap-mb 40] [--measure 20]
@@ -179,18 +181,21 @@ def renderers(result: dict) -> dict:
             "webkit_webcontent": kinds.get("webkit-webcontent", {}).get("count", 0)}
 
 
+HELD_FREEZE_S = 3600
+
+
 def pump(sock: str) -> dict:
     return (bp.rpc(sock, "debug.cef") or {}).get("pump") or {}
 
 
 def phase(app_pid: int, bundle: str, label: str, measure: float, report: dict, sock: str | None = None):
-    before = pump(sock) if sock else {}
+    before, read_at = (pump(sock) if sock else {}), time.monotonic()
     result = bm.sample(app_pid, bundle, label, 1, measure)
     result.update(renderers(result))
     if sock:
-        after = pump(sock)
+        after, span = pump(sock), max(time.monotonic() - read_at, 0.001)
         # The in-process Chromium pump on cmux's main thread over the phase: passes per second and work ms per second.
-        result["pump"] = {key: round(((after.get(key) or 0) - (before.get(key) or 0)) / measure, 3)
+        result["pump"] = {key: round(((after.get(key) or 0) - (before.get(key) or 0)) / span, 3)
                           for key in ("work_runs", "work_ms", "immediate_requests", "delayed_requests")}
         print(f"PERF-HIBERNATE-PUMP phase={label} " + " ".join(f"{k}_per_s={v}" for k, v in result["pump"].items()), flush=True)
     report["phases"].append(result)
@@ -277,9 +282,9 @@ def main():
     parser.add_argument("--engines", default="chromium,webkit")
     parser.add_argument("--heap-mb", type=int, default=40)
     parser.add_argument("--measure", type=float, default=20, help="seconds each phase's CPU is measured over")
-    parser.add_argument("--freeze", type=float, default=0,
-                        help="browser.freezeHiddenTabs for the run (0: past the 35 s settle and the awake measure, so the "
-                             "awake phase is hidden pages only, none frozen yet)")
+    parser.add_argument("--freeze", type=float, default=10,
+                        help="browser.freezeHiddenTabs set after the awake phase (the app launches with it at "
+                             f"{HELD_FREEZE_S} s, so the awake phase is hidden pages only, none frozen)")
     parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON)")
     parser.add_argument("--pressure", action="store_true", help="also simulate critical memory pressure")
     parser.add_argument("--pressure-reuse", action="store_true", help="pressure the bench tabs instead of opening new ones")
@@ -291,12 +296,13 @@ def main():
     if sys.platform != "darwin":
         raise SystemExit("bench-hibernation: macOS only (run it on a fleet or capture mini)")
     _Handler.heap_mb = args.heap_mb
-    if not args.freeze:
-        args.freeze = 35 + args.measure + 15
     engines = [e for e in args.engines.split(",") if e]
     ports = [serve() for _ in range(max(1, args.tabs))]
     # No neighbors: a tab beside the shown one would wake in the background before it is timed.
-    config = bm.merged({"browser": {"hibernation": "moderate", "freezeHiddenTabs": args.freeze, "keepNeighborTabsAwake": 0}},
+    # The freeze clock runs from each tab's hide, and the tabs hide one by one as they open: a freeze set at launch
+    # would freeze the first tabs inside the awake phase. So the app launches with the freeze far off, and the run's
+    # value is set after the awake phase; the app then replans and freezes every page past it at once.
+    config = bm.merged({"browser": {"hibernation": "moderate", "freezeHiddenTabs": HELD_FREEZE_S, "keepNeighborTabsAwake": 0}},
                        json.loads(args.config))
     bundle = os.path.realpath(args.app)
     signal.signal(signal.SIGTERM, bm.interrupted)
@@ -339,11 +345,14 @@ def main():
         # Agent grace (30 s after the last script call) and the page's own load work pass first.
         time.sleep(35)  # test script: let the hidden pages settle
         chromium = set(opened.get("chromium", []))
-        # The "awake" phase must be hidden only: no page frozen yet (the run's freezeHiddenTabs is long enough for it).
+        # The "awake" phase is hidden only: the freeze is held off until it ends (HELD_FREEZE_S); the counts prove it.
         awake_frozen = len(set(hibernation(sock).get("frozen") or []) & chromium)
         print(f"PERF-HIBERNATE-AWAKE frozen_before={awake_frozen}", flush=True)
         phase(pid, bundle, "awake", args.measure, report, sock)
         report["awake_frozen_at_end"] = len(set(hibernation(sock).get("frozen") or []) & chromium)
+        answer = bp.rpc(sock, "settings.set", {"path": "browser.freezeHiddenTabs", "value": args.freeze})
+        if answer.get("error"):
+            print(f"   settings.set browser.freezeHiddenTabs: {answer['error']}", file=sys.stderr)
         if chromium:
             frozen = wait_for(lambda: chromium <= set(hibernation(sock).get("frozen") or []), 120, 1)
             print(f"PERF-HIBERNATE-FROZEN all={bool(frozen)} frozen={len(hibernation(sock).get('frozen') or [])} "
@@ -364,9 +373,14 @@ def main():
         phase(pid, bundle, "hibernated", args.measure, report, sock)
         # No tab on screen at all (the window miniaturized): nothing changes on screen, so the GPU process and the
         # pump must go quiet; a GPU process that still wakes at display rate here is a bug (vsync must stop).
-        app.run("minimizeWindow")
+        reply = app.run("minimizeWindow")
         time.sleep(5)  # test script: the window is miniaturized and the app settles
-        phase(pid, bundle, "minimized", args.measure, report, sock)
+        mains = [w for w in (bp.rpc(sock, "debug.window_list") or {}).get("windows") or [] if w.get("kind") == "main"]
+        minimized = bool(mains) and all(w.get("miniaturized") for w in mains)
+        report["minimized"] = {"ran": minimized, "error": reply.get("error")}
+        print(f"PERF-HIBERNATE-MINIMIZED ran={minimized} error={reply.get('error')}", flush=True)
+        if minimized:
+            phase(pid, bundle, "minimized", args.measure, report, sock)
         app.run("showMainWindow")
         app.run("tab.focus", target=front)
         time.sleep(3)  # test script: the window is back
@@ -515,9 +529,15 @@ def pressure(app, sock, engines, ports, count, open_tab, front, opened_extra, re
         asleep = set(hibernation(sock).get("hibernated") or [])
         ever_slept.update(asleep & watched)
         timeline.append((round(time.monotonic() - started, 2), len(asleep & set(tabs))))
-        return set(tabs) | set(silent) <= asleep and time.monotonic()
+        return set(tabs) <= asleep and time.monotonic()
 
     slept = wait_for(all_asleep, wait or max(30, 1.5 * len(tabs)), 0.1)
+    # The page-muted page goes like any other hidden page: give it the same pace after the bench tabs, apart from their time.
+    def silent_asleep():
+        all_asleep()  # keeps driving the driven page and records every watched page that slept
+        return set(silent) <= ever_slept
+    if silent:
+        wait_for(silent_asleep, 30, 0.25)
     status = hibernation(sock)
     if simulator is not None:
         simulator.wait(timeout=60)
