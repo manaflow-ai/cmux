@@ -123,4 +123,16 @@ public extension RightColumnPlacement.Kind {
     }
 }
 
+public extension RightColumnPlacement.Kind {
+    /// Whether `tab` makes its pane hold this kind for the same-kind rule: a local or remote terminal,
+    /// a browser tab, or (`document`: the tab shows the Changes diff page) a diff.
+    func isHeld(by tab: TabModel, document: Bool) -> Bool {
+        switch (self, tab.kind) {
+        case (.terminal, .pty), (.terminal, .remoteTerminal), (.browser, .browser): true
+        case (.document, _): document
+        default: false
+        }
+    }
+}
+
 extension RightColumnPlacement.Decision: Sendable where Pane: Sendable {}
