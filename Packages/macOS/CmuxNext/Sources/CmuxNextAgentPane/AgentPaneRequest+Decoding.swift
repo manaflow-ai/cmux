@@ -3,9 +3,9 @@ import CmuxNextSettings
 import Foundation
 
 extension AgentPaneRequest {
-    private static let maximumUploadStageChunk = 512 * 1024
+    private nonisolated static let maximumUploadStageChunk = 512 * 1024
 
-    static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
+    nonisolated static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
         case "chat.upload.begin":

@@ -47,7 +47,7 @@ final class AgentPaneComposerStaging {
             let target = Target(owner: owner, revision: model.replyLinks.composerCopyRevision)
             let place = folder.appendingPathComponent(UUID().uuidString, isDirectory: true)
             let file = place.appendingPathComponent(name)
-            guard (try? await work.run(.userBlocking, mayBlock: .files, {
+            guard (try? await work.run(.userBlocking, mayBlock: .files, { () throws -> Void in
                 try FileManager.checked.createDirectory(at: place, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
                 guard FileManager.checked.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
                     throw CocoaError(.fileWriteUnknown)
@@ -75,7 +75,7 @@ final class AgentPaneComposerStaging {
             let target = Target(owner: owner, revision: model.replyLinks.composerCopyRevision)
             let destination = folder.appendingPathComponent(UUID().uuidString, isDirectory: true).appendingPathComponent("payload")
             let finished = await stages.finish(token, owns: owns, work: work, transfer: { staged -> URL? in
-                guard (try? await work.run(.userBlocking, mayBlock: .files, {
+                guard (try? await work.run(.userBlocking, mayBlock: .files, { () throws -> Void in
                     try FileManager.checked.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                             attributes: [.posixPermissions: 0o700])
                     try FileManager.checked.moveItem(at: staged.file, to: destination)
