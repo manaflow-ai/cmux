@@ -5,9 +5,9 @@
 /// values still on their way, and for a frame the screen showed them at their old sizes.
 struct TransactionReplies {
     private var unanswered: [LayoutTransactionID: Int] = [:]
-    /// The transactions whose values are going out now (`EndedValues.send`; one change can be sent from inside another's
-    /// intent handler), each with whether the app refused it meanwhile.
-    private var sending: [LayoutTransactionID: Bool] = [:]
+    /// The changes going out now (`EndedValues.send`), innermost last: one can be sent from inside another's intent
+    /// handler, even one of the same transaction. Each notes whether the app refused its transaction meanwhile.
+    private var sending: [(transaction: LayoutTransactionID, refused: Bool)] = []
 
     /// One more value of `transaction` goes to the daemon.
     mutating func expect(_ transaction: LayoutTransactionID) { unanswered[transaction, default: 0] += 1 }
@@ -25,17 +25,18 @@ struct TransactionReplies {
     /// `transaction` was refused or cancelled: no reply settles it.
     mutating func forget(_ transaction: LayoutTransactionID) {
         unanswered[transaction] = nil
-        if sending[transaction] != nil { sending[transaction] = true }
+        for index in sending.indices where sending[index].transaction == transaction { sending[index].refused = true }
     }
 
-    /// `transaction`'s values start going out: a refusal while they do is noted (``forget(_:)``), whatever it removed.
-    mutating func beginSending(_ transaction: LayoutTransactionID) { sending[transaction] = false }
+    /// A change of `transaction` starts going out: a refusal of it while it does is noted (``forget(_:)``), whatever it
+    /// removed.
+    mutating func beginSending(_ transaction: LayoutTransactionID) { sending.append((transaction, false)) }
 
-    /// Whether the app refused `transaction` while its values go out.
-    func refused(_ transaction: LayoutTransactionID) -> Bool { sending[transaction] == true }
+    /// Whether the app refused the innermost change going out: the caller's own once its emit returned (sends nest).
+    var refusedInnermost: Bool { sending.last?.refused == true }
 
-    /// `transaction`'s values went out (or stopped): whether the app refused it meanwhile.
-    mutating func endSending(_ transaction: LayoutTransactionID) -> Bool { sending.removeValue(forKey: transaction) == true }
+    /// The innermost change went out (or stopped): whether the app refused its transaction meanwhile.
+    mutating func endSending() -> Bool { sending.popLast()?.refused == true }
 }
 
 /// A divider or column value a gesture set locally (`LayoutModel.splitOverrides`, `widthOverrides`), shown over the

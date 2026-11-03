@@ -97,4 +97,17 @@ struct EndedValuesTests {
         for _ in 0..<40 { _ = numbers.number(for: .make()) }
         #expect(numbers.number(for: a) == first, "a's second value took a new number after 40 other transactions")
     }
+
+    /// A transaction whose commands were all answered is done: a value after it is a step of its own.
+    @Test func aTransactionAnsweredInFullTakesANewNumber() {
+        var numbers = GestureTransactionNumbers()
+        let a = LayoutTransactionID.make()
+        let first = numbers.number(for: a)
+        #expect(numbers.number(for: a) == first)
+        numbers.answered(a)
+        #expect(numbers.number(for: a) == first, "a still had a command in flight")
+        numbers.answered(a)
+        numbers.answered(a)
+        #expect(numbers.number(for: a) != first)
+    }
 }

@@ -202,12 +202,10 @@ extension WorkspaceContentController {
 
     /// Sends a gesture's one command; its result settles or rolls back the layout's override.
     private func sendGesture(_ transaction: LayoutTransactionID, label: String, _ body: @escaping DaemonCommandBody) {
-        Task { [daemon, layoutModel] in
-            if await daemon.run(label, body) {
-                layoutModel.settleTransaction(transaction)
-            } else {
-                layoutModel.rejectTransaction(transaction)
-            }
+        Task { [weak self, daemon, layoutModel] in
+            let ok = await daemon.run(label, body)
+            self?.gestureTransactions.answered(transaction)
+            ok ? layoutModel.settleTransaction(transaction) : layoutModel.rejectTransaction(transaction)
         }
     }
 

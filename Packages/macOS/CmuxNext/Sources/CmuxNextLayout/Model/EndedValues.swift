@@ -47,9 +47,9 @@ public struct EndedValues {
         model.replies.beginSending(transaction)
         for intent in intents {
             model.emit(intent)
-            if model.replies.refused(transaction) { break }
+            if model.replies.refusedInnermost { break }
         }
-        return !model.replies.endSending(transaction)
+        return !model.replies.endSending()
     }
 
     /// The command `value` would send, with the clamped value the model shows once it is set; nil when its target is gone.
