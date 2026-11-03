@@ -156,7 +156,12 @@ export function DisclosureRow({
       {below !== undefined && below !== null && below !== "" && (
         // The toggle's label reads these words for a screen reader; this is the pointer's target.
         // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
-        <div className="cv-msgline__preview cv-disclosure__below" aria-hidden data-find-skip="" onClick={collapse.toggle}>
+        <div
+          className="cv-msgline__preview cv-disclosure__below"
+          aria-hidden
+          data-find-skip=""
+          onClick={collapse.toggle}
+        >
           {below}
         </div>
       )}

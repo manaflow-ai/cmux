@@ -98,7 +98,10 @@ function coordinatorTurn(): AcpmuxSnapshot {
         'The area→owner table is live. NOW.md has a "## Area owners" section (generated from the registry), and the asks reconciler reads it.',
         5.2,
       ),
-      activity([run("Check rerun result; start router-review for HQ#6406", "gh run view 41578642105 --json conclusion")], 5),
+      activity(
+        [run("Check rerun result; start router-review for HQ#6406", "gh run view 41578642105 --json conclusion")],
+        5,
+      ),
       activity(
         [
           plainSend(

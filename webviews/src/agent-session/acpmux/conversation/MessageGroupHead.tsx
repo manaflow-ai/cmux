@@ -70,35 +70,35 @@ export function MessageGroupHead({
   const inline = lineLook === "single" ? senders : undefined;
   return (
     <>
-    <button
-      type="button"
-      className={`cv-tool cv-message-group__head${className ? ` ${className}` : ""}`}
-      data-look={look}
-      data-find-skip=""
-      aria-expanded={open}
-      aria-controls={open ? bodyId : undefined}
-      aria-label={ariaLabel}
-      title={hint || senders || undefined}
-      onClick={onToggle}
-    >
-      <span className={`cv-tool__icon${iconClassName ? ` ${iconClassName}` : ""}`} aria-hidden="true">
-        {sender ? <SenderMark message={sender} /> : <Icon name="agent.chat" size={ROW_ICON} row />}
-      </span>
-      <span className="cv-tool__text">
-        <span className="cv-message-group__count">{count}</span>
-        {inline && <span className="cv-message-group__senders">{inline}</span>}
-      </span>
-      <span className="cv-tool__chevron" aria-hidden="true">
-        <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
-      </span>
-    </button>
-    {below && (
-      // The head's tooltip and label already name them; this line is for the eye and the pointer.
-      // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
-      <div className="cv-msgline__preview cv-message-group__below" aria-hidden data-find-skip="" onClick={onToggle}>
-        {below}
-      </div>
-    )}
+      <button
+        type="button"
+        className={`cv-tool cv-message-group__head${className ? ` ${className}` : ""}`}
+        data-look={look}
+        data-find-skip=""
+        aria-expanded={open}
+        aria-controls={open ? bodyId : undefined}
+        aria-label={ariaLabel}
+        title={hint || senders || undefined}
+        onClick={onToggle}
+      >
+        <span className={`cv-tool__icon${iconClassName ? ` ${iconClassName}` : ""}`} aria-hidden="true">
+          {sender ? <SenderMark message={sender} /> : <Icon name="agent.chat" size={ROW_ICON} row />}
+        </span>
+        <span className="cv-tool__text">
+          <span className="cv-message-group__count">{count}</span>
+          {inline && <span className="cv-message-group__senders">{inline}</span>}
+        </span>
+        <span className="cv-tool__chevron" aria-hidden="true">
+          <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
+        </span>
+      </button>
+      {below && (
+        // The head's tooltip and label already name them; this line is for the eye and the pointer.
+        // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+        <div className="cv-msgline__preview cv-message-group__below" aria-hidden data-find-skip="" onClick={onToggle}>
+          {below}
+        </div>
+      )}
     </>
   );
 }

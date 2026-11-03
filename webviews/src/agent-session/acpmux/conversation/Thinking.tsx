@@ -10,15 +10,15 @@
 // never "Thinking" while the agent is blocked on them.
 import { useContext, useLayoutEffect, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
-import { useT } from "../i18n";
+import { usePaneLanguage, useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
-import { Envelope, Spinner } from "./icons";
+import { Envelope, Spinner, TerminalSquare } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
 import { formatDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
-import { TurnTokens } from "./TurnTokens";
+import { hasTokens, tokensText, workingTokens } from "./TurnTokens";
 import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
 
 /// How long streaming text must hold still before the live line comes back under it.
@@ -120,7 +120,19 @@ export function Thinking({
   // (Leo, 2026-11-02, on "Sending message to gcp-codex-swarm-10/right-pane 3m 56s · ↓1.4K out ↑819.5K
   // in" among the message rows: "i also think this is quite weird looking").
   const sending = doing !== undefined && sendName !== undefined;
-  const showTokens = Boolean(tokens) && timed && !sending;
+  // The counts are a debugging aid, not the transcript's words: the line's hover, never its text
+  // (the coordinator, relaying Leo's capture of "Thinking 7m 34s · ↓ 4.5K out ↑ 1.4M in": "debug
+  // noise in the main transcript"). Session Info keeps the turn's spend.
+  const language = usePaneLanguage();
+  const split = counts?.split;
+  const tokenHover =
+    timed && !sending
+      ? hasTokens(split)
+        ? tokensText(t, language, split)
+        : tokens
+          ? workingTokens(t, language, tokens)
+          : undefined
+      : undefined;
   const parts = counts && !waiting ? workingParts(t, counts) : [];
   // The `silent` and `spinner` start looks keep the line's box (`.cv-worked`'s height) with no words.
   if (startLook !== "thinking")
@@ -134,11 +146,16 @@ export function Thinking({
     );
   return (
     // `cv-worked--live`: its words start on the icon rows' text column (conversation.css).
-    <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
-      {/* A send's line takes the envelope every message row draws, in the one icon column. */}
-      {sending && !waiting && (
+    <div
+      className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`}
+      title={tokenHover}
+      data-find-skip
+    >
+      {/* One icon per kind in the rows' one icon column, so the words start where every row's do:
+          a send's envelope, a command's terminal, and otherwise the working spinner. */}
+      {!waiting && (
         <span className="cv-worked__icon" aria-hidden="true">
-          <Envelope />
+          {sending ? <Envelope /> : doingShell ? <TerminalSquare /> : <Spinner loading />}
         </span>
       )}
       {waiting ? (
@@ -160,14 +177,6 @@ export function Thinking({
             />
           </output>
           {elapsed && <span className="cv-worked__time">{elapsed}</span>}
-        </span>
-      )}
-      {showTokens && (
-        <span className="cv-worked__count">
-          <span className="cv-worked__sep" aria-hidden="true">
-            ·
-          </span>
-          <TurnTokens total={tokens} split={counts?.split} />
         </span>
       )}
       {parts.map((part) => (

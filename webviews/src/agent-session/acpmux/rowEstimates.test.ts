@@ -501,7 +501,9 @@ test("a folded run with messages to other agents is estimated as the lines it dr
   // Plain work still folds to its one summary line.
   expect(heightsOf(run([shell("a", "git status"), read]))[0]).toBe(lines(1));
   // A send between two commands: a line each.
-  expect(heightsOf(run([shell("a", "git status"), send("b", "lane-b"), shell("c", "cat x")]))[0]).toBe(lines(3) + preview);
+  expect(heightsOf(run([shell("a", "git status"), send("b", "lane-b"), shell("c", "cat x")]))[0]).toBe(
+    lines(3) + preview,
+  );
   // Two sends, as two calls or as one shell batch.
   expect(heightsOf(run([send("a", "lane-a"), send("b", "lane-b")]))[0]).toBe(lines(2) + 2 * preview);
   expect(heightsOf(run([shell("a", "acpmux send --no-wait lane-a 'a'; acpmux send --no-wait lane-b 'b'")]))[0]).toBe(
@@ -513,7 +515,9 @@ test("a folded run with messages to other agents is estimated as the lines it dr
   expect(heightsOf(run(mixed))[0]).toBe(lines(4) + 2 * preview);
   // A sub-session message alone is one tool row, folded or not.
   expect(heightsOf(run([sendMessage]))[0]).toBe(lines(1) + preview);
-  expect(heightsOf([{ id: "one", version: 1, at: 0, kind: "activity", items: [sendMessage] }])[0]).toBe(lines(1) + preview);
+  expect(heightsOf([{ id: "one", version: 1, at: 0, kind: "activity", items: [sendMessage] }])[0]).toBe(
+    lines(1) + preview,
+  );
 });
 
 test("a turn's end keeps a reply's room: a folded reply to the person keeps it, a folded note does not", () => {

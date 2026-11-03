@@ -10,7 +10,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { tokenLines, tokenLineMarkup } from "./support/turnTokenLines";
+import { SPLIT, thinkingLine, tokenLines, tokenLineMarkup } from "./support/turnTokenLines";
 
 const conversationCss = readFileSync(
   path.resolve(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),
@@ -42,4 +42,22 @@ test("the count takes the theme's tertiary text token, in tabular numerals, neve
   expect(rule(".cv-worked")).toContain("color: var(--cv-activity-text);");
   expect(conversationCss).toContain("--cv-text-muted: var(--agent-muted);");
   expect(conversationCss).toContain("--cv-text-dim: var(--agent-soft);");
+});
+
+// The coordinator, relaying Leo's capture of "Thinking 7m 34s · ↓ 4.5K out ↑ 1.4M in": the counts on
+// the live line are "debug noise in the main transcript". The line keeps them in its hover.
+test("the live line at the bottom keeps the counts in its hover, not its text, beside its icon", () => {
+  for (const [split, hover] of [
+    [undefined, "679.9K out"],
+    [SPLIT, "12.4K out"],
+  ] as const) {
+    const html = tokenLineMarkup(thinkingLine, split);
+    expect(html).not.toContain("cv-worked__count");
+    expect(html).not.toContain("cv-worked__tokens");
+    expect(html).toMatch(
+      new RegExp(`<div class="cv-worked cv-worked--live[^"]*" title="[^"]*${hover.replace(".", "\\.")}`),
+    );
+    // Its icon sits in the rows' one icon column, as every row's does.
+    expect(html).toContain('<span class="cv-worked__icon" aria-hidden="true">');
+  }
 });

@@ -1996,6 +1996,10 @@ function measuredRowHeight(
     );
   }
   if (row.kind === PENDING_MESSAGES && row.pendingMessages) {
+    // One message waiting draws as its own line, with no group head (PendingMessagesCard.tsx).
+    const shown = row.pendingMessages.displayRows ?? row.pendingMessages.rows;
+    if (shown.length === 1 && shown[0]!.incoming?.kind === "message")
+      return measuredRowHeight(shown[0]!, width, cache, beforeFooter, lastTurn, sessionId);
     // Shut, its head draws the senders under the count (stacked look).
     if (!messageOpened(sessionId, row.id)) return finish(lineRow() + messagePreviewLine(true));
     const head = finish(lineRow());

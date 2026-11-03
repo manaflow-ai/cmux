@@ -274,9 +274,10 @@ test("a batch's message names its recipient and the file its words came from; op
   );
   const rows = [...container.querySelectorAll<HTMLElement>(".cv-sent")];
   expect(rows.map((row) => row.textContent)).toEqual(["Sent to nightly queued", "Sent to owner queued"]);
-  expect(
-    [...container.querySelectorAll(".cv-sent__below .cv-sent__file")].map((file) => file.textContent),
-  ).toEqual(["escalate.md", "relay.md"]);
+  expect([...container.querySelectorAll(".cv-sent__below .cv-sent__file")].map((file) => file.textContent)).toEqual([
+    "escalate.md",
+    "relay.md",
+  ]);
   // Each message opens on its own.
   await act(async () => rows[1]!.click());
   expect(rows[0]!.getAttribute("aria-expanded")).toBe("false");

@@ -95,6 +95,7 @@
      sense for these to be spaced differently", #29965). */
   --cv-message-line: var(--cv-tool-row-height);
   --cv-message-subhead: 22px; /* a sender's head inside that group */
+  --cv-message-preview-line: 18px; /* a message row's first line, under it (messageLineLook.ts) */
   --cv-live-gap: 10px; /* over the running turn's live line, inside its row */
   --cv-disclosure-line-height: var(--cv-tool-row-height);
   /* A status row between two replies (model.ts `isStatusRow`) sits in the middle of the gap (Leo,

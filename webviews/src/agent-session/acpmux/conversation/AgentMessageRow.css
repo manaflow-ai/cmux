@@ -224,7 +224,7 @@ button.cv-agentmsg__name:focus-visible {
    model.ts adds its --cv-message-preview-line (MESSAGE_PREVIEW_LINE_PT) under the 22px row. */
 .cv-msgline__preview {
   box-sizing: border-box;
-  height: var(--cv-message-preview-line, 18px);
+  height: var(--cv-message-preview-line);
   min-width: 0;
   padding-inline-start: var(--cv-tool-text-inset);
   overflow: hidden;
@@ -232,7 +232,7 @@ button.cv-agentmsg__name:focus-visible {
   white-space: nowrap;
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
-  line-height: var(--cv-message-preview-line, 18px);
+  line-height: var(--cv-message-preview-line);
   letter-spacing: var(--text-detail--letter-spacing);
   cursor: default;
   user-select: none;
