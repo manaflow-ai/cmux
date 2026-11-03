@@ -8,8 +8,10 @@
 //!   `vault.not_granted` is a machine the person has not shared the vault
 //!   with (not an error), 401 a revoked credential (`wire.rs`).
 //! - Each value goes into the OS secret store (Keychain service `cmux-vault`,
-//!   account `env/<NAME>`, or the Secret Service on Linux), never a plain
-//!   file; a machine with neither refuses env storage (`store.rs`).
+//!   account `env/<home-id>/<NAME>`, or the Secret Service on Linux), never
+//!   a file. Where that store cannot take a write (a headless Mac over ssh,
+//!   a Linux box without a Secret Service), the daemon keeps the values in
+//!   its memory only and pulls them again at every start (`store.rs`).
 //! - `<ACPMUX_HOME>/vault-state.json` (0600) keeps the hub, the last pull and
 //!   per entry its name, revision and a salted fingerprint, never a value
 //!   (`plan.rs`). Revoked or removed entries are deleted from the store.
@@ -106,8 +108,26 @@ pub fn load_values(
     state: &State,
     store: &dyn SecretStore,
 ) -> (Vec<(String, Zeroizing<String>)>, Vec<(String, &'static str)>) {
+    load_values_by(state, store, Instant::now() + LOAD_BUDGET)
+}
+
+/// The longest one load reads the store for: entries not read by then are
+/// skipped (`vault.load_timeout`) and read again after [`RETRY_INCOMPLETE`],
+/// so a slow or locked store never holds a launch longer.
+pub const LOAD_BUDGET: Duration = Duration::from_secs(5);
+
+/// [`load_values`], reading no entry after `deadline`.
+pub fn load_values_by(
+    state: &State,
+    store: &dyn SecretStore,
+    deadline: Instant,
+) -> (Vec<(String, Zeroizing<String>)>, Vec<(String, &'static str)>) {
     let (mut vars, mut skipped) = (Vec::new(), Vec::new());
     for (name, record) in &state.env {
+        if Instant::now() >= deadline {
+            skipped.push((name.clone(), "vault.load_timeout"));
+            continue;
+        }
         match store.get(name) {
             Ok(Some(value)) if state.fingerprint(name, &value) == record.fingerprint => {
                 vars.push((name.clone(), value));
@@ -194,7 +214,17 @@ pub fn env_for_children() -> Vec<(String, String)> {
     if !ACTIVE.load(Ordering::SeqCst) {
         return Vec::new();
     }
-    deliver_at(&crate::config::home(), &store::OsStore, &pull::current_credential, Instant::now())
+    let home = crate::config::home();
+    let store = store::for_daemon();
+    let deliver = || deliver_at(&home, &*store, &pull::current_credential, Instant::now());
+    // A reload runs store commands (bounded by `LOAD_BUDGET`): on a Tokio
+    // worker, the runtime moves its other tasks off this thread first.
+    match tokio::runtime::Handle::try_current() {
+        Ok(rt) if rt.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(deliver)
+        }
+        _ => deliver(),
+    }
 }
 
 /// What a spawn gets, checked against a withdrawal racing the load: nothing
@@ -310,7 +340,11 @@ pub async fn start_worker() {
     if ACTIVE.swap(true, Ordering::SeqCst) {
         return;
     }
-    let saved = pull::state_path(&crate::config::home()).exists();
+    // Values kept in this daemon's memory (no usable OS store) are gone at
+    // every start: a saved state then does not serve the first spawn.
+    // The OS store check runs store commands once: off the async workers.
+    let memory = tokio::task::spawn_blocking(|| !store::os_usable()).await.unwrap_or(true);
+    let saved = pull::state_path(&crate::config::home()).exists() && !memory;
     let joined = matches!(crate::cli::cloud_join::machine_credential(), Ok(Some(_)));
     let mut failures = 0u32;
     let mut first_delay = Duration::ZERO;
@@ -363,7 +397,7 @@ async fn run_once() -> Result<&'static str, String> {
         Ok(None) => return Ok("not_joined"),
         Err(_) => return Err("vault.credential_unreadable".to_owned()),
     }
-    let store: Arc<dyn SecretStore> = Arc::new(store::OsStore);
+    let store = store::for_daemon();
     let result = match pull::pull(crate::config::home(), store, false).await {
         Ok(outcome) => {
             for (name, code) in &outcome.failed {
@@ -376,6 +410,35 @@ async fn run_once() -> Result<&'static str, String> {
         Err(failure) => Err(failure.code),
     };
     // Load what the pull stored before the next spawn needs it.
-    let _ = tokio::task::spawn_blocking(|| refresh(&store::OsStore)).await;
+    let _ = tokio::task::spawn_blocking(|| refresh(&*store::for_daemon())).await;
     result
+}
+
+/// `machine vault pull` asked of this daemon (`_acpmux/vault_pull`): one
+/// pull into the daemon's store, waiting for a running one, then the values
+/// loaded for the next spawn. With no usable OS store the values live only
+/// here, so the CLI cannot pull them itself.
+pub async fn pull_now() -> (&'static str, Result<pull::Outcome, pull::Failure>) {
+    let store = store::for_daemon();
+    let kind = store.kind();
+    let result = pull::pull(crate::config::home(), store.clone(), true).await;
+    let _ = tokio::task::spawn_blocking(move || refresh(&*store)).await;
+    (kind, result)
+}
+
+/// `machine vault forget` asked of this daemon (`_acpmux/vault_forget`).
+pub async fn forget_now() -> (&'static str, Result<pull::Outcome, pull::Failure>) {
+    let store = store::for_daemon();
+    let kind = store.kind();
+    let home = crate::config::home();
+    let result = tokio::task::spawn_blocking(move || {
+        let result = pull::forget(&home, &*store);
+        refresh(&*store);
+        result
+    })
+    .await
+    .unwrap_or_else(|_| {
+        Err(pull::Failure { code: "vault.internal".into(), deleted: Vec::new(), outcome: None })
+    });
+    (kind, result)
 }

@@ -926,3 +926,144 @@ async fn the_initial_pull_is_bounded() {
     assert_eq!(super::bounded(super::INITIAL_WAIT, slow).await, None);
     assert_eq!(super::bounded(super::INITIAL_WAIT, async { "ok" }).await, Some("ok"));
 }
+
+#[test]
+fn entries_a_spawn_cannot_carry_are_refused() {
+    let item = |name: &str, len: usize| json!({"name": name, "revision": 1, "state": "active", "valueBase64": b64(&"x".repeat(len))});
+    // One string over Linux's per-string limit with its `NAME=`: E2BIG.
+    let answer =
+        wire::parse(200, &body(json!({"env": [item("BIG_VALUE", 131_070), item("OK", 10)]})));
+    let Answer::Granted { env, refused } = answer else { panic!("not granted") };
+    assert_eq!(refused, 1);
+    assert_eq!(env.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["OK"]);
+    assert_eq!(wire::env_string_bytes("OK", "abc"), 7);
+
+    // Together over the vault's share of the exec space: the last by name goes.
+    let answer = wire::parse(
+        200,
+        &body(
+            json!({"env": [item("A_KEY", 100_000), item("B_KEY", 100_000), item("C_KEY", 100_000)]}),
+        ),
+    );
+    let Answer::Granted { env, refused } = answer else { panic!("not granted") };
+    assert_eq!(refused, 1);
+    assert_eq!(env.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["A_KEY", "B_KEY"]);
+    let total: usize = env
+        .iter()
+        .map(|e| wire::env_string_bytes(&e.name, e.value.as_deref().map_or("", String::as_str)))
+        .sum();
+    assert!(total <= wire::MAX_VAULT_ENV_BYTES);
+}
+
+#[test]
+#[cfg(unix)]
+fn a_refused_oversize_entry_is_removed_from_the_store() {
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = Answer::Granted { env: vec![active("BIG", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    // The hub now sends a value too large to spawn with: parse refuses it,
+    // so the answer no longer lists it and the stored one goes.
+    let big = json!({"name": "BIG", "revision": 2, "state": "active",
+        "valueBase64": b64(&"x".repeat(131_070))});
+    let answer = wire::parse(200, &body(json!({"env": [big]})));
+    let outcome =
+        pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 2).unwrap();
+    assert_eq!(outcome.deleted, ["BIG"]);
+    assert!(store.get("BIG").unwrap().is_none());
+}
+
+#[test]
+fn a_load_reads_nothing_past_its_deadline() {
+    let mut state = salted();
+    let store = MemoryStore::default();
+    store.put("API_TOKEN", SECRET_A).unwrap();
+    state.env.insert(
+        "API_TOKEN".into(),
+        plan::EnvRecord {
+            revision: 1,
+            fingerprint: state.fingerprint("API_TOKEN", SECRET_A),
+            ..Default::default()
+        },
+    );
+    let past = std::time::Instant::now();
+    let (vars, skipped) = super::load_values_by(&state, &store, past);
+    assert!(vars.is_empty());
+    assert_eq!(skipped, [("API_TOKEN".to_owned(), "vault.load_timeout")]);
+    let (vars, skipped) = super::load_values(&state, &store);
+    assert_eq!(vars.len(), 1);
+    assert!(skipped.is_empty());
+}
+
+#[test]
+fn the_store_probe_needs_a_write_a_read_and_a_delete() {
+    use super::store::{PROBE_NAME, probe};
+    let usable = MemoryStore::default();
+    assert!(probe(&usable));
+    assert!(usable.get(PROBE_NAME).unwrap().is_none(), "the probe item is removed");
+    // A headless Mac over ssh: the store is there but takes no write.
+    let no_write = MemoryStore { fail_put: Some(PROBE_NAME.to_owned()), ..MemoryStore::default() };
+    assert!(!probe(&no_write));
+    let none = MemoryStore { unavailable: true, ..MemoryStore::default() };
+    assert!(!probe(&none));
+    assert!(!crate::login_env::machine_env_name_allowed(PROBE_NAME), "never a vault name");
+}
+
+#[test]
+#[cfg(unix)]
+fn the_daemon_memory_store_keeps_and_drops_values_like_the_os_store() {
+    use super::store::ProcessMemory;
+    let home = tempfile::tempdir().unwrap();
+    let store = ProcessMemory;
+    assert_eq!(store.kind(), "memory");
+    let answer = Answer::Granted { env: vec![active("MEMORY_ONLY_KEY", 1, SECRET_A)], refused: 0 };
+    let outcome =
+        pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    assert_eq!(outcome.env, ["MEMORY_ONLY_KEY"]);
+    assert_eq!(
+        store.get("MEMORY_ONLY_KEY").unwrap().as_deref().map(String::as_str),
+        Some(SECRET_A)
+    );
+    // No value on disk: only the state file, which holds none.
+    for entry in std::fs::read_dir(home.path()).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_file() {
+            assert_no_value(&std::fs::read_to_string(&path).unwrap_or_default());
+        }
+    }
+    // The CLI's reply from the daemon: names and `store`, never a value.
+    let reply = crate::server::vault_reply("memory", &Ok(outcome));
+    assert_eq!(reply["store"], "memory");
+    assert_eq!(reply["outcome"]["env"][0], "MEMORY_ONLY_KEY");
+    assert_no_value(&reply.to_string());
+
+    // A withdrawal drops it from memory too.
+    pull::settle(home.path(), "https://hub.test", CRED, Answer::NotGranted, &store, &live, 2)
+        .unwrap();
+    assert!(store.get("MEMORY_ONLY_KEY").unwrap().is_none());
+
+    // A restarted daemon has an empty memory: a grant at the same revision
+    // puts the value back (the entry is checked, not trusted).
+    let answer = Answer::Granted { env: vec![active("MEMORY_ONLY_KEY", 3, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 3).unwrap();
+    store.delete("MEMORY_ONLY_KEY").unwrap();
+    let answer = Answer::Granted { env: vec![active("MEMORY_ONLY_KEY", 3, SECRET_A)], refused: 0 };
+    let outcome =
+        pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 4).unwrap();
+    assert_eq!(outcome.stored, ["MEMORY_ONLY_KEY"]);
+    pull::forget(home.path(), &store).unwrap();
+    assert!(store.get("MEMORY_ONLY_KEY").unwrap().is_none());
+}
+
+#[test]
+fn a_failed_reply_carries_the_code_and_no_value() {
+    let failure = pull::Failure {
+        code: "vault.revoked".into(),
+        deleted: vec!["A_KEY".into()],
+        outcome: None,
+    };
+    let reply = crate::server::vault_reply("memory", &Err(failure));
+    assert_eq!(reply["failure"]["code"], "vault.revoked");
+    assert_eq!(reply["failure"]["deleted"][0], "A_KEY");
+    assert!(reply["outcome"].is_null());
+}

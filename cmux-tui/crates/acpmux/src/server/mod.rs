@@ -2097,6 +2097,8 @@ mod requests;
 pub use requests::SESSION_RESUME_FEATURE;
 mod routes;
 mod secrets;
+mod vault;
+pub(crate) use vault::reply as vault_reply;
 mod session_auth;
 mod session_files;
 mod stream;

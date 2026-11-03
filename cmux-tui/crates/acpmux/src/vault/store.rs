@@ -3,7 +3,13 @@
 //! service `cmux-vault`, account `env/<home-id>/<NAME>`: `<home-id>` names
 //! this `ACPMUX_HOME` ([`home_id`]), so two daemons of one user (a second
 //! home, a test home) never share or delete each other's items. There is no
-//! file fallback: a machine without either refuses to store env values.
+//! file fallback.
+//!
+//! A machine whose OS store cannot take a write (a headless Mac reached over
+//! ssh has no usable login keychain; its default is the System keychain) or
+//! that has neither keeps the values in the daemon's memory only
+//! ([`ProcessMemory`]): the daemon pulls them at every start, and `machine
+//! vault pull` asks the running daemon to pull ([`os_usable`]).
 //!
 //! A value never goes into argv, a log or an error: it is written to the
 //! store command's stdin (`harness_secret::store_item`), base64-encoded so
@@ -52,6 +58,60 @@ pub trait SecretStore: Send + Sync {
     fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, &'static str>;
     /// Ok when the item is gone (or was never there).
     fn delete(&self, name: &str) -> Result<(), &'static str>;
+}
+
+/// The values of a machine with no usable OS store, in this process's memory
+/// only (the daemon's): never written anywhere, gone when it exits.
+pub struct ProcessMemory;
+
+static PROCESS_MEMORY: std::sync::Mutex<std::collections::BTreeMap<String, Zeroizing<String>>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+impl SecretStore for ProcessMemory {
+    fn kind(&self) -> &'static str {
+        "memory"
+    }
+    fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
+        let mut items = PROCESS_MEMORY.lock().unwrap_or_else(|e| e.into_inner());
+        items.insert(name.to_owned(), Zeroizing::new(value.to_owned()));
+        Ok(())
+    }
+    fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, &'static str> {
+        let items = PROCESS_MEMORY.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(items.get(name).cloned())
+    }
+    fn delete(&self, name: &str) -> Result<(), &'static str> {
+        PROCESS_MEMORY.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
+        Ok(())
+    }
+}
+
+/// The item [`probe`] writes and removes again: no env name the vault can
+/// carry has a dot.
+pub const PROBE_NAME: &str = ".probe";
+
+/// Whether this process can write, read back and remove an item in the OS
+/// store, checked once per process: `false` without one, and on a Mac whose
+/// session has no writable login keychain (ssh to a headless Mac).
+pub fn os_usable() -> bool {
+    static USABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *USABLE.get_or_init(|| probe(&OsStore))
+}
+
+/// Write, read back and remove [`PROBE_NAME`] (a fixed, non-secret value).
+pub fn probe(store: &dyn SecretStore) -> bool {
+    const MARK: &str = "cmux vault probe";
+    if !store.available() || store.put(PROBE_NAME, MARK).is_err() {
+        return false;
+    }
+    let read = matches!(store.get(PROBE_NAME), Ok(Some(v)) if v.as_str() == MARK);
+    store.delete(PROBE_NAME).is_ok() && read
+}
+
+/// The store the daemon keeps values in: the OS store when [`os_usable`],
+/// else [`ProcessMemory`].
+pub fn for_daemon() -> std::sync::Arc<dyn SecretStore> {
+    if os_usable() { std::sync::Arc::new(OsStore) } else { std::sync::Arc::new(ProcessMemory) }
 }
 
 /// The OS store of this machine.
