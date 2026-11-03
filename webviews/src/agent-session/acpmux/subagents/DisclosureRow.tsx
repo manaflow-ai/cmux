@@ -52,6 +52,9 @@ export type DisclosureRowProps = {
   actions?: ReactNode;
   /// Before the toggle, outside its button.
   leading?: ReactNode;
+  /// A second line under the row (a received message's first line, stacked: messageLineLook.ts),
+  /// at the text column; a click on it toggles the row as the line does.
+  below?: ReactNode;
   /// Shared activity-row treatment for transcript notices.
   lineClassName?: string;
   /// The row's own class, next to `cv-disclosure`.
@@ -77,6 +80,7 @@ export function DisclosureRow({
   toggleLabel,
   actions,
   leading,
+  below,
   lineClassName,
   className,
 }: DisclosureRowProps) {
@@ -149,6 +153,18 @@ export function DisclosureRow({
         )}
         {actions}
       </TranscriptActivityRowShell>
+      {below !== undefined && below !== null && below !== "" && (
+        // The toggle's label reads these words for a screen reader; this is the pointer's target.
+        // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+        <div
+          className="cv-msgline__preview cv-disclosure__below"
+          aria-hidden
+          data-find-skip=""
+          onClick={collapse.toggle}
+        >
+          {below}
+        </div>
+      )}
       {collapse.present && (
         <div id={bodyId} {...collapse.bodyProps}>
           <div className="cv-disclosure__panel">{children}</div>

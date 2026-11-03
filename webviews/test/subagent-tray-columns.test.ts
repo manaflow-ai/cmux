@@ -548,12 +548,14 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         }
         await page.setViewportSize({ width: 300, height: 560 });
 
-        const clickTargets = await page.evaluate(() => {
+        await page.evaluate(() => {
           const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
           const rows = [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
           const noStop = rows.find((row) => !row.querySelector(".acpmux-agent-line__stop-slot > button"));
           const withStop = rows.find((row) => row.querySelector(".acpmux-agent-line__stop-slot > button"));
           if (!noStop || !withStop) throw new Error("missing stop and no-stop rows");
+          noStop.dataset.testTarget = "no-stop";
+          withStop.dataset.testTarget = "stop";
           const clicks = window as typeof window & { __trayClicks?: string[] };
           clicks.__trayClicks = [];
           noStop
@@ -562,30 +564,44 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           withStop
             .querySelector(".acpmux-agent-line__stop-slot > button")
             ?.addEventListener("click", () => clicks.__trayClicks?.push("stop"));
-          const center = (node: HTMLElement) => {
+        });
+        // The open list is newest first and scrolls (#33364): the row with no Stop can sit below the
+        // list's fold, so each target is scrolled into the list's view before its point is read.
+        const clickPoint = (target: "no-stop" | "stop") =>
+          page.evaluate((target) => {
+            const row = document.querySelector<HTMLElement>(`[data-test-target="${target}"]`)!;
+            row.scrollIntoView({ block: "nearest" });
+            // The empty slot's own center, where it lies over the row's button: the click must reach the row.
+            const node = row.querySelector<HTMLElement>(
+              target === "stop" ? ".acpmux-agent-line__stop-slot > button" : ".acpmux-agent-line__stop-slot",
+            );
+            if (!node || node.getBoundingClientRect().width === 0)
+              throw new Error(`the ${target} row has no sized stop slot`);
             const box = node.getBoundingClientRect();
             return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
-          };
-          // The empty slot's own center, where it lies over the row's button: the click must reach the row.
-          const slot = noStop.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot");
-          const stop = withStop.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot > button");
-          if (!slot || slot.getBoundingClientRect().width === 0)
-            throw new Error("the no-stop row has no sized stop slot");
-          return { noStop: center(slot), stop: center(stop!) };
-        });
-        await page.mouse.click(clickTargets.noStop.x, clickTargets.noStop.y);
+          }, target);
+        const noStopPoint = await clickPoint("no-stop");
+        await page.mouse.click(noStopPoint.x, noStopPoint.y);
         expect(await page.evaluate(() => (window as typeof window & { __trayClicks?: string[] }).__trayClicks)).toEqual(
           ["open"],
         );
-        await page.mouse.click(clickTargets.stop.x, clickTargets.stop.y);
+        const stopPoint = await clickPoint("stop");
+        await page.mouse.click(stopPoint.x, stopPoint.y);
         expect(await page.evaluate(() => (window as typeof window & { __trayClicks?: string[] }).__trayClicks)).toEqual(
           ["open", "stop"],
         );
 
-        // Running lines keep their visible state word in the fixed status track, alongside ended rows.
-        expect(await page.locator(".acpmux-running-tray__list .acpmux-summary-agent__state").count()).toBeGreaterThan(
+        // A running line with its time shows no Running word: its time and Stop say it runs (Leo,
+        // 2026-11-03: "do we really need a running symbol vs just having the time and a square stop
+        // button?"). Screen readers still hear the word.
+        expect(await page.locator(".acpmux-running-tray__list .acpmux-agent-line[data-timed]").count()).toBeGreaterThan(
           0,
         );
+        expect(
+          await page
+            .locator(".acpmux-running-tray__list .acpmux-agent-line[data-timed] .acpmux-summary-agent__state")
+            .count(),
+        ).toBe(0);
       } finally {
         await page.close();
       }
@@ -668,6 +684,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                   words: visibleText,
                   stats: row.querySelector(".acpmux-summary-text > .acpmux-agent-line__stats")?.textContent ?? null,
                   state: row.querySelector(".acpmux-summary-agent__state")?.textContent ?? null,
+                  timed: row.hasAttribute("data-timed"),
                   statsBelow: Boolean(row.querySelector(".acpmux-summary-text > .acpmux-agent-line__progress")),
                   timeLeft,
                   metaRight: meta?.right,
@@ -683,8 +700,12 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             expect(row.subtitle).toBe(false);
             expect(row.words).not.toContain("general-purpose");
             expect(row.words).not.toContain("Explore");
-            expect(row.state).not.toBeNull();
-            expect(row.words).toContain(row.state!);
+            // A running line with its time shows no state word (Leo, 2026-11-03); every other says it.
+            if (row.timed) expect(row.state).toBeNull();
+            else {
+              expect(row.state).not.toBeNull();
+              expect(row.words).toContain(row.state!);
+            }
             // The state word, then the time ("Done · 36s").
             if (row.metaRight !== undefined && row.timeLeft !== undefined)
               expect(row.metaRight).toBeLessThanOrEqual(row.timeLeft + 0.5);

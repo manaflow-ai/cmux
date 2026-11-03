@@ -391,17 +391,19 @@ def is_binary(cmd: str, binary: str) -> bool:
     return cmd == binary or cmd.startswith(binary + " ")
 
 
-def end_processes(pids: set[int]):
-    """SIGTERM, then SIGKILL what is still there after a grace period."""
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        alive = set()
+def end_processes(pids: set[int], grace: float = 10.0, kill_grace: float = 5.0):
+    """SIGTERM every pid, then SIGKILL what is still there once `grace` s have passed for the whole set (one
+    deadline, not one per pid), waiting at most `kill_grace` s more. A child of this script that exited is
+    reaped (`gone`), so an unreaped zombie never holds the teardown."""
+    for sig, seconds in ((signal.SIGTERM, grace), (signal.SIGKILL, kill_grace)):
+        sent = set()
         for pid in pids:
             try:
                 os.kill(pid, sig)
-                alive.add(pid)
+                sent.add(pid)
             except ProcessLookupError:
                 pass
-        pids = {pid for pid in alive if not wait_gone(pid, 10)}
+        pids = still_running(sent, seconds)
         if not pids:
             return
 
@@ -446,20 +448,37 @@ def end_bundle(bundle: str):
     cleanups = {pid for pid, _, cmd in process_table() if in_bundle(cmd, bundle) is not None and is_clone_cleanup(cmd)}
     end_processes(bundle_pids(bundle) - cleanups)
     deadline = time.monotonic() + CLONE_CLEANUP_WAIT_S
-    end_processes({pid for pid in cleanups if not wait_gone(pid, max(0.0, deadline - time.monotonic()))})
+    end_processes(still_running(cleanups, max(0.0, deadline - time.monotonic())))
+
+
+def gone(pid: int) -> bool:
+    """Whether `pid` has exited. A child of this script is reaped (waitpid): kill(pid, 0) succeeds on an
+    unreaped zombie, which would read as alive until a timeout. Any other pid is probed with kill(pid, 0)."""
+    try:
+        reaped, _status = os.waitpid(pid, os.WNOHANG)
+        return reaped == pid
+    except ChildProcessError:
+        pass  # not this script's child
+    try:
+        os.kill(pid, 0)
+        return False
+    except ProcessLookupError:
+        return True
+
+
+def still_running(pids: set[int], seconds: float) -> set[int]:
+    """The pids not gone within `seconds`, one deadline for all; each is checked at least once."""
+    deadline = time.monotonic() + seconds
+    while True:
+        pids = {pid for pid in pids if not gone(pid)}
+        if not pids or time.monotonic() >= deadline:
+            return pids
+        time.sleep(0.05)  # test script: waiting for processes to exit
 
 
 def wait_gone(pid: int, seconds: float) -> bool:
     """True once `pid` is gone; it is checked at least once, also with no time left."""
-    deadline = time.monotonic() + seconds
-    while True:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return True
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(0.5)  # test script: waiting for the app to quit
+    return not still_running({pid}, seconds)
 
 
 def merged(base: dict, extra: dict) -> dict:

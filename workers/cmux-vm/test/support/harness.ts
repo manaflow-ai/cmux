@@ -24,7 +24,7 @@ import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
-import { ServiceKeys } from "../../src/auth/service-keys.ts";
+import { applyServiceScopeGrants, parseServiceScopeGrants, ServiceKeys } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
 import { AgentStore, type ClientSessionRow } from "../../src/db/agents.ts";
 
@@ -35,6 +35,8 @@ const UPSTREAM_KEY = "upstream-test-key";
 
 export interface HarnessOptions {
   readonly limits?: Layer.Layer<TenantLimits>;
+  /** The CMUX_VM_SERVICE_KEY_SCOPE_GRANTS var, applied to every service key as the Worker does. */
+  readonly serviceScopeGrants?: string;
   /** Operator-approved image configuration, as supplied to the Worker. */
   readonly bootImages?: string;
   readonly httpsProxyOrigins?: ReadonlyArray<string>;
@@ -212,7 +214,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   });
 
   const entitlements = Layer.succeed(Entitlements, {
-    mayCreate: (tenantId) => Effect.sync(() => billed.has(tenantId)),
+    mayCreate: (caller) => Effect.sync(() => billed.has(caller.tenantId)),
   });
 
   const apiKeys = Layer.succeed(ApiKeyStore, {
@@ -245,13 +247,20 @@ export async function makeHarness(options: HarnessOptions = {}) {
     Layer.succeed(ServiceKeys, {
       find: (sha256) =>
         Effect.sync(() =>
-          Option.map(Option.fromNullable(serviceKeys.find((key) => key.sha256 === sha256)), (key) => ({
-            id: key.id,
-            sha256: key.sha256,
-            scopes: new Set(key.scopes),
-            labels: key.labels,
-            teams: key.teams === null ? null : new Set(key.teams.map((team) => TenantId.make(team))),
-          })),
+          Option.map(Option.fromNullable(serviceKeys.find((key) => key.sha256 === sha256)), (key) =>
+            applyServiceScopeGrants(
+              [
+                {
+                  id: key.id,
+                  sha256: key.sha256,
+                  scopes: new Set(key.scopes),
+                  labels: key.labels,
+                  teams: key.teams === null ? null : new Set(key.teams.map((team) => TenantId.make(team))),
+                },
+              ],
+              parseServiceScopeGrants(options.serviceScopeGrants).grants,
+            )[0]!,
+          ),
         ),
     }),
     auditStore,

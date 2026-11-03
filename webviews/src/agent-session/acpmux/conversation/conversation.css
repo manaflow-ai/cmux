@@ -95,6 +95,7 @@
      sense for these to be spaced differently", #29965). */
   --cv-message-line: var(--cv-tool-row-height);
   --cv-message-subhead: 22px; /* a sender's head inside that group */
+  --cv-message-preview-line: 18px; /* a message row's first line, under it (messageLineLook.ts) */
   --cv-live-gap: 10px; /* over the running turn's live line, inside its row */
   --cv-disclosure-line-height: var(--cv-tool-row-height);
   /* A status row between two replies (model.ts `isStatusRow`) sits in the middle of the gap (Leo,
@@ -2022,6 +2023,11 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
   font-variant-numeric: tabular-nums;
 }
+/* A finished step's own time beside the label once the turn's clock reads as the total. */
+.cv-worked__own {
+  color: var(--cv-text-dim);
+  font-variant-numeric: tabular-nums;
+}
 .cv-worked__open {
   all: unset;
   min-width: 0;
@@ -2049,9 +2055,15 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cv-worked__time {
+.cv-worked__time,
+.cv-worked__own {
   flex: none;
   margin-inline-start: 6px;
+}
+/* Past the turn's first step its clock reads as the total ("· 4m total", Thinking.tsx): the words
+   around it sit at the count's own gap. */
+.cv-worked__total .cv-worked__time {
+  margin-inline: 0;
 }
 /* A command in flight leads with the terminal glyph (WorkingFor.tsx), still, like the tool rows'. */
 .cv-worked__glyph {
@@ -2127,6 +2139,13 @@ pre.cv-math-source {
 :is(.cv-worked, .cv-activity):hover .cv-command__bg {
   position: static;
   opacity: 1;
+  pointer-events: auto;
+}
+/* A button now (BackgroundHint.tsx): reached by Tab, it shows as on hover. */
+:is(.cv-worked, .cv-activity) .cv-command__bg:focus-visible {
+  position: static;
+  opacity: 1;
+  pointer-events: auto;
 }
 /* It fades as a message's hover row does (#23769): in after a beat, out quickly. */
 @media (prefers-reduced-motion: no-preference) {
@@ -2134,6 +2153,9 @@ pre.cv-math-source {
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
   :is(.cv-worked, .cv-activity):hover .cv-command__bg {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  :is(.cv-worked, .cv-activity) .cv-command__bg:focus-visible {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
   }
 }
@@ -2378,13 +2400,16 @@ pre.cv-math-source {
    "no longer change on hover"; agent-pane-step-rows.test.ts), so only focus lifts it. */
 /* A session link chip in the row (AgentTag.css) lights alone: its focus is not the row's. A tool
    run's or group's summary line lights on hover only (below), so its focus is left out. */
-.cv-tool:not(.is-run):focus-within:not(:has(.cv-agent-tag.is-open:focus)),
+/* A message row keeps one steady tone (design/chat-transcript.md, as a received message's line):
+   a sent row the reader clicked never reads brighter than the ones around it (Leo, 2026-11-02, on
+   rows "in bright and dim text with no clear rule": "i also think this is quite weird looking"). */
+.cv-tool:not(.is-run, .cv-sent):focus-within:not(:has(.cv-agent-tag.is-open:focus)),
 .cv-worked:hover,
 .cv-worked:focus-visible {
   color: var(--cv-text);
 }
-.cv-tool:not(.is-run):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__chevron,
-.cv-tool:not(.is-run):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__detail {
+.cv-tool:not(.is-run, .cv-sent):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__chevron,
+.cv-tool:not(.is-run, .cv-sent):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__detail {
   color: var(--cv-text);
 }
 /* The running rows' mark (`Spinner`: compaction, tool groups, MCP calls, command and shell rows).
@@ -2811,7 +2836,7 @@ pre.cv-math-source {
   padding-inline-start: 2ch;
   text-indent: -2ch;
 }
-.cv-shell__command:has(+ .cv-shell__body:not(:empty)) {
+.cv-shell__command:is(:has(+ .cv-shell__body:not(:empty)), :has(+ .cv-shell__exit)) {
   padding-bottom: 8px;
   border-bottom: 1px solid var(--cv-card-ring);
 }
@@ -2822,9 +2847,14 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
   user-select: none;
 }
+/* "Exit code 1" between the command and its output, in the error tone and on the card's left edge,
+   as Claude Code desktop opens a failed call (ShellBlock.tsx). */
 .cv-shell__exit {
-  margin-top: 6px;
-  text-align: right;
+  margin-top: 8px;
+  color: var(--agent-status-failure);
+}
+.cv-shell__exit + .cv-shell__body {
+  margin-top: 8px;
 }
 /* The images a tool call returned or wrote (ToolRow): a row of capped thumbnails, so a long
    transcript stays light; a click opens the image viewer. */
@@ -3153,6 +3183,13 @@ button.cv-video-frames__frame:focus-visible {
 :root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool > .cv-command__meta {
   grid-column: 4;
 }
+/* A failed step's tag (CommandRow.tsx) has no column between the words and the chevron in these
+   gallery looks: it keeps their old place, at the end of the spacer before the trailing column. */
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-command > .cv-command__failed {
+  grid-column: 3;
+  justify-self: end;
+  margin-inline-start: 0;
+}
 /* A thought step: muted words, one line closed; open, its whole text with the disclosure at the
    top of the row's end. */
 .cv-step-thought {
@@ -3207,6 +3244,9 @@ button.cv-video-frames__frame:focus-visible {
 }
 :root[data-tool-steps-look="tree"] .cv-step > .cv-tool > .cv-command__meta {
   grid-column: 5;
+}
+:root[data-tool-steps-look="tree"] .cv-step > .cv-command > .cv-command__failed {
+  grid-column: 4;
 }
 :root[data-tool-steps-look="tree"] .cv-step-thought.is-open {
   grid-template-columns: var(--cv-disclosure-slot);
@@ -3277,6 +3317,37 @@ button.cv-video-frames__frame:focus-visible {
 .cv-tool__failed,
 .cv-command__failed {
   color: var(--agent-status-failure);
+}
+/* "Failed" right after a failed call's title, before its chevron (CommandRow.tsx): never cut, one
+   space from the words rather than the row's gap. */
+.cv-command > .cv-command__failed {
+  display: inline-block;
+  flex: none;
+  margin-inline-start: calc(0.3em - var(--cv-tool-gap));
+  white-space: nowrap;
+}
+/* A tag reads as one, "Failed", while its text stays the row's word ("failed") for Find and copy. */
+.cv-command > .cv-command__failed::first-letter {
+  text-transform: uppercase;
+}
+/* "Background command completed" muted, then what the command did in the transcript's ink, as
+   Claude Code desktop notes a background command's end (CommandRow.tsx, BackgroundTaskNote.tsx). */
+:is(.cv-command__title, .cv-bgtask__title) {
+  color: var(--cv-text);
+}
+/* An opened run's "1 background command completed, 1 failed, 1 running" (BackgroundStatusLine.tsx):
+   a quiet line after the steps, its words on their text column and their pitch; not a step or a
+   control, so it adds no row to the steps. */
+.cv-bgstatus {
+  display: flex;
+  align-items: center;
+  min-height: var(--cv-tool-row-height);
+  padding-inline-start: var(--cv-tool-text-inset);
+  overflow: hidden;
+  color: var(--cv-activity-text);
+  line-height: 20px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 /* A failed call's cause (ToolFailureCause.tsx, the `tool-error-look` experiment): one quiet line
    under the row, starting under its words (the 16px glyph and the 8px
@@ -3437,6 +3508,24 @@ button.cv-video-frames__frame:focus-visible {
   margin-left: auto;
   color: var(--cv-text-dim);
   white-space: nowrap;
+  /* A button (it moves the command, as Ctrl-B does) that reads as the hint it was. */
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  /* A button does not inherit the line's face: inherit it, so it keeps the line's baseline (#33160). */
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: default;
+}
+.cv-command__bg:hover {
+  color: var(--cv-text);
+}
+.cv-command__bg:focus-visible {
+  color: var(--cv-text);
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+  border-radius: var(--ds-radius-sm);
 }
 /* A message to another agent (MessageCard.tsx) is the shared agent message row
    (AgentMessageRow.css). Opened, its text grows in place under the line, at the line's text
@@ -3633,11 +3722,12 @@ button.cv-video-frames__frame:focus-visible {
   justify-content: center;
   color: var(--cv-text-muted);
 }
-.cv-received__mark > :is(svg, img) {
+.cv-received__mark :is(svg, img) {
   display: block;
 }
-/* A harness mark's wrapper centres its glyph too; the Chief's text avatar keeps its own box. */
-.cv-received__mark > span:not(.cv-chief-text-avatar) {
+/* A harness mark's wrappers (AgentIdentity's and its tone span) centre its glyph too, so no inline
+   wrapper sits it on a baseline; the Chief's text avatar keeps its own box. */
+.cv-received__mark span:not(.cv-chief-text-avatar) {
   display: inline-flex;
   align-items: center;
 }
@@ -4200,6 +4290,17 @@ a.cv-sha:focus-visible {
   margin-inline-start: -2px;
   white-space: nowrap;
 }
+/* A stopped turn's one muted word (TurnRows.tsx `stoppedWord`), in the time's caption size and the
+   footer's resting ink: what ended the turn is its tooltip, never the transcript's text. */
+.cv-turn-actions .cv-turn-stopped {
+  display: inline-flex;
+  align-items: center;
+  height: var(--cv-footer-row);
+  color: var(--cv-footer-ink);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+}
 .cv-iconbtn.cv-turn-continue:disabled {
   opacity: 0.5;
   pointer-events: none;
@@ -4554,7 +4655,7 @@ a.cv-sha:focus-visible {
   margin: 0;
   padding: 0 12px 0 8px;
   overflow-x: auto;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--cv-mono, var(--cmux-diff-code-font-family, "SF Mono", ui-monospace, Menlo, monospace));
   font-size: var(--cv-codeblock-size, 12px);
   line-height: var(--cv-codeblock-line-height, 20px);
   color: var(--cv-codeblock-text);
@@ -5202,7 +5303,6 @@ a.cv-sha:focus-visible {
   outline: 2px solid var(--agent-accent);
   outline-offset: 2px;
 }
-.acpmux-reviewing > .acpmux-jump-latest,
 .acpmux-inspecting > .acpmux-jump-latest {
   visibility: hidden;
 }
@@ -5967,3 +6067,63 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
 }
 .cv-repo-recovery button:hover { background: color-mix(in srgb, var(--agent-text) 15%, transparent); }
+/* Stacked (messageLineLook.ts): the received line holds the sender alone, so its name may take the
+   line's width instead of sharing it with the first line, which is under it. */
+.cv-received > .cv-disclosure__line:not(:has(.cv-received__preview)) > .cv-received__sender {
+  max-width: calc(100% - var(--cv-chevron-glyph, 12px) - var(--ds-space-4, 16px));
+}
+/* The selection's Reply chip (SelectionReply.tsx): a small pill over the selection's end, as
+   Claude's and ChatGPT's. It shows on the selection's end with no fade-in and goes when the
+   selection does. `icon` draws the glyph alone. */
+.cv-selection-reply {
+  position: fixed;
+  z-index: var(--layer-dropdown);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding-inline: 8px 12px;
+  border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
+  border-radius: 8px;
+  /* Opaque over the text it floats above: the page's colour under the cards' fill. */
+  background: linear-gradient(var(--cv-card-fill), var(--cv-card-fill)), var(--agent-page-bg, Canvas);
+  box-shadow: var(--elevation-2);
+  color: var(--cv-tool-strong);
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+.cv-selection-reply[data-look="icon"] {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+.cv-selection-reply:hover {
+  color: var(--cv-text, currentColor);
+  background: linear-gradient(var(--cv-bubble), var(--cv-bubble)), linear-gradient(var(--cv-card-fill), var(--cv-card-fill)),
+    var(--agent-page-bg, Canvas);
+}
+/* A background task's result the person has not seen (ReactionMark.tsx): a 6px accent dot at the
+   row's edge, before its check and time, until the next prompt. It never pulses. */
+.cv-reaction-mark {
+  position: relative;
+  flex: none;
+  /* A dot, not a control: its size is the glyph's, and an aspect ratio keeps it round. */
+  width: 6px;
+  aspect-ratio: 1;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--agent-accent);
+  align-self: center;
+}
+/* The agent's reply to that result, under the opened call's output (ReactionReply). */
+.cv-reaction-reply {
+  margin: 4px 0 6px;
+  padding-left: var(--cv-tool-text-inset);
+  color: var(--cv-text-dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

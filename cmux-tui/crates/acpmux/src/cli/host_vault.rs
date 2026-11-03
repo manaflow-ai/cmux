@@ -4,8 +4,15 @@
 //! `pull --json` prints one object: `state` is `ok` (with `env`, the names
 //! present after the pull), `not_granted` (the person has not shared the vault
 //! with this machine; exit 0) or `off` (the hub has no vault; exit 0). Any
-//! other result is the error envelope with a `vault.*` code. No field ever
-//! holds a value.
+//! other result is the error envelope with a `vault.*` code. `store` says
+//! where the values are kept: `keychain`, `secret-service`, or `memory` (no
+//! usable OS store, as on a headless Mac over ssh: the daemon keeps them in
+//! memory). No field ever holds a value.
+//!
+//! `pull` and `forget` are done by the running daemon (`_acpmux/vault_pull`,
+//! `_acpmux/vault_forget`), so the one process that gives agents the values
+//! is the one that stores them. With no daemon running, a machine with a
+//! usable OS store pulls here; one without starts the daemon.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -18,6 +25,10 @@ use crate::cli::output::print_json;
 use crate::vault::pull::{self, Failure, Outcome};
 use crate::vault::store::{OsStore, SecretStore};
 
+/// The running daemon predates `_acpmux/vault_pull` and the OS store is not
+/// usable here, so nothing can keep the values.
+pub const DAEMON_OUTDATED: &str = "vault.daemon_outdated";
+
 fn failure(failure: Failure) -> anyhow::Error {
     let message = match failure.code.as_str() {
         "vault.not_joined" => "this machine is not joined; run `acpmux machine join` first",
@@ -26,6 +37,9 @@ fn failure(failure: Failure) -> anyhow::Error {
             "no OS secret store (Keychain or Secret Service) here; vault env is not stored in files"
         }
         "vault.busy" => "another vault pull is running",
+        DAEMON_OUTDATED => {
+            "the running acpmux daemon is older than this CLI and cannot keep vault env (this machine has no usable OS secret store); run `acpmux daemon restart`, then pull again"
+        }
         _ => "vault pull failed",
     };
     let message = if failure.code == pull::PARTIAL {
@@ -45,6 +59,19 @@ pub(crate) fn failure_for_test(f: Failure) -> anyhow::Error {
     failure(f)
 }
 
+/// The string at `key` of `v`, or "".
+fn text_at<'a>(v: &'a Value, key: &str) -> &'a str {
+    v.get(key).and_then(Value::as_str).unwrap_or_default()
+}
+
+/// The outcome JSON with `store`.
+fn with_store(mut out: Value, store: &str) -> Value {
+    if let Some(map) = out.as_object_mut() {
+        map.insert("store".into(), json!(store));
+    }
+    out
+}
+
 pub fn outcome_json(outcome: &Outcome) -> Value {
     json!({
         "state": outcome.state,
@@ -57,12 +84,22 @@ pub fn outcome_json(outcome: &Outcome) -> Value {
     })
 }
 
-fn print_outcome(outcome: &Outcome, json_out: bool) {
+fn print_outcome(outcome: &Value, store: &str, json_out: bool) {
     if json_out {
-        print_json(&outcome_json(outcome));
+        print_json(&with_store(outcome.clone(), store));
         return;
     }
-    match outcome.state {
+    let names = |key: &str| -> Vec<String> {
+        outcome
+            .get(key)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str().map(str::to_owned))
+            .collect()
+    };
+    let (env, stored, deleted) = (names("env"), names("stored"), names("deleted"));
+    match outcome.get("state").and_then(Value::as_str).unwrap_or_default() {
         "not_granted" => {
             println!(
                 "the vault is not shared with this machine (grant it in cmux, then pull again)"
@@ -70,60 +107,120 @@ fn print_outcome(outcome: &Outcome, json_out: bool) {
         }
         "off" => println!("this hub has no vault yet"),
         "forgotten" => {
-            println!("vault: removed {} env var(s) from this machine", outcome.deleted.len())
+            println!("vault: removed {} env var(s) from this machine", deleted.len())
         }
         _ => println!(
-            "vault: {} env var(s){}{}",
-            outcome.env.len(),
-            if outcome.env.is_empty() {
+            "vault: {} env var(s){}{}{}",
+            env.len(),
+            if env.is_empty() { String::new() } else { format!(": {}", env.join(", ")) },
+            if stored.is_empty() && deleted.is_empty() {
                 String::new()
             } else {
-                format!(": {}", outcome.env.join(", "))
+                format!(" ({} stored, {} removed)", stored.len(), deleted.len())
             },
-            if outcome.stored.is_empty() && outcome.deleted.is_empty() {
-                String::new()
-            } else {
-                format!(" ({} stored, {} removed)", outcome.stored.len(), outcome.deleted.len())
-            }
+            if store == "memory" { " [kept in the daemon's memory]" } else { "" }
         ),
     }
-    for (name, code) in &outcome.failed {
-        eprintln!("{name}: {code}");
+    for failed in outcome.get("failed").and_then(Value::as_array).into_iter().flatten() {
+        eprintln!("{}: {}", text_at(failed, "name"), text_at(failed, "code"));
     }
 }
 
 /// `machine vault pull`.
 pub async fn pull_cmd(json_out: bool) -> Result<()> {
-    let store: Arc<dyn SecretStore> = Arc::new(OsStore);
-    let outcome = pull::pull(crate::config::home(), store, true).await;
-    finish(outcome, json_out)
+    let reply = by_daemon(crate::rpc::method::MUX_VAULT_PULL, || async {
+        let store: Arc<dyn SecretStore> = Arc::new(OsStore);
+        pull::pull(crate::config::home(), store, true).await
+    })
+    .await;
+    finish(reply?, json_out)
 }
 
 /// `machine vault forget`.
 pub async fn forget_cmd(json_out: bool) -> Result<()> {
-    let home = crate::config::home();
-    let outcome =
-        tokio::task::spawn_blocking(move || pull::forget(&home, &OsStore)).await.map_err(|_| {
-            failure(Failure { code: "vault.internal".into(), deleted: Vec::new(), outcome: None })
-        })?;
-    finish(outcome, json_out)
+    let reply = by_daemon(crate::rpc::method::MUX_VAULT_FORGET, || async {
+        let home = crate::config::home();
+        tokio::task::spawn_blocking(move || pull::forget(&home, &OsStore)).await.unwrap_or_else(
+            |_| Err(Failure { code: "vault.internal".into(), deleted: Vec::new(), outcome: None }),
+        )
+    })
+    .await;
+    finish(reply?, json_out)
 }
 
-/// Print what a pull or forget did. A partial one prints its outcome (with
-/// `failed`) on stdout and still exits 1 with the error envelope.
-fn finish(result: Result<Outcome, Failure>, json_out: bool) -> Result<()> {
-    match result {
-        Ok(outcome) => {
-            print_outcome(&outcome, json_out);
-            Ok(())
-        }
-        Err(f) => {
-            if let Some(outcome) = &f.outcome {
-                print_outcome(outcome, json_out);
-            }
-            Err(failure(f))
+/// Ask the running daemon to do `method`. With none running (or one too old
+/// to know it), `here` does it in this process when the OS store is usable;
+/// otherwise the daemon is started and asked, since only it can keep the
+/// values (in memory). A running daemon too old to know `method` is not
+/// asked again: that is [`DAEMON_OUTDATED`], which says to restart it.
+async fn by_daemon<F, Fut>(method: &str, here: F) -> Result<Value>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Outcome, Failure>>,
+{
+    let ask =
+        |client: Arc<crate::client::Client>| async move { client.request(method, json!({})).await };
+    let mut outdated = false;
+    if let Ok(client) = crate::daemon::connect(false).await {
+        match ask(client).await {
+            Ok(reply) => return Ok(reply),
+            Err(e) => outdated = method_not_found(&e),
         }
     }
+    if tokio::task::spawn_blocking(crate::vault::store::os_usable).await.unwrap_or(false) {
+        return Ok(crate::server::vault_reply(OsStore.kind(), &here().await));
+    }
+    if outdated {
+        return Err(failure(Failure {
+            code: DAEMON_OUTDATED.into(),
+            deleted: Vec::new(),
+            outcome: None,
+        }));
+    }
+    let client = crate::daemon::connect(true).await?;
+    ask(client).await
+}
+
+/// Whether the daemon answered that it has no such method (an older daemon).
+pub(crate) fn method_not_found(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<crate::client::DaemonError>().is_some_and(|d| d.0.code == -32601)
+}
+
+/// Print a pull's or forget's reply (`server/vault.rs`). A failed or partial
+/// one prints its outcome (with `failed`) on stdout when it has one and
+/// exits 1 with the error envelope.
+fn finish(reply: Value, json_out: bool) -> Result<()> {
+    let store = reply.get("store").and_then(Value::as_str).unwrap_or("unknown").to_owned();
+    if let Some(outcome) = reply.get("outcome").filter(|o| !o.is_null()) {
+        print_outcome(outcome, &store, json_out);
+    }
+    let Some(f) = reply.get("failure").filter(|f| !f.is_null()) else { return Ok(()) };
+    Err(failure(Failure {
+        code: f.get("code").and_then(Value::as_str).unwrap_or("vault.internal").to_owned(),
+        deleted: f
+            .get("deleted")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str().map(str::to_owned))
+            .collect(),
+        outcome: None,
+    }))
+}
+
+/// Where this machine keeps vault values: the running daemon's store
+/// (`_acpmux/vault_status`), since it is the one that keeps them. With no
+/// daemon, or one too old to say, what this process finds: the OS store's
+/// kind, or `memory` when it cannot take a write here.
+async fn store_kind() -> String {
+    if let Ok(client) = crate::daemon::connect(false).await
+        && let Ok(reply) = client.request(crate::rpc::method::MUX_VAULT_STATUS, json!({})).await
+        && let Some(store) = reply.get("store").and_then(Value::as_str)
+    {
+        return store.to_owned();
+    }
+    let here = || if crate::vault::store::os_usable() { OsStore.kind() } else { "memory" };
+    tokio::task::spawn_blocking(here).await.unwrap_or("unknown").to_owned()
 }
 
 /// Whether a harness is signed in on this machine: a presence check of its own
@@ -251,7 +348,8 @@ pub async fn status_cmd(json_out: bool) -> Result<()> {
         tokio::task::spawn_blocking(|| (claude_signed_in(claude_keychain_item), codex_signed_in()))
             .await
             .unwrap_or((SignedIn::Unknown, SignedIn::Unknown));
-    let out = status_json(joined, &state, OsStore.kind(), claude, codex);
+    let kind = store_kind().await;
+    let out = status_json(joined, &state, &kind, claude, codex);
     if json_out {
         print_json(&out);
         return Ok(());
@@ -262,7 +360,7 @@ pub async fn status_cmd(json_out: bool) -> Result<()> {
         state.pulled_at.map_or_else(|| "never".to_owned(), |ms| ms.to_string()),
         state.last_result.as_deref().unwrap_or("none")
     );
-    println!("secret store: {}", OsStore.kind());
+    println!("secret store: {kind}");
     println!(
         "env: {}",
         if state.env.is_empty() {
@@ -271,11 +369,9 @@ pub async fn status_cmd(json_out: bool) -> Result<()> {
             state.env.keys().cloned().collect::<Vec<_>>().join(", ")
         }
     );
-    for h in out["harnesses"].as_array().into_iter().flatten() {
-        let signed = h["signedIn"].as_str().unwrap_or("unknown");
-        let id = h["harness"].as_str().unwrap_or("");
-        let step = h["signIn"].as_str().unwrap_or("");
-        match signed {
+    for h in out.get("harnesses").and_then(Value::as_array).into_iter().flatten() {
+        let (id, step) = (text_at(h, "harness"), text_at(h, "signIn"));
+        match h.get("signedIn").and_then(Value::as_str).unwrap_or("unknown") {
             "yes" => println!("{id}: signed in"),
             "no" => println!("{id}: not signed in here; {step}"),
             _ => println!("{id}: sign-in not visible here; if it fails, {step}"),

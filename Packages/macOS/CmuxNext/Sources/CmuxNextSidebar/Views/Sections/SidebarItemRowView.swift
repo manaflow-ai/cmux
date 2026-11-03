@@ -66,6 +66,8 @@ class SidebarItemRowView: NSView {
     let pill = CALayer()
     let chip = CALayer()
     let icon = DecorativeImageView() // the row's label names the item
+    /// The item's favicon as the sidebar's favicon style draws it (the one favicon path, `SidebarFaviconRenditions`).
+    private let faviconRenditions = SidebarFaviconRenditions()
     /// What ``icon`` shows now: a layout that would make the same glyph keeps the image it has (REOPEN-F7: a new image
     /// on every pass laid the icon view out and drew it again).
     private var shownGlyph: ShownGlyph?
@@ -224,6 +226,13 @@ class SidebarItemRowView: NSView {
                 ?? (wells && info.color != nil ? Palette.textOnPrimary
                 : style == .favorite ? Palette.textPrimary
                 : info.isActive || isRailButton || strong ? Palette.textPrimary : Palette.textSecondary)
+            // A theme change can change a favicon's drawing (a mono icon tints on dark, not on light); a tinted one
+            // takes the label colour.
+            if let favicon = info.favicon, let side = shownGlyph?.side {
+                let image = faviconImage(favicon, side: side)
+                if icon.image !== image { icon.image = image }
+                if image.isTemplate { icon.contentTintColor = Palette.textPrimary }
+            }
         }
     }
 
@@ -258,6 +267,7 @@ class SidebarItemRowView: NSView {
 
     override func layout() {
         super.layout()
+        activity.dotDiameter = SidebarStyle.statusDotSize // one diameter for every status dot (Lawrence msg 19696)
         let b = bounds
         layoutEditing()
         if style == .favorite { return layoutFavorite(b) }
@@ -314,8 +324,11 @@ class SidebarItemRowView: NSView {
 
         if layoutAvatar(in: b) { return }
         // Row size beside a title, like a workspace row's type glyph; inside a list well, the well's
-        // glyph size; a rail button's own glyph size.
-        let glyphSide = isRailButton ? SidebarStyle.railGlyphSize : style == .list ? SidebarStyle.wellGlyphSize : SidebarStyle.kindGlyphSize
+        // glyph size; a rail button's own glyph size. A pinned workspace's icon is the size its list row draws
+        // (`SidebarStyle.workspaceFaviconSide`), so it grows with the density as that row's does (Lawrence 2026-11-03:
+        // "make sure size of the pinned summary thing reflect size of ui compactness i chose"); compact is unchanged.
+        let glyphSide = isRailButton ? SidebarStyle.railGlyphSize : style == .list ? SidebarStyle.wellGlyphSize
+            : info.workspace != nil ? SidebarStyle.workspaceFaviconSide : SidebarStyle.kindGlyphSize
         if bare {
             icon.image = nil
             shownGlyph = nil
@@ -335,7 +348,7 @@ class SidebarItemRowView: NSView {
         }
         title.font = SidebarStyle.titleFont
         if style.isIconOnly {
-            let dot = SidebarStyle.unreadDotSize
+            let dot = SidebarStyle.statusDotSize
             badge.frame = NSRect(x: iconFrame.maxX - dot / 2, y: iconFrame.minY - dot / 2, width: dot, height: dot)
             title.frame = .zero
             return
@@ -414,12 +427,12 @@ class SidebarItemRowView: NSView {
         chip.frame = wellFrame
         chip.cornerRadius = SidebarStyle.railTileCornerRadius
         CATransaction.commit()
-        showGlyph(side: SidebarStyle.railGlyphSize)
-        icon.frame = alignedGlyphFrame(side: SidebarStyle.railGlyphSize, centeredIn: wellFrame)
+        showGlyph(side: SidebarStyle.favoriteGlyphSize)
+        icon.frame = alignedGlyphFrame(side: SidebarStyle.favoriteGlyphSize, centeredIn: wellFrame)
         // The caption takes the tile's full width: a tile is narrow, and the
         // tiles' gap already separates neighboring captions.
         title.frame = NSRect(x: 0, y: wellFrame.maxY + Metrics.space1, width: b.width, height: th)
-        let dot = SidebarStyle.unreadDotSize
+        let dot = SidebarStyle.statusDotSize
         badge.frame = NSRect(x: wellFrame.maxX - dot / 2 - 1, y: wellFrame.minY - dot / 2 + 1, width: dot, height: dot)
         layoutActivity(onGlyph: wellFrame)
     }
@@ -465,14 +478,30 @@ class SidebarItemRowView: NSView {
     private func showGlyph(side: CGFloat) {
         let glyph = ShownGlyph(key: glyphKey, initial: info.textOnly ? info.caption ?? info.title : "", side: side,
                                favicon: info.favicon?.image)
-        guard glyph != shownGlyph || icon.image == nil else { return }
-        icon.image = glyphImage(side: side)
+        // A favicon asks the favicon path each time (a kept bitmap): the theme or the favicon style can change its drawing.
+        guard glyph != shownGlyph || icon.image == nil || info.favicon != nil else { return }
+        let image = glyphImage(side: side)
+        if icon.image !== image { icon.image = image }
         shownGlyph = glyph
+    }
+
+    /// `favicon` as the sidebar's favicon style draws it at `side` points on this item's ground (a tile's raised well, else
+    /// the sidebar), in this row's theme (Lawrence msg 19869). Its bitmap is made once per image, style and size.
+    private func faviconImage(_ favicon: SidebarFavicon, side: CGFloat) -> NSImage {
+        faviconRenditions.onStyleChange = { [weak self] in
+            self?.needsLayout = true
+            self?.needsDisplay = true
+        }
+        return performWithTheme {
+            let ground = style == .favorite ? Palette.elevatedBackground : Palette.sidebarBackground
+            return faviconRenditions.drawing(favicon, side: side, scale: window?.backingScaleFactor ?? 2,
+                                             ground: SidebarFaviconRenditions.groundLuminance(ground)).image
+        }
     }
 
     /// The item's registry icon at `side` points; without one, its SF Symbol at the matching text size.
     private func glyphImage(side: CGFloat) -> NSImage? {
-        if let favicon = info.favicon { return NSImage(cgImage: favicon.image, size: NSSize(width: side, height: side)) }
+        if let favicon = info.favicon { return faviconImage(favicon, side: side) }
         if let emoji = info.emoji { return Self.emojiImage(emoji, side: side) }
         // An empty title has no initial: the item's neutral symbol keeps an icon-only look visible.
         if info.textOnly, let initial = Self.initialImage(info.caption ?? info.title, side: side) { return initial }

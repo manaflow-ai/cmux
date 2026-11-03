@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDesign
 import Foundation
@@ -63,7 +64,19 @@ struct CloudStartChat {
             let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message
                 ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error))
             services.cloud.logger.error("cloud start chat failed: \(message, privacy: .public)")
-            CloudMove.toast(services, toastID, message, duration: .seconds(12))
+            // A failure a retry can help (the machine didn't connect, a copy that timed out) offers Retry: the
+            // same start again under its key, so a machine already made or a folder already copied is reused.
+            var retry: (@MainActor () -> Void)?
+            if (error as? CloudMove.Failure)?.retry != nil {
+                let tabID = tab.id
+                retry = { [weak services] in
+                    // The tab is found again by id: a tab closed since then retries nothing.
+                    guard let services, let (tab, _) = services.locateTab(tabID) else { return }
+                    // task-owner: one retried start; it ends with its own toast
+                    _ = Task { _ = await CloudStartChat(services: services).reply(start, tab: tab) }
+                }
+            }
+            CloudMove.toast(services, toastID, message, duration: .seconds(retry == nil ? 12 : 30), retry: retry)
             return AgentPaneReply.failure(code: "cloud_start_failed", message: message)
         }
     }
@@ -171,6 +184,28 @@ struct CloudStartChat {
     /// moves it there (+Repick).
     func open(_ start: AgentPaneCloudStart, from origin: Origin, on machine: CloudMachineSession, cwd: String?,
               trusted: Bool = false, tabKey: String, targetPane: String? = nil, cli: CloudMoveCLI, copy: CloudMovedChats.Entry? = nil) async throws -> String {
+        guard !start.attachments.isEmpty else { return try await openUploaded(start, from: origin, on: machine, cwd: cwd, trusted: trusted, tabKey: tabKey, targetPane: targetPane, cli: cli, copy: copy) }
+        await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { machine.daemon.supports(DaemonCapability.agentSessionContent.rawValue) }, update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) })
+        guard machine.daemon.supports(DaemonCapability.agentSessionContent.rawValue), let carry = AgentPaneCloudAttachments(start.attachments), let pastes = CloudUploads.pastes,
+              let binary = services.cloud.move.cli, let socket = await machine.daemon.connection?.endpoint?.socketPath,
+              let root = cwd.flatMap({ CloudAccessAsks.remoteRoot($0, roots: services.cloud.move.workRoots) }) ?? services.cloud.move.workRoots.first else { throw CloudMove.Failure(message: CloudUploadStrings.failed) }
+        let access = CloudAccessCLI(binary: binary)
+        return try await carry.withUploaded(in: pastes, upload: { paths in
+            try Self.checkAccount(origin.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
+            let answer = try await access.upload(socket: socket, remoteRoot: root, files: paths)
+            guard answer.ok else { try? await access.removeUploads(socket: socket, remoteRoot: root, ids: answer.uploadIDs); throw CloudMove.Failure(message: CloudUploadStrings.failed) }
+            return .init(paths: answer.uploaded, undo: { try? await access.removeUploads(socket: socket, remoteRoot: root, ids: answer.uploadIDs) })
+        }) { attachments in
+            try Self.checkAccount(origin.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
+            var uploaded = start
+            uploaded.attachments = attachments
+            return try await openUploaded(uploaded, from: origin, on: machine, cwd: cwd, trusted: trusted, tabKey: tabKey, targetPane: targetPane, cli: cli, copy: copy, original: start)
+        }
+    }
+
+    private func openUploaded(_ start: AgentPaneCloudStart, from origin: Origin, on machine: CloudMachineSession, cwd: String?,
+                              trusted: Bool, tabKey: String, targetPane: String?, cli: CloudMoveCLI, copy: CloudMovedChats.Entry? = nil,
+                              original: AgentPaneCloudStart? = nil) async throws -> String {
         await CloudOutdatedMachine.updateBeforeUsingCapability(
             holds: { services.agentTabs.holdsTabs(machine.daemon) },
             update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) })
@@ -199,7 +234,7 @@ struct CloudStartChat {
             appLink: machine.appLink, link: machine.link).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         CloudHandlers.show(anchor.id, context)
         for window in services.windows.controllers { window.state.selection.select(opened.key, in: anchor.pane.id) }
-        services.agentTabs.pageChats.cloudStarted[opened.key] = AgentPaneCloudStarted(start: start, chat: origin.chat, workspace: origin.workspace,
+        services.agentTabs.pageChats.cloudStarted[opened.key] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace,
                                                                                         account: origin.account, machineID: machine.machineID)
         await origin.close()
         return machine.machine.title

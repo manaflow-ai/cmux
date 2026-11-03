@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1278,
+    "entries": 1281,
     "shortcuts": 189
   },
   "sections": [
@@ -222,6 +222,12 @@
         {
           "id": "recentlyFocused",
           "title": "Location History…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "home.mcpConnectPlayground",
+          "title": "MCP Connect Card Playground",
           "shortcut": null,
           "command": null
         },
@@ -1992,7 +1998,7 @@
         {
           "id": "newColumn",
           "title": "New Column Right",
-          "shortcut": "⌃⌘D",
+          "shortcut": "⌃⌘X",
           "command": "cmux pane new-column"
         },
         {
@@ -2004,7 +2010,7 @@
         {
           "id": "newRow",
           "title": "New Row",
-          "shortcut": "⌃⇧⌘D",
+          "shortcut": "⌃⇧⌘X",
           "command": "cmux pane new-row"
         },
         {
@@ -4812,13 +4818,13 @@
         {
           "id": "splitBrowserDown",
           "title": "Split Browser Down",
-          "shortcut": "⌥⇧⌘D",
+          "shortcut": "⌥⇧⌘X",
           "command": "cmux browser split-down"
         },
         {
           "id": "splitBrowserRight",
           "title": "Split Browser Right",
-          "shortcut": "⌥⌘D",
+          "shortcut": "⌥⌘X",
           "command": "cmux browser split-right"
         },
         {
@@ -6016,6 +6022,12 @@
           "command": null
         },
         {
+          "id": "agent.share.invite",
+          "title": "Invite People to Chat…",
+          "shortcut": null,
+          "command": "cmux share invite"
+        },
+        {
           "id": "palette.launchClaudeTeams",
           "title": "Launch Claude Teams",
           "shortcut": null,
@@ -6932,6 +6944,12 @@
           "title": "Add Server…",
           "shortcut": null,
           "command": "cmux servers add"
+        },
+        {
+          "id": "debug.allThemesPlayground",
+          "title": "All Themes Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "layout.centerFocusedColumn.always",

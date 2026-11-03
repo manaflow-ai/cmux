@@ -1,6 +1,8 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 import CmuxHomeCore
+import CmuxHomeRender
+import CmuxAgentQuestion
 #if DEBUG
 public import MessagesLabHome
 #endif
@@ -29,6 +31,9 @@ public final class HomeNativeFixture {
     private var lastAgentRun: (turn: IdempotencyKey, notes: Bool)?
     /// When the last `debugAgentMessages` run started (its steps keep their times as it grows).
     private var agentRunStart = Date()
+    private var approvalDecider: HomeFixtureApprovalDecider?
+    // task-owner: one fixture post; cancelled when the fixture closes or is replaced.
+    private var approvalPost: Task<Void, Never>?
     // task-owner: kept and cancelled in `close()`
     private var loading: Task<Void, Never>?
 
@@ -61,6 +66,7 @@ public final class HomeNativeFixture {
     /// Stops the store and the binding (the fixture tab closed).
     public func close() {
         loading?.cancel()
+        approvalPost?.cancel()
         view?.stop()
         store.stop()
     }
@@ -124,6 +130,48 @@ public final class HomeNativeFixture {
             if done { await source.receive(text, from: shown.chief, in: shown.conversation) }
         }
         return true
+    }
+
+    /// Posts one mock permission through the real Home store and renderer. It can only use
+    /// this fixture's mock decider; a socket call cannot send a permission response.
+    /// `result` is what a later native pointer click receives: answered, refused or expired.
+    public func debugApproval(result: String) -> Bool {
+        guard let shown, let decision = HomeFixtureApprovalDecider.result(result) else { return false }
+        approvalPost?.cancel()
+        let decider = HomeFixtureApprovalDecider(decision)
+        approvalDecider = decider
+        view?.approvals = decider
+        // This isolated fixture's decider only updates mock state, never acpmux.
+        view?.isPersonApprovalEvent = { _ in true }
+        let permission = "fixture-" + UUID().uuidString
+        let snapshot = #"{"toolCall":{"title":"Bash","rawInput":{"command":"printf 'Hello from the subagent'"}},"options":[{"optionId":"yes","kind":"allow_once"},{"optionId":"no","kind":"reject_once"}]}"#
+        let question = AgentQuestion(id: permission,
+                                     source: .init(harness: .chief, session: "local/fixture-subagent", permission: permission),
+                                     items: [.init(id: "approval:" + String(repeating: "a", count: 64), prompt: "a1: Bash",
+                                                   options: [.init(id: "allow", label: "Allow once", preview: .init(text: snapshot)),
+                                                             .init(id: "deny", label: "Deny")], allowsOther: false)])
+        let source = self.source
+        approvalPost = Task {
+            await source.setOwner(.local, in: shown.conversation)
+            guard !Task.isCancelled else { return }
+            await source.post([.question(question)], from: shown.chief, in: shown.conversation, key: IdempotencyKey(permission))
+        }
+        return true
+    }
+
+    /// The mock decider's actual calls, for a real-pointer capture's oracle. Reading sends nothing.
+    public var debugApprovalAttempts: [Bool] { approvalDecider?.attempts ?? [] }
+
+    /// Foundation-compatible wire data, confined to this mock fixture. Reading sends nothing.
+    public func debugApprovalState() -> [String: Any] {
+        guard let view, let window = view.window else { return ["error": "no mock Home fixture is shown"] }
+        let cards: [[String: Any]] = view.debugApprovalCards().map { card in
+            ["id": card.id, "text": card.text, "pending": card.pending, "busy": card.busy, "ended": card.ended,
+             "allow": HomeNativeTranscriptView.debugBox(card.allow), "deny": HomeNativeTranscriptView.debugBox(card.deny)]
+        }
+        return ["ok": !cards.isEmpty, "mock": true, "cards": cards,
+                "attempts": debugApprovalAttempts.map { $0 ? "allow" : "deny" },
+                "windowHeight": Double(window.frame.height), "scale": Double(window.backingScaleFactor)]
     }
 
     /// The mock's people `debug.home.drive` `presence` shows by default (made-up fixture people).
@@ -295,6 +343,22 @@ public final class HomeNativeFixture {
             guard let prepared = try? await store.prepareAttachment(fileURL: file, keepLocation: false) else { continue }
             try? await store.send(conversation: id, text: "", attachments: [prepared])
         }
+    }
+}
+/// No acpmux connection or app-person proof exists in this mock. The production pointer gate
+/// still has to accept the gesture before a successful decision can be recorded by Home.
+@MainActor private final class HomeFixtureApprovalDecider: HomeApprovalDeciding {
+    let decision: HomeApprovalDecision
+    private(set) var attempts: [Bool] = []
+    init(_ decision: HomeApprovalDecision) { self.decision = decision }
+    static func result(_ value: String) -> HomeApprovalDecision? {
+        switch value { case "answered": .answered; case "refused": .refused; case "expired": .expired; default: nil }
+    }
+    func decide(_ request: HomeApprovalRequest, allow: Bool,
+                through gate: @escaping @Sendable (() -> Void) -> Bool) async -> HomeApprovalDecision {
+        attempts.append(allow)
+        if decision == .answered, !gate({}) { return .refused }
+        return decision
     }
 }
 #endif
