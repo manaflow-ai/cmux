@@ -4,6 +4,9 @@
 // the app's group no longer ends the built-in uBlock Origin's renderer before
 // the app (scripts/cmux-next/test-shim-helper-signals-cpp.sh).
 #include <signal.h>
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -132,7 +135,14 @@ static void BrowserGone() {
   kill(helper, SIGTERM);
   bool ended = false;
   for (int i = 0; i < 200 && !ended; ++i) {
-    ended = kill(helper, 0) != 0 && errno == ESRCH;
+#if defined(__linux__)
+    // This process is the orphan's subreaper (main), so it reaps it here; a
+    // container's pid 1 may never reap, which would leave a zombie kill(0) sees.
+    int helper_status = 0;
+    ended = waitpid(helper, &helper_status, WNOHANG) == helper;
+#else
+    ended = kill(helper, 0) != 0 && errno == ESRCH;  // launchd reaps it
+#endif
     if (!ended) Nap(10);
   }
   Expect(ended, "a helper whose browser is gone obeys SIGTERM from anyone");
@@ -140,6 +150,9 @@ static void BrowserGone() {
 }
 
 int main() {
+#if defined(__linux__)
+  prctl(PR_SET_CHILD_SUBREAPER, 1);
+#endif
   PureRule();
   BrowserAlive(SIGTERM, "a stranger's SIGTERM (pkill, killall) leaves the helper running",
                "the browser's SIGTERM ends the helper by SIGTERM");
