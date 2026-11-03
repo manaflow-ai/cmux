@@ -45,6 +45,8 @@ export const NONCE_VAR = "MACHINE_VAULT_E2E"
 export const KEY_VAR = "ANTHROPIC_API_KEY"
 export const VAULT_CAPABILITY = "machine.vault.pull.v1"
 export const PROMPT = `Run \`printenv ${NONCE_VAR}\` and reply with exactly its output.`
+/** After a SIGKILL, a child's result comes at most this much later. */
+export const KILL_GRACE_MS = 500
 export const CHILD_PATH = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 const NAME = /^ci-vault-\d{1,20}(?:-\d{1,4})?$/
 const USER = /^[a-z_][a-z0-9_-]{0,31}$/
@@ -112,7 +114,11 @@ export function refusal(opts: Options): string | undefined {
   return undefined
 }
 
-const count = (text: string, needle: string) => text.split(needle).length - 1
+/** Join tokens in `text`, by their shape (cmj_ and at least 16 token characters; the mint's own rule). */
+export const tokenCount = (text: string) => (text.match(/cmj_[A-Za-z0-9_-]{16,4096}/g) ?? []).length
+/** A program file (Mach-O, fat Mach-O, ELF, or a #! script is not one): its constants are not secrets. */
+export const isProgram = (body: string) =>
+  ["\xcf\xfa\xed\xfe", "\xce\xfa\xed\xfe", "\xca\xfe\xba\xbe", "\xbe\xba\xfe\xca", "\x7fELF"].some((magic) => body.startsWith(magic))
 
 /** The last JSON object a CLI printed on stdout (one line each, or one pretty object). */
 export function lastJson(text: string): any {
@@ -406,6 +412,11 @@ export async function runE2E(
     if (listed.code !== 0) throw new Failed(`vault ls: exit ${listed.code}`)
     const rows = lastJson(listed.stdout)?.entries
     const existing = new Set<string>((Array.isArray(rows) ? rows : []).map((e: any) => String(e?.name ?? "")))
+    // The nonce's name is this harness's own: an entry already there is another run's (the workflow
+    // serializes dispatches) or a killed run's leftover. Never overwrite it, never delete it.
+    if (existing.has(NONCE_VAR)) {
+      throw new Failed(`${NONCE_VAR} is already in this account's vault (another run, or a killed run's leftover): left as it is; remove it with cmux machine vault rm ${NONCE_VAR} once no run is going`)
+    }
     live()
     vaultAttempted.push(NONCE_VAR)
     const setNonce = await cli(["machine", "vault", "set", NONCE_VAR], `${nonce}\n`)
@@ -485,15 +496,20 @@ export async function runE2E(
   // 5. Secret scan: the whole disposable home (as the user, one tar) and everything printed.
   const scanned = secrets.filter((v) => v.length >= 8)
   try {
+    // The user's processes are gone: their sockets hold nothing and tar cannot archive them, so they go
+    // first. Then the archive must be whole: a nonzero exit fails, and so does any complaint.
+    const sockets = await userRun(["/usr/bin/find", opts.home, "-type", "s", "-delete"], 60_000, false, true)
+    if (sockets.code !== 0) throw new Error("socket cleanup failed")
     const archive = await userRun(["/usr/bin/tar", "-C", opts.home, "--format", "gnutar", "-cf", "-", "."], 5 * 60_000, true, true)
-    // Sockets cannot be archived and hold nothing; any other complaint means the archive is not the whole home.
-    const complaints = archive.stderr.split("\n").filter((l) => l.trim() && !/socket/i.test(l))
-    if (archive.code !== 0 && complaints.length > 0) throw new Error("tar failed")
+    if (archive.code !== 0) throw new Error("tar exited nonzero")
+    if (archive.stderr.trim() !== "") throw new Error("tar complained")
     let held = 0
     let cmj = 0
     for (const entry of tarEntries(archive.stdout)) {
       const text = `${entry.name}\n${entry.link}\n${entry.body}`
-      cmj += count(text, "cmj_")
+      // A join token's shape, outside program files: an installed binary (acpmux, Claude Code, Codex)
+      // carries the bare prefix as a constant, never a token. Held values are matched everywhere.
+      if (!isProgram(entry.body)) cmj += tokenCount(text)
       for (const v of scanned) if (text.includes(v)) held += 1
     }
     evidence.secretScan.home = { held, cmj }
@@ -501,7 +517,7 @@ export async function runE2E(
     problems.push("could not scan the whole disposable home")
   }
   const logText = [...transcript, ...childText].join("\n")
-  evidence.secretScan.log = { held: scanned.filter((v) => logText.includes(v)).length, cmj: count(logText, "cmj_") }
+  evidence.secretScan.log = { held: scanned.filter((v) => logText.includes(v)).length, cmj: tokenCount(logText) }
   expect(evidence.secretScan.home.held === 0, "the home holds a value of this run's sign-in, token or API key")
   expect(evidence.secretScan.home.cmj === 0, "the home holds a join token")
   expect(evidence.secretScan.log.held === 0 && evidence.secretScan.log.cmj === 0, "the output holds a secret value or a join token")
@@ -546,7 +562,15 @@ export function realDeps(): Deps {
     fetch: (url, init) => fetch(url, init),
     run: (argv, { env, stdin, timeoutMs, binary, signal }) =>
       new Promise((resolve) => {
-        const child = spawn(argv[0]!, argv.slice(1), { env, cwd: "/", stdio: ["pipe", "pipe", "pipe"] })
+        // Its own process group, so a stop reaches every descendant (ssh under the CLI), not only the child.
+        const child = spawn(argv[0]!, argv.slice(1), { env, cwd: "/", stdio: ["pipe", "pipe", "pipe"], detached: true })
+        const signalGroup = (sig: NodeJS.Signals) => {
+          try {
+            if (child.pid) process.kill(-child.pid, sig)
+          } catch {
+            child.kill(sig)
+          }
+        }
         const out: Buffer[] = []
         const err: Buffer[] = []
         child.stdout.on("data", (b: Buffer) => out.push(b))
@@ -554,17 +578,32 @@ export function realDeps(): Deps {
         child.stdin.on("error", () => undefined)
         if (stdin !== undefined) child.stdin.write(stdin)
         child.stdin.end()
-        const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs)
         let hard: ReturnType<typeof setTimeout> | undefined
+        let grace: ReturnType<typeof setTimeout> | undefined
+        // After SIGKILL the result comes at most KILL_GRACE_MS later, even if a descendant (ssh, say) still
+        // holds the pipes open: they are let go and the run answers as killed.
+        const kill = () => {
+          signalGroup("SIGKILL")
+          grace ??= setTimeout(() => {
+            child.stdout.destroy()
+            child.stderr.destroy()
+            done(null)
+          }, KILL_GRACE_MS)
+        }
+        const timer = setTimeout(kill, timeoutMs)
         const stop = () => {
-          child.kill("SIGTERM")
-          hard = setTimeout(() => child.kill("SIGKILL"), 2_000)
+          signalGroup("SIGTERM")
+          hard = setTimeout(kill, 2_000)
         }
         if (signal?.aborted) stop()
         else signal?.addEventListener("abort", stop, { once: true })
+        let settled = false
         const done = (code: number | null) => {
+          if (settled) return
+          settled = true
           clearTimeout(timer)
           if (hard) clearTimeout(hard)
+          if (grace) clearTimeout(grace)
           signal?.removeEventListener("abort", stop)
           resolve({ code, stdout: Buffer.concat(out).toString(binary ? "latin1" : "utf8"), stderr: Buffer.concat(err).toString("utf8") })
         }

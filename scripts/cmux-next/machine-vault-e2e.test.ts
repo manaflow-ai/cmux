@@ -10,6 +10,7 @@ import {
   type Deps,
   type Options,
   lastJson,
+  realDeps,
   refusal,
   replyText,
   runE2E
@@ -46,6 +47,10 @@ interface Knobs {
   /** A child prints this text (a leak). */
   leak?: string
   homeBody?: string
+  /** More home files, name to body (latin1). */
+  homeFiles?: Record<string, string>
+  tarExit?: number
+  tarStderr?: string
   /** install.revoke answers this status. */
   installRevokeStatus?: number
   /** `vault set NAME` waits for this promise before it answers (a write in flight). */
@@ -55,14 +60,18 @@ interface Knobs {
 }
 
 /** A tar archive of one regular file, as bsdtar's gnutar format writes it (enough for tarEntries). */
-function tarOf(name: string, body: string): string {
-  const header = Buffer.alloc(512, 0)
-  header.write(name, 0, "latin1")
-  header.write(body.length.toString(8).padStart(11, "0"), 124, "latin1")
-  header.write("0", 156, "latin1")
-  const padded = Buffer.alloc(Math.ceil(body.length / 512) * 512, 0)
-  padded.write(body, 0, "latin1")
-  return Buffer.concat([header, padded, Buffer.alloc(1024, 0)]).toString("latin1")
+function tarOf(files: Record<string, string>): string {
+  const parts: Buffer[] = []
+  for (const [name, body] of Object.entries(files)) {
+    const header = Buffer.alloc(512, 0)
+    header.write(name, 0, "latin1")
+    header.write(body.length.toString(8).padStart(11, "0"), 124, "latin1")
+    header.write("0", 156, "latin1")
+    const padded = Buffer.alloc(Math.ceil(body.length / 512) * 512, 0)
+    padded.write(body, 0, "latin1")
+    parts.push(header, padded)
+  }
+  return Buffer.concat([...parts, Buffer.alloc(1024, 0)]).toString("latin1")
 }
 
 function fakes(k: Knobs = {}) {
@@ -132,7 +141,10 @@ function fakes(k: Knobs = {}) {
           return ok(JSON.stringify({ joined: true, secretStore: "keychain", lastResult: "ok", env: (k.vaultEnv ?? [NONCE_VAR, KEY_VAR]).map((name) => ({ name, revision: 1 })) }, null, 2))
         }
         if (text.includes(" run ")) return ok(JSON.stringify({ sessionId: "s", name: "n", reply: k.reply ?? `${NONCE}\n`, stopReason: "end_turn" }, null, 2))
-        if (text.includes("/usr/bin/tar")) return { code: 0, stdout: tarOf("./.zshenv", k.homeBody ?? "export X=1\n"), stderr: "" }
+        if (text.includes("/usr/bin/find")) return { code: 0, stdout: "", stderr: "" }
+        if (text.includes("/usr/bin/tar")) {
+          return { code: k.tarExit ?? 0, stdout: tarOf({ "./.zshenv": k.homeBody ?? "export X=1\n", ...k.homeFiles }), stderr: k.tarStderr ?? "" }
+        }
       }
       return { code: 1, stdout: "", stderr: "unexpected" }
     },
@@ -241,6 +253,24 @@ describe("machine-vault-e2e", () => {
     expect(inHome.reason).toContain("the home holds")
   })
 
+  test("program files' constants are not join tokens; a token in any other file is", async () => {
+    // An installed binary: Mach-O magic, the bare prefix and a token-shaped constant.
+    const binary = "\xcf\xfa\xed\xfe" + "\0".repeat(28) + "cmj_\0" + "cmj_constantJoinPrefixInTheBinary0123"
+    const clean = await runE2E(opts, env(), fakes({ homeFiles: { "./.local/bin/acpmux": binary, "./.local/bin/claude": "\x7fELF" + "cmj_" } }).deps)
+    expect(clean.result).toBe("pass")
+    expect(clean.secretScan.home.cmj).toBe(0)
+    const leaked = await runE2E(opts, env(), fakes({ homeFiles: { "./.acpmux/log.txt": "token cmj_ABCDEFGHIJKLMNOPQRSTUVWXYZ\n" } }).deps)
+    expect(leaked.result).toBe("fail")
+    expect(leaked.reason).toContain("the home holds a join token")
+  })
+
+  test("the archive must be whole: a nonzero exit or any complaint fails", async () => {
+    const exit = await runE2E(opts, env(), fakes({ tarExit: 1 }).deps)
+    expect(exit.reason).toContain("could not scan the whole disposable home")
+    const complaint = await runE2E(opts, env(), fakes({ tarStderr: "tar: ./x: Can't open\n" }).deps)
+    expect(complaint.reason).toContain("could not scan the whole disposable home")
+  })
+
   test("refuses another origin, a bad user or name, and missing stack secrets", async () => {
     expect(refusal({ ...opts, origin: "https://example.com" })).toContain("origin")
     expect(refusal({ ...opts, user: "root" })).toContain("user")
@@ -270,6 +300,24 @@ describe("machine-vault-e2e", () => {
     expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR, KEY_VAR])
     // Nothing the main flow would have done next ran: no join.
     expect(f.calls.some((a) => a.includes("add"))).toBe(false)
+  })
+
+  test("an existing nonce entry is neither overwritten nor removed", async () => {
+    const f = fakes()
+    f.vault.add(NONCE_VAR)
+    const e = await runE2E(opts, env(), f.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain(`${NONCE_VAR} is already in this account's vault`)
+    expect(f.stdins[NONCE_VAR]).toBeUndefined()
+    expect(f.vault.has(NONCE_VAR)).toBe(true)
+    expect(f.calls.some((a) => a.includes("rm"))).toBe(false)
+  })
+
+  test("a killed child whose descendant holds its pipes still answers", async () => {
+    const started = Date.now()
+    const r = await realDeps().run(["/bin/sh", "-c", "sleep 30 & sleep 30"], { env: { PATH: "/usr/bin:/bin" }, timeoutMs: 50 })
+    expect(r.code).toBeNull()
+    expect(Date.now() - started).toBeLessThan(3_000)
   })
 
   test("a failed required cleanup fails the run", async () => {
