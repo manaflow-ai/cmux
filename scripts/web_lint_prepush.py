@@ -764,6 +764,23 @@ def input_pieces(repo: Path, package: ScriptPackage, files: list[str], read) -> 
     return chosen
 
 
+def untrusted_check_code(repo: Path, package: ScriptPackage, trusted_files: list[str], sha: str | None,
+                         read) -> list[str]:
+    """Why PACKAGE's check code in commit SHA is not the reviewed code ([] when it is): TRUSTED_FILES (every path
+    changed since trust_base()) change it, or SHA holds a symlink or a node_modules at it, or it loads a module the
+    change touches or that can't be told (executed_sources())."""
+    risky = executed_changes(package, trusted_files)
+    if sha:
+        sources = tuple(f"{package.directory}/{d}" for d in SOURCE_DIRS)
+        risky += [f"{path} (a symlink)" for path in
+                  executed_symlinks(repo, sha, package.executed, sources, package_directories(package))]
+        risky += [f"{path} (a tracked node_modules)" for path in
+                  tracked_node_modules(repo, sha, package_directories(package)) if path not in risky]
+        loaded, problems = executed_sources(repo, sha, package, package_scripts(repo, package, read))
+        risky += [f for f in trusted_files if fold(f) in loaded and f not in risky] + problems
+    return risky
+
+
 def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None, trusted_files: list[str] | None = None,
               sha: str | None = None, read=None) -> Plan:
     """What to lint for FILES. With GUARD_EXECUTED (the hook), a package whose check code TRUSTED_FILES (default:
@@ -776,24 +793,18 @@ def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None, t
     for package in SCRIPT_PACKAGES:
         if not exists(f"{package.directory}/package.json"):
             continue
-        if not any(under(f, package.triggers) for f in files):
-            # No trigger: only the pieces that declare an input the change touches. A push that changes a piece's
-            # own script changes an executed path, which is a trigger, so these never run code the push changed.
-            pieces = input_pieces(repo, package, files, read)
-            if pieces:
-                plan.script_pieces[package.directory] = pieces
+        triggered = any(under(f, package.triggers) for f in files)
+        # No trigger: only the pieces that declare an input the change touches (#34046), run alone.
+        pieces = [] if triggered else input_pieces(repo, package, files, read)
+        if not triggered and not pieces:
             continue
-        risky = executed_changes(package, trusted_files) if guard_executed else []
-        if guard_executed and sha:
-            sources = tuple(f"{package.directory}/{d}" for d in SOURCE_DIRS)
-            risky += [f"{path} (a symlink)" for path in
-                      executed_symlinks(repo, sha, package.executed, sources, package_directories(package))]
-            risky += [f"{path} (a tracked node_modules)" for path in
-                      tracked_node_modules(repo, sha, package_directories(package)) if path not in risky]
-            loaded, problems = executed_sources(repo, sha, package, package_scripts(repo, package, read))
-            risky += [f for f in trusted_files if fold(f) in loaded and f not in risky] + problems
+        # The same trust checks hold for both: check code changed since the reviewed base (an earlier push of the
+        # branch included), reached through a symlink or a tracked node_modules, or loaded as a module.
+        risky = untrusted_check_code(repo, package, trusted_files, sha, read) if guard_executed else []
         if risky:
             plan.untrusted.append((package.directory, risky))
+        elif pieces:
+            plan.script_pieces[package.directory] = pieces
         else:
             plan.script_packages.append(package)
     for package in ESLINT_PACKAGES:
