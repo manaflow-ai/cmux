@@ -241,18 +241,7 @@ final class LinkOpener {
             pane.focusContent()
             return true
         }
-        // A split right or below shows in the click's frame with its tab, never in the source first (Leo 2026-11-03).
-        let split: SplitMake = { [weak self, weak from] (pane: PaneController, direction: SplitDirection, finished: @escaping @MainActor (SurfaceID?) -> Void) -> Bool? in
-            // As every split (#23032 review): a chat dock or a pane with no room keeps the move, which refuses or opens a column.
-            guard PaneBrowserTabOpener(controller: pane).opensInSplit,
-                  case .split = pane.services.splitRoom(for: pane.pane, edge: direction == .right ? .right : .bottom) else { return nil }
-            let request = BrowserTabSplitRequest(direction: direction, finished: { [weak self, weak from] (surface: SurfaceID?) in
-                if let surface, let from, let content = from.workspace { self?.returnFocus(of: surface, to: from.layoutPaneID, in: content) }
-                finished(surface)
-            })
-            return pane.newBrowserTab(url: url, split: request)
-        }
-        return open(from: from, background: background, kind: .browser, split: background ? nil : split) { [weak self, weak from] pane, placed in
+        return open(from: from, background: background, kind: .browser, split: background ? nil : browserSplit(url, returningTo: from)) { [weak self, weak from] pane, placed in
             let here = pane === from && placed == nil
             // A pane-local tab keeps Chrome's opener relationship. When placement moves the new
             // tab into another pane, the source pane must not claim it as a child; the placement
@@ -267,6 +256,17 @@ final class LinkOpener {
                 }
             }
             return pane.newBrowserTab(url: url, background: background || placed != nil, opener: opener, placementOwner: placed != nil, then: then)
+        }
+    }
+
+    /// A web page at `url` (nil: the New Tab page) made straight in a new split, never in the source first (Leo 2026-11-03); nil, so the open
+    /// makes and moves, where the pane's daemon cannot or it has no split room (#23032 review). Its close gives the focus back to `from`.
+    func browserSplit(_ url: URL?, profile: String? = nil, returningTo from: PaneController? = nil) -> SplitMake {
+        { [weak self, weak from] (pane: PaneController, direction: SplitDirection, finished: @escaping @MainActor (SurfaceID?) -> Void) -> Bool? in
+            guard PaneBrowserTabOpener(controller: pane).opensInSplit, case .split = pane.services.splitRoom(for: pane.pane, edge: direction == .right ? .right : .bottom) else { return nil }
+            return pane.newBrowserTab(url: url, profile: profile, split: BrowserTabSplitRequest(direction: direction) { [weak self, weak from] surface in
+                if let surface, let from, let content = from.workspace { self?.returnFocus(of: surface, to: from.layoutPaneID, in: content) }; finished(surface)
+            })
         }
     }
 

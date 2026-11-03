@@ -33,7 +33,8 @@ struct SplitBrowserFailureTests {
             var failures: [String] = []
             for task in work { if let failure = await task.value { failures.append(failure.message) } }
             let text = failures.joined(separator: " | ")
-            #expect(text.contains("split-browser"), "no failure for the failed open: \(text)")
+            // The make-and-move path names `split-browser`; a daemon serving the split-first create names that create.
+            #expect(text.contains("split-browser") || text.contains("new-frontend-browser-tab"), "no failure for the failed open: \(text)")
             #expect(text.contains("the test refused the browser tab"), "the open's reason is not in the failure: \(text)")
             #expect(services.daemon.store.workspaces.first?.screens.first?.panes.count == panes, "a split appeared without its tab")
         }

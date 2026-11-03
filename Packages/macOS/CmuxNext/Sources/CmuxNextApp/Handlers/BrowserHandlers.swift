@@ -133,8 +133,7 @@ enum BrowserHandlers {
         }
     }
 
-    /// Split Browser Right/Down: a new app-rendered browser tab moved into a
-    /// new split in one daemon `split {tab}` call.
+    /// Split Browser Right/Down: a new app-rendered browser tab made in a new split (moved into one on an older daemon).
     private static func bindSplits(into registry: ActionRegistry, context: AppActionContext) {
         for (id, direction) in [("splitBrowserRight", SplitDirection.right), ("splitBrowserDown", .down)] {
             registry.bindEffect(ActionID(rawValue: id), requires: DaemonCapability.frontendBrowserTabs.rawValue, daemon: context.daemon, effect: { invocation in
@@ -152,8 +151,8 @@ enum BrowserHandlers {
     /// chat a person's browser is a tab in the strip.
     ///
     /// Returns what the caller hands the registry (``ActionRegistry/settle(_:of:_:)``, or a bound handler's
-    /// return): the tab open and the split are one waiting effect (`daemonEcho`: nothing shows until the daemon
-    /// answers, debt until a provisional browser split exists), and its failure is reported, not only logged.
+    /// return): `.done` when the split shows with its tab now (``LinkOpener/browserSplit(_:profile:returningTo:)``), else the tab
+    /// open and the move are one waiting effect (`daemonEcho`: nothing shows until the daemon answers), its failure reported.
     static func splitBrowser(from pane: PaneController, direction: SplitDirection, url: URL? = nil, profile: String? = nil,
                              byPerson: Bool, context: AppActionContext) throws -> ActionEffect {
         let handle = pane.pane.handle, model = pane.pane
@@ -174,6 +173,7 @@ enum BrowserHandlers {
             return .done
         }
         if let refusal = browserTabs.refusal(in: model) { throw ActionFailure(message: refusal) }
+        if context.services.linkOpener.browserSplit(url, profile: profile)(pane, direction, { _ in }) != nil { return .done }
         // The split goes to the pane's own machine (cx-2cob); `refusal` named a disconnected one.
         let daemon = context.services.daemon(for: model)
         let connection = try daemon.isLocal ? context.requireConnection() : daemon.connection ?? context.requireConnection()
