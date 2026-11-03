@@ -12,10 +12,9 @@ import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-const UPDATES = 50;
-
 await requireBrowserLane("session-info-no-flicker-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
+  const UPDATES = 50;
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   const PAGE = "/test/browser/session-info-no-flicker.html";
@@ -54,9 +53,8 @@ await requireBrowserLane("session-info-no-flicker-browser.test.ts", async () => 
         // The first running update draws what a running chat shows (the dock's live line), then the
         // panel's enter settles.
         await page.evaluate(() => window.__step(0));
-        await page.evaluate(
-          () => new Promise((resolve) => setTimeout(resolve, 600)),
-        );
+        // fixed-wait: the panel's enter transition and its first reads settle before the window opens.
+        await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 600)));
         const result = await page.evaluate(async (updates) => {
           const panel = document.querySelector<HTMLElement>("aside.acpmux-session-info")!;
           const box = () => {
@@ -92,6 +90,7 @@ await requireBrowserLane("session-info-no-flicker-browser.test.ts", async () => 
             await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
             boxes.add(box());
           }
+          // fixed-wait: the observed window stays open for timers and frames the updates scheduled.
           await new Promise((resolve) => setTimeout(resolve, 300));
           boxes.add(box());
           for (const record of observer.takeRecords()) mutations.push(`${record.type} late`);

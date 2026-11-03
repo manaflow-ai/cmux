@@ -156,6 +156,7 @@ test(`${UPDATES} streamed tokens, tool calls and usage ticks paint nothing in Se
   await act(async () => setSessionInfoOpen(true));
   // The first streamed update settles anything the panel draws once it first sees a running chat.
   await act(async () => push(streamed(first, 0)));
+  // fixed-wait: timers and frames the updates scheduled run inside the observed window.
   await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
   const panel = container.querySelector<HTMLElement>("aside.acpmux-session-info");
   expect(panel).not.toBeNull();
@@ -165,7 +166,8 @@ test(`${UPDATES} streamed tokens, tool calls and usage ticks paint nothing in Se
   const observer = new dom!.window.MutationObserver((records) => {
     for (const record of records) {
       const target = record.target as Element;
-      const where = target.nodeType === 1 ? target.className || target.tagName : `#text in ${target.parentElement?.className}`;
+      const where =
+        target.nodeType === 1 ? target.className || target.tagName : `#text in ${target.parentElement?.className}`;
       mutations.push(`${record.type}${record.attributeName ? `:${record.attributeName}` : ""} ${String(where)}`);
     }
   });
@@ -182,6 +184,7 @@ test(`${UPDATES} streamed tokens, tool calls and usage ticks paint nothing in Se
     await act(async () => push(streamed(first, step)));
     expect(frame()).toBe(before);
   }
+  // fixed-wait: timers and frames the updates scheduled run inside the observed window.
   await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
   observer.takeRecords();
   observer.disconnect();
