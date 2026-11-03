@@ -321,7 +321,8 @@ const usageSetup = (update: any, used: number): number | undefined => {
 const CONFIG_KIND = "config_option_update";
 const SESSION_INFO_KIND = "session_info_update";
 /// The agent's guess at the next prompt after a turn (acpmux claude_stdio/prompt_suggestions.rs):
-/// `suggestion` a string, or null to take it back. Never a transcript row.
+/// `suggestion` a string, or null to take it back. Never a transcript row. It comes on the attach's
+/// "transcript" event stream, live only: pages leave it out (hub/paging.rs `matches_live`, #33085).
 const SUGGESTION_KIND = "prompt_suggestion";
 /// The chat's one session start row (conversation/SessionStartNote.tsx).
 const SESSION_START_ROW = "session-start";
@@ -4150,10 +4151,6 @@ export class AcpmuxDirectClient {
         // The chat's sub-session records: its running limit's `limits` changes (the eighth kind).
         SUBSESSION_KIND,
         ...(this.localOrigin ? QUEUE_KINDS : []),
-        // The agent's suggested next prompt is not transcript (hub/paging.rs), so the live stream
-        // passes it only when asked for by kind. A local acpmux takes any number of kinds; a
-        // remote one's list is at its eight.
-        ...(this.localOrigin ? [SUGGESTION_KIND] : []),
       ],
       eventStream: true,
       visible,

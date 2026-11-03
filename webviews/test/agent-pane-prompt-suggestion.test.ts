@@ -5,7 +5,7 @@
 // claude_stdio/prompt_suggestions.rs). The pane never draws it as a transcript row; the snapshot
 // carries the newest one for the composer's ghost text only between turns, until the next prompt or
 // turn start, and one that arrives while a turn runs is stale and never shown. acpmux sends it live
-// only (hub/paging.rs NON_TRANSCRIPT_UPDATES keeps it out of pages); the pages below hold it so the
+// only (hub/paging.rs keeps it out of pages, `matches_live` passes it live); the pages below hold it so the
 // reducer's ordering can be checked, and the live test sends it as acpmux does.
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
@@ -198,12 +198,13 @@ test("live, as acpmux sends it: shown after the turn, gone when the next prompt 
   expect(sent.promptSuggestion).toBeUndefined();
 });
 
-// acpmux keeps the update out of "transcript" (hub/paging.rs NON_TRANSCRIPT_UPDATES), and an attach's
-// event stream passes only the kinds it asked for (server/mod.rs), so the pane asks for it by name.
-test("a local attach asks for the suggestion's kind, so its event stream carries it", async () => {
+// acpmux's "transcript" event stream carries the update live (hub/paging.rs `matches_live`, #33085)
+// while its pages leave it out, so the attach asks for no kind of its own.
+test("the attach asks for no extra kind: the transcript stream carries it live", async () => {
   await snapshotOf(turn("Rename the helper", "Renamed."));
   expect(attachParams.eventStream).toBe(true);
-  expect(attachParams.kinds).toContain("prompt_suggestion");
+  expect(attachParams.kinds).toContain("transcript");
+  expect(attachParams.kinds).not.toContain("prompt_suggestion");
 });
 
 test("the mock chat with a suggestion (?mock) offers the Prompt suggestions option and pages none", async () => {
