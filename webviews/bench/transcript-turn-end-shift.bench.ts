@@ -151,7 +151,8 @@ const changed = () =>
 function observeLayoutShifts() {
   type Shift = { at: number; value: number; input: boolean; sources: string[] };
   const w = window as unknown as { __shifts?: Shift[] };
-  if (w.__shifts) return;
+  // WebKit has no layout-shift entries (and observe() does not throw for them): no __shifts, so the box diff scores it.
+  if (w.__shifts || !PerformanceObserver.supportedEntryTypes?.includes("layout-shift")) return;
   const shifts: Shift[] = [];
   w.__shifts = shifts;
   const describe = (node: Node | null | undefined) => {
@@ -176,7 +177,8 @@ function observeLayoutShifts() {
         });
     }).observe({ type: "layout-shift", buffered: true });
   } catch {
-    // WebKit: no layout-shift entries; the box diff scores it.
+    // Observation refused after all: no entries, so the box diff scores it.
+    delete w.__shifts;
   }
 }
 
