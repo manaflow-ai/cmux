@@ -558,9 +558,9 @@ fn untracked(root: &Path, path: String) -> ChangedFile {
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(_) => return file,
         };
-        let bytes = &buffer[..read];
+        let Some(bytes) = buffer.get(..read) else { return file };
         let probe = probe_remaining.min(read);
-        if bytes[..probe].contains(&0) {
+        if bytes.get(..probe).is_some_and(|prefix| prefix.contains(&0)) {
             file.binary = true;
             return file;
         }
