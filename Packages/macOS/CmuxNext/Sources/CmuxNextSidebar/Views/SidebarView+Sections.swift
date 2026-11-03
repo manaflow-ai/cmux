@@ -38,6 +38,12 @@ extension SidebarViewComponents {
         list.configureBlockRegion = { [weak self] region in
             guard let self else { return }
             self.wireItems(region)
+            // A double-click on a pinned workspace's row renames it in place, through the one rename every entry
+            // point uses (F2, Return, the menu's Rename: `beginRename(workspace:)`).
+            region.onRenameItem = { [weak self, weak region] id in
+                guard let workspace = region?.itemView(id)?.info.workspace else { return }
+                self?.list.inlineRename.begin(.workspace(workspace))
+            }
             // Read the list's provider at right-click time: a block region made before the app set it
             // (the first layout after launch) kept nil, and a pinned workspace's tile opened no menu.
             region.contextMenuProvider = { [weak self] target in self?.list.contextMenuProvider?(target) }

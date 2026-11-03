@@ -32,7 +32,7 @@ mod direct;
 mod proxy;
 mod session;
 
-use std::io::{Read as _, Write as _};
+use std::io::{Read as _, Seek as _, Write as _};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -130,22 +130,24 @@ impl Request {
 }
 
 /// One route's answer, as the cmux API's route would give it.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub(super) struct Answer {
     pub(super) status: u16,
     pub(super) body: Value,
     pub(super) code: Option<String>,
+    /// A verified read, spooled to an anonymous file rather than kept in a JSON string.
+    pub(super) file: Option<std::fs::File>,
 }
 
 impl Answer {
     pub(super) fn ok(body: Value) -> Self {
-        Answer { status: 200, body, code: None }
+        Answer { status: 200, body, code: None, file: None }
     }
 
     /// A refusal in the cmux API's shape: `{ok: false, error: {code, message}}` with the code in the header.
     pub(super) fn error(status: u16, code: &str, message: &str) -> Self {
         let body = json!({ "ok": false, "error": { "code": code, "message": message } });
-        Answer { status, body, code: Some(code.to_owned()) }
+        Answer { status, body, code: Some(code.to_owned()), file: None }
     }
 }
 
@@ -164,7 +166,9 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if cloud != "cloud" || noun != "machine-io" {
         return None;
     }
-    let stdout = &mut std::io::stdout();
+    let stdout_handle = std::io::stdout();
+    let mut buffered = std::io::BufWriter::with_capacity(64 * 1024, stdout_handle.lock());
+    let stdout = &mut buffered;
     if !rest.is_empty() {
         let _ = writeln!(
             stdout,
@@ -202,8 +206,10 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Ok((runtime, client)) => runtime.block_on(perform(&client, &request, now_ms)),
         Err(message) => (Route::Proxy, Answer::error(0, "transport", &message)),
     };
-    let answer = scrub(answer, &request.credential);
-    let _ = writeln!(stdout, "{}", line(route, &answer));
+    let mut answer = scrub(answer, &request.credential);
+    if write_line(stdout, route, &mut answer).and_then(|()| stdout.flush()).is_err() {
+        return Some(1);
+    }
     Some(if (200..300).contains(&answer.status) { 0 } else { 1 })
 }
 
@@ -218,6 +224,39 @@ fn line(route: Route, answer: &Answer) -> Value {
         Route::None => "none",
     };
     json!({ "route": route, "status": answer.status, "code": answer.code, "body": answer.body })
+}
+
+/// Keep the app's JSON contract while encoding a verified file incrementally. Nothing is
+/// emitted until all ranges agree on one version; a retry never leaks an old file's prefix.
+fn write_line(
+    output: &mut impl std::io::Write,
+    route: Route,
+    answer: &mut Answer,
+) -> std::io::Result<()> {
+    if answer.file.is_none() {
+        return writeln!(output, "{}", line(route, answer));
+    }
+    // Metadata only: `file` holds the bytes, so this never clones a file-sized JSON value.
+    let mut envelope = line(route, answer);
+    let body = envelope
+        .as_object_mut()
+        .and_then(|v| v.remove("body"))
+        .ok_or_else(|| std::io::Error::other("missing file metadata"))?;
+    let envelope = envelope.to_string();
+    let body = body.to_string();
+    let envelope =
+        envelope.strip_suffix('}').ok_or_else(|| std::io::Error::other("invalid file envelope"))?;
+    let body =
+        body.strip_suffix('}').ok_or_else(|| std::io::Error::other("invalid file metadata"))?;
+    let file = answer.file.as_mut().ok_or_else(|| std::io::Error::other("missing file"))?;
+    file.rewind()?;
+    write!(output, "{envelope},\"body\":{body},\"dataBase64\":\"")?;
+    {
+        let mut encoder = base64::write::EncoderWriter::new(&mut *output, &BASE64);
+        std::io::copy(file, &mut encoder)?;
+        encoder.finish()?;
+    }
+    output.write_all(b"\"}}\n")
 }
 
 /// A refusal never carries the caller's credential back (a proxy or server that echoed it).

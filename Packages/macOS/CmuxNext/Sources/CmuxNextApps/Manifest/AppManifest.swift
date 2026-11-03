@@ -39,6 +39,7 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
     /// A sideloaded development app (never in the store).
     public var isLocal: Bool { publisher == "local" }
     public var sections: [AppImplementation] { implementations.filter(\.isSection) }
+    public var sessionInfoSections: [AppImplementation] { implementations.filter(\.isSessionInfoSection) }
     /// The app's own page (`cmux.pane/1` rendered from a scene export), if any.
     public var scenePane: AppImplementation? { implementations.first { $0.isPane && $0.hasScene } }
     /// Whether the app's page is a remote pane: `cmux.pane/1` with `remote: instance`, the app's
@@ -84,7 +85,8 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
         }
         let contributes = o["contributes"]?.objectValue ?? [:]
         let kinds: [(String, String)] = [
-            ("sidebarSections", AppImplementation.section), ("statusItems", AppImplementation.status),
+            ("sidebarSections", AppImplementation.section), ("sessionInfoSections", AppImplementation.sessionInfoSection),
+            ("statusItems", AppImplementation.status),
             ("paneKinds", AppImplementation.pane), ("paletteScopes", AppImplementation.paletteScope),
         ]
         return kinds.flatMap { key, interface in

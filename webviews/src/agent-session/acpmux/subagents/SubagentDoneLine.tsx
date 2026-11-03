@@ -30,7 +30,7 @@ import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
 import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
-import { subagentDisplayName, useSubsessionInfo } from "./subsessions";
+import { subagentDisplayName, subagentTaskLabel, useSubsessionInfo } from "./subsessions";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -43,6 +43,10 @@ const DONE_LABEL: Record<string, StringKey> = {
 /// time, or only in the ⋯ menu. The gallery compares them (SubagentRetry.gallery.tsx).
 export type RetryAffordance = "button" | "link" | "menu";
 export const RetryAffordanceContext = createContext<RetryAffordance>("button");
+
+/// What acpmux names an Agent or Workflow call that gave no description (claude_stdio
+/// `spawn_subagent`): never a better name than the one a run reports.
+const PLACEHOLDER_TASKS = new Set(["Workflow", "Agent"]);
 
 const ACTION_LABEL: Record<RetryAction, StringKey> = { daemon: "retry.action", ask: "retry.askParent" };
 
@@ -78,7 +82,12 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   const phase = subagentRetry(agent, retryCapabilities, child);
   const waiting = phase.kind === "retrying" ? phase.retry : undefined;
   const action = retryAgent && phase.kind === "failed" ? phase.action : undefined;
-  const name = subagentDisplayName(t, agent);
+  // What it was asked to do (Claude's Agent `description`) first, as the running tray names it;
+  // then its name, its prompt's first line, its kind; "Subagent" only when nothing names it. A
+  // task that is only acpmux's placeholder ("Workflow", "Agent") keeps the name a run gave it. A
+  // retrying line keeps its short name, so its "Retrying (2/4) …" is never cut behind a long task.
+  const name =
+    waiting || PLACEHOLDER_TASKS.has(agent.task ?? "") ? subagentDisplayName(t, agent) : subagentTaskLabel(t, agent);
   const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
   const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
@@ -150,7 +159,8 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
             {!waiting && before}
             <AgentTag name={name} />
             {!waiting && after}
-            {parts.length > 1 && ` · ${parts.slice(1).join(" · ")}`}
+            {/* Its own box, cut before the chip (subagents.css): the reason and failure go first. */}
+            {parts.length > 1 && <span className="cv-subagent-done__suffix">{` · ${parts.slice(1).join(" · ")}`}</span>}
           </span>
         </button>
         {inline}
