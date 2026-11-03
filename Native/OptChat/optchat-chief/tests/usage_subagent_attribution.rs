@@ -14,6 +14,7 @@ use std::time::Duration;
 use common::*;
 use optchat_chief::brain::Input;
 use optchat_chief::subagents::{Spawner, SubagentSettings};
+use optchat_chief::tools::Orchestrator;
 use optchat_chief::trace::Trace;
 use optchat_chief::usage;
 use serde_json::{Value, json};
