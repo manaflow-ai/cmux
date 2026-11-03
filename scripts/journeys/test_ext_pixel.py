@@ -29,6 +29,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -1078,7 +1079,9 @@ class PixelCasesTests(unittest.TestCase):
                 last = [st for st in s["steps"] if st["do"] == "expect"][-1]
                 kinds = {D.KIND[next(iter(c))] for c in last["all"]}
                 self.assertEqual(kinds, {"app", "daemon", "frame"}, s["id"])
-                self.assertEqual([st["do"] for st in s["finally"]], ["px_springs", "px_tunable", "px_agent_css", "settings_file"])
+                fixture = [st["key"] for st in s["finally"][:-4]]  # a case's fixture tunables (the tab outline) go back first
+                self.assertEqual([st["do"] for st in s["finally"]], ["px_tunable"] * len(fixture) + STANDARD_FINALLY, s["id"])
+                self.assertTrue(all(st["value"] is None for st in s["finally"][:-4]), s["id"])
                 self.assertEqual(s["steps"][0]["set"]["appearance"]["surfaces"]["tabBar"], {"color": "#000000", "opacity": 1})
             # cmux22 2026-11-03 (kit ae6563d7d44): the after check clicked p0's left edge (x=208, the sidebar boundary) and
             # the click did not focus; the fixture's #00FFFF ground hid the echo from text recognition. Now: focus by the
@@ -1146,6 +1149,361 @@ class PixelCasesTests(unittest.TestCase):
             for trio in (("px-keys-single-3k-s1r", "px-col-drag-2-s1r", "px-close-pane-3-s1r"),
                          ("px-window-resize-4-s1r", "px-row-drag-3r-s1r", "px-close-column-c3-s1r")):
                 self.assertLessEqual(sum(s1r[i]["budget_seconds"] for i in trio), 260, trio)
+
+
+
+# -- px-keys-held-2-tabclose (stage S1B 1b, frame-owner-s1b) --------------------------------------------------------------
+TAB_OUTLINE = "motion.frameOwner.tabOutline"  # TabFrameFixture: a 1 device-px #FFFF00 border on every tab cell (#33874)
+STANDARD_FINALLY = ["px_springs", "px_tunable", "px_agent_css", "settings_file"]
+
+
+def gen(*args):
+    done = subprocess.run([sys.executable, str(HERE / "video-cases" / "gen_pixel.py"), *args], capture_output=True, text=True,
+                          timeout=120)
+    if done.returncode != 0:
+        raise AssertionError(done.stderr)
+    return done.stdout
+
+
+class TabPaneApp(FakeApp):
+    """p0 (pane-a) with terminal tabs, its control snapshot (snapshot.get) and the pane it shows (debug.surfaces) apart.
+    newSurface (a tab target, the run's focus) adds a terminal tab that the snapshot lists `lag` s later, selected when
+    `selects`; tab.focus selects a listed tab (not_found before); closeTab removes a listed tab (refused with
+    `refuse_close`; with `keeps` the snapshot keeps listing it). `now`: the clock of the lag and of the close times."""
+
+    def __init__(self, now, tabs=("t1",), lag=0.0, selects=True, refuse_close=False, keeps=False):
+        super().__init__(switches=[TAB_OUTLINE])
+        self.now, self.lag, self.selects, self.refuse_close, self.keeps = now, lag, selects, refuse_close, keeps
+        self.tabs = [{"id": t, "kind": "terminal", "terminal": f"term-{t}", "listed_at": -1e9} for t in tabs]
+        self.selected = self.tabs[-1]["id"]
+        self.closes, self.made = [], 0
+
+    def listed(self):
+        return [t for t in self.tabs if t["listed_at"] <= self.now()]
+
+    def rpc(self, method, params=None, timeout=None):
+        params = params or {}
+        if method == "snapshot.get":
+            self.calls.append((method, params))
+            tabs = [{k: t[k] for k in ("id", "kind", "terminal")} for t in self.listed()]
+            pane = {"id": "pane-a", "handle": "1", "selected_tab": self.selected, "tabs": tabs, "tab_groups": []}
+            other = {"id": "pane-b", "handle": "2", "selected_tab": "tab-b", "tabs": [{"id": "tab-b", "kind": "browser"}]}
+            return {"topology": {"loaded": True, "workspaces": [{"id": "ws", "screens": [{"id": "s", "panes": [pane, other]}]}]}}
+        if method == "action.run" and params.get("action") in ("newSurface", "tab.focus", "closeTab"):
+            self.calls.append((method, params))
+            wanted = str(params.get("target", ""))[len("tab:"):]
+            if wanted not in [t["id"] for t in self.listed()]:
+                raise D.StepError(f"action.run: {{'code': 'not_found', 'message': 'No tab matches {wanted}'}}")
+            if params["action"] == "newSurface":
+                self.made += 1
+                tab = {"id": f"tnew{self.made}", "kind": "terminal", "terminal": f"term-tnew{self.made}",
+                       "listed_at": self.now() + self.lag}
+                self.tabs.append(tab)
+                if self.selects:
+                    self.selected = tab["id"]
+                return {"action": "newSurface", "ran": True, "created": []}
+            if params["action"] == "tab.focus":
+                self.selected = wanted
+                return {"action": "tab.focus", "ran": True}
+            self.closes.append((self.now(), params["target"]))
+            if self.refuse_close:
+                raise D.StepError("action.run: {'code': 'unavailable', 'message': 'closeTab unavailable: busy'}")
+            if not self.keeps:
+                self.tabs = [t for t in self.tabs if t["id"] != wanted]
+            return {"action": "closeTab", "ran": True}
+        if method == "debug.surfaces":
+            self.calls.append((method, params))
+            shown = self.selected if any(t["id"] == self.selected for t in self.listed()) else None
+            return {"windows": [{"window": 1, "panes": [
+                {"pane": "pane-a", "focused": True, "kind": "terminal", "selected_tab": shown, "shown_tab": shown, "host_pid": 77},
+                {"pane": "pane-b", "focused": False, "kind": "browser", "selected_tab": "tab-b", "shown_tab": "tab-b"}]}]}
+        return super().rpc(method, params, timeout)
+
+    def screen(self, term):
+        return {"text": "J> "}
+
+
+class RequiredTunableTests(unittest.TestCase):
+    """px_tunable `required`: a fixture tunable a case cannot film without (the tab outline) that does not take makes the
+    journey "not run" with the reason; without `required` it is only recorded, as before (the page backdrop)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ext-pixel-req-")
+
+    def test_a_required_tunable_that_does_not_take_is_not_run(self):
+        j = FakeJourney(FakeApp(), self.tmp)  # a build without the outline: "debug.tunables: unknown key"
+        with self.assertRaises(D.NotRun) as caught:
+            X.step_px_tunable(j, {"key": TAB_OUTLINE, "value": True, "required": True})
+        self.assertIn(TAB_OUTLINE, str(caught.exception))
+        self.assertIn("unknown key", str(caught.exception))
+
+    def test_a_required_tunable_that_takes(self):
+        j = FakeJourney(FakeApp(switches=[TAB_OUTLINE]), self.tmp)
+        self.assertTrue(X.step_px_tunable(j, {"key": TAB_OUTLINE, "value": True, "required": True})["applied"])
+
+    def test_without_required_it_is_recorded_only(self):
+        j = FakeJourney(FakeApp(), self.tmp)
+        rec = X.step_px_tunable(j, {"key": TAB_OUTLINE, "value": True})
+        self.assertFalse(rec["applied"])
+        self.assertEqual(j.px["tunables"][TAB_OUTLINE], rec)
+
+
+class TabNewTests(unittest.TestCase):
+    """px_tab_new: a new terminal tab in the named pane (newSurface aimed at the pane's selected tab, with the run's focus),
+    found in snapshot.get (the snapshot action.run resolves targets against), selected (tab.focus unless the pane shows
+    it), shown by debug.surfaces, its shell drawn; then it is the journey's terminal and the pane's named terminal, so
+    rk_focus, neutral_prompt, the fixture's expect and the after check read the tab the pane shows."""
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.saved = (X.D.now, X.time)
+        X.D.now, X.time = self.clock.monotonic, self.clock
+
+    def tearDown(self):
+        X.D.now, X.time = self.saved
+
+    def run_step(self, app, **step):
+        j = FakeJourney(app, tempfile.mkdtemp())
+        return j, X.step_px_tab_new(j, dict({"pane": "p0"}, **step))
+
+    def runs(self, app, action):
+        return [p for m, p in app.calls if m == "action.run" and p.get("action") == action]
+
+    def test_the_new_tab_is_selected_and_adopted(self):
+        app = TabPaneApp(self.clock.monotonic, lag=0.3)
+        j, out = self.run_step(app)
+        self.assertEqual(self.runs(app, "newSurface"), [{"action": "newSurface", "target": "tab:t1", "focus": True}])
+        self.assertEqual(self.runs(app, "tab.focus"), [])
+        self.assertEqual((out["tab"], out["terminal"]), ("tnew1", "term-tnew1"))
+        self.assertEqual((j.pane, j.term, j.host_pid), ("pane-a", "term-tnew1", 77))
+        self.assertEqual(j.ext_panes["p0"]["term"], "term-tnew1")
+        self.assertEqual(out["tabs"], ["t1", "tnew1"])
+
+    def test_a_tab_the_app_did_not_select_is_selected_once_listed(self):
+        app = TabPaneApp(self.clock.monotonic, lag=0.3, selects=False)
+        j, out = self.run_step(app)
+        self.assertEqual(self.runs(app, "tab.focus"), [{"action": "tab.focus", "target": "tab:tnew1"}])
+        self.assertEqual(j.term, "term-tnew1")
+
+    def test_a_tab_never_listed_fails_without_a_select(self):
+        app = TabPaneApp(self.clock.monotonic, lag=1e9)
+        with self.assertRaises(D.StepError) as caught:
+            self.run_step(app, timeout=20)
+        self.assertEqual(self.runs(app, "tab.focus"), [])
+        self.assertIn("p0", str(caught.exception))
+        self.assertGreaterEqual(self.clock.t - 1000.0, 20.0)
+
+
+class FakeHoldJourney(FakeJourney):
+    """The hold as ext_rkeys rk_hold plays it (ext_spam hold_key): the first key-down at `start_at` (the app's clock),
+    then the held key until `seconds` later."""
+
+    def __init__(self, app, config_dir):
+        super().__init__(app, config_dir)
+        self.holds = []
+        self.video = {"notes": {"pixel": {}}, "hid": []}
+
+    def before_keys(self):
+        return None
+
+    def step_rk_hold(self, step):
+        self.holds.append(dict(step, called_at=X.S.uptime()))
+        time.sleep(max(0.0, float(step["start_at"]) + float(step.get("seconds", 1.5)) - X.S.uptime()))
+        return {"sent": 10, "ran": 10}
+
+
+class TabCloseHoldTests(unittest.TestCase):
+    """px_hold_tab_close: the held key (rk_hold) with its first key-down at a time the step fixes, and on its own thread
+    a script's closeTab of the pane's middle tab (from snapshot.get) AFTER_MS after that key-down. The film's pixel note
+    gets `tab_close`: which tab, its index, the tabs before and after, the first key-down and the close's send and
+    return times on the host clock (the trace's t0_s and the scan's frame times), so the judge finds the first frame
+    after the close."""
+
+    def setUp(self):
+        self.saved = X.S.uptime
+        X.S.uptime = time.monotonic  # CLOCK_UPTIME_RAW on the minis; this VM has no such clock
+
+    def tearDown(self):
+        X.S.uptime = self.saved
+
+    def step(self, **close):
+        return {"do": "px_hold_tab_close", "key": "l", "modifiers": ["control", "shift"], "seconds": 0.3, "mark": "hold",
+                "close": dict({"pane": "p0", "which": "middle", "after_ms": 50}, **close), "timeout": 2}
+
+    def test_closes_the_middle_tab_50_ms_after_the_first_key_down(self):
+        app = TabPaneApp(time.monotonic, tabs=("t1", "t2", "t3"))
+        j = FakeHoldJourney(app, tempfile.mkdtemp())
+        out = X.step_px_hold_tab_close(j, self.step())
+        self.assertEqual(len(j.holds), 1)
+        hold = j.holds[0]
+        self.assertEqual((hold["key"], hold["modifiers"], hold["seconds"], hold["mark"]), ("l", ["control", "shift"], 0.3, "hold"))
+        self.assertGreater(hold["start_at"], hold["called_at"])  # the first key-down is ahead of the hold's own start
+        self.assertEqual([t for _, t in app.closes], ["tab:t2"])
+        note = j.video["notes"]["pixel"]["tab_close"]
+        self.assertEqual((note["tab"], note["index"], note["pane"], note["label"]), ("t2", 1, "pane-a", "p0"))
+        self.assertEqual((note["tabs_before"], note["tabs_after"]), (["t1", "t2", "t3"], ["t1", "t3"]))
+        self.assertEqual(note["first_key_host"], hold["start_at"])
+        self.assertEqual(note["planned_after_ms"], 50)
+        self.assertAlmostEqual(note["t_sent_host"] - hold["start_at"], 0.05, delta=0.03)
+        self.assertAlmostEqual(app.closes[0][0], note["t_sent_host"], delta=0.02)
+        self.assertGreaterEqual(note["t_returned_host"], note["t_sent_host"])
+        self.assertAlmostEqual(note["after_ms"], 50, delta=30)
+        self.assertEqual([h["kind"] for h in j.video["hid"]], ["tab_close"])
+        self.assertEqual(out["tab_close"]["tab"], "t2")
+
+    def test_a_pane_with_fewer_than_three_tabs_fails_before_any_key(self):
+        app = TabPaneApp(time.monotonic, tabs=("t1", "t2"))
+        j = FakeHoldJourney(app, tempfile.mkdtemp())
+        with self.assertRaises(D.StepError) as caught:
+            X.step_px_hold_tab_close(j, self.step())
+        self.assertIn("2 tab", str(caught.exception))
+        self.assertEqual((j.holds, app.closes), ([], []))
+
+    def test_a_refused_close_fails_after_the_hold(self):
+        app = TabPaneApp(time.monotonic, tabs=("t1", "t2", "t3"), refuse_close=True)
+        j = FakeHoldJourney(app, tempfile.mkdtemp())
+        with self.assertRaises(D.StepError) as caught:
+            X.step_px_hold_tab_close(j, self.step())
+        self.assertIn("closeTab unavailable", str(caught.exception))
+        self.assertEqual(len(j.holds), 1)
+        self.assertIn("error", j.video["notes"]["pixel"]["tab_close"])
+
+    def test_a_close_the_snapshot_never_shows_fails(self):
+        app = TabPaneApp(time.monotonic, tabs=("t1", "t2", "t3"), keeps=True)
+        j = FakeHoldJourney(app, tempfile.mkdtemp())
+        with self.assertRaises(D.StepError) as caught:
+            X.step_px_hold_tab_close(j, self.step())
+        self.assertIn("t2", str(caught.exception))
+
+
+class HoldStartAtTests(unittest.TestCase):
+    """ext_spam hold_key `start_at`: the first key-down at that time (the app's clock), so another thread can act a fixed
+    time after it; without it the hold starts 50 ms after the step, as before."""
+
+    class J:
+        def __init__(self, app):
+            self.app, self.marks, self.key_window = app, {}, "w1"
+
+        def before_keys(self):
+            return None
+
+        def window_for(self, ref):
+            return None
+
+    def schedule(self, **step):
+        import ext_spam as S
+        captured = {}
+
+        def play(j, key, modifiers, schedule, window):
+            captured["schedule"] = schedule
+            return [], []
+
+        saved = (S._play, S.counts, S.uptime)
+        S._play, S.counts, S.uptime = play, (lambda j, cache=None: {}), time.monotonic
+        try:
+            before = time.monotonic()
+            S.step_hold_key(self.J(FakeApp()), dict({"key": "l", "modifiers": ["control", "shift"], "seconds": 0.1, "as": "hold"}, **step))
+        finally:
+            S._play, S.counts, S.uptime = saved
+        return before, captured["schedule"]
+
+    def test_the_first_key_down_is_start_at(self):
+        at = time.monotonic() + 0.08
+        _, schedule = self.schedule(start_at=at)
+        self.assertEqual(schedule[0], (at, False))
+        self.assertTrue(all(t > at and repeat for t, repeat in schedule[1:]))
+
+    def test_without_start_at_the_hold_starts_50_ms_after_the_step(self):
+        before, schedule = self.schedule()
+        self.assertAlmostEqual(schedule[0][0] - before, 0.05, delta=0.02)
+
+
+class TabCloseCaseTests(unittest.TestCase):
+    """gen_pixel.py px-keys-held-2-tabclose (stage S1B 1b): px-keys-held-2's panes (p0 terminal | p1 page) with p0 in 3
+    terminal tabs, each the TUI fixture, and every tab outlined (motion.frameOwner.tabOutline, required, set again in
+    each film after the speed: the outline is in the springs section, which the Reduce Motion film resets). Each film: the
+    held Ctrl-Shift-L with p0's middle tab closed 50 ms after its first key-down, then Ctrl-Shift-H x30; after each film
+    but the last, one tab back in p0 with the fixture. p0's fill is not the outline's #FFFF00."""
+
+    CID = "px-keys-held-2-tabclose"
+    FILM = ["rk_focus", "px_tunable", "wait", "px_record_start", "px_hold_tab_close", "wait", "rk_press", "wait", "video_stop"]
+    REBUILD = ["rk_focus", "px_tab_new", "neutral_prompt", "type", "expect", "wait"]
+
+    def specs(self, *extra):
+        out = tempfile.mkdtemp(prefix="gen-tabclose-")
+        gen("--out", out, "--only", self.CID, *extra)
+        return {p.stem: json.loads(p.read_text()) for p in sorted(Path(out).glob("*.json"))}
+
+    def check_films(self, spec, labels):
+        films = [st for st in spec["steps"] if st["do"] == "px_film"]
+        self.assertEqual([f["name"].rsplit("-", 1)[1] for f in films], labels, spec["id"])
+        for n, f in enumerate(films):
+            self.assertEqual([st["do"] for st in f["steps"]], self.FILM, f["name"])
+            outline = f["steps"][1]
+            self.assertEqual((outline["key"], outline["value"], outline["required"]), (TAB_OUTLINE, True, True))
+            hold = f["steps"][4]
+            self.assertEqual((hold["key"], hold["modifiers"], hold["seconds"]), ("l", ["control", "shift"], 1.5))
+            self.assertEqual(hold["close"], {"pane": "p0", "which": "middle", "after_ms": 50})
+            burst = f["steps"][6]
+            self.assertEqual((burst["key"], burst["count"], burst["gap_ms"]), ("h", 30, 33))
+            start = f["steps"][3]
+            self.assertTrue(start["input"].startswith("held keys ("), start["input"])  # judge_pixel: input-driven
+            self.assertEqual(start["fixture"]["p0"], {"kind": "tui", "fill": "#0000FF"})  # never the outline's #FFFF00
+            if n == len(films) - 1:
+                self.assertEqual(f["after"], [], "the last film needs no tab back")
+            else:
+                self.assertEqual([st["do"] for st in f["after"]], self.REBUILD, f["name"])
+                self.assertEqual((f["after"][0]["pane"], f["after"][1]["pane"]), ("p0", "p0"))
+                self.assertIn("--fill 0000FF", f["after"][3]["text"])
+        return films
+
+    def test_the_case_and_its_s1r(self):
+        import run as R
+        specs = self.specs()
+        self.assertEqual(sorted(specs), [self.CID, f"{self.CID}-s1r"])
+        for jid, spec in specs.items():
+            self.assertEqual(R.validate(spec), [], jid)
+            self.assertLessEqual(spec["budget_seconds"], 250, jid)
+            self.assertEqual([st["do"] for st in spec["finally"]], ["px_tunable"] + STANDARD_FINALLY)
+            self.assertEqual((spec["finally"][0]["key"], spec["finally"][0]["value"]), (TAB_OUTLINE, None))
+            # Set-up: the outline (required: a build without it is not run), then p0's two more tabs, each its fixture.
+            first_film = next(i for i, st in enumerate(spec["steps"]) if st["do"] == "px_film")
+            setup = spec["steps"][:first_film]
+            outline = [st for st in setup if st["do"] == "px_tunable" and st["key"] == TAB_OUTLINE]
+            self.assertEqual([(st["value"], st["required"]) for st in outline], [(True, True)])
+            new = [i for i, st in enumerate(setup) if st["do"] == "px_tab_new"]
+            self.assertEqual([setup[i]["pane"] for i in new], ["p0", "p0"])
+            for i in new:
+                self.assertEqual([st["do"] for st in setup[i + 1:i + 4]], ["neutral_prompt", "type", "expect"])
+                self.assertIn("--fill 0000FF", setup[i + 2]["text"])
+        self.check_films(specs[self.CID], ["s025", "s05", "s1", "s2", "s4", "reduce"])
+        self.check_films(specs[f"{self.CID}-s1r"], ["s1", "reduce"])
+
+    def test_only_matches_whole_case_ids(self):
+        held = [line.split()[0] for line in gen("--list", "--only", "px-keys-held-2").splitlines()]
+        self.assertTrue(held)
+        self.assertFalse([i for i in held if "tabclose" in i], held)
+        tab = [line.split()[0] for line in gen("--list", "--only", self.CID).splitlines()]
+        self.assertEqual(sorted(tab), [self.CID, f"{self.CID}-s1r"])
+
+    def test_switch_variant_sets_the_switch_after_the_launch(self):
+        specs = self.specs("--switch", SWITCH)
+        self.assertTrue(specs)
+        self.assertTrue(all(jid.startswith(f"{self.CID}-sw-terminals") for jid in specs), sorted(specs))
+        labels = []
+        for jid, spec in specs.items():
+            launch = next(i for i, st in enumerate(spec["steps"]) if st["do"] == "smoke_ready")
+            films = [i for i, st in enumerate(spec["steps"]) if st["do"] == "px_film"]
+            self.assertTrue(films and all(i > launch for i in films), jid)
+            for i in films:
+                f = spec["steps"][i]
+                # px_film sets the switch after the speed and before its steps: the outline (a step) after both.
+                self.assertEqual(f["switch"]["key"], SWITCH)
+                labels.append(f["name"].split("-sw-terminals")[1].lstrip("-abc").lstrip("-"))
+            self.check_films(spec, [spec["steps"][i]["name"].rsplit("-", 1)[1] for i in films])
+            self.assertEqual([st["do"] for st in spec["finally"]][:2], ["px_tunable", "px_tunable"])
+            self.assertEqual([spec["finally"][0]["key"], spec["finally"][1]["key"]], [SWITCH, TAB_OUTLINE])
+        self.assertEqual(labels, ["off-s1", "on-s1", "off-reduce", "on-reduce"])
 
 
 if __name__ == "__main__":
