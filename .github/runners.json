@@ -722,7 +722,6 @@
       "nightly.yml#route-visual-gate-nightly": {"routes": [16, 32], "target": 4, "measured": {"32": [18.5, 0.16, 0.12]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
       "nightly.yml#sign-release-notes": {"routes": [32], "target": 4, "measured": {"32": [56.5, 0.62, 0.87]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
       "nightly.yml#signer-app": {"routes": [4, 16, 32], "target": 8, "measured": {"32": [87.0, 2.99, 4.58]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#signer-app-notary": {"routes": [4, 16, 32], "target": 8, "measured": {"32": [34.0, 2.83, 3.15]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
       "nightly.yml#signer-build": {"routes": [4, 16, 32], "target": 4, "measured": {"32": [189.0, 0.17, 0.13], "16": [0.5, 0.1, 0.1]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
       "nightly.yml#signer-dmg": {"routes": [4, 16, 32], "target": 8, "measured": {"32": [72.5, 3.35, 4.0]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
       "nightly.yml#visual-gate-nightly-verdict": {"routes": [16, 32], "target": 16, "measured": {"32": [12.5, 21.85, 34.33]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
