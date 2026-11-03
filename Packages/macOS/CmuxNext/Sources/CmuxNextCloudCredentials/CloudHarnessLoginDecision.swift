@@ -13,7 +13,11 @@ public import Foundation
 /// output. So an FFI that does not answer is the one failure, recorded as ``Reason/ffiFailed``, never
 /// an ordinary skip reason (cmux#32416).
 public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
-    public enum Step: String, Sendable, Equatable, Decodable { case skip, install, confirmThenInstall = "confirm-then-install" }
+    public enum Step: String, Sendable, Equatable, Decodable {
+        case skip, install, confirmThenInstall = "confirm-then-install"
+        /// A Release build's one-time consent before the first copy (``CloudLoginCopyConsentSetting``).
+        case askConsent = "ask-consent"
+    }
 
     /// The rules' reasons (cmux-cloud-start-core `Reason`), plus ``ffiFailed`` when the FFI did not answer.
     public enum Reason: String, Sendable, Equatable, Decodable {
@@ -26,6 +30,14 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
         case machineLoginKept = "machine-login-kept"
         case installCached = "install-cached"
         case confirmFirst = "confirm-first"
+        /// The consent (Release) or the person's own choice stands in for the confirm.
+        case installChosen = "install-chosen"
+        /// Release: the remote switch is off, or was not read; the machine offers its own sign-in.
+        case remoteSwitchOff = "remote-switch-off"
+        /// Release: the one-time consent has not been answered yet.
+        case consentFirst = "consent-first"
+        /// Release: the person said no, or took it back in Settings.
+        case consentDeclined = "consent-declined"
         /// The app FFI gave no answer: the start passes no login (never a silent one: the record says so).
         case ffiFailed = "ffi-failed"
     }
@@ -56,6 +68,10 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     /// The machine's login when known without the probe (an exec that failed reads as `.none`).
     public var machineLogin: CloudMachineLogin?
     public var cached: Bool
+    /// Release: the person's answer to the one-time consent; nil when never asked.
+    public var consent: Bool?
+    /// Release: the remote switch's fresh answer (``CloudHarnessLoginCopySwitch``); nil when not read.
+    public var remoteSwitch: Bool?
     /// What came of it once decided: "installed", "declined" (the confirm), or the transfer's fixed failure text.
     public var outcome: String?
 
@@ -91,6 +107,7 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     private struct Request: Encodable {
         var dogfood: Bool, setting: Bool?, harness: String, signedIn: Bool, callerOwns: Bool?, guestStdout: String?
         var machineProbe: MachineProbe?, machineLogin: String?, cached: Bool, outcome: String?
+        var consent: Bool?, remoteSwitch: Bool?
     }
 
     /// Asks the rules once; read every field off the one answer.
@@ -98,7 +115,7 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
         // "" is no harness named: the rules read it as the default agent, Claude.
         let request = Request(dogfood: dogfood, setting: setting, harness: harness ?? "", signedIn: signedIn, callerOwns: callerOwns,
                               guestStdout: guestStdout, machineProbe: machineProbe, machineLogin: machineLogin?.rawValue,
-                              cached: cached, outcome: outcome)
+                              cached: cached, outcome: outcome, consent: consent, remoteSwitch: remoteSwitch)
         return CloudStartCore().call("cloud_harness_login", request, as: Verdict.self) ?? Verdict(
             step: .skip, reason: .ffiFailed, gate: false, provider: nil, guestKind: nil, machineLogin: nil, guestKindProbe: "",
             readsMachine: false, guestTakesLogin: false, skippedTeamMachine: false,
@@ -107,7 +124,8 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
 
     public var step: Step { verdict.step }
     public var reason: Reason { verdict.reason }
-    /// Whether this build passes a login (the setting when set, else only DEV and dogfood builds).
+    /// Whether this build passes a login: DEV and dogfood builds unless the setting turns it off; a
+    /// Release build only while the remote switch is on (its consent is asked after).
     public var gate: Bool { verdict.gate }
     /// The provider whose login the start passes; nil for a harness with no transfer (pi, opencode).
     public var provider: CloudCredentialTransfer.Provider? { verdict.transferProvider }
