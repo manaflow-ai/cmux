@@ -88,7 +88,7 @@ if [ "$can_install" = 1 ]; then
   echo "system Chrome ${have:-missing}; installing Chrome stable (need $min or later)"
   # CI=1: reinstall over an older system Chrome instead of stopping at Playwright's prompt.
   # shellcheck disable=SC2046
-  CI=1 $(playwright_cli) install --with-deps chrome
+  CI=1 $(playwright_cli) install --with-deps chrome || echo "warning: Chrome stable install failed" >&2
   have="$(chrome_version || true)"
   if at_least "$have" "$min"; then
     echo "system Chrome $have at $(chrome_bin)"
