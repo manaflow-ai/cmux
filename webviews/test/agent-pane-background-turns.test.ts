@@ -75,6 +75,7 @@ test("a quiet background turn is one line that opens to its rows", async () => {
       running: false,
       quiet: true,
       reason: "result",
+      hasRows: true,
     });
     // Its rows belong to it; the person's turn's rows do not.
     const members = rows().filter((row) => row.inBackground === "bg1");
@@ -130,7 +131,7 @@ test("a running background turn is the compact line, marked running", async () =
     const view = drawn(rows());
     const line = view.at(-1)!;
     expect(line.kind).toBe(BACKGROUND_TURN);
-    expect(line.background).toEqual({ id: "bg3", trigger: "scheduled", running: true });
+    expect(line.background).toEqual({ id: "bg3", trigger: "scheduled", running: true, hasRows: true });
     expect(view.some((row) => row.kind === "activity")).toBe(false);
     // It ends quiet: the same line, no longer running.
     daemon.push(record([say("Queue empty."), ended("bg3", true, "result", "scheduled")], 7));
@@ -222,7 +223,10 @@ test("an older page's started record takes the rows its turn already made", () =
   make(8, "after");
   // The older page brings the started record.
   rows.current = 3;
-  expect(rows.openBackground("bg6", 3)).toEqual({ id: "bg6", trigger: "scheduled", running: false, quiet: true });
+  expect(rows.openBackground("bg6", 3)).toEqual({
+    ended: { id: "bg6", trigger: "scheduled", running: false, quiet: true },
+    hasRows: true,
+  });
   rows.current = undefined;
   expect(rows.get("inside")?.inBackground).toBe("bg6");
   expect(rows.get("after")?.inBackground).toBeUndefined();
