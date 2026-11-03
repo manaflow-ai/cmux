@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-02: a remote group's machine mark is a row mark's size. Leo, verbatim: "the sizes of the icons for groups
+  and workspaces aren't the same size anymore they should be". #29833 drew each workspace row's trailing marks at a
+  status mark's size (`SidebarStyle.statusGlyphSize`) but left the group header's trailing machine mark (from
+  4ef89f17eba, the remote group) at the leading glyph's side, larger than the rows under it. The header now draws it at
+  the status mark's size (`GroupHeaderRowView.machineMarkSide`, its own image so it does not depend on the rows'
+  machine mark, which #32688 removes); the non-default leading look keeps the icon column's glyph size. A group's own
+  icon already shares the workspace icon's box. Regression: `SidebarGroupIconSizeTests`, at each density and text size.
 - 2026-11-02: a group's fold clips its members to the group's height. Leo, verbatim, on collapsing a group: "the
   collapsing group animation is kinda funky looking when the text all races up" ("*compared to claude code"). Each
   member slid up to its header's y over its own distance while fading, so the members raced past each other and drew
