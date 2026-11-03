@@ -89,7 +89,7 @@ final class PaneHostView: NSView, RestingPlacement {
                         holdsUntilAfterLanding = true
                         heldContentSize = content.frame.size
                         heldPin = nil
-                        heldArea = DesignTunables.frameOwnerTabStrip.value ? (content as? PaneMotionHolding)?.paneMotionHoldArea : nil
+                        heldArea = (content as? PaneMotionHolding)?.paneMotionHoldArea
                     }
                     return
                 }
@@ -155,9 +155,9 @@ final class PaneHostView: NSView, RestingPlacement {
     /// The edges a key-resize hold rides, chosen while the pane moves and kept until the release: at rest (the landing
     /// frame) the rest offset no longer says which edge moved, and a new pick would jump the content by the press step.
     private var heldPin: (trailing: Bool, bottom: Bool)?
-    /// FRAME OWNER S1 (`motion.frameOwner.tabStrip`, latched per hold): the content takes the pane's rect in every frame
-    /// of a key-resize hold, its tab strip with it, and only this area of it holds, on ``heldPin``. Nil: the whole content
-    /// holds (the switch off, or content whose chrome is part of what it holds).
+    /// FRAME OWNER S1 (latched per hold): the content takes the pane's rect in every frame of a key-resize hold, its tab
+    /// strip with it, and only this area of it holds, on ``heldPin``. Nil: the whole content holds (content with no
+    /// ``PaneMotionHolding`` area, or whose chrome is part of what it holds: a band browser, a chat in the tab row).
     private weak var heldArea: PaneContentAreaView?
 
     /// The host's size at rest (its spring rect's target), set with ``restOffset`` on every
