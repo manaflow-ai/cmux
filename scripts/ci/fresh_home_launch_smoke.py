@@ -59,6 +59,8 @@ PASS, FAIL, USAGE, CANNOT_RUN = 0, 1, 2, 3
 # journey(process, socket_path, env, app, out, report) -> list of failures. It runs once Home has
 # rendered and the app is still up, before the app is stopped; it may quit the app itself.
 AFTER_RENDER = None
+# Extra environment for the launched app, set by such a caller (empty for the nightly smoke).
+EXTRA_ENV: dict[str, str] = {}
 RENDER_MARK = "first_window_frame_committed"
 HOME_PAGE = "home-dock"
 
@@ -154,6 +156,7 @@ def fresh_env(root: Path, socket_path: Path, marks_fd: int) -> dict[str, str]:
         "CMUX_NEXT_SOCKET_MODE": "allowAll",
         "CMUX_NEXT_NO_ACTIVATE": "1",
         "CMUX_NEXT_LAUNCH_MARKS_FD": str(marks_fd),
+        **EXTRA_ENV,
     }
 
 
