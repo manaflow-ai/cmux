@@ -94,7 +94,8 @@ final class MockTeamSource: ActiveTeamSource {
         if selectedTeamID == id { selectedTeamID = availableTeams.first?.id }
     }
 
-    /// Joins like the server: the person becomes a member and the team the selection.
+    /// Joins like the server: the person becomes a member and the team the selection. With a
+    /// switch ``failure`` set, the selection stays, as when the auth coordinator's switch fails.
     func accept(_ id: String) throws -> CMUXTeamJoin {
         if let managementFailure { throw managementFailure }
         guard let invitation = received.first(where: { $0.id == id }) else { throw CMUXTeamError.invitationInvalid }
@@ -102,7 +103,7 @@ final class MockTeamSource: ActiveTeamSource {
         if !availableTeams.contains(where: { $0.id == invitation.teamID }) {
             availableTeams.append(CMUXAuthTeam(id: invitation.teamID, displayName: invitation.teamName))
         }
-        selectedTeamID = invitation.teamID
+        if failure == nil { selectedTeamID = invitation.teamID }
         return CMUXTeamJoin(teamID: invitation.teamID, role: invitation.role)
     }
 

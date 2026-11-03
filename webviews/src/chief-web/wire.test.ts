@@ -96,7 +96,10 @@ const turn = (status: string, key = "reply-key") => ({
   run: { id: "run_1", author: "agent_chief", turn: key, status },
 });
 
-const ticketFor = (ticket: string): ChiefTicket => ({ ticket, websocketUrl: `wss://api.test/chief-wire/${ticket}` });
+const ticketFor = (ticket: string): ChiefTicket => ({
+  ticket,
+  websocketUrl: `wss://api.test/chief-wire/${ticket}`,
+});
 
 function setup(ticket?: () => Promise<ChiefTicket>) {
   const sockets: FakeSocket[] = [];
@@ -104,6 +107,7 @@ function setup(ticket?: () => Promise<ChiefTicket>) {
   const timers = new FakeTimers();
   const states: string[] = [];
   const accepted: string[] = [];
+  const logins: string[] = [];
   let committed: AcpmuxRow[] = [];
   let live: AcpmuxRow[] = [];
   const publications: { committed: AcpmuxRow[]; live: AcpmuxRow[] }[] = [];
@@ -128,6 +132,7 @@ function setup(ticket?: () => Promise<ChiefTicket>) {
       },
       connection: (state) => states.push(state),
       accepted: (key) => accepted.push(key),
+      machineLogin: (run) => logins.push(run),
     },
   );
   const last = () => sockets.at(-1)!;
@@ -150,6 +155,7 @@ function setup(ticket?: () => Promise<ChiefTicket>) {
     timers,
     states,
     accepted,
+    logins,
     last,
     start,
     ready,
@@ -310,7 +316,10 @@ test("authoritative completed talk rows replace a partial delta and survive an e
   await socket.frame(event(7, [message(2, "The complete answer.", "agent_chief", "reply-key")]));
   expect(r.live()).toEqual([]);
   expect(r.committed().map((row) => row.text)).toEqual(["Other reply", "The complete answer."]);
-  await socket.frame({ ...turn("done"), steps: [{ id: "talk:0", kind: "talk", text: "Late row" }] });
+  await socket.frame({
+    ...turn("done"),
+    steps: [{ id: "talk:0", kind: "talk", text: "Late row" }],
+  });
   expect(r.live()).toEqual([]);
   r.client.stop();
 });
@@ -417,7 +426,11 @@ test("wrong-conversation frames and malformed live frames cannot change the tran
   const socket = await r.ready([message(1, "Kept")]);
   await socket.frame(delta(0, "Wrong", { conversation: "conv_other" }));
   await socket.frame(delta(-1, "Invalid"));
-  await socket.frame({ type: "run.activity", conversation: identity.mainConversationId, run: "run_2" });
+  await socket.frame({
+    type: "run.activity",
+    conversation: identity.mainConversationId,
+    run: "run_2",
+  });
   await socket.frame({ ...snapshot(20, [message(2, "Wrong")]), stream: "conv:other" });
   expect(r.rows().map((row) => row.text)).toEqual(["Kept"]);
   r.client.stop();
@@ -510,4 +523,43 @@ test("a hung ticket attempt times out and its late answer cannot replace the ret
   await Promise.resolve();
   expect(r.sockets).toHaveLength(1);
   r.client.stop();
+});
+
+test("machine sign-in requires the exact Chief, conversation, step id and valid root run", async () => {
+  const fixture = setup();
+  const socket = await fixture.ready();
+  const frame = {
+    t: "conversation-run-changed",
+    conversation: identity.mainConversationId,
+    run: { id: "run_42", author: identity.chiefId, status: "running" },
+    steps: [{ id: "machine:sign-in", kind: "note", text: "Localized waiting text" }],
+  };
+  await socket.frame({ ...frame, conversation: "conv_other" });
+  await socket.frame({ ...frame, run: { ...frame.run, author: "agent_impostor" } });
+  await socket.frame({
+    ...frame,
+    steps: [{ id: "other", kind: "note", text: "Waiting for claude sign-in" }],
+  });
+  await socket.frame({ ...frame, run: { ...frame.run, id: "run_42/subrun" } });
+  expect(fixture.logins).toEqual([]);
+  await socket.frame(frame);
+  await socket.frame(frame);
+  expect(fixture.logins).toEqual(["run_42"]);
+  fixture.client.stop();
+});
+
+test("persisted owner auth nonce recovers sign-in after reload without accepting user prose or old runs", async () => {
+  const fixture = setup();
+  const socket = await fixture.ready([
+    message(1, "Sign in to Claude to continue.", "user_sam", `chief-machine-auth:${identity.chiefId}:run_40`),
+    message(2, "Localized sign-in message", identity.chiefId, `chief-machine-auth:${identity.chiefId}:run_42`),
+    message(3, "Unrelated author", "agent_other", `chief-machine-auth:${identity.chiefId}:run_43`),
+    message(4, "Wrong nonce owner", identity.chiefId, "chief-machine-auth:agent_other:run_44"),
+  ]);
+  expect(fixture.logins).toEqual(["run_42"]);
+  await socket.frame(
+    event(6, [message(5, "Earlier run replay", identity.chiefId, `chief-machine-auth:${identity.chiefId}:run_41`)]),
+  );
+  expect(fixture.logins).toEqual(["run_42"]);
+  fixture.client.stop();
 });
