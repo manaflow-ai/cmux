@@ -22,6 +22,7 @@ type Props = {
 
 function GalleryIMessage({ status, look, error, sends = true }: Props) {
   const t = useT();
+  const [sectionOpen, setSectionOpen] = useState(true);
   const [data, setData] = useState<IMessageData>({
     ...IMESSAGE_INITIAL,
     status,
@@ -33,7 +34,12 @@ function GalleryIMessage({ status, look, error, sends = true }: Props) {
   return (
     <div className="acpmux-shell" style={{ height: "100%", display: "flex", justifyContent: "flex-end" }}>
       <SessionInfoPanel width={320} placement="overlay">
-        <SessionInfoSection id="connectors" title={t("rail.connectors")} open>
+        <SessionInfoSection
+          id="connectors"
+          title={t("rail.connectors")}
+          open={sectionOpen}
+          onOpenChange={setSectionOpen}
+        >
           <ul className="acpmux-session-info-list">
             <IMessageConnector
               look={look}

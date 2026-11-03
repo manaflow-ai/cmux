@@ -51,6 +51,10 @@ export function useIMessage(enabled = true): IMessageView | undefined {
   const opened = useRef(false);
   const revision = useRef(0);
   const live = useRef(false);
+  const stop = useCallback(() => {
+    live.current = false;
+    revision.current++;
+  }, []);
   const request = useCallback(async (action: IMessageAction | "status") => {
     const id = ++revision.current;
     try {
@@ -72,11 +76,10 @@ export function useIMessage(enabled = true): IMessageView | undefined {
     refresh();
     window.addEventListener("cmux-imessage-changed", refresh);
     return () => {
-      live.current = false;
-      revision.current++;
+      stop();
       window.removeEventListener("cmux-imessage-changed", refresh);
     };
-  }, [enabled, supported, request]);
+  }, [enabled, supported, request, stop]);
   const perform = useCallback(
     async (action: IMessageAction) => {
       opened.current = action !== "disconnect";
