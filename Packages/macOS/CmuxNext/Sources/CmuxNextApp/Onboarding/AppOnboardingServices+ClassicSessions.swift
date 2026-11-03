@@ -210,7 +210,7 @@ extension AppOnboardingServices {
             .webkit
         }
         var builder = WorkspaceBlueprintBuilder(
-            connection: connection,
+            daemon: daemon, connection: connection,
             key: WorkspaceKey(rawValue: workspaceID),
             browsers: browsers,
             defaultEngine: engine
