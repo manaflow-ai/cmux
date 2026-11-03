@@ -825,3 +825,37 @@ fn credit_backfill_history_does_not_lock_out_live_turns() {
     drop(trace);
     assert!(responsive, "historical scanning blocked a live Chief event");
 }
+
+#[test]
+fn unresolved_accounts_are_unknown_and_never_billable() {
+    for person in [
+        None,
+        Some("user_local"),
+        Some("remote_install"),
+        Some("unknown"),
+        Some(""),
+    ] {
+        let line = fold_all(&[json!({"ev":"turn.end", "turn":"t", "person":person, "harness":"cmux", "usage":{"input":1}})]).pop().unwrap();
+        assert_eq!(serde_json::to_value(&line).unwrap()["person"], "unknown");
+        let chief = Chief {
+            id: "c".into(),
+            label: "Chief".into(),
+            home: "/h".into(),
+        };
+        let row = usage::export_row(&chief, &line);
+        assert_eq!(row["stack_user_id"], "unknown");
+        assert_eq!(row["billable"], false);
+    }
+    let chief = Chief {
+        id: "c".into(),
+        label: "Chief".into(),
+        home: "/h".into(),
+    };
+    let legacy: Line = serde_json::from_str(r#"{"v":1,"kind":"turn","key":"old"}"#).unwrap();
+    assert_eq!(usage::export_row(&chief, &legacy)["billable"], false);
+    let line =
+        fold_all(&[json!({"ev":"turn.end", "turn":"t", "person":"account-id", "harness":"cmux"})])
+            .pop()
+            .unwrap();
+    assert_eq!(usage::export_row(&chief, &line)["billable"], true);
+}
