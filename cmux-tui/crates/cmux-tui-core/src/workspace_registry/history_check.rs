@@ -84,8 +84,17 @@ pub(crate) fn scan_background_checked_tables(
 ) -> anyhow::Result<Vec<(&'static str, String)>> {
     let connection = open_registry_database_read_only(database)?;
     connection.busy_timeout(std::time::Duration::from_secs(5))?;
+    let job = crate::long_jobs::LongJobs::start(
+        "registry.history_check",
+        "Checking the saved history",
+        &[crate::long_jobs::Blocks::None],
+    )
+    .unit("tables");
+    let _beat = job.beat_during_sqlite(&connection);
     let mut damaged = Vec::new();
-    for (table, _) in BACKGROUND_CHECKED_TABLES {
+    for (index, &(table, _)) in BACKGROUND_CHECKED_TABLES.iter().enumerate() {
+        job.set_progress(index as u64, BACKGROUND_CHECKED_TABLES.len() as u64);
+        job.set_detail(table);
         let present = connection
             .query_row(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",

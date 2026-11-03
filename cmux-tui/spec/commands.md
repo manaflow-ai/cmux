@@ -1001,6 +1001,45 @@ Example:
 {"id":9,"ok":true,"data":{"usage":{"vm_id":"3f1c...","period_days":30,"total_tokens":184220,"api_equivalent_usd":1.23,"as_of":"2026-09-01T00:00:00Z"}}}
 ```
 
+### jobs-list
+
+| Field | Value |
+| --- | --- |
+| name | `jobs-list` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `long_jobs` |
+
+Returns the daemon's long jobs: work that can take longer than about a second and that blocks, delays or slows something (output cleanup, the registry open, terminal host adoption, journal maintenance). A job shows once it has run for a second. `kind` is a stable dotted id the app localizes by; `title` is the English fallback. `done`, `total`, `unit` and `detail` are present when known. `updated_ms` changes on every progress step or heartbeat. `blocks` names what the job holds up. `subscribe` streams send `jobs-changed` with the same list when it changes. While the owner restores (its socket parks connections), the same list is in `long-jobs.json` in the session state directory and in `server ensure --restore-progress` lines. Servers advertise `long_jobs` in `identify.capabilities`.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  jobs:array<object{
+    id:string,
+    kind:string,
+    title:string,
+    detail?:string,
+    done?:uint64,
+    total?:uint64,
+    unit?:string,
+    started_ms:uint64,
+    updated_ms:uint64,
+    blocks:array<"startup"|"terminals"|"workspaces"|"history"|"quit"|"none">,
+    cancellable:bool
+  }>
+}
+```
+
+Example:
+
+```json
+{"id":10,"cmd":"jobs-list"}
+{"id":10,"ok":true,"data":{"jobs":[{"id":"output_cleanup:1793684016-1","kind":"registry.output_cleanup","title":"Cleaning up stored terminal output","detail":"pack segments","done":4,"total":13,"unit":"steps","started_ms":1793683713000,"updated_ms":1793683850000,"blocks":["startup","quit"],"cancellable":false}]}}
+```
+
 ### subscribe-activity
 
 | Field | Value |

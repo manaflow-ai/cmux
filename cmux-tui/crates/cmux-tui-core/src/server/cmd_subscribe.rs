@@ -451,6 +451,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             payload.insert("event", json!("machine-usage-changed"));
             payload
         }
+        MuxEvent::JobsChanged(jobs) => super::jobs::jobs_changed_json(jobs),
         MuxEvent::ConfigReloadRequested => json!({"event": "config-reload-requested"}),
         MuxEvent::WindowTitleRequested(title) => {
             json!({"event": "window-title-requested", "title": title})

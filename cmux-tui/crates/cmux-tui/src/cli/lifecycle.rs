@@ -848,6 +848,9 @@ fn print_progress(session: &str, restoring: &crate::local_owner::Restoring) {
         "session": session,
         "pid": restoring.pid,
         "waited_ms": u64::try_from(restoring.waited.as_millis()).unwrap_or(u64::MAX),
+        // The owner's long jobs (its `long-jobs.json`): what the restore
+        // waits on and how far it is.
+        "jobs": restoring.jobs,
     });
     let mut stdout = std::io::stdout().lock();
     let _ = writeln!(stdout, "{line}").and_then(|()| stdout.flush());

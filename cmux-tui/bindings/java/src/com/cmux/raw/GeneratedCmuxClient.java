@@ -662,6 +662,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final JobsListResult jobsList() throws CmuxException {
+        Object result = execute(Commands.JOBS_LIST, Map.of());
+        return JobsListResult.fromWire(result);
+    }
+
     public final JournalFrontendEventResult journalFrontendEvent(JournalFrontendEventRequest request) throws CmuxException {
         Object result = execute(Commands.JOURNAL_FRONTEND_EVENT, request.toWire());
         return JournalFrontendEventResult.fromWire(result);

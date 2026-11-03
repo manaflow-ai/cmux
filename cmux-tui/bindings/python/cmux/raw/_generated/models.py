@@ -126,6 +126,14 @@ class HostSizeMode(str, Enum):
     LATEST = 'latest'
     PRIORITY = 'priority'
 
+class LongJobBlock(str, Enum):
+    STARTUP = 'startup'
+    TERMINALS = 'terminals'
+    WORKSPACES = 'workspaces'
+    HISTORY = 'history'
+    QUIT = 'quit'
+    NONE = 'none'
+
 class NameSource(str, Enum):
     USER = 'user'
     AUTO = 'auto'
@@ -1010,6 +1018,12 @@ class IdsResult:
 
 
 @dataclass(frozen=True)
+class JobsListResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/JobsListResult'
+    jobs: List[LongJob]
+
+
+@dataclass(frozen=True)
 class KittyGraphicsState:
     __cmux_schema_path__: ClassVar[str] = 'types/KittyGraphicsState'
     alternate_next_image_id: int
@@ -1100,6 +1114,22 @@ class LivePane:
     tabs: List[Tab]
     focused_at: Union[int, MissingType] = field(default=MISSING)
     short_id: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class LongJob:
+    __cmux_schema_path__: ClassVar[str] = 'types/LongJob'
+    blocks: List[LongJobBlock]
+    cancellable: bool
+    id: str
+    kind: str
+    started_ms: int
+    title: str
+    updated_ms: int
+    detail: Union[str, MissingType] = field(default=MISSING)
+    done: Union[int, MissingType] = field(default=MISSING)
+    total: Union[int, MissingType] = field(default=MISSING)
+    unit: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3595,6 +3625,12 @@ class ImportSessionOrganizationRequest:
 
 
 @dataclass(frozen=True)
+class JobsListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/jobs-list/request'
+    pass
+
+
+@dataclass(frozen=True)
 class JournalFrontendEventRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/journal-frontend-event/request'
     event: FrontendJournalEvent
@@ -5502,6 +5538,14 @@ class HistoryChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class JobsChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/jobs-changed/payload'
+    event: Literal['jobs-changed']
+    jobs: List[LongJob]
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class KeybindingsChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/keybindings-changed/payload'
     event: Literal['keybindings-changed']
@@ -6043,7 +6087,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, JobsChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -6070,6 +6114,7 @@ __all__ = [
     'HomeChiefState',
     'HomeInboxKind',
     'HostSizeMode',
+    'LongJobBlock',
     'NameSource',
     'NotificationLevel',
     'NotificationSource',
@@ -6157,6 +6202,7 @@ __all__ = [
     'IdMapping',
     'IdentifyResult',
     'IdsResult',
+    'JobsListResult',
     'KittyGraphicsState',
     'KittyImageAlias',
     'LayoutLeaf',
@@ -6167,6 +6213,7 @@ __all__ = [
     'ListAgentsResult',
     'ListTerminalsResult',
     'LivePane',
+    'LongJob',
     'MachineListeningTcpResult',
     'MachinePlatform',
     'MachineUsage',
@@ -6444,6 +6491,7 @@ __all__ = [
     'ImportBookmarksRequest',
     'ImportBookmarksResult',
     'ImportSessionOrganizationRequest',
+    'JobsListRequest',
     'JournalFrontendEventRequest',
     'JournalFrontendEventResult',
     'ListAgentsRequest',
@@ -6657,6 +6705,7 @@ __all__ = [
     'FrontendProjectionChangedEvent',
     'GraphicsStatusEvent',
     'HistoryChangedEvent',
+    'JobsChangedEvent',
     'KeybindingsChangedEvent',
     'LayoutChangedEvent',
     'MachineUsageChangedEvent',

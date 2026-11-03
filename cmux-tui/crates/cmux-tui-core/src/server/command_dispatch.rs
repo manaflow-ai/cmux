@@ -142,6 +142,7 @@ fn dispatch_command(
         ),
         Command::ListClients => cmd_server::list_clients(mux, client),
         Command::MachineUsage => cmd_server::machine_usage(mux),
+        Command::JobsList => Ok(super::jobs::jobs_list()),
         Command::MachineListeningTcp => cmd_server::machine_listening_tcp(),
         Command::RegisterBrowserProvider {
             provider_id,

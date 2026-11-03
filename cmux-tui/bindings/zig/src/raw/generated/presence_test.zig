@@ -224,6 +224,10 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.LayoutUndoUndone, "confirmation_required");
     try expectExplicitNullRejected(protocol.LivePane, "focused_at");
     try expectExplicitNullRejected(protocol.LivePane, "short_id");
+    try expectExplicitNullRejected(protocol.LongJob, "detail");
+    try expectExplicitNullRejected(protocol.LongJob, "done");
+    try expectExplicitNullRejected(protocol.LongJob, "total");
+    try expectExplicitNullRejected(protocol.LongJob, "unit");
     try expectExplicitNullRejected(protocol.MintTerminalRendererResult, "supports_viewer_size_priority");
     try expectExplicitNullRejected(protocol.NewRowResult, "pane_id");
     try expectExplicitNullRejected(protocol.NewRowResult, "tab_id");

@@ -2437,6 +2437,13 @@ fn run_server(
     let restoring_server =
         cmux_tui_core::server::bind_session_socket(&args.session, args.socket.clone())?
             .serve_restoring()?;
+    // This process holds the socket now: its long jobs (output cleanup,
+    // registry open, host adoption) go to the status file `server ensure`
+    // reads while the socket still parks connections.
+    if let Some(root) = state_root.as_deref() {
+        let dir = cmux_tui_core::long_jobs::session_dir(root, &args.session);
+        cmux_tui_core::long_jobs::LongJobs::install_status_file(&dir);
+    }
     startup_timings.lap("socket.bind");
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
@@ -2501,6 +2508,8 @@ fn run_server(
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.
     app::install_mux_diagnostic_logger(&mux);
+    // `jobs-changed` to subscribers for as long as this owner serves.
+    let _long_jobs_events = cmux_tui_core::server::forward_long_jobs(&mux);
     local_owner::install_key_from_launcher(&mux, args.owner_install_key_fd);
     // Headless sessions have no host terminal to query. The first
     // interactive client may provide a private host-color handoff; use it

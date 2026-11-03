@@ -183,6 +183,8 @@ pub enum MuxEvent {
     /// The daemon's machine-level model spend readout changed. `None` means
     /// the readout is unavailable and frontends must hide it.
     MachineUsageChanged(Option<MachineUsage>),
+    /// The daemon's long jobs changed (`crate::long_jobs`): the whole list.
+    JobsChanged(Vec<crate::long_jobs::LongJob>),
     /// The app supervisor committed an install-state change: its
     /// `apps-changed` payload as apps clients get it (apps/supervisor.rs).
     /// `subscribe` sends it only to a page relay whose page hears it

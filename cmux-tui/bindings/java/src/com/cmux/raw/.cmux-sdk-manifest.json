@@ -732,8 +732,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "9e48d410e15f37fa8f940455514e5e0056695e658d98af6004c6958e9324aad1",
-      "size": 79346
+      "sha256": "f28aa2a28a9d91c2a968bf75442c438277220b78354ccb697d9857f80fce07dc",
+      "size": 79549
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1277,8 +1277,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "aee5e9f2fcc43818d1a689d990d678a224026b331fecf392e27b6df5bdcc1e25",
-      "size": 18534
+      "sha256": "4c3b62cd556ac0a4bc3127a4e61eaf9de2eefb66ed098bc9d7145db5aacfec56",
+      "size": 18717
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1382,8 +1382,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "8cdc3109c481a01a38626d1eeac7f3e5f4d3b840112c4b6d138b017fb84bf01d",
-      "size": 68574
+      "sha256": "4c57f60bfa7ad959a3c30b0414d2b41a352b6f6375bc1de2b612a40600c4d0fd",
+      "size": 68758
     },
     {
       "path": "GetBlobRequest.java",
@@ -1581,6 +1581,21 @@
       "size": 3703
     },
     {
+      "path": "JobsChangedEvent.java",
+      "sha256": "8fcd4f8b317295146037cfaef3149c654e519b6ffb79fcc3c36b8f4aac1d8b35",
+      "size": 2284
+    },
+    {
+      "path": "JobsListRequest.java",
+      "sha256": "05f47ae04d533ca936a717b7520392270518e384f23e43a2fde83cadd0458e66",
+      "size": 1323
+    },
+    {
+      "path": "JobsListResult.java",
+      "sha256": "b1b4eee5b4349d8ff2096e7d13cd1b1d014862823def06aa6bfb163de9dbf54f",
+      "size": 1931
+    },
+    {
       "path": "JournalFrontendEventRequest.java",
       "sha256": "38857e31920f4e6dd39606fbcd82b859a61c55d44de60c28dd871e54490b74af",
       "size": 2119
@@ -1739,6 +1754,16 @@
       "path": "LivePane.java",
       "sha256": "65a6606f6c558c1acf113edbe09dfaa3360c573a4948c3d45519954a03d9ab87",
       "size": 5040
+    },
+    {
+      "path": "LongJob.java",
+      "sha256": "4fcee27fa8cf26ed217d09966ff24a46fbe98b29b46877d061485228aa191ad5",
+      "size": 8233
+    },
+    {
+      "path": "LongJobBlock.java",
+      "sha256": "35038ad5bf62e62a2e8d16a9eea0297525196bcffa11670d28711ae88c291b7b",
+      "size": 982
     },
     {
       "path": "MachineListeningTcpRequest.java",
@@ -2137,8 +2162,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "266b37b9c3ed934fca407692d0577d9dfd211d39a42840625f9da8f4111b7226",
-      "size": 7584
+      "sha256": "c5179de1129bd5d1fef704468a1a4bd1a8f8baf0be4198dfc0c1253ef7e0e026",
+      "size": 7653
     },
     {
       "path": "ProtocolEvent.java",
@@ -3467,7 +3492,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b",
+  "ir_sha256": "99619ad91fdb4caa31001819d4ce4072ad3f39df0274af5a29ab5fc76a7c6f57",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -399,6 +399,9 @@ class GeneratedClientMixin:
     def import_session_organization(self, session_id: str, *, groups: Union[List[JsonValue], MissingType] = MISSING, workspaces: Union[List[JsonValue], MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('import-session-organization', ImportSessionOrganizationRequest(session_id=session_id, groups=groups, workspaces=workspaces))
 
+    def jobs_list(self) -> JobsListResult:
+        return self._invoke_command('jobs-list', JobsListRequest())
+
     def journal_frontend_event(self, event: FrontendJournalEvent) -> JournalFrontendEventResult:
         return self._invoke_command('journal-frontend-event', JournalFrontendEventRequest(event=event))
 
@@ -1006,6 +1009,7 @@ GeneratedClientMixin.identify.__cmux_command__ = COMMANDS['identify']
 GeneratedClientMixin.ids.__cmux_command__ = COMMANDS['ids']
 GeneratedClientMixin.import_bookmarks.__cmux_command__ = COMMANDS['import-bookmarks']
 GeneratedClientMixin.import_session_organization.__cmux_command__ = COMMANDS['import-session-organization']
+GeneratedClientMixin.jobs_list.__cmux_command__ = COMMANDS['jobs-list']
 GeneratedClientMixin.journal_frontend_event.__cmux_command__ = COMMANDS['journal-frontend-event']
 GeneratedClientMixin.list_agents.__cmux_command__ = COMMANDS['list-agents']
 GeneratedClientMixin.list_bookmarks.__cmux_command__ = COMMANDS['list-bookmarks']

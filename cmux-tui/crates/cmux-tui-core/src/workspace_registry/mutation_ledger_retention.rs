@@ -153,8 +153,17 @@ pub(crate) fn scan_mutation_ledgers(
 ) -> anyhow::Result<Vec<(&'static str, String)>> {
     let connection = open_registry_database_read_only(database)?;
     connection.busy_timeout(std::time::Duration::from_secs(5))?;
+    let job = crate::long_jobs::LongJobs::start(
+        "registry.ledger_check",
+        "Checking the mutation ledgers",
+        &[crate::long_jobs::Blocks::None],
+    )
+    .unit("tables");
+    let _beat = job.beat_during_sqlite(&connection);
     let mut corrupt = Vec::new();
-    for ledger in &MUTATION_LEDGERS {
+    for (index, ledger) in MUTATION_LEDGERS.iter().enumerate() {
+        job.set_progress(index as u64, MUTATION_LEDGERS.len() as u64);
+        job.set_detail(ledger.table);
         let pragma = format!("PRAGMA quick_check('{}')", ledger.table);
         match connection.query_row(&pragma, [], |row| row.get::<_, String>(0)) {
             Ok(report) if report == "ok" => {}

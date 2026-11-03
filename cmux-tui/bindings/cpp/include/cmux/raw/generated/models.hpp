@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b";
+inline constexpr std::string_view kProtocolIrSha256 = "99619ad91fdb4caa31001819d4ce4072ad3f39df0274af5a29ab5fc76a7c6f57";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -101,6 +101,7 @@ struct Id;
 struct IdMapping;
 struct IdentifyResult;
 struct IdsResult;
+struct JobsListResult;
 struct JsonValue;
 struct KittyGraphicsState;
 struct KittyImageAlias;
@@ -111,6 +112,8 @@ struct LayoutUndoUndone;
 struct ListAgentsResult;
 struct ListTerminalsResult;
 struct LivePane;
+struct LongJob;
+enum class LongJobBlock;
 struct MachineListeningTcpResult;
 struct MachinePlatform;
 struct MachineUsage;
@@ -402,6 +405,7 @@ struct IdsRequest;
 struct ImportBookmarksRequest;
 struct ImportBookmarksResult;
 struct ImportSessionOrganizationRequest;
+struct JobsListRequest;
 struct JournalFrontendEventRequest;
 struct JournalFrontendEventResult;
 struct ListAgentsRequest;
@@ -616,6 +620,7 @@ struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
 struct HistoryChangedEvent;
+struct JobsChangedEvent;
 struct KeybindingsChangedEvent;
 struct LayoutChangedEvent;
 struct MachineUsageChangedEvent;
@@ -3324,6 +3329,44 @@ struct ImportSessionOrganizationRequest {
     std::string session_id{};
     std::optional<std::vector<JsonValue>> workspaces{};
     friend bool operator==(const ImportSessionOrganizationRequest&, const ImportSessionOrganizationRequest&) = default;
+};
+
+enum class LongJobBlock {
+    startup,
+    terminals,
+    workspaces,
+    history,
+    quit,
+    none,
+};
+
+struct LongJob {
+    std::vector<LongJobBlock> blocks{};
+    bool cancellable{};
+    std::optional<std::string> detail{};
+    std::optional<std::uint64_t> done{};
+    std::string id{};
+    std::string kind{};
+    std::uint64_t started_ms{};
+    std::string title{};
+    std::optional<std::uint64_t> total{};
+    std::optional<std::string> unit{};
+    std::uint64_t updated_ms{};
+    friend bool operator==(const LongJob&, const LongJob&) = default;
+};
+
+struct JobsChangedEvent {
+    std::vector<LongJob> jobs{};
+    friend bool operator==(const JobsChangedEvent&, const JobsChangedEvent&) = default;
+};
+
+struct JobsListRequest {
+    friend bool operator==(const JobsListRequest&, const JobsListRequest&) = default;
+};
+
+struct JobsListResult {
+    std::vector<LongJob> jobs{};
+    friend bool operator==(const JobsListResult&, const JobsListResult&) = default;
 };
 
 struct JournalFrontendEventRequest {
@@ -6594,6 +6637,12 @@ struct Codec<IdsResult> {
 };
 
 template <>
+struct Codec<JobsListResult> {
+    static Result<Json> encode(const JobsListResult& value);
+    static Result<JobsListResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<JsonValue> {
     static Result<Json> encode(const JsonValue& value);
     static Result<JsonValue> decode(const Json& value);
@@ -6651,6 +6700,18 @@ template <>
 struct Codec<LivePane> {
     static Result<Json> encode(const LivePane& value);
     static Result<LivePane> decode(const Json& value);
+};
+
+template <>
+struct Codec<LongJob> {
+    static Result<Json> encode(const LongJob& value);
+    static Result<LongJob> decode(const Json& value);
+};
+
+template <>
+struct Codec<LongJobBlock> {
+    static Result<Json> encode(const LongJobBlock& value);
+    static Result<LongJobBlock> decode(const Json& value);
 };
 
 template <>
@@ -8400,6 +8461,12 @@ struct Codec<ImportSessionOrganizationRequest> {
 };
 
 template <>
+struct Codec<JobsListRequest> {
+    static Result<Json> encode(const JobsListRequest& value);
+    static Result<JobsListRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<JournalFrontendEventRequest> {
     static Result<Json> encode(const JournalFrontendEventRequest& value);
     static Result<JournalFrontendEventRequest> decode(const Json& value);
@@ -9681,6 +9748,12 @@ template <>
 struct Codec<HistoryChangedEvent> {
     static Result<Json> encode(const HistoryChangedEvent& value);
     static Result<HistoryChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<JobsChangedEvent> {
+    static Result<Json> encode(const JobsChangedEvent& value);
+    static Result<JobsChangedEvent> decode(const Json& value);
 };
 
 template <>

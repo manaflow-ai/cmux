@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b. */
+/* cmux-tui mux protocol 12, IR 99619ad91fdb4caa31001819d4ce4072ad3f39df0274af5a29ab5fc76a7c6f57. */
 
 
 import type * as T from "./types.js";
@@ -1368,6 +1368,11 @@ export interface ImportSessionOrganizationRequest extends CmuxRequestBase {
   "workspaces"?: Array<T.JsonValue>;
 }
 export type ImportSessionOrganizationResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface JobsListRequest extends CmuxRequestBase {
+  cmd: "jobs-list";
+}
 
 /** Protocol v10; authority: control. */
 export interface JournalFrontendEventRequest extends CmuxRequestBase {
@@ -3040,6 +3045,7 @@ export type CmuxRequest =
   | IdsRequest
   | ImportBookmarksRequest
   | ImportSessionOrganizationRequest
+  | JobsListRequest
   | JournalFrontendEventRequest
   | ListAgentsRequest
   | ListBookmarksRequest
@@ -4232,6 +4238,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "profiles-v1";
+    stream: null;
+  };
+  "jobs-list": {
+    request: JobsListRequest;
+    result: T.JobsListResult;
+    authority: "control";
+    since: 12;
+    capability: "long_jobs";
     stream: null;
   };
   "journal-frontend-event": {

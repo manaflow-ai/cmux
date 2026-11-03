@@ -170,6 +170,7 @@ public:
     [[nodiscard]] Result<IdsResult> ids(const IdsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ImportBookmarksResult> import_bookmarks(const ImportBookmarksRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> import_session_organization(const ImportSessionOrganizationRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JobsListResult> jobs_list(const JobsListRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JournalFrontendEventResult> journal_frontend_event(const JournalFrontendEventRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ListAgentsResult> list_agents(const ListAgentsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ListBookmarksResult> list_bookmarks(const ListBookmarksRequest& request, RequestOptions options = {});

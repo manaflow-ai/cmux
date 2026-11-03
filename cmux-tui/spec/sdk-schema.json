@@ -5581,6 +5581,137 @@
     "usage is null when the daemon has no readout (not a Cloud VM, endpoint unavailable, or usage not ready)."
    ]
   },
+  "LongJobBlock": {
+   "kind": "enum",
+   "values": [
+    "startup",
+    "terminals",
+    "workspaces",
+    "history",
+    "quit",
+    "none"
+   ]
+  },
+  "LongJob": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "detail": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "done": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "total": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "unit": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "started_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "updated_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "blocks": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "LongJobBlock"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cancellable": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "kind is a stable dotted id (registry.output_cleanup, registry.open, terminal.adopt_hosts, journal.maintenance, ...); title is its English fallback.",
+    "updated_ms changes on every progress step or heartbeat; a reader bounds its wait by updated_ms not changing (a stall), not by a fixed timer.",
+    "A job is listed once it has run for about one second."
+   ]
+  },
+  "JobsListResult": {
+   "kind": "object",
+   "fields": {
+    "jobs": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "LongJob"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": []
+  },
   "ServerStatsHistogram": {
    "kind": "object",
    "fields": {
@@ -16846,6 +16977,22 @@
    "result": {
     "kind": "ref",
     "name": "MachineUsageResult"
+   },
+   "stream": null,
+   "constraints": []
+  },
+  "jobs-list": {
+   "authority": "control",
+   "since": 12,
+   "capability": "long_jobs",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JobsListResult"
    },
    "stream": null,
    "constraints": []
@@ -29140,6 +29287,39 @@
       },
       "presence": "required",
       "nullable": true
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "jobs-changed": {
+   "since": 12,
+   "capability": "long_jobs",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "jobs-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "jobs": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "LongJob"
+       }
+      },
+      "presence": "required",
+      "nullable": false
      }
     },
     "additional_properties": false

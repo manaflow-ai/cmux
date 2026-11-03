@@ -52,6 +52,7 @@ public final class Events {
     public static final EventMetadata FRONTEND_PROJECTION_CHANGED = new EventMetadata("frontend-projection-changed", 7, null, List.of("subscribe"), true);
     public static final EventMetadata GRAPHICS_STATUS = new EventMetadata("graphics-status", 10, null, List.of("subscribe"), true);
     public static final EventMetadata HISTORY_CHANGED = new EventMetadata("history-changed", 12, "history-v1", List.of("subscribe"), true);
+    public static final EventMetadata JOBS_CHANGED = new EventMetadata("jobs-changed", 12, "long_jobs", List.of("subscribe"), true);
     public static final EventMetadata KEYBINDINGS_CHANGED = new EventMetadata("keybindings-changed", 12, "keybindings-v1", List.of("subscribe"), true);
     public static final EventMetadata LAYOUT_CHANGED = new EventMetadata("layout-changed", 6, null, List.of("subscribe"), true);
     public static final EventMetadata MACHINE_USAGE_CHANGED = new EventMetadata("machine-usage-changed", 12, "machine-usage-v1", List.of("subscribe"), true);
@@ -144,6 +145,7 @@ public final class Events {
         values.put("frontend-projection-changed", FRONTEND_PROJECTION_CHANGED);
         values.put("graphics-status", GRAPHICS_STATUS);
         values.put("history-changed", HISTORY_CHANGED);
+        values.put("jobs-changed", JOBS_CHANGED);
         values.put("keybindings-changed", KEYBINDINGS_CHANGED);
         values.put("layout-changed", LAYOUT_CHANGED);
         values.put("machine-usage-changed", MACHINE_USAGE_CHANGED);

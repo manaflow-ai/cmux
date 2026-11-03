@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b. */
+/* cmux-tui mux protocol 12, IR 99619ad91fdb4caa31001819d4ce4072ad3f39df0274af5a29ab5fc76a7c6f57. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -609,6 +609,10 @@ export type IdsResult = {
   "ids": Array<IdMapping>;
 };
 
+export type JobsListResult = {
+  "jobs": Array<LongJob>;
+};
+
 export type KittyGraphicsState = {
   "alternate_next_image_id": number;
   "alternate_replay_next_image_id": number;
@@ -681,6 +685,22 @@ export type LivePane = {
   "short_id"?: string;
   "tabs": Array<Tab>;
 };
+
+export type LongJob = {
+  "blocks": Array<LongJobBlock>;
+  "cancellable": boolean;
+  "detail"?: string;
+  "done"?: bigint;
+  "id": string;
+  "kind": string;
+  "started_ms": bigint;
+  "title": string;
+  "total"?: bigint;
+  "unit"?: string;
+  "updated_ms": bigint;
+};
+
+export type LongJobBlock = "startup" | "terminals" | "workspaces" | "history" | "quit" | "none";
 
 export type MachineListeningTcpResult = {
   "stdout": string;

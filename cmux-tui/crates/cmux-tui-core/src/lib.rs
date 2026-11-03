@@ -55,6 +55,7 @@ mod journal_kernel;
 mod journal_plugin;
 mod journal_reducers;
 pub mod launch_credential;
+pub mod long_jobs;
 use cmux_tui_util::machine_name;
 mod model;
 mod mux;

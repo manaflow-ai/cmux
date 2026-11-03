@@ -47,7 +47,9 @@ pub(crate) const ENSURE_DEADLINE: Duration = Duration::from_secs(10);
 /// or answers `lifecycle_ready: false`, ensure
 /// waits for its restore up to this bound instead of reporting the owner
 /// unavailable (cx-w760: a slow box took over 10 s to restore after a
-/// restart, and the first ensure failed).
+/// restart, and the first ensure failed). It is a stall bound while the
+/// owner publishes startup long jobs (`restore_bound`): each change of
+/// their progress gives the wait this much again.
 pub(crate) const RESTORE_DEADLINE: Duration = Duration::from_secs(120);
 
 /// How often a waiting ensure reports that the owner is still restoring
@@ -62,6 +64,8 @@ pub(crate) struct Restoring {
     pub pid: Option<u64>,
     /// Time since this ensure started waiting on the restore.
     pub waited: Duration,
+    /// The owner's long jobs from its status file (`long-jobs.json`).
+    pub jobs: Vec<Value>,
 }
 
 /// Reports a restoring owner to the caller: the first sighting at once, then
@@ -83,20 +87,33 @@ impl<'a> RestoreProgress<'a> {
         RestoreProgress::new(&ignore)
     }
 
-    fn restoring(&self, pid: Option<u64>) {
+    fn restoring(&self, pid: Option<u64>, bound: &RestoreBound) {
         let now = Instant::now();
         let first = self.first.get().unwrap_or(now);
         self.first.set(Some(first));
         // A few ms of slack: a wait slice that ends just short of the
         // interval must not skip every other report.
         let slack = Duration::from_millis(50);
-        if self.last.get().is_some_and(|last| now.duration_since(last) + slack < PROGRESS_INTERVAL)
+        if self.last.get().is_some_and(|last| now.duration_since(last) + slack < progress_interval())
         {
             return;
         }
         self.last.set(Some(now));
-        (self.report)(&Restoring { pid, waited: now.duration_since(first) });
+        (self.report)(&Restoring { pid, waited: now.duration_since(first), jobs: bound.jobs() });
     }
+}
+
+/// [`PROGRESS_INTERVAL`], or a debug build's
+/// `CMUX_TUI_TEST_RESTORE_PROGRESS_MS` (behavior tests of progress lines).
+pub(crate) fn progress_interval() -> Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var("CMUX_TUI_TEST_RESTORE_PROGRESS_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        return Duration::from_millis(ms);
+    }
+    PROGRESS_INTERVAL
 }
 
 /// Probe interval while an owner this process did not start is still
@@ -129,6 +146,8 @@ pub(crate) use exit_with::{
     EXIT_WITH_PID_ARG, ExitWith, parse_owner_exit_with, resolve_exit_with_pid,
 };
 mod identify;
+mod restore_bound;
+use restore_bound::RestoreBound;
 #[cfg(all(test, unix))]
 mod recovery_tests;
 use identify::{IdentifyError, identify};
@@ -344,14 +363,15 @@ pub(crate) fn ensure_owner(
 ) -> Result<Ensured, EnsureError> {
     cmux_tui_core::server::prepare_socket_parent(&spec.socket, spec.socket_is_derived)
         .map_err(|error| EnsureError::Spawn(io::Error::other(error)))?;
-    let restore_deadline = deadline.max(Instant::now() + RESTORE_DEADLINE);
+    let bound = RestoreBound::new(spec, deadline);
+    let restore_deadline = &bound;
     let owner = loop {
         if let Some(ready) =
             wait_while_starting(spec, expected_session, restore_deadline, progress)?
         {
             return Ok(Ensured::Running(ready));
         }
-        if Instant::now() >= restore_deadline {
+        if restore_deadline.expired() {
             return Err(EnsureError::RestoreTimeout);
         }
         // Every holder keeps this lock only across a probe and a spawn or a
@@ -364,10 +384,10 @@ pub(crate) fn ensure_owner(
         // One probe under the lock: a concurrent ensure may have spawned the
         // owner while this call waited for the lock. A restoring owner is
         // awaited outside the lock (next turn), never while holding it.
-        match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
+        match attempt(spec, expected_session, attempt_deadline(restore_deadline.deadline()))? {
             Attempt::Ready(ready) => return Ok(Ensured::Running(ready)),
             Attempt::Starting(pid) => {
-                progress.restoring(pid);
+                progress.restoring(pid, restore_deadline);
                 drop(lock);
                 std::thread::sleep(POLL_INTERVAL);
                 continue;
@@ -440,24 +460,24 @@ fn attempt_deadline(restore_deadline: Instant) -> Instant {
 fn wait_while_starting(
     spec: &OwnerSpec,
     expected_session: Option<&str>,
-    restore_deadline: Instant,
+    restore_deadline: &RestoreBound,
     progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     let mut busy = BusySince::default();
     loop {
-        let interval = match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
+        let interval = match attempt(spec, expected_session, attempt_deadline(restore_deadline.deadline()))? {
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Gone | Attempt::Unanswered => return Ok(None),
             Attempt::Starting(pid) => {
                 busy.answered();
-                progress.restoring(pid);
+                progress.restoring(pid, restore_deadline);
                 POLL_INTERVAL
             }
             Attempt::Stopped => return Err(EnsureError::NotReady),
             Attempt::Busy if busy.refused() => return Err(EnsureError::Busy),
             Attempt::Busy => BUSY_POLL_INTERVAL,
         };
-        if Instant::now() >= restore_deadline {
+        if restore_deadline.expired() {
             return Err(EnsureError::RestoreTimeout);
         }
         std::thread::sleep(interval);
@@ -477,20 +497,20 @@ fn wait_until_ready(
     expected_session: Option<&str>,
     owner_exited: &dyn Fn() -> bool,
     contact_deadline: Instant,
-    restore_deadline: Instant,
+    restore_deadline: &RestoreBound,
     progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     let mut seen_alive = false;
     let mut busy = BusySince::default();
     loop {
-        let result = attempt(spec, expected_session, attempt_deadline(restore_deadline))?;
+        let result = attempt(spec, expected_session, attempt_deadline(restore_deadline.deadline()))?;
         let refused = matches!(result, Attempt::Busy);
         match result {
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Starting(pid) => {
                 busy.answered();
                 seen_alive = true;
-                progress.restoring(pid);
+                progress.restoring(pid, restore_deadline);
             }
             Attempt::Stopped => return Err(EnsureError::NotReady),
             // Accepted but unanswered: keep what is known about the owner,
@@ -508,7 +528,7 @@ fn wait_until_ready(
             }
         }
         let now = Instant::now();
-        if seen_alive && now >= restore_deadline {
+        if seen_alive && restore_deadline.expired() {
             return Err(EnsureError::RestoreTimeout);
         }
         if !seen_alive && now >= contact_deadline {
@@ -527,7 +547,7 @@ fn wait_for_spawned_owner(
     pid: u32,
     spec: &OwnerSpec,
     contact_deadline: Instant,
-    restore_deadline: Instant,
+    restore_deadline: &RestoreBound,
     progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     let expected = Some(spec.session.as_str());
@@ -537,22 +557,22 @@ fn wait_for_spawned_owner(
     // The wait wakes once per progress interval to report the live owner.
     let started = Instant::now();
     loop {
-        let slice = restore_deadline.min(Instant::now() + PROGRESS_INTERVAL);
+        let slice = restore_deadline.deadline().min(Instant::now() + progress_interval());
         if wait_readable(pipe, slice) {
             break;
         }
-        if Instant::now() >= restore_deadline {
+        if restore_deadline.expired() {
             return Err(EnsureError::RestoreTimeout);
         }
         // Silent for the first slice: a quick owner start is not a restore.
-        if started.elapsed() + Duration::from_millis(50) >= PROGRESS_INTERVAL {
-            progress.restoring(Some(u64::from(pid)));
+        if started.elapsed() + Duration::from_millis(50) >= progress_interval() {
+            progress.restoring(Some(u64::from(pid)), restore_deadline);
         }
     }
     let mut byte = [0_u8; 1];
     let signaled = matches!((&*pipe).read(&mut byte), Ok(1));
     if signaled
-        && let Attempt::Ready(ready) = attempt(spec, expected, attempt_deadline(restore_deadline))?
+        && let Attempt::Ready(ready) = attempt(spec, expected, attempt_deadline(restore_deadline.deadline()))?
     {
         return Ok(Some(ready));
     }
@@ -588,7 +608,7 @@ fn wait_for_spawned_owner(
     _pid: u32,
     _spec: &OwnerSpec,
     _contact_deadline: Instant,
-    _restore_deadline: Instant,
+    _restore_deadline: &RestoreBound,
     _progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     match *pipe {}

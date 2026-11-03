@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b.
+// cmux-tui mux protocol 12, IR 99619ad91fdb4caa31001819d4ce4072ad3f39df0274af5a29ab5fc76a7c6f57.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1045,6 +1045,12 @@ pub struct IdsResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JobsListResult {
+    pub jobs: Vec<LongJob>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KittyGraphicsState {
     pub alternate_next_image_id: u32,
     pub alternate_replay_next_image_id: u32,
@@ -1144,6 +1150,43 @@ pub struct LivePane {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
     pub tabs: Vec<Tab>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LongJob {
+    pub blocks: Vec<LongJobBlock>,
+    pub cancellable: bool,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub done: Option<u64>,
+    pub id: String,
+    pub kind: String,
+    pub started_ms: u64,
+    pub title: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    pub updated_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LongJobBlock {
+    #[serde(rename = "startup")]
+    Startup,
+    #[serde(rename = "terminals")]
+    Terminals,
+    #[serde(rename = "workspaces")]
+    Workspaces,
+    #[serde(rename = "history")]
+    History,
+    #[serde(rename = "quit")]
+    Quit,
+    #[serde(rename = "none")]
+    None,
 }
 
 #[rustfmt::skip]

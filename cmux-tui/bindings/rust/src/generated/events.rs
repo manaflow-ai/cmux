@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b.
+// cmux-tui mux protocol 12, IR 99619ad91fdb4caa31001819d4ce4072ad3f39df0274af5a29ab5fc76a7c6f57.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -453,6 +453,12 @@ pub struct GraphicsStatusEvent {
 pub struct HistoryChangedEvent {
     pub kinds: Vec<String>,
     pub revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JobsChangedEvent {
+    pub jobs: Vec<T::LongJob>,
 }
 
 #[rustfmt::skip]
@@ -1022,6 +1028,7 @@ pub enum Event {
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
     GraphicsStatus(GraphicsStatusEvent),
     HistoryChanged(HistoryChangedEvent),
+    JobsChanged(JobsChangedEvent),
     KeybindingsChanged(KeybindingsChangedEvent),
     LayoutChanged(LayoutChangedEvent),
     MachineUsageChanged(MachineUsageChangedEvent),
@@ -1117,6 +1124,7 @@ impl Event {
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
             Self::GraphicsStatus(_) => Some("graphics-status"),
             Self::HistoryChanged(_) => Some("history-changed"),
+            Self::JobsChanged(_) => Some("jobs-changed"),
             Self::KeybindingsChanged(_) => Some("keybindings-changed"),
             Self::LayoutChanged(_) => Some("layout-changed"),
             Self::MachineUsageChanged(_) => Some("machine-usage-changed"),
@@ -1211,6 +1219,7 @@ impl Event {
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
             Self::GraphicsStatus(_) => Some(&GRAPHICS_STATUS_EVENT_METADATA),
             Self::HistoryChanged(_) => Some(&HISTORY_CHANGED_EVENT_METADATA),
+            Self::JobsChanged(_) => Some(&JOBS_CHANGED_EVENT_METADATA),
             Self::KeybindingsChanged(_) => Some(&KEYBINDINGS_CHANGED_EVENT_METADATA),
             Self::LayoutChanged(_) => Some(&LAYOUT_CHANGED_EVENT_METADATA),
             Self::MachineUsageChanged(_) => Some(&MACHINE_USAGE_CHANGED_EVENT_METADATA),
@@ -1589,6 +1598,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("history-changed") => match serde_json::from_value::<HistoryChangedEvent>(raw.clone()) {
             Ok(event) => Event::HistoryChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("jobs-changed") => match serde_json::from_value::<JobsChangedEvent>(raw.clone()) {
+            Ok(event) => Event::JobsChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

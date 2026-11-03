@@ -47,6 +47,7 @@ mod journal_extensions;
 mod mutation_ledger;
 pub(crate) mod mutation_ledger_retention;
 mod open_guard;
+mod open_progress;
 pub(crate) mod output_cleanup;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
@@ -2664,6 +2665,7 @@ impl WorkspaceRegistry {
         mut timings: crate::startup_timings::StartupTimings,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        let open_job = open_progress::OpenProgress::start(&connection);
         // Before the first write, so every commit of this connection uses it.
         connection.execute_batch(REGISTRY_FULLFSYNC_PRAGMA)?;
         let fresh_database = connection.query_row(
@@ -2933,7 +2935,7 @@ impl WorkspaceRegistry {
             migrate_resource_tabs_to_multiview(&tx)?;
             tx.commit()?;
         }
-        timings.lap("registry.schema");
+        open_job.lap(&mut timings, "registry.schema");
         {
             let tx = connection.unchecked_transaction()?;
             resource_store::migrate_tab_name_authority(&tx)?;
@@ -3030,16 +3032,17 @@ impl WorkspaceRegistry {
         if let Err(error) = crate::state::sidebar_doc_store::migrate_at_open(&connection) {
             eprintln!("cmux-tui: sidebar document migration skipped ({error:#})");
         }
-        timings.lap("registry.migrations");
+        open_job.lap(&mut timings, "registry.migrations");
         check_registry_integrity(&connection)?;
-        timings.lap("registry.integrity_check");
+        open_job.lap(&mut timings, "registry.integrity_check");
         {
             let tx = connection.unchecked_transaction()?;
             initialize_compatibility_active_workspace(&tx)?;
             validate_resource_invariants(&tx)?;
             tx.commit()?;
         }
-        timings.lap("registry.resource_invariants");
+        open_job.lap(&mut timings, "registry.resource_invariants");
+        drop(open_job);
         let generation = try_new_uuid_v4()?;
         Ok(Self {
             connection: RegistryConnection::new(connection, database_path.as_deref()),

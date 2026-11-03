@@ -154,6 +154,14 @@ fn compact_locked(db_path: &Path) -> anyhow::Result<RegistryCompaction> {
 /// Copies the registry into `staged` with incremental auto-vacuum and checks
 /// the copy. Both connections are closed on return.
 fn write_staged(db_path: &Path, staged: &Path) -> anyhow::Result<()> {
+    // No owner can start while the compaction holds the session.
+    let job = crate::long_jobs::LongJobs::start(
+        "registry.compact",
+        "Compacting the saved session",
+        &[crate::long_jobs::Blocks::Startup, crate::long_jobs::Blocks::Quit],
+    )
+    .unit("steps");
+    job.step(0, 2, "copy");
     {
         // Never create a database: the registry exists (checked under the locks).
         let source = open_registry_database_with_flags(
@@ -165,6 +173,7 @@ fn write_staged(db_path: &Path, staged: &Path) -> anyhow::Result<()> {
         // On an existing database this only records the mode; SQLite applies
         // it to the VACUUM INTO output.
         source.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")?;
+        let _beat = job.beat_during_sqlite(&source);
         let staged_sqlite = sqlite_filesystem_path(staged)?;
         let staged_text = staged_sqlite.to_str().context("compacted registry path is not UTF-8")?;
         source
@@ -172,8 +181,10 @@ fn write_staged(db_path: &Path, staged: &Path) -> anyhow::Result<()> {
             .with_context(|| format!("copy workspace registry {}", db_path.display()))?;
     }
     {
+        job.step(1, 2, "check");
         let copy = open_registry_database(staged)
             .with_context(|| format!("open compacted registry {}", staged.display()))?;
+        let _beat = job.beat_during_sqlite(&copy);
         let auto_vacuum = copy.query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))?;
         if auto_vacuum != 2 {
             // This SQLite did not carry the mode into VACUUM INTO: convert

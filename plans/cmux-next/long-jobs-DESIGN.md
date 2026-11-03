@@ -83,6 +83,23 @@ something the person can do is a **long job**. A long job:
 - After attach: socket op `jobs.list` -> `{"jobs":[...]}` and the pushed event
   `jobs.changed` with the same payload, through the existing event
   subscription path. Capability name `long_jobs`.
+  **Shipped wire names (daemon, 2026-11-02):** the v12 mux protocol names
+  commands and events in kebab-case (its spec checks derive the name from
+  the `Command` variant), so the op is the v12 command
+  `{"id":N,"cmd":"jobs-list"}` -> `{"id":N,"ok":true,"data":{"jobs":[...]}}`
+  and the event on the `subscribe` stream is
+  `{"event":"jobs-changed","jobs":[...]}`. `jobs.list` / `jobs.changed` above
+  mean these. Capability `long_jobs` in `identify.capabilities`. A job shows
+  once it has run 1 s; events are coalesced to 4 per second.
+- `server ensure` finds the status file at
+  `<state root>/<session dir>/long-jobs.json`, the same session directory as
+  `workspace-registry.sqlite3` (state root: `--state` or
+  `CMUX_TUI_STATE_DIR`/the platform default). A file whose `pid` is not a live
+  process is ignored. Only jobs whose `blocks` contains `startup` move the
+  stall bound; background jobs (`blocks: ["none"]`) are listed but never
+  extend the wait.
+- Progress line shape: `{"progress":"restoring","session":S,"pid":N|null,
+  "waited_ms":T,"jobs":[...]}` (`jobs` is `[]` when the owner publishes none).
 - `server ensure --restore-progress` lines add `"jobs":[...]` read from the
   status file of the owner it waits on.
 - `server ensure` waits while the owner is alive and its jobs (or the restore

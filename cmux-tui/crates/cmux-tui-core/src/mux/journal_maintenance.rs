@@ -15,10 +15,25 @@ const SLOW_MAINTENANCE_TICK: Duration = Duration::from_millis(500);
 #[derive(Default)]
 struct MaintenanceSteps {
     steps: Vec<(&'static str, Duration)>,
+    /// The tick as a long job (`journal.maintenance`): its steps hold the
+    /// registry lock, so a slow one shows with the step it is in.
+    job: Option<crate::long_jobs::LongJobGuard>,
 }
 
 impl MaintenanceSteps {
+    fn tick() -> Self {
+        let job = crate::long_jobs::LongJobs::start(
+            "journal.maintenance",
+            "Maintaining the session history",
+            &[crate::long_jobs::Blocks::Workspaces],
+        );
+        Self { steps: Vec::new(), job: Some(job) }
+    }
+
     fn time<T>(&mut self, step: &'static str, run: impl FnOnce() -> T) -> T {
+        if let Some(job) = &self.job {
+            job.set_detail(step);
+        }
         let started = Instant::now();
         let value = run();
         self.record(step, started.elapsed());
@@ -265,7 +280,7 @@ impl Mux {
         if self.journal_maintenance_paused() {
             return TickOutcome::WorkRemains;
         }
-        let mut steps = MaintenanceSteps::default();
+        let mut steps = MaintenanceSteps::tick();
         let ledgers_remain = steps.time("ledgers", || self.run_ledger_maintenance(ledgers));
         // The roster cursor follows the head, so a start replays one tick. A
         // settled worker wakes on every journal change, so the head never

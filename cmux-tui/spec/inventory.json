@@ -374,6 +374,7 @@
       "ids",
       "import-bookmarks",
       "import-session-organization",
+      "jobs-list",
       "journal-frontend-event",
       "list-agents",
       "list-bookmarks",
@@ -800,6 +801,12 @@
     },
     {
       "name": "keybindings-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "jobs-changed",
       "streams": [
         "subscribe"
       ]

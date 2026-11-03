@@ -37,7 +37,14 @@ impl Mux {
     fn try_ledger_maintenance(&self, state: &mut LedgerMaintenance) -> anyhow::Result<bool> {
         let mut drained = false;
         let mut corrupt = false;
-        for _ in 0..LEDGER_PRUNE_BATCHES_PER_TICK {
+        let job = crate::long_jobs::LongJobs::start(
+            "registry.ledger_retention",
+            "Trimming old mutation records",
+            &[crate::long_jobs::Blocks::Workspaces],
+        )
+        .unit("batches");
+        for batch in 0..LEDGER_PRUNE_BATCHES_PER_TICK {
+            job.set_progress(batch as u64, LEDGER_PRUNE_BATCHES_PER_TICK as u64);
             if self.journal_maintenance_paused() {
                 return Ok(true);
             }

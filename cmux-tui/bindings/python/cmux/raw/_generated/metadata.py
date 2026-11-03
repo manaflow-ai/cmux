@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b'
+IR_SHA256 = '99619ad91fdb4caa31001819d4ce4072ad3f39df0274af5a29ab5fc76a7c6f57'
 
 
 @dataclass(frozen=True)
@@ -1742,6 +1742,16 @@ COMMANDS = {
             'groups': CommandFieldMetadata(None, None),
             'session_id': CommandFieldMetadata(None, None),
             'workspaces': CommandFieldMetadata(None, None),
+        },
+    ),
+    'jobs-list': CommandMetadata(
+        'jobs-list',
+        'control',
+        12,
+        'long_jobs',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
         },
     ),
     'journal-frontend-event': CommandMetadata(
@@ -3944,6 +3954,7 @@ EVENTS = {
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'history-changed': EventMetadata('history-changed', 12, 'history-v1', ('subscribe',), 'emitted'),
+    'jobs-changed': EventMetadata('jobs-changed', 12, 'long_jobs', ('subscribe',), 'emitted'),
     'keybindings-changed': EventMetadata('keybindings-changed', 12, 'keybindings-v1', ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
     'machine-usage-changed': EventMetadata('machine-usage-changed', 12, 'machine-usage-v1', ('subscribe',), 'emitted'),

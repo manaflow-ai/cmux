@@ -17,6 +17,7 @@ use super::super::{
 };
 use super::codec::{inflate_segment, split_records};
 use super::{OUTPUT_KIND, copied_bytes, free_space_refusal, remove_staging, staging_path};
+use crate::long_jobs::{Blocks, LongJobGuard, LongJobs};
 use crate::platform;
 
 const STAGING_FORMAT: &str = "2";
@@ -76,11 +77,20 @@ pub(crate) fn stage_registry(
 
 /// Every read on `source` checks `stopped` as it runs and fails once it is
 /// true (SQLite's progress handler interrupts the statement).
+/// Each check also beats the stage's long job, so a long scan does not read
+/// as a stalled one.
 fn stop_reads_on(
     source: &Connection,
     stopped: std::sync::Arc<dyn Fn() -> bool + Send + Sync>,
+    job: crate::long_jobs::JobHeartbeat,
 ) -> rusqlite::Result<()> {
-    source.progress_handler(STOP_CHECK_STEPS, Some(move || stopped()))
+    source.progress_handler(
+        STOP_CHECK_STEPS,
+        Some(move || {
+            job.beat();
+            stopped()
+        }),
+    )
 }
 
 fn stage_registry_until_stopped(
@@ -90,7 +100,15 @@ fn stage_registry_until_stopped(
     let source = open_registry_database_read_only(db_path)
         .with_context(|| format!("open workspace registry {}", db_path.display()))?;
     source.busy_timeout(Duration::from_secs(5))?;
-    stop_reads_on(&source, control.stopped.clone())?;
+    // In the background at low priority while the owner serves: it blocks
+    // nothing, but it is shown, and it holds back journal sealing.
+    let job = LongJobs::start(
+        "registry.output_cleanup.stage",
+        "Preparing the stored terminal output cleanup",
+        &[Blocks::None],
+    )
+    .unit("segments");
+    stop_reads_on(&source, control.stopped.clone(), job.heartbeat_handle())?;
     if !output_present(&source)? {
         return Ok(StageOutcome::NotNeeded);
     }
@@ -116,7 +134,7 @@ fn stage_registry_until_stopped(
     } else {
         eprintln!("cmux-tui: output cleanup: staging {}", staging_path(db_path).display());
     }
-    match stage_segments(&source, &staging, control.next_segment, Some((db_path, copied)))? {
+    match stage_segments(&source, &staging, control.next_segment, Some((db_path, copied)), Some(&job))? {
         Staged::Stopped => return Ok(StageOutcome::Stopped),
         Staged::Refused(reason) => return Ok(StageOutcome::Refused(reason)),
         Staged::Finished => {}
@@ -265,9 +283,16 @@ pub(super) fn stage_segments(
     staging: &Connection,
     next_segment: &dyn Fn() -> bool,
     space_check: Option<(&Path, u64)>,
+    job: Option<&LongJobGuard>,
 ) -> anyhow::Result<Staged> {
     let total: i64 =
         source.query_row("SELECT COUNT(*) FROM journal_segments", [], |row| row.get(0))?;
+    let progress = |staged: u64| {
+        if let Some(job) = job {
+            job.set_progress(staged, u64::try_from(total).unwrap_or(0));
+        }
+    };
+    progress(state_u64(staging, "staged_segments")?);
     let mut since_space_check = 0_u64;
     let mut last_log = Instant::now();
     loop {
@@ -336,6 +361,7 @@ pub(super) fn stage_segments(
             [&segment_id],
         )?;
         tx.commit()?;
+        progress(state_u64(staging, "staged_segments")?);
         since_space_check += 1;
         if let Some((db_path, copied)) = space_check
             && since_space_check >= SEGMENTS_PER_SPACE_CHECK

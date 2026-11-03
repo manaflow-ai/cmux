@@ -677,9 +677,19 @@ fn stored_output_is_removed_and_the_registry_swapped_at_the_next_start() {
     assert!(previous.is_file(), "the previous registry stays through the swap launch");
 
     // The start after a full start on the new registry removes the old file.
+    // The swap start's read-only checks of the backup leave SQLite sidecars
+    // beside it; they go with it.
+    eprintln!(
+        "backup sidecars before the next start: {:?}",
+        ["-wal", "-shm"].map(|suffix| sidecar(&previous, suffix).exists())
+    );
     let owner = Owner::start(&dir.0, session, "after-swap", &[]);
     owner.wait_for_log("output cleanup: removed the previous registry");
     assert!(!previous.exists());
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let path = sidecar(&previous, suffix);
+        assert!(!path.exists(), "{} stayed beside the removed backup", path.display());
+    }
     let (_, reason) = read_journal(&owner.socket());
     assert_eq!(reason, "completed");
     assert!(!owner.log_text().contains("output cleanup: staging"), "the cleanup runs once");
@@ -917,4 +927,113 @@ fn a_killed_cleanup_leaves_the_registry_usable_and_resumes() {
     owner.wait_for_log("output cleanup: swapped the registry");
     assert_cleaned(&owner, &prepared);
     owner.stop();
+}
+
+/// The restore output of `server ensure --restore-progress`: progress lines,
+/// then the result line.
+fn ensure_lines(stdout: &[u8]) -> (serde_json::Value, Vec<serde_json::Value>) {
+    let mut lines = String::from_utf8_lossy(stdout)
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let result = lines.pop().expect("a result line");
+    (result, lines)
+}
+
+/// The incident of 2026-11-02 (plans/cmux-next/long-jobs-DESIGN.md): a swap
+/// that outlasts the restore bound. `server ensure --restore-progress`
+/// shows the cleanup job and how far it is on every progress line, and keeps
+/// waiting while the job advances: here the restore bound is 6 s and the
+/// swap takes about 20 s (13 steps held 1.5 s each), and ensure still
+/// reports the owner started instead of `server.restore_timeout`.
+#[test]
+fn ensure_waits_on_a_slow_swap_while_its_progress_advances() {
+    let dir = state_dir("progress");
+    let session = "oc-progress";
+    let prepared = prepare(&dir.0, session);
+    stage(&dir.0, session, "stage").stop();
+
+    let socket = dir.0.join("mux.sock");
+    let _ = fs::remove_file(&socket);
+    let started = Instant::now();
+    let output = command(&dir.0)
+        .args(["server", "ensure", "--json", "--session", session, "--restore-progress"])
+        .arg("--socket")
+        .arg(&socket)
+        .env("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS", NEVER)
+        .env("CMUX_TUI_TEST_OUTPUT_CLEANUP_SWAP_STEP_PAUSE_MS", "1500")
+        .env("CMUX_TUI_TEST_RESTORE_DEADLINE_MS", "6000")
+        .env("CMUX_TUI_TEST_RESTORE_PROGRESS_MS", "500")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let waited = started.elapsed();
+    let log = fs::read_to_string(dir.0.join("client.log")).unwrap_or_default();
+    assert!(
+        output.status.success(),
+        "ensure failed after {waited:?}: {}\n{}\nowner log: {log}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let (result, progress) = ensure_lines(&output.stdout);
+    assert_eq!(result["status"], "started", "{result}");
+    assert!(
+        waited > Duration::from_secs(15),
+        "the swap ({waited:?}) must outlast the 10 s contact bound and the 6 s restore bound"
+    );
+    let done = progress
+        .iter()
+        .filter_map(|line| {
+            line["jobs"].as_array()?.iter().find(|job| job["kind"] == "registry.output_cleanup")
+        })
+        .map(|job| {
+            assert_eq!(job["total"], 13, "{job}");
+            assert_eq!(job["unit"], "steps", "{job}");
+            assert!(job["blocks"].as_array().unwrap().iter().any(|b| b == "startup"), "{job}");
+            job["done"].as_u64().expect("done")
+        })
+        .collect::<Vec<_>>();
+    assert!(done.len() >= 3, "progress lines without the cleanup job: {progress:?}");
+    assert!(done.windows(2).all(|pair| pair[0] <= pair[1]), "done went back: {done:?}");
+    assert!(done.last() > done.first(), "done never advanced: {done:?}");
+
+    let owner_socket = socket.clone();
+    let _ = command(&dir.0)
+        .args(["server", "stop", "--session", session, "--end-terminals", "--socket"])
+        .arg(&owner_socket)
+        .output();
+    assert_eq!(live_output_rows(&prepared.registry), 0, "the swapped registry holds no output");
+}
+
+/// After attach the socket lists a running long job: the background Phase A
+/// stage, with its segment progress (`jobs-list` through `cmux jobs --json`).
+#[test]
+fn jobs_list_shows_the_running_stage_after_attach() {
+    let dir = state_dir("jobs");
+    let session = "oc-jobs";
+    let _prepared = prepare(&dir.0, session);
+    let owner = Owner::start(
+        &dir.0,
+        session,
+        "stage-slow",
+        &[
+            ("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS", "0"),
+            ("CMUX_TUI_TEST_OUTPUT_CLEANUP_SEGMENT_PAUSE_MS", "500"),
+            ("CMUX_TUI_TEST_OUTPUT_CLEANUP_PROGRESS_MS", "0"),
+            ("CMUX_TUI_TEST_LONG_JOBS_VISIBLE_AFTER_MS", "0"),
+        ],
+    );
+    owner.wait_for_log("output cleanup: staged 1 of");
+    let listed = owner.cli(&["jobs"]);
+    let job = listed["jobs"]
+        .as_array()
+        .and_then(|jobs| jobs.iter().find(|job| job["kind"] == "registry.output_cleanup.stage"))
+        .unwrap_or_else(|| panic!("no stage job in {listed}"));
+    assert!(job["done"].as_u64().is_some_and(|done| done >= 1), "{job}");
+    assert!(job["total"].as_u64().is_some_and(|total| total > 1), "{job}");
+    assert_eq!(job["unit"], "segments", "{job}");
+    assert_eq!(job["blocks"], serde_json::json!(["none"]), "{job}");
+    assert!(job["updated_ms"].as_u64() >= job["started_ms"].as_u64(), "{job}");
+    owner.kill();
 }

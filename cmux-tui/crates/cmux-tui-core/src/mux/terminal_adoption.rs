@@ -74,6 +74,12 @@ impl Mux {
 
     #[cfg(any(unix, windows))]
     pub(super) fn adopt_terminal_hosts(self: &Arc<Self>) -> anyhow::Result<()> {
+        let job = crate::long_jobs::LongJobs::start(
+            "terminal.adopt_hosts",
+            "Reconnecting to running terminals",
+            &[crate::long_jobs::Blocks::Startup, crate::long_jobs::Blocks::Terminals],
+        )
+        .unit("terminals");
         let options = self.surface_options.lock().unwrap().clone();
         let exit_records = match options.terminal_host_root.as_deref() {
             Some(root) => crate::terminal_host_runtime::load_terminal_host_exit_records(root)?,
@@ -164,7 +170,9 @@ impl Mux {
             }
             rows
         };
+        job.set_progress(0, records.len() as u64);
         for (record_path, record) in records {
+            job.advance(1);
             let terminal_id = record.terminal_id.clone();
             if handled_terminals.contains(&terminal_id) {
                 if !cleanup_terminal_host_record(&record, &record_path) {

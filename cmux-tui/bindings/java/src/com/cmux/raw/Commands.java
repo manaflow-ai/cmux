@@ -139,6 +139,7 @@ public final class Commands {
     public static final CommandMetadata IDS = new CommandMetadata("ids", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IMPORT_BOOKMARKS = new CommandMetadata("import-bookmarks", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IMPORT_SESSION_ORGANIZATION = new CommandMetadata("import-session-organization", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata JOBS_LIST = new CommandMetadata("jobs-list", Authority.CONTROL, 12, "long_jobs", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata JOURNAL_FRONTEND_EVENT = new CommandMetadata("journal-frontend-event", Authority.CONTROL, 10, "frontend-journal-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_AGENTS = new CommandMetadata("list-agents", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_BOOKMARKS = new CommandMetadata("list-bookmarks", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -431,6 +432,7 @@ public final class Commands {
         values.put("ids", IDS);
         values.put("import-bookmarks", IMPORT_BOOKMARKS);
         values.put("import-session-organization", IMPORT_SESSION_ORGANIZATION);
+        values.put("jobs-list", JOBS_LIST);
         values.put("journal-frontend-event", JOURNAL_FRONTEND_EVENT);
         values.put("list-agents", LIST_AGENTS);
         values.put("list-bookmarks", LIST_BOOKMARKS);

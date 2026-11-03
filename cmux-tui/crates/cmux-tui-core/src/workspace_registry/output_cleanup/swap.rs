@@ -29,6 +29,7 @@ use super::{
     previous_path, remove_if_present, remove_staging, rollback_pending_path, staging_path,
     write_failure_marker,
 };
+use crate::long_jobs::{Blocks, LongJobGuard, LongJobs};
 use crate::platform;
 
 /// Meta key: full owner starts since the swap. The previous file is removed
@@ -355,19 +356,38 @@ pub(crate) fn remove_previous_registry_when_started(db_path: &Path) {
     if started == 0 {
         return;
     }
+    // Every connection to the backup (the read-only checks above) is
+    // closed by now; its SQLite sidecars go with it.
     let _ =
         std::thread::Builder::new().name("cmux-output-cleanup-remove".into()).spawn(move || {
-            match fs::remove_file(&previous) {
+            let _job = LongJobs::start(
+                "registry.output_cleanup.remove_backup",
+                "Removing the registry kept from the output cleanup",
+                &[Blocks::None],
+            );
+            match remove_previous_with_sidecars(&previous) {
                 Ok(()) => eprintln!(
                     "cmux-tui: output cleanup: removed the previous registry {}",
                     previous.display()
                 ),
                 Err(error) => eprintln!(
-                    "cmux-tui: output cleanup: could not remove {}: {error}",
+                    "cmux-tui: output cleanup: could not remove {}: {error:#}",
                     previous.display()
                 ),
             }
         });
+}
+
+/// Removes the previous registry, then the sidecars SQLite left beside it
+/// (`-wal`, `-shm`, `-journal`: a read-only open of a WAL file makes them).
+/// The sidecars go after the main file, so a crash between the two never
+/// leaves a WAL beside a file it could be applied to.
+fn remove_previous_with_sidecars(previous: &Path) -> anyhow::Result<()> {
+    remove_if_present(previous)?;
+    for suffix in ["-wal", "-shm", "-journal"] {
+        remove_if_present(&sidecar_path(previous, suffix))?;
+    }
+    Ok(())
 }
 
 /// Without hard links the swap renames the registry aside first; a crash
@@ -415,7 +435,7 @@ pub(crate) fn restore_interrupted_swap(db_path: &Path) {
 }
 
 fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result<Swap> {
-    let mut steps = Steps { last: Some(Instant::now()), done: Vec::new() };
+    let mut steps = Steps::new();
     let before_bytes = file_len(db_path) + file_len(&sidecar_path(db_path, "-wal"));
     // Read-only until the staged work is known to be complete.
     let (registry_id, copied) = {
@@ -456,7 +476,7 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
         // Segments sealed after Phase A (by an explicit seal request).
         let source = open_registry_database_read_only(db_path)?;
         check_staged_prefix(&source, &staged)?;
-        match stage_segments(&source, &staged, &|| true, None)? {
+        match stage_segments(&source, &staged, &|| true, None, None)? {
             Staged::Finished => {}
             Staged::Stopped | Staged::Refused(_) => {
                 anyhow::bail!("staging the last segments stopped")
@@ -464,8 +484,21 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
         }
     }
     steps.mark("stage tail");
-    let built = build(&staged, db_path, &mut steps)?;
-    verify(&staged, &registry_id, &built, &mut steps)?;
+    let built = {
+        // One statement copies a whole table: it beats the job as it runs.
+        let job = steps.job.heartbeat_handle();
+        staged.progress_handler(
+            crate::long_jobs::SQLITE_HEARTBEAT_STEPS,
+            Some(move || {
+                job.beat();
+                false
+            }),
+        )?;
+        let built = build(&staged, db_path, &mut steps)
+            .and_then(|built| verify(&staged, &registry_id, &built, &mut steps).map(|()| built));
+        staged.progress_handler(0, None::<fn() -> bool>)?;
+        built?
+    };
     drop(staged);
     verify_open(&staging_path(db_path)).context("open the new registry as the owner does")?;
     steps.mark("open and read layout");
@@ -502,18 +535,66 @@ fn check_staged_prefix(source: &Connection, staged: &Connection) -> anyhow::Resu
     Ok(())
 }
 
-/// Wall time of each Phase B step, for the swap log line.
-#[derive(Default)]
+/// The Phase B steps in order: the swap's long job counts them.
+const SWAP_STEPS: [&str; 13] = [
+    "checkpoint",
+    "stage tail",
+    "copy tables",
+    "live rows",
+    "pack segments",
+    "index rows",
+    "meta",
+    "commit",
+    "vacuum",
+    "integrity check",
+    "read back",
+    "open and read layout",
+    "sync and rename",
+];
+
+/// Wall time of each Phase B step, for the swap log line, and the swap's
+/// long job (`registry.output_cleanup`): one `done` per finished step.
 struct Steps {
     last: Option<Instant>,
     done: Vec<(&'static str, Duration)>,
+    job: LongJobGuard,
 }
 
 impl Steps {
+    fn new() -> Self {
+        let job = LongJobs::start(
+            "registry.output_cleanup",
+            "Cleaning up stored terminal output",
+            &[Blocks::Startup, Blocks::Quit],
+        )
+        .unit("steps");
+        job.step(0, SWAP_STEPS.len() as u64, SWAP_STEPS[0]);
+        Self { last: Some(Instant::now()), done: Vec::new(), job }
+    }
+
     fn mark(&mut self, name: &'static str) {
         let now = Instant::now();
         let since = self.last.replace(now).map_or(Duration::ZERO, |last| now - last);
         self.done.push((name, since));
+        let index = SWAP_STEPS.iter().position(|step| *step == name).map_or(0, |at| at + 1);
+        self.job.step(
+            index as u64,
+            SWAP_STEPS.len() as u64,
+            SWAP_STEPS.get(index).copied().unwrap_or(name),
+        );
+        #[cfg(debug_assertions)]
+        if let Some(pause) = std::env::var("CMUX_TUI_TEST_OUTPUT_CLEANUP_SWAP_STEP_PAUSE_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+        {
+            // Test hook: a slow swap for the restore-progress behavior test.
+            std::thread::sleep(Duration::from_millis(pause));
+        }
+    }
+
+    /// The current step's own progress (a table, a segment) in `detail`.
+    fn detail(&self, detail: impl Into<String>) {
+        self.job.set_detail(detail);
     }
 
     fn line(&self) -> String {
@@ -595,7 +676,8 @@ fn build_in(tx: &Transaction<'_>, steps: &mut Steps) -> anyhow::Result<Built> {
         .collect::<Vec<_>>();
     // Rowids are kept: code orders by them (ledger retention, archives,
     // intents, effects, workspace positions).
-    for table in &copied {
+    for (index, table) in copied.iter().enumerate() {
+        steps.detail(format!("copy tables: {table} ({} of {})", index + 1, copied.len()));
         let columns = column_list(tx, "src", table, None)?;
         let (insert, select, order) = if has_rowid(tx, table)? {
             (format!("rowid, {columns}"), format!("rowid, {columns}"), " ORDER BY rowid")
@@ -642,6 +724,7 @@ fn build_in(tx: &Transaction<'_>, steps: &mut Steps) -> anyhow::Result<Built> {
     let kept: i64 =
         tx.query_row("SELECT COUNT(*) FROM main.output_cleanup_records", [], |row| row.get(0))?;
     anyhow::ensure!(kept > 0, "the journal holds no record other than terminal output");
+    steps.detail(format!("pack segments: {kept} records"));
     let (segments, pruned_ranges) = pack_segments(tx, lo, head)?;
     steps.mark("pack segments");
 

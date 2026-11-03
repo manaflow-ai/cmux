@@ -102,6 +102,8 @@ use ghostty_vt::KeyInput;
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 #[cfg(unix)]
 mod apps;
+mod jobs;
+pub use jobs::forward_long_jobs;
 #[cfg(unix)]
 pub use apps::start_apps_when_ready;
 pub use cmd_workspaces::WORKSPACE_NAME_SOURCE_CAPABILITY;
@@ -414,6 +416,8 @@ pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
 pub const DAEMON_SHUTDOWN_PENDING_CODE: &str = "daemon_shutdown_pending";
 /// The daemon answers `machine-usage` and emits `machine-usage-changed`.
 pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
+/// The daemon answers `jobs-list` and emits `jobs-changed` (long jobs).
+pub const LONG_JOBS_CAPABILITY: &str = "long_jobs";
 /// The daemon reads the host's listening TCP sockets for an authenticated
 /// client. Cloud clients use this over the private cmux-tui link, so routine
 /// port inventory never needs a provider or web control-plane call.
@@ -881,6 +885,8 @@ enum Command {
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.
     MachineUsage,
+    /// Read the daemon's long jobs (`long_jobs`): `{"jobs":[...]}`.
+    JobsList,
     /// Read listening TCP sockets on this host. The fixed command has no
     /// caller-controlled arguments and returns only the socket listing.
     MachineListeningTcp,

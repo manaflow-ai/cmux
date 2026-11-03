@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b. */
+/* cmux-tui mux protocol 12, IR 99619ad91fdb4caa31001819d4ce4072ad3f39df0274af5a29ab5fc76a7c6f57. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b" as const;
+export const SDK_IR_SHA256 = "99619ad91fdb4caa31001819d4ce4072ad3f39df0274af5a29ab5fc76a7c6f57" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1521,6 +1521,14 @@ export const COMMAND_METADATA = {
     "constraints": [
       "See spec/commands.md for the result object."
     ]
+  },
+  "jobs-list": {
+    "authority": "control",
+    "since": 12,
+    "capability": "long_jobs",
+    "fields": {},
+    "stream": null,
+    "constraints": []
   },
   "journal-frontend-event": {
     "authority": "control",
@@ -3975,6 +3983,14 @@ export const EVENT_METADATA = {
   "history-changed": {
     "since": 12,
     "capability": "history-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "jobs-changed": {
+    "since": 12,
+    "capability": "long_jobs",
     "streams": [
       "subscribe"
     ],
@@ -7727,6 +7743,24 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "JobsListResult": {
+    "additional_properties": false,
+    "constraints": [],
+    "fields": {
+      "jobs": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "LongJob"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "JsonValue": {
     "kind": "opaque_json",
     "reason": "The wire field intentionally carries a frontend-authored or runtime-authored arbitrary JSON document."
@@ -8191,6 +8225,119 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
+  },
+  "LongJob": {
+    "additional_properties": false,
+    "constraints": [
+      "kind is a stable dotted id (registry.output_cleanup, registry.open, terminal.adopt_hosts, journal.maintenance, ...); title is its English fallback.",
+      "updated_ms changes on every progress step or heartbeat; a reader bounds its wait by updated_ms not changing (a stall), not by a fixed timer.",
+      "A job is listed once it has run for about one second."
+    ],
+    "fields": {
+      "blocks": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "LongJobBlock"
+          },
+          "kind": "array"
+        }
+      },
+      "cancellable": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "detail": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "done": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "started_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "title": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "total": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "unit": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "updated_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "LongJobBlock": {
+    "kind": "enum",
+    "values": [
+      "startup",
+      "terminals",
+      "workspaces",
+      "history",
+      "quit",
+      "none"
+    ]
   },
   "MachineListeningTcpResult": {
     "additional_properties": false,
@@ -20418,6 +20565,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "jobs-list": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JobsListResult"
+    }
+  },
   "journal-frontend-event": {
     "request": {
       "additional_properties": false,
@@ -30011,6 +30169,31 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "jobs-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "jobs-changed"
+        }
+      },
+      "jobs": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "LongJob"
+          },
+          "kind": "array"
         }
       }
     },
