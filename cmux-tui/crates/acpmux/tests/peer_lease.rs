@@ -137,6 +137,27 @@ fn lease(port: u16, peer_token: &str) -> Value {
 }
 
 #[tokio::test]
+async fn peer_snapshots_clear_is_local_only_and_idempotent() {
+    let a = hub(config());
+    for origin in [Origin::Web, Origin::LocalApp, Origin::Peer] {
+        let mut caller = C::new(&a, origin);
+        caller.call(method::INITIALIZE, json!({"protocolVersion": 1})).await.unwrap();
+        let refusal = caller.call("_acpmux/peer_snapshots_clear", json!({})).await.unwrap_err();
+        assert!(refusal.contains("unix socket"), "{origin:?}: {refusal}");
+        caller.close().await;
+    }
+    let mut caller = C::new(&a, Origin::Local);
+    caller.call(method::INITIALIZE, json!({"protocolVersion": 1})).await.unwrap();
+    for _ in 0..2 {
+        assert_eq!(
+            caller.call("_acpmux/peer_snapshots_clear", json!({})).await.unwrap(),
+            json!({"cleared": true})
+        );
+    }
+    caller.close().await;
+}
+
+#[tokio::test]
 async fn a_peer_lease_lists_the_peers_sessions_served_as_a_peer() {
     let (_b, port, peer_token) = serving_b("list").await;
     let a = hub(config());

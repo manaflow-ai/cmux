@@ -670,6 +670,19 @@ impl Queued {
         !matches!(&self.source, Source::Spawn(r) if r.quiet)
     }
 
+    /// A waking message of the owner (a person's own words): it never waits
+    /// for a turn adopted from before a restart (`adopt_orphans`).
+    fn is_owner_message(&self) -> bool {
+        self.wakes()
+            && matches!(
+                self.source,
+                Source::Message {
+                    requires_approval: false,
+                    ..
+                }
+            )
+    }
+
     fn requires_approval(&self) -> bool {
         matches!(
             self.source,
@@ -762,6 +775,9 @@ pub struct Brain {
     /// their id, removed by name once acpmux is up.
     stale_sessions: Vec<String>,
     outbox_timer: Option<Instant>,
+    /// Pending attachment jobs of this process; persisted manifests resume
+    /// when this set is empty after a restart.
+    media_uploads: HashSet<String>,
     /// When the last agent message was taken by the owner (epoch ms): the next waits out the gap (G11).
     last_agent_send: Option<u64>,
     fatal: Option<String>,
@@ -1017,6 +1033,7 @@ impl Brain {
             sessions: HashMap::new(),
             stale_sessions,
             outbox_timer: None,
+            media_uploads: HashSet::new(),
             last_agent_send: None,
             fatal: None,
             stop_wanted: false,
@@ -1939,9 +1956,20 @@ impl Brain {
             conversation,
         };
         let wakes = item.wakes();
+        let owner = item.is_owner_message();
         self.queue.push_back(item);
         if human && same && wakes {
             self.interrupt_for_newer();
+        }
+        // A person's message never waits behind a turn adopted from before
+        // a restart (an update relaunch, `orphan_wait`): that turn cannot
+        // take it, so it is folded and ended as at its deadline, and the
+        // next turn reads the message at once, as a running turn is
+        // interrupted for one (steer.rs; user 2026-10-21). Another agent's
+        // message waits for it, as for any running turn.
+        if owner && self.orphan_wait.is_some() {
+            (self.log)("a new message: folding and ending the adopted turn session it waited for");
+            self.adopt_orphans(true);
         }
         self.maybe_start_turn();
     }
@@ -2008,6 +2036,7 @@ fn op_entry(conversation: String, key: &str, op: Op) -> OutboxEntry {
         rate_attempts: 0,
         previews_until: None,
         plain_text: None,
+        pending_media: Vec::new(),
     }
 }
 
@@ -2055,6 +2084,7 @@ fn answer_entry(
         rate_attempts: 0,
         previews_until: None,
         plain_text: None,
+        pending_media: Vec::new(),
     }
 }
 
