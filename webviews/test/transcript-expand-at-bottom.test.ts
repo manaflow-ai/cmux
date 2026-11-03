@@ -163,9 +163,10 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     await page.close();
   });
 
-  /// Clicks `query` (unless `click` is false) and reads every painted frame for `ms`: the line's top, the first row under the
-  /// opened row and the last row (their tops and feet), how far the view is from its end, and how far
-  /// below the row under it the opened row is drawn (its foot less its clip).
+  /// Clicks `query` (unless `click` is false) and reads every painted frame for `ms`: the opened row's
+  /// top (a Show more under its text stays at the row's foot, the text above it rises), the first row
+  /// under it and the last row's foot, how far the view is from its end, and how far below the row
+  /// under it the opened row is drawn (its foot less its clip).
   const watchOpen = async (page: Page, query: string, ms = 700, click = true) => {
     const watching = page.evaluate(
       ({ selector, duration }) =>
@@ -183,7 +184,7 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
               .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0]!;
             const cut = /inset\(\S+ \S+ ([\d.]+)px/.exec(getComputedStyle(row).clipPath);
             frames.push({
-              line: line.getBoundingClientRect().top,
+              line: box.top,
               under: next.getBoundingClientRect().top,
               last: rows.at(-1)!.getBoundingClientRect().bottom,
               fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
