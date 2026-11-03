@@ -476,8 +476,7 @@ def fill_command(build):
     digest = str(build.get("artifact") or "")
     commit = str(build.get("commit") or "")
     program = base64.b64encode(BUILD_CACHE.read_bytes()).decode()
-    return (f"find $HOME/.cache/cmux-journeys/builds -maxdepth 1 -name '*.tmp.*' -mmin +60 -exec rm -rf {{}} + 2>/dev/null || true; "
-            f"JOURNEYS_CACHE_ROOT=\"$HOME/.cache/cmux-journeys\" /usr/bin/python3 -I -c "
+    return (f"JOURNEYS_CACHE_ROOT=\"$HOME/.cache/cmux-journeys\" /usr/bin/python3 -I -c "
             f"'import base64,sys;exec(compile(base64.b64decode(sys.argv.pop(1)),\"build_cache.py\",\"exec\"))' "
             f"{program} {q(build['id'])} "
             f"{q(digest.removeprefix('sha256:') if re.fullmatch(r'sha256:[0-9a-f]{64}', digest) else '-')} {BUILD_CACHE_KEEP} "
