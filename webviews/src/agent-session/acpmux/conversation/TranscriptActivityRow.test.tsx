@@ -53,6 +53,9 @@ afterEach(() => {
 
 test("subagent, messaging, and inbox activity use the shared row and agent tag", () => {
   expect(source("./ActivityLine.tsx")).toContain("TranscriptActivityRow");
+  expect(source("./ActivityLine.tsx")).toContain('className="cv-activity cv-tool"');
+  expect(source("./ActivityLine.tsx")).toContain('className="cv-tool__icon"');
+  expect(source("./ActivityLine.tsx")).toContain("row.doingCommand ? <TerminalSquare /> : null");
   expect(source("../subagents/SubagentDoneLine.tsx")).toContain("TranscriptActivityRow");
   expect(source("./LaneNoticeBatch.tsx")).toContain("TranscriptActivityRow");
   expect(source("./IncomingMessageCard.tsx")).toContain("AgentTag");

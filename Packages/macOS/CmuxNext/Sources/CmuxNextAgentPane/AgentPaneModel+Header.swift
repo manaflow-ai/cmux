@@ -231,6 +231,9 @@ extension AgentPaneModel {
         case .sessionInfo(let info):
             sessionInfo.update(info)
             return AgentPaneReply.success()
+        case .sessionInfoOverlays(let rects):
+            sessionInfo.updateOverlays(rects)
+            return AgentPaneReply.success()
         case .copyText(let text):
             guard transport.gestures.consume() else {
                 return Self.transportFailure(.gestureRequired)
@@ -246,6 +249,10 @@ extension AgentPaneModel {
         case .tabRowToolsSet(let tools):
             guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }
             setTabRowTools(tools)
+            return AgentPaneReply.success()
+        case .tabRowToolsOpenMenu(let id, let menuItemID):
+            guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }
+            onTabRowToolMenuRequested?(id, menuItemID)
             return AgentPaneReply.success()
         case .tabState(let refresh):
             guard let header else {

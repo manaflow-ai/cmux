@@ -8,7 +8,7 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         case arc
         /// Faint full track plus an arc of `progress`.
         case ring(progress: Double)
-        /// Faint full track plus a short bright sweep (`sweepLength` of the circle, round caps) that
+        /// Faint full track plus a bright arc (`workingArcLength` of the circle, round caps) that
         /// `spin` turns: the agent working-state mark, as Claude and ChatGPT draw theirs.
         case sweep
         /// The AppKit spinner's spokes. Determinate progress in the native
@@ -83,15 +83,22 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
 
     public static let hidden = StatusIndicatorPlan(glyph: .none, animation: nil, tint: .loading)
 
-    /// The agent working-state mark's glyph: a faint full ring with a short bright sweep turning
-    /// smoothly on the shared clock, as in Claude and ChatGPT. Neither the 3/4 arc (Leo 2026-10-31:
-    /// "who even decided to put that 3/4 circle") nor the macOS activity indicator's segmented spokes
-    /// (#29903; Leo 2026-11-01: "why the f*** did you make the spinner into this????"). The spokes
-    /// stay only as the explicit "macOS Spinner" loading style and the arc as loading's "Thin Arc".
+    /// The agent working-state mark's glyph: ChatGPT's ring with one gap turning slowly on the shared
+    /// clock (Leo 2026-11-02, on ChatGPT's beside ours: "THIS IS CHATGPT", "IT GOES SLOWER"): a bright
+    /// arc of ``workingArcLength`` over the faint track, which shows in the gap, at
+    /// ``workingStrokeScale`` times the indicator's thickness. It replaces #31455's short 80° sweep,
+    /// which read too faint, and is never the macOS activity indicator's segmented spokes (#29903;
+    /// Leo 2026-11-01: "why the f*** did you make the spinner into this????"). The spokes stay only as
+    /// the explicit "macOS Spinner" loading style and the bare arc as loading's "Thin Arc".
     public static let workingGlyph: Glyph = .sweep
 
-    /// The share of the circle the working sweep covers (about 80°).
-    public static let sweepLength: Double = 0.22
+    /// The share of the circle the working arc covers: ChatGPT's measures 0.72 (a gap of about 100°).
+    /// The web `WORKING_ARC_LENGTH` (webviews conversation/icons.tsx).
+    public static let workingArcLength: Double = 0.72
+
+    /// The working ring's stroke over the indicator's thickness: ChatGPT's is a third heavier than the
+    /// 1.5 pt loading arc (2 on the web's 16 viewBox, `WORKING_STROKE_WIDTH`).
+    public static let workingStrokeScale: Double = 4.0 / 3.0
 
     /// Agent work's spinner (the agent working-state mark), turning on the shared clock so every
     /// working row moves in phase (#29903).

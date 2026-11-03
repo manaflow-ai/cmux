@@ -792,6 +792,22 @@ fn start(
     let contact =
         crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json")).contact;
     let instructions = crate::prompt::with_coordinator_contact(instructions, contact.as_deref());
+    // A Chief of this Mac's session daemon keeps its stable acpmux session
+    // (brain/chief_inbox.rs); `CHIEF_INBOX_SESSION=0` turns it off.
+    let chief_inbox = (matches!(source, Source::Local { .. })
+        && env("CHIEF_INBOX_SESSION").as_deref() != Some("0"))
+    .then(|| {
+        env("MUX_CHIEF_TITLE")
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or_else(|| cmux_chief::rules::CHIEF_DISPLAY_NAME.to_owned())
+    });
+    let instructions = crate::prompt::with_local_chiefs(
+        instructions,
+        chief_inbox
+            .as_deref()
+            .map(|title| crate::brain::chief_inbox_name(&membership.participant, title))
+            .as_deref(),
+    );
     let (mut harness, mut compactor_harness) =
         harness_choice(chief_set.as_deref(), None, compactor_set.as_deref());
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
@@ -1659,6 +1675,7 @@ fn start(
         home_view: Some(home_view),
         membership: membership.clone(),
         keep_turn_session: env("CHIEF_KEEP_TURN_SESSION").as_deref() != Some("0"),
+        chief_inbox,
         screen_share: Some(paths.screen.clone()),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));

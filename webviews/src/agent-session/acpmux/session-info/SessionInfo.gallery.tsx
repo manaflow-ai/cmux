@@ -112,6 +112,9 @@ function GallerySessionInfo({
       <SessionInfoPanel
         width={panelWidth}
         placement={placement}
+        // Over a transcript it floats over the chat's column (a foot), where it is glass; otherwise it
+        // sits in the gutter or pushes, with no card (SessionInfo.tsx SessionInfoPanel).
+        foot={transcript && placement === "overlay" ? 0 : undefined}
         chrome={chrome}
         // The head draws only with a close: as in the chat pane.
         onClose={scope || closable ? () => undefined : undefined}
@@ -319,6 +322,70 @@ const dragOutputsOverContext: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[data-slot="outputs"][data-lifted]'));
 };
 
+const FOLDABLE_HEAD =
+  ".acpmux-session-info-section > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger";
+const style = (ctx: PlayContext, element: Element) => ctx.document.defaultView!.getComputedStyle(element);
+
+/// cmux#32765, as native #32674: a section's fold chevron sits after its title and shows only while its
+/// head is hovered (or keyboard focused). At rest no chevron draws, but its room is kept, so the title
+/// does not move when it shows.
+const chevronOnHoverAfterTitle: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(`${FOLDABLE_HEAD} > .acpmux-session-info-section__fold`));
+  const folds = [...ctx.document.querySelectorAll(`${FOLDABLE_HEAD} > .acpmux-session-info-section__fold`)];
+  for (const fold of folds)
+    if (style(ctx, fold).visibility !== "hidden") throw new Error("A section's fold chevron draws at rest");
+  const head = folds[0]!.parentElement!;
+  const section = head.closest<HTMLElement>(".acpmux-session-info-section")!.dataset.section;
+  const selector = `[data-section="${section}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`;
+  const title = head.querySelector(".acpmux-session-info-section__title")!;
+  const before = title.getBoundingClientRect();
+  await ctx.hover({ selector });
+  const fold = ctx.find({ selector: `${selector} > .acpmux-session-info-section__fold` });
+  await ctx.waitFor(() => style(ctx, fold).visibility === "visible");
+  const after = title.getBoundingClientRect();
+  if (after.left !== before.left || after.width !== before.width)
+    throw new Error("The title moved when the chevron showed");
+  if (fold.getBoundingClientRect().left < after.right) throw new Error("The fold chevron is not after the title");
+};
+
+/// As native #32674: the six-dot grip draws nothing at rest, nor for a pointer over a section's other
+/// rows; it shows while its section's head is hovered, at the head's right edge.
+const gripOnHeadHoverOnly: Play = async (ctx) => {
+  const handles = () => [...ctx.document.querySelectorAll(".acpmux-session-info-section__handle")];
+  await ctx.waitFor(() => handles().length > 0);
+  for (const handle of handles())
+    if (style(ctx, handle).opacity !== "0") throw new Error("A section's drag grip draws at rest");
+  const head = ctx.find({ selector: FOLDABLE_HEAD });
+  const section = head.closest<HTMLElement>(".acpmux-session-info-section")!;
+  const handle = section.querySelector(":scope > .acpmux-session-info-section__handle")!;
+  const row = section.querySelector(".ui-disclosure-panel :is(.acpmux-session-info-row, li)");
+  if (row && row.getClientRects().length > 0) {
+    await ctx.hover({
+      selector: `[data-section="${section.dataset.section}"] .ui-disclosure-panel :is(.acpmux-session-info-row, li)`,
+    });
+    if (style(ctx, handle).opacity !== "0") throw new Error("A body row's hover showed its section's grip");
+  }
+  await ctx.hover({
+    selector: `[data-section="${section.dataset.section}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`,
+  });
+  await ctx.waitFor(() => style(ctx, handle).opacity === "1");
+  if (handle.getBoundingClientRect().left < head.getBoundingClientRect().right - 0.5)
+    throw new Error("The grip is not at the head's right edge");
+};
+
+/// As native #32661: pushed beside the chat (or in the empty gutter) the panel draws no card behind its
+/// sections: no fill, no blur, no shadow.
+const noCardBehind: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info"));
+  const panel = ctx.find({ selector: ".acpmux-session-info" });
+  const look = style(ctx, panel);
+  if (panel.classList.contains("ui-glass")) throw new Error("The panel is a glass card where nothing runs under it");
+  if (look.backgroundColor !== "rgba(0, 0, 0, 0)" || look.backgroundImage !== "none")
+    throw new Error(`The panel paints a card: ${look.backgroundColor} ${look.backgroundImage}`);
+  if (!["none", ""].includes(look.backdropFilter) || look.boxShadow !== "none")
+    throw new Error(`The panel draws a card's blur or shadow: ${look.backdropFilter} ${look.boxShadow}`);
+};
+
 // Every section title shares the Environment rows' text column, with or without an icon.
 const checkTopBlockAlignment: Play = async (ctx) => {
   const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
@@ -333,6 +400,31 @@ const checkTopBlockAlignment: Play = async (ctx) => {
   const heading = rect('[data-section="changes"] .acpmux-session-info-section__title');
   if (Math.abs(heading.left - labelLeft) > 0.5)
     throw new Error("The Changes heading moved from the shared text column");
+};
+
+/// The default order, top to bottom (sectionOrder.ts DEFAULT_ORDER; Leo, 2026-11-03: "1. Machines showing
+/// up so I know if it's cloud or not 2. context 3. Subagents/background tasks running 4. Sources").
+const DEFAULT_SECTION_ORDER = [
+  "environment",
+  "context",
+  "usage",
+  "subagents",
+  "tasks",
+  "sources",
+  "changes",
+  "outputs",
+  "connectors",
+];
+const assertDefaultOrder: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
+  const drawn = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > [data-slot]")].map(
+    (slot) => slot.dataset.slot!,
+  );
+  const expected = DEFAULT_SECTION_ORDER.filter((id) => drawn.includes(id));
+  if (drawn.join(" ") !== expected.join(" "))
+    throw new Error(`Session Info's default order is ${drawn.join(", ")}, not ${expected.join(", ")}`);
+  for (const id of ["environment", "context", "subagents", "sources"])
+    if (!drawn.includes(id)) throw new Error(`The full chat does not draw ${id}`);
 };
 
 /// Every session acpmux lists, this Mac's and a peer's: the usage audit's deputies on a build box (no
@@ -711,9 +803,12 @@ export default componentEntry<Props>({
   load: async () => GallerySessionInfo,
   variants: {
     full: {
-      note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: six session-owned pull requests, then Sources with read-only PRs, URLs, files and MCP tools, then its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
+      note: "A chat on this Mac with every section, shipped layout (glance), in the default order: the machine (this Mac or Cloud), Context, what it runs, then Sources. No section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Usage as one row each. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished. A hairline, then Sources with read-only PRs, URLs, files and MCP tools, six session-owned pull requests in Changes, and its outputs. A last hairline, then Connectors (1 to reconnect).",
       props: full,
-      play: checkTopBlockAlignment,
+      play: async (ctx) => {
+        await assertDefaultOrder(ctx);
+        await checkTopBlockAlignment(ctx);
+      },
     },
     "workflow-running": {
       note: "Chosen: the live workflow row keeps the agent name above its truncating model label, puts its current action beneath, and keeps state and elapsed time aligned on the right. Running work uses a spinner; finished and failed work use status marks; queued work uses an outline.",
@@ -767,9 +862,54 @@ export default componentEntry<Props>({
       play: assertNarrowWorkflowLayout,
     },
     usage: {
-      note: "Usage open (Leo, 2026-10-30, on the deputies nobody could see spending): this chat's last 24 hours (cost, tokens, the context each call carries with Compact beside it, its autocompact cap, compactions, subagents with Show, the launcher), then every session acpmux lists on this Mac and its peers, highest 24h cost first; five show, then View all. Folded, it is one row after Context: this chat's 24h cost.",
+      note: "Chosen: Usage's own metric rows reserve the shared leading slot, so their labels start on the same text column as Context and peer-session rows without repeating a generic icon. The section keeps this chat's last 24 hours (cost, tokens, the context each call carries with Compact beside it, its autocompact cap, compactions, subagents with Show, the launcher), then every session acpmux lists on this Mac and its peers, highest 24h cost first; five show, then View all. Folded, it is one row after Context: this chat's 24h cost.",
       props: {
         ...full,
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-layout-flush": {
+      note: "Alternative: the own metric labels start at the row inset, as the old Usage treatment did; peer-session rows still use the shared icon/text columns, making the mismatch visible.",
+      props: {
+        ...full,
+        usageOwnRowLayout: "flush",
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-layout-slot": {
+      note: "Chosen arm: an empty leading slot puts own metric labels on the shared Session Info text column while keeping the rows quiet and preserving every metric.",
+      props: {
+        ...full,
+        usageOwnRowLayout: "slot",
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-layout-icon": {
+      note: "Alternative: each own metric gets the Usage activity mark in the shared leading slot; it aligns cleanly but repeats one generic glyph on every row, so the quieter empty slot ships.",
+      props: {
+        ...full,
+        usageOwnRowLayout: "icon",
         sections: {
           ...DEFAULT_SECTIONS,
           environment: false,
@@ -847,7 +987,7 @@ export default componentEntry<Props>({
       },
     },
     "reorder-dragging": {
-      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (a raised surface and a shadow, only while held) and follows the pointer; Connectors and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
+      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (a raised surface and a shadow, only while held) and follows the pointer; Usage and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
       props: full,
       play: dragOutputsOverContext,
     },
@@ -954,6 +1094,17 @@ export default componentEntry<Props>({
       note: "Shipped: a Claude Code chat's /context in Context, open: 43% used with 171.4k / 400k, the bar split by category in steps of the theme accent (largest first; the autocompact buffer grey; free space the track), a row per category with its tokens and share, the deferred ones dimmed with no share, then the MCP tools, Memory files and Skills folds, MCP tools open.",
       props: breakdownProps,
       play: openMcpTools,
+    },
+    "context-autocompact-window": {
+      note: "Shipped (Leo, 2026-11-02: \"whatever a user set their compact window to it should be that instead of always showing the defautl (e.g. we should be seieng 400k)\"): a 1M model whose chat compacts at 400K reads 43% with 171.4K / 400K, the window Claude Code's /context names, not the model's 1M.",
+      props: {
+        ...breakdownProps,
+        summary: { ...summary, contextBreakdown: CONTEXT_BREAKDOWN, usage: { used: 171_400, size: 1_000_000 } },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => /171\.4K\s*\/\s*400K/.test(text(ctx)));
+        if (/\/\s*1M/.test(text(ctx))) throw new Error("Context still reads the model's 1M window");
+      },
     },
     "context-breakdown-hues": {
       note: "Alternative (not shipped): each category a different hue turned from the theme accent, as Claude Code desktop colors them. Reads faster, but brings colors the theme does not have.",
@@ -1120,8 +1271,19 @@ export default componentEntry<Props>({
       props: { ...busy, closable: true, ceiling: "calc((100% - var(--acpmux-session-info-top, 0px)) * 0.9)" },
     },
     push: {
-      note: "Settings > Agent Chat > Session Info set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow. It is glass there too, with its left hairline as its only edge.",
+      note: 'Pushed: the panel sits beside the chat and narrows it. Nothing runs under it, so it draws no card: its sections sit on the pane with no fill, blur or shadow, as the native panel (#32661; Leo, 2026-11-02: "we still HAVE AN ASININE BACKGROUND").',
       props: { ...full, placement: "push" },
+      play: noCardBehind,
+    },
+    "header-chevron-hover": {
+      note: "A section head under the pointer: its fold chevron shows one grid gap after the title (cmux#32765, as native #32674). At rest no head draws a chevron, and its room is kept, so the title never moves.",
+      props: { ...full, placement: "push" },
+      play: chevronOnHoverAfterTitle,
+    },
+    "header-grip-hover": {
+      note: "A section head under the pointer: the six-dot grip shows at the head's right edge (as native #32674). At rest no grip draws, and a pointer over the section's other rows shows none.",
+      props: { ...full, placement: "push" },
+      play: gripOnHeadHoverOnly,
     },
     "subagent-parent": {
       note: "The chat's own panel while a subagent works in a worktree: the chat's folder, branch, context, pull requests and tasks, and its Subagents list, which opens each subagent's own panel.",

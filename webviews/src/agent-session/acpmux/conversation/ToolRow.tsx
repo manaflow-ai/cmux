@@ -16,6 +16,7 @@ import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
+import { RowShimmer } from "./ShimmerText";
 import { toolDuration } from "./toolGroups";
 import { cleanText, mcpCall } from "./mcpCalls";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
@@ -55,7 +56,7 @@ export function toolIcon(kind?: string): ReactNode {
 /// edit opens to its diff.
 // Unchanged item snapshots keep their rendered row as another call streams; local state and
 // context changes (Find, language, cwd) still reach this component through React's subscriptions.
-export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?: boolean }) {
+export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   // Closed, or open in the Verbose transcript view.
   const [open, setOpen] = useRowDisclosure(item.tool?.id);
@@ -137,11 +138,14 @@ export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: 
     return () => observer.disconnect();
   }, [hasDetails, open, label, expandable]);
   const images = useMemo(() => toolImages(tool), [tool]);
+  const words = write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} whole={plainMcp} />;
   const content = (
     <>
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
       <span ref={labelRef} className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
-        {write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} whole={plainMcp} />}
+        {words}
+        {/* While it runs, a light band crosses these words (ShimmerText.tsx RowShimmer). */}
+        {running && <RowShimmer>{words}</RowShimmer>}
         {failure && (
           <span className="cv-tool__failed" data-find-skip>
             {" "}
@@ -152,7 +156,7 @@ export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: 
       </span>
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
-          <BackgroundMark background={background} showActivity={!grouped} />
+          <BackgroundMark background={background} />
           {duration && <span className="cv-command__time">{duration}</span>}
         </span>
       ) : (

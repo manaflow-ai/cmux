@@ -198,6 +198,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         expected_remote: peer_key,
         stun,
         bind: "0.0.0.0:0".parse()?,
+        turn: Vec::new(),
     })?;
     // SAFETY: fcntl on our own stdin, after the blocking setup read.
     unsafe {

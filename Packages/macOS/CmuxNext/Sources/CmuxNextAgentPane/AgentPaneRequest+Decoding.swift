@@ -445,12 +445,26 @@ extension AgentPaneRequest {
             if info == nil || info is NSNull { self = .sessionInfo(nil) }
             else if let model = AgentPaneSessionInfoModel.decode(info) { self = .sessionInfo(model) }
             else { self = .unsupported(method) }
+        case "pane.sessionInfo.overlays":
+            if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]) { self = .sessionInfoOverlays(rects) }
+            else { self = .unsupported(method) }
         case "pane.copyText":
             if let text = params?["text"] as? String { self = .copyText(text) }
             else { self = .unsupported(method) }
         case "pane.tabRowTools.set":
             if let tools = AgentPaneTabRowTools.list(params?["tools"]) { self = .tabRowToolsSet(tools) }
             else { self = .unsupported(method) }
+        case "pane.tabRowTools.openMenu":
+            guard let id = params?["id"] as? String, id == "chat-menu",
+                  let rawMenuItemID = params?["menuItemId"], !(rawMenuItemID is NSNull) else {
+                if params?["menuItemId"] == nil || params?["menuItemId"] is NSNull,
+                   params?["id"] as? String == "chat-menu" { self = .tabRowToolsOpenMenu(id: "chat-menu", menuItemID: nil) }
+                else { self = .unsupported(method) }
+                return
+            }
+            guard let menuItemID = rawMenuItemID as? String, !menuItemID.isEmpty,
+                  menuItemID.utf8.count <= 256, menuItemID.count <= 64 else { self = .unsupported(method); return }
+            self = .tabRowToolsOpenMenu(id: id, menuItemID: menuItemID)
         case "pane.setQuickActions":
             if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
             else { self = .unsupported(method) }

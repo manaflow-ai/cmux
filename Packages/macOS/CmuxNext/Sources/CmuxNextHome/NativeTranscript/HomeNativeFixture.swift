@@ -24,6 +24,8 @@ public final class HomeNativeFixture {
     private var streamSeq: UInt64 = 0
     /// The Chief reply key of the last `debugAgentMessages` run (its fold's anchor), and whether it was the notes run.
     private var lastAgentRun: (turn: IdempotencyKey, notes: Bool)?
+    /// When the last `debugAgentMessages` run started (its steps keep their times as it grows).
+    private var agentRunStart = Date()
     // task-owner: kept and cancelled in `close()`
     private var loading: Task<Void, Never>?
 
@@ -53,7 +55,14 @@ public final class HomeNativeFixture {
         guard let inbox = try? await source.inbox(), !Task.isCancelled,
               let id = (inbox.conversations.first { $0.participants.contains { $0.id == chief } && $0.participants.count == 2 }
                   ?? inbox.conversations.first)?.id else { return }
-        let me = inbox.me.id
+        await show(id, chief: chief, me: inbox.me.id)
+        if attachments { await addAttachments(in: id) }
+    }
+
+    /// Shows conversation `id` in the container, in place of the one shown.
+    private func show(_ id: ConversationID, chief: ParticipantID, me: ParticipantID) async {
+        view?.stop()
+        view?.removeFromSuperview()
         let view = HomeNativeTranscriptView(store: store, conversation: id, me: me, openPanel: openPanel)
         view.frame = container.bounds
         view.autoresizingMask = [.width, .height]
@@ -61,7 +70,16 @@ public final class HomeNativeFixture {
         self.view = view
         shown = (id, chief)
         await view.binding.opened()
-        if attachments { await addAttachments(in: id) }
+    }
+
+    /// Shows the mock's group with the Chief and two teammates (the Chief's avatar and name draw there,
+    /// as in a team Chief's chat); nil when the mock has none.
+    private func showGroup() async -> (conversation: ConversationID, chief: ParticipantID)? {
+        guard let shown, let inbox = try? await source.inbox(),
+              let group = inbox.conversations.first(where: { $0.participants.contains { $0.id == shown.chief } && $0.participants.count > 2 })
+        else { return nil }
+        if group.id != shown.conversation { await show(group.id, chief: shown.chief, me: inbox.me.id) }
+        return self.shown
     }
 
     /// True when `view` is this fixture's transcript.
@@ -141,7 +159,10 @@ public final class HomeNativeFixture {
     /// Disconnected, the Chief producer's note) and one real report.
     /// With `open`, nothing is posted: the fold (or, after a notes run, the notes row) of the last such
     /// run opens or closes, as a click on it does.
-    public func debugAgentMessages(notes: Bool = false, open: Bool = false) -> Bool {
+    /// With `group`, the run goes to the mock's group with the Chief and two teammates (shown first).
+    /// With `step` N, the run brings only its first N messages: step 1 posts the question, the reply and
+    /// one message; each next step adds one, as a live run does (0: all at once).
+    public func debugAgentMessages(notes: Bool = false, open: Bool = false, group: Bool = false, step: Int = 0) -> Bool {
         guard let shown else { return false }
         if open {
             guard let last = lastAgentRun else { return false }
@@ -150,22 +171,34 @@ public final class HomeNativeFixture {
             return true
         }
         let source = self.source
-        let turn = IdempotencyKey("debug-agent-messages-\(UUID().uuidString)")
+        // Step 2 and on grow the last run; anything else starts a new one.
+        let continuing = step > 1 ? lastAgentRun.flatMap { $0.notes == notes ? $0.turn : nil } : nil
+        let turn = continuing ?? IdempotencyKey("debug-agent-messages-\(UUID().uuidString)")
+        if continuing == nil { agentRunStart = Date() }
         lastAgentRun = (turn, notes)
-        let start = Date()
-        // task-owner: three mock events, ends when the mock source has published them
-        Task {
-            let me = await source.me.id
-            _ = await source.post("What did you tell the agents just now?", from: me, in: shown.conversation, key: .make())
-            _ = await source.post("I sent five messages and got one report back.", from: shown.chief, in: shown.conversation, key: turn)
-            let messages = (notes ? Self.agentNotes : Self.agentMessages).enumerated().map { index, m in
+        let start = agentRunStart
+        let all = notes ? Self.agentNotes : Self.agentMessages
+        let count = step > 0 ? min(step, all.count) : all.count
+        // task-owner: a few mock events, ends when the mock source has published them
+        Task { [weak self] in
+            var target = shown
+            if group, continuing == nil, let shownGroup = await self?.showGroup() { target = shownGroup }
+            if continuing == nil {
+                let me = await source.me.id
+                _ = await source.post("What did you tell the agents just now?", from: me, in: target.conversation, key: .make())
+                _ = await source.post("I sent five messages and got one report back.", from: target.chief, in: target.conversation, key: turn)
+            }
+            let messages = all.prefix(count).enumerated().map { index, m in
                 HomeAgentRun.Message(id: "step-\(index)", sequence: UInt64(index + 1), revision: 1, peer: m.peer,
                                      outgoing: m.outgoing, text: m.text, date: start.addingTimeInterval(Double(index)))
             }
-            let run = HomeAgentRun(conversation: shown.conversation, id: turn.rawValue, author: shown.chief, turn: turn,
-                                   answers: [], revision: 1, messages: messages)
-            await source.streamLive(.run(HomeLiveRunChange(conversation: shown.conversation, author: shown.chief, run: turn.rawValue,
-                                                           turn: turn, status: "done", agentRun: run)))
+            // Each step is a newer revision of the run (one more message each).
+            var revision: UInt64 = 0
+            for _ in messages { revision += 1 }
+            let run = HomeAgentRun(conversation: target.conversation, id: turn.rawValue, author: target.chief, turn: turn,
+                                   answers: [], revision: revision, messages: messages)
+            await source.streamLive(.run(HomeLiveRunChange(conversation: target.conversation, author: target.chief, run: turn.rawValue,
+                                                           turn: turn, status: count < all.count ? "running" : "done", agentRun: run)))
         }
         return true
     }

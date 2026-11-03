@@ -2724,6 +2724,7 @@ fn run_server(
         .flatten();
     let result = if args.headless {
         mux.mark_server_lifecycle_ready();
+        mux.wedge_registry_if_asked();
         if let Some(fd) = args.owner_ready_fd {
             local_owner::signal_ready(fd);
         }
