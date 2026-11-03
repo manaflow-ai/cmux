@@ -23,24 +23,49 @@ public final class AgentPaneSpareRefiller {
     private let queue: FrameBatchQueue
     private let timer = DemandTimer(owner: "NewTabSparePool.refill")
     private let make: @MainActor () -> Void
+    /// The latest open's number: an earlier open's wait that a later open overtook does nothing.
+    private var generation = 0
+    /// From a handout until its open settled: the pool changes no parked page meanwhile (no prepare, no make).
+    public private(set) var isOpening = false
 
     /// - Parameters:
     ///   - work: The app's main-thread scheduler; each make is a background task on it.
-    ///   - make: Makes one spare when the pool has room.
+    ///   - make: Runs once the latest open settled: the pool prepares its parked pages and makes one when it has room.
     public init(on work: MainWorkScheduler, make: @escaping @MainActor () -> Void) {
         queue = FrameBatchQueue(owner: "NewTabSparePool.warm", budgeted: .background, on: work)
         self.make = make
     }
 
-    /// A spare was handed out: its replacement once the open settled.
+    /// The pool's own quiet-input warm ran: no open is pending any more.
+    public func settled() {
+        guard isOpening else { return }
+        generation &+= 1
+        isOpening = false
+        timer.cancel()
+    }
+
+    /// A spare was handed out: its replacement once the open settled. A later open restarts the wait (a rapid pair
+    /// settles once, after the second open).
     ///
     /// - Parameters:
     ///   - shown: The page the open showed (its first frame in its pane ends the open), or nil.
     ///   - still: Runs its work once the open's tab-strip motion ended, or nil when there is none to wait for.
     public func afterOpen(shown: AgentPaneView?, still: Still?) {
+        timer.cancel()
+        generation &+= 1
+        isOpening = true
+        let open = generation
         AfterFrameCommit().run { [weak self, weak shown] in
             let settled: @MainActor () -> Void = { [weak self] in
-                self?.timer.schedule(after: Self.settle) { @MainActor [weak self] in self?.enqueue() }
+                guard let self, open == generation else { return }
+                timer.schedule(after: Self.settle) { @MainActor [weak self] in
+                    guard let self, open == generation else { return }
+                    queue.enqueue { [weak self] in
+                        guard let self, open == generation else { return }
+                        isOpening = false
+                        make()
+                    }
+                }
             }
             let drawn: @MainActor () -> Void = { [weak shown] in
                 if let shown { shown.redraw.afterNextFrame { settled() } } else { settled() }
@@ -48,9 +73,5 @@ public final class AgentPaneSpareRefiller {
             guard self != nil else { return }
             if let still { still(drawn) } else { drawn() }
         }
-    }
-
-    private func enqueue() {
-        queue.enqueue { [weak self] in self?.make() }
     }
 }

@@ -141,14 +141,14 @@ extension TabStripView {
         return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose, in: Motion.tabs))
     }
 
-    /// Every move of `generation` ended: a closing tab or chip it carried goes, and the masks and
-    /// clips that only that motion needed come off.
     /// Runs `work` once no strip move is in flight (at once when none is): a tab's open has ended its motion.
     public func whenStill(_ work: @escaping @MainActor () -> Void) {
         guard !movesInFlight.isEmpty else { return work() }
         stillWaiters.append(work)
     }
 
+    /// Every move of `generation` ended: a closing tab or chip it carried goes, and the masks and
+    /// clips that only that motion needed come off.
     func moveEnded(_ generation: Int) {
         movesInFlight.remove(generation)
         if movesInFlight.isEmpty, !stillWaiters.isEmpty {

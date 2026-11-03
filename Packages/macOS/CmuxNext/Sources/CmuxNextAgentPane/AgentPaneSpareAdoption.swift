@@ -95,7 +95,8 @@ public enum AgentPaneSpareOutcome: Sendable {
 /// after the first also adopts a page that is loaded, as Chrome keeps a spare renderer ready for the next navigation.
 public nonisolated struct AgentPaneSpareSlot<Spare> {
     private var spares: [Spare] = []
-    public let capacity: Int
+    /// At least 1. Lowering it keeps the spares already parked until they are handed out.
+    public var capacity: Int { didSet { capacity = max(1, capacity) } }
 
     public init(capacity: Int = 1) {
         self.capacity = max(1, capacity)
