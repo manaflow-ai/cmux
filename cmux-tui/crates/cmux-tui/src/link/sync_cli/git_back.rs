@@ -29,10 +29,6 @@ use sha2::{Digest as _, Sha256};
 use super::remote::Remote;
 use super::{Manifest, names};
 
-/// Most bytes one object file or pack of the machine may have; streamed to
-/// disk, never held in memory.
-const MAX_OBJECT_BYTES: u64 = 4 << 30;
-
 /// The git state of a working copy, as a push records it and a pull
 /// compares it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -403,7 +399,7 @@ fn copy_objects(
             std::fs::create_dir_all(target.parent().context("no parent")?)?;
             let mut out = std::fs::File::create(&target)?;
             let source = format!("{objects}/{relative}");
-            if remote.read_into(&source, &mut out, MAX_OBJECT_BYTES)?.is_none() {
+            if remote.read_into(&source, &mut out)?.is_none() {
                 drop(out);
                 std::fs::remove_file(&target)?;
                 continue;

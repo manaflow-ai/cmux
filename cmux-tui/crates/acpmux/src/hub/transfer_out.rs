@@ -48,8 +48,8 @@ pub(super) fn transfers_dir() -> PathBuf {
     crate::config::home().join("transfers")
 }
 
-/// The most a move carries (its files' declared sizes), and the most files.
-pub(super) const MAX_BUNDLE: u64 = 4 << 30;
+/// The most files in the current one-frame manifest. File contents are paged,
+/// with no total byte limit.
 pub(super) const MAX_FILES: usize = 10_000;
 /// A move left that long without its commit, abort or finish is swept.
 const STALE: std::time::Duration = std::time::Duration::from_secs(24 * 3600);

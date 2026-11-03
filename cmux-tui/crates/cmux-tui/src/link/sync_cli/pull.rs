@@ -53,11 +53,6 @@ use super::place::{self, Dir, Entry, Expected, Transaction};
 use super::remote::{self, Remote};
 use super::{Manifest, Pushed, base, names};
 
-/// Most bytes one file of the machine may have.
-const MAX_FILE_BYTES: u64 = 4 << 30;
-/// Most entries of all the machine folder's listings together.
-const MAX_ENTRIES: usize = 2_000_000;
-
 /// What a pull did, or the paths that stopped it.
 pub(super) enum Pulled {
     Done(Value),
@@ -382,7 +377,6 @@ fn machine_files(
     hook_folders: &[String],
 ) -> anyhow::Result<MachineFiles> {
     let pushed_dirs = pushed_folders(manifest);
-    let mut listed = 0usize;
     let mut found = BTreeMap::new();
     let mut skipped = 0u64;
     let mut fenced = BTreeSet::new();
@@ -394,10 +388,6 @@ fn machine_files(
                 if dir.is_empty() { remote_root.into() } else { format!("{remote_root}/{dir}") };
             // Every listed name is one plain component (`Remote::list`).
             let Some(entries) = remote.list(&path)? else { continue };
-            listed += entries.len();
-            if listed > MAX_ENTRIES {
-                bail!("the machine's folder has over {MAX_ENTRIES} entries");
-            }
             let here = local_names(local, &dir);
             // A repository below the top, on either side (a `.git`, or a
             // bare repository's or linked worktree's shape): nothing in it
@@ -655,9 +645,7 @@ impl Staging {
                 .custom_flags(libc::O_NOFOLLOW)
                 .open(&path)?;
             let mut out = Hashing { file, hasher: Sha256::new() };
-            remote
-                .read_into(target, &mut out, MAX_FILE_BYTES)?
-                .with_context(|| format!("{target} went away"))?;
+            remote.read_into(target, &mut out)?.with_context(|| format!("{target} went away"))?;
             let after = remote.stat(target)?;
             if after.as_ref().and_then(|stat| stat["revision"].as_str()) != Some(revision.as_str())
             {
