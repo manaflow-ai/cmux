@@ -213,6 +213,71 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(overChat == CGRect(x: 1000 - 8 - 320, y: 28, width: 320, height: 800 - 28 - 120))
     }
 
+    /// It ends after its last section: as tall as its content, up to the room above the foot, top
+    /// anchored under the header in either coordinate system (Leo, 2026-11-02: "IT IS TAKING THIS
+    /// STUPID FUCKING SPACE FOR NO REASON").
+    @Test func panelHugsItsContentWithNoEmptySpaceUnderIt() throws {
+        let page = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let info = try Self.model(Self.info(top: 28))
+        var asked: [CGFloat] = []
+        let short = AgentPaneView.sessionInfoFrame(page: page, info: info, width: 320, zoom: 1, flipped: true,
+                                                   content: { asked.append($0); return 140.4 })
+        #expect(asked == [320])
+        #expect(short == CGRect(x: 1000 - 8 - 320, y: 28, width: 320, height: 141))
+        let unflipped = AgentPaneView.sessionInfoFrame(page: page, info: info, width: 320, zoom: 1, flipped: false,
+                                                       content: { _ in 141 })
+        #expect(unflipped == CGRect(x: 1000 - 8 - 320, y: 800 - 28 - 141, width: 320, height: 141))
+        let tall = AgentPaneView.sessionInfoFrame(page: page, info: info, width: 320, zoom: 1, flipped: true,
+                                                  content: { _ in 5000 })
+        #expect(tall == CGRect(x: 1000 - 8 - 320, y: 28, width: 320, height: 800 - 28 - 8))
+
+        // The panel measures its real list: a row more makes it taller, and nothing is left under it.
+        let store = AgentPaneSessionInfoStore()
+        let panel = AgentPaneSessionInfoPanel(store: store)
+        var relayouts = 0
+        store.relayout = { relayouts += 1 }
+        store.update(try Self.model(Self.info()))
+        let one = panel.fittingHeight(forWidth: 320)
+        #expect(one > 0 && one < 200)
+        var two = Self.info()
+        var section = (two["sections"] as? [[String: Any]])?.first ?? [:]
+        section["rows"] = ((section["rows"] as? [[String: Any]]) ?? []) + [["id": "a2", "title": "second", "tone": "running"]]
+        two["sections"] = [section]
+        panel.frame = CGRect(x: 0, y: 0, width: 320, height: one)
+        panel.layoutSubtreeIfNeeded()
+        relayouts = 0
+        store.update(try Self.model(two))
+        #expect(panel.fittingHeight(forWidth: 320) > one)
+        #expect(relayouts > 0)
+    }
+
+    /// Over the gutter the content stands on the pane (no card). Over the chat's column (`foot`) the
+    /// transcript runs under it, so there it lies on the overlay glass, which follows Reduce
+    /// Transparency (the solid surface), and loses it again back over the gutter.
+    @Test func panelHasGlassUnderItOnlyOverTheChat() throws {
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        let store = AgentPaneSessionInfoStore()
+        let panel = AgentPaneSessionInfoPanel(store: store)
+        panel.frame = CGRect(x: 0, y: 0, width: 320, height: 300)
+        store.update(try Self.model(Self.info()))
+        panel.layoutSubtreeIfNeeded()
+        #expect(panel.backing == nil)
+        #expect(!all(panel).contains { $0 is OverlaySurfaceView || $0 is NSVisualEffectView })
+
+        store.update(try Self.model(Self.info(foot: 120)))
+        panel.layoutSubtreeIfNeeded()
+        let backing = try #require(panel.backing)
+        #expect(backing.frame == panel.bounds)
+        let content = try #require(panel.subviews.firstIndex { $0 is AgentPaneSessionInfoContent })
+        #expect(panel.subviews.firstIndex { $0 === backing }! < content)
+        backing.materialOverride = .opaque
+        #expect(backing.material == .opaque)
+
+        store.update(try Self.model(Self.info()))
+        #expect(panel.backing == nil)
+        #expect(!all(panel).contains { $0 is OverlaySurfaceView })
+    }
+
     /// cmuxterm-hq#6137: pushed in a narrow pane, the page narrows the panel below 260px and keeps that
     /// room beside the chat (SessionInfo.tsx pushedWidth, `.acpmux-session-info-room`). The App draws
     /// the panel in exactly that room: its left edge is the chat's right edge, so nothing floats over it.
@@ -367,6 +432,8 @@ struct AgentPaneNativeSessionInfoTests {
         panel.layoutSubtreeIfNeeded()
         func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
         #expect(!all(panel).contains { String(describing: type(of: $0)).contains("NSHostingView") })
+        // No background card: the content sits on the pane's glass, with no surface of its own behind it.
+        #expect(!all(panel).contains { $0 is OverlaySurfaceView || $0 is NSVisualEffectView })
         let content = try #require(all(panel).compactMap { $0 as? AgentPaneSessionInfoContent }.first)
         #expect(content.lines.map(\.line.title) == ["Subagents", "rail-fix"])
         #expect(content.lines[0].press())

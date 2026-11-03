@@ -207,6 +207,15 @@ final class AgentPaneSessionInfoContent: NSView {
         edgeFadeMask.frame = scroll.contentView.bounds
     }
 
+    /// The content's height at `width`: the list's, so the panel ends after its last section.
+    func fittingHeight(forWidth width: CGFloat) -> CGFloat { list.height(forWidth: width) }
+
+    /// The list's height changed: the panel's frame follows it (AgentPaneSessionInfoPanel).
+    var onHeightChange: (() -> Void)? {
+        get { list.onHeightChange }
+        set { list.onHeightChange = newValue }
+    }
+
     /// The list's views, for tests.
     var lines: [SessionInfoLineView] { list.subviews.compactMap { $0 as? SessionInfoLineView } }
 
@@ -258,6 +267,8 @@ final class SessionInfoListView: NSView {
     /// Clears a revealed row's highlight; a new reveal replaces the pending one.
     private let revealTimer = DemandTimer(owner: "SessionInfo.reveal")
     var width: CGFloat = 0 { didSet { if width != oldValue { place() } } }
+    /// The list's height changed (new items, a fold, a new width): the panel's frame follows it.
+    var onHeightChange: (() -> Void)?
 
     @discardableResult
     func show(_ items: [SessionInfoItem], ink: SessionInfoInk) -> Bool {
@@ -370,7 +381,19 @@ final class SessionInfoListView: NSView {
         }
     }
 
+    /// The list's height at `width` with its current items, without moving a view: the panel hugs
+    /// it (Leo, 2026-11-02: "IT IS TAKING THIS STUPID FUCKING SPACE FOR NO REASON").
+    func height(forWidth width: CGFloat) -> CGFloat { arrange(width: width, apply: false) }
+
     private func place() {
+        let height = arrange(width: width, apply: true)
+        let changed = abs(frame.height - height) >= 0.5
+        setFrameSize(NSSize(width: width, height: height))
+        if changed { onHeightChange?() }
+    }
+
+    @discardableResult
+    private func arrange(width: CGFloat, apply: Bool) -> CGFloat {
         var y = SessionInfoMetrics.padding
         let inner = max(0, width - 2 * SessionInfoMetrics.edge)
         for (item, view) in zip(items, subviews) {
@@ -379,24 +402,24 @@ final class SessionInfoListView: NSView {
                 let height: CGFloat
                 if let line = view as? SessionInfoLineView {
                     height = line.height(forWidth: inner)
-                    line.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: height)
+                    if apply { line.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: height) }
                 } else {
                     height = (view as? ChromeLabel)?.naturalSize.height ?? 16
-                    view.frame = CGRect(x: SessionInfoMetrics.inset, y: y + 6, width: max(0, width - 2 * SessionInfoMetrics.inset), height: height)
+                    if apply { view.frame = CGRect(x: SessionInfoMetrics.inset, y: y + 6, width: max(0, width - 2 * SessionInfoMetrics.inset), height: height) }
                 }
                 y += height + 12
             case .separator:
                 y += SessionInfoMetrics.groupGap
-                view.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: 1)
+                if apply { view.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: 1) }
                 y += 1 + SessionInfoMetrics.groupGap
             case .line:
                 guard let line = view as? SessionInfoLineView else { continue }
                 let height = line.height(forWidth: inner)
-                line.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: height)
+                if apply { line.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: height) }
                 y += height
             }
         }
-        setFrameSize(NSSize(width: width, height: y + SessionInfoMetrics.padding))
+        return y + SessionInfoMetrics.padding
     }
 }
 
