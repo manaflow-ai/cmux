@@ -3554,8 +3554,8 @@ button.cv-received__host {
 }
 .cv-received__host-name {
   border-radius: var(--ds-radius-control);
-  padding-inline: 2px;
-  margin-inline: -2px;
+  padding-inline: calc(var(--ds-space-1) / 2);
+  margin-inline: calc(var(--ds-space-1) / -2);
 }
 button.cv-received__host:is(:hover, :focus-visible, [data-popup-open]) {
   color: var(--cv-text);
