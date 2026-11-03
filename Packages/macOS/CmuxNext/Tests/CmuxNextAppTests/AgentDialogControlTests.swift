@@ -42,6 +42,13 @@ import Testing
         func call(_ method: String, _ params: [String: Any]) async -> [String: Any]? {
             sent.append((method, params))
             switch method {
+            case "_acpmux/sessions" where params["pendingOnly"] as? Bool == true:
+                // acpmux `pending_session_summaries`: each session with an ask once, in one reply.
+                return ["sessions": [
+                    ["sessionId": "s-tool", "name": "builder", "pendingPermissions": 1],
+                    ["sessionId": "offline", "name": "peer", "peer": "gcp", "pendingPermissions": 1],
+                    ["sessionId": "s-ask", "name": "asker", "pendingPermissions": 1],
+                ]]
             case "_acpmux/sessions":
                 return ["sessions": [
                     ["sessionId": "s-idle", "name": "idle", "pendingPermissions": 0],
