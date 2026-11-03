@@ -12,6 +12,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
+// Only `notify`'s watcher (not Linux, `source`) calls `Watcher::watch`.
+#[cfg(not(target_os = "linux"))]
 use notify::Watcher as _;
 
 /// Editors save in bursts (write, rename, chmod): read once after this quiet...
