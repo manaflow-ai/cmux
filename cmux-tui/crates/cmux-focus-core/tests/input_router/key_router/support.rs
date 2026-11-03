@@ -57,6 +57,12 @@ pub fn key(window: &str, code: u16, reaches: Option<Sink>) -> KeyRecord {
         terminal_copy_mode: false,
         reaches,
         binding: None,
+        letter: [(0, 'a'), (11, 'b'), (8, 'c'), (2, 'd'), (14, 'e'), (3, 'f')]
+            .iter()
+            .find(|(c, _)| *c == code)
+            .map(|(_, letter)| *letter),
+        page_editing_chord: false,
+        field_uses_escape: false,
     }
 }
 
@@ -71,6 +77,7 @@ pub fn chord(
     KeyRecord {
         modifiers: Modifiers { command: true, ..Modifiers::default() },
         binding: Some(Binding { action: arc(action), tier, ghostty: false, edits_input: false }),
+        letter: None,
         ..key(window, code, reaches)
     }
 }
@@ -146,12 +153,18 @@ impl Session {
         );
     }
 
-    /// The keys `sink` took, in the order it took them.
+    /// The keys `sink` took, in the order it took them (offered first to a
+    /// page counts: the page took it).
     pub fn took(&self, sink: &Sink) -> Vec<InputId> {
         self.effects
             .iter()
             .filter_map(|effect| match effect {
-                InputEffect::Deliver { id, sink: to, .. } if to == sink => Some(*id),
+                InputEffect::Deliver { id, sink: to, .. }
+                | InputEffect::Offer { id, sink: to, .. }
+                    if to == sink =>
+                {
+                    Some(*id)
+                }
                 _ => None,
             })
             .collect()

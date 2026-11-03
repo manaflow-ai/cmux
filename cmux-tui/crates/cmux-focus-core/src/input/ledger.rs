@@ -7,9 +7,15 @@
 //!   reason); [`Ledger::waiting`] lists the keys still waiting.
 //! - I2 no double key: no key ends twice.
 //! - I3 order kept: a sink takes its keys in typing order.
+//! - I4 a key a session takes reaches no sink: it ends there (I2 then refuses
+//!   any later delivery of it).
+//! - I5 at most one key session runs.
 //! - I6 fixed target: a waiting key ends at the sink it waited for.
 //! - I7 no delivery to an ended sink.
 //! - I8 bounded: no lane holds more than [`LANE_LIMIT`] keys.
+//!
+//! A key offered to its page first is delivered there; its action may run
+//! once later, when the page reports it unhandled.
 
 use super::router::LANE_LIMIT;
 use super::sink::Sink;
@@ -25,6 +31,8 @@ pub enum Invariant {
     NoDoubleKey,
     /// I3.
     OrderKept,
+    /// I5.
+    OneSession,
     /// I6.
     FixedTarget,
     /// I7.
@@ -44,6 +52,8 @@ pub struct Violation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Life {
     Waiting(Sink),
+    /// Delivered to its page first; its action may still run once.
+    Offered,
     Done,
 }
 
@@ -58,6 +68,8 @@ pub struct Ledger {
     /// sink ended (a failed creation's).
     ended: HashSet<Sink>,
     last_key: Option<InputId>,
+    /// Key sessions that run: started by an event, ended by an effect.
+    sessions: i64,
     violations: Vec<Violation>,
 }
 
@@ -100,6 +112,15 @@ impl Ledger {
         if let InputEvent::Gone { sink, .. } = event {
             self.ended.insert(sink.clone());
         }
+        let ended =
+            effects.iter().filter(|e| matches!(e, InputEffect::SessionEnded { .. })).count();
+        let started = i64::from(matches!(event, InputEvent::SessionStarted { .. }));
+        let ended = i64::try_from(ended).unwrap_or(i64::MAX);
+        self.sessions = self.sessions.saturating_add(started).saturating_sub(ended);
+        if !(0..=1).contains(&self.sessions) {
+            let detail = format!("{} key sessions run after {event:?}", self.sessions);
+            self.fail(Invariant::OneSession, None, detail);
+        }
     }
 
     fn effect(&mut self, effect: &InputEffect, new_keys: &mut Vec<InputId>) {
@@ -122,6 +143,18 @@ impl Ledger {
             }
             (InputEffect::Queued { .. }, Some(_)) => {
                 self.fail(Invariant::NoDoubleKey, Some(id), "a key queued twice".into());
+            }
+            (InputEffect::Offer { sink, .. }, None) => {
+                new_keys.push(id);
+                self.keys.insert(id, Life::Offered);
+                self.took(sink, id);
+            }
+            (InputEffect::Run { .. }, Some(Life::Offered)) => {
+                self.keys.insert(id, Life::Done);
+            }
+            (_, Some(Life::Offered)) => {
+                let detail = format!("an offered key ends again: {effect:?}");
+                self.fail(Invariant::NoDoubleKey, Some(id), detail);
             }
             (_, None) => {
                 new_keys.push(id);

@@ -7,6 +7,8 @@
 mod key_router {
     mod fuzz;
     mod model;
+    mod mutants;
     mod scenarios;
+    mod sessions;
     mod support;
 }

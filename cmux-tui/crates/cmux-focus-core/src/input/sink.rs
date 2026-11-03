@@ -48,13 +48,17 @@ pub enum Sink {
     /// An overlay of a window (palette, sheet, rename, group editor): takes
     /// keys only while AppKit's dispatch reaches it.
     Overlay { window: Arc<str>, overlay: Overlay },
+    /// A blocking dialog, by its id: its keyboard takes the keys aimed at what
+    /// it blocks (through its view when that has the keyboard, else its own
+    /// key handling).
+    Dialog(u64),
 }
 
 impl Sink {
     /// The sink has an input path of its own, used when AppKit's dispatch
     /// does not reach it: a terminal's writer, a page's native key send.
     pub fn has_direct_path(&self) -> bool {
-        matches!(self, Sink::Terminal(_) | Sink::Content(_) | Sink::DevTools(_))
+        matches!(self, Sink::Terminal(_) | Sink::Content(_) | Sink::DevTools(_) | Sink::Dialog(_))
     }
 
     /// The sink takes keys only once it reported ready.
@@ -66,7 +70,7 @@ impl Sink {
     pub fn window(&self) -> Option<&Arc<str>> {
         match self {
             Sink::Field { window, .. } | Sink::Overlay { window, .. } => Some(window),
-            Sink::Terminal(_) | Sink::Content(_) | Sink::DevTools(_) => None,
+            Sink::Terminal(_) | Sink::Content(_) | Sink::DevTools(_) | Sink::Dialog(_) => None,
         }
     }
 }

@@ -94,6 +94,17 @@ pub struct KeyRecord {
     pub reaches: Option<Sink>,
     /// The binding table's winner for this key, if any.
     pub binding: Option<Binding>,
+    /// The letter (lowercase a-z) the key types with no Command, Control or
+    /// Option, by the keyboard layout; none for any other key. A hint session
+    /// reads it.
+    pub letter: Option<char>,
+    /// The chord is one a page uses for editing (Cmd-B bold, Cmd-I, Cmd-U,
+    /// Cmd-K; the app's `BrowserChordTable.pageEditingChords`): a navigation
+    /// action on it goes to the page first.
+    pub page_editing_chord: bool,
+    /// Escape does something in the focused field itself now (it clears the
+    /// field's text, closes its list): the field takes it.
+    pub field_uses_escape: bool,
 }
 
 impl KeyRecord {

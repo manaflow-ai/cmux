@@ -19,13 +19,18 @@
 //! no double key, order kept per sink, the sink fixed at key time, no
 //! delivery to an ended sink, bounded lanes). Pure: no I/O, no clock.
 
+mod dialog;
 pub mod key;
 pub mod ledger;
+mod offer;
 mod router;
+mod session;
 pub mod sink;
 
+pub use dialog::DialogScope;
 pub use key::{Binding, KeyPhase, KeyRecord, Modifiers, Tier, WindowRole};
 pub use router::{InputRouter, LANE_LIMIT};
+pub use session::{SessionEnd, SessionKey, SessionKind};
 pub use sink::{FieldKind, Sink, TerminalKey};
 
 use crate::event::FocusEffect;
@@ -59,6 +64,9 @@ pub enum WaitReason {
     AwaitsResponder,
     /// Keys typed before it wait in the lane: it keeps its place.
     BehindQueued,
+    /// A dialog blocks the sink: the key, typed before the dialog, waits for
+    /// its answer.
+    Blocked,
 }
 
 /// Why a key reached nothing.
@@ -95,15 +103,19 @@ pub enum ConsumeReason {
     /// The release of a delivered press whose sink cannot take a key now (a
     /// field the keyboard left): nothing needs it.
     ReleaseNotTaken,
+    /// Escape in a field the keyboard moved into from content gave the
+    /// keyboard back to that content (#33049).
+    ReturnedFocus,
 }
 
 /// What the platform does after a call, in order.
 ///
 /// For a key event the call emits exactly one disposition for the key's own
-/// id (`Deliver`, `Run`, `Queued`, `Consumed`, `Dropped` or `Platform`).
-/// Keys that waited in a lane before it may be delivered first in the same
-/// call, so the platform applies the effects in order. A `Queued` key later
-/// ends in exactly one `Deliver`, `Run` or `Dropped`.
+/// id (`Deliver`, `Run`, `Queued`, `Consumed`, `Dropped`, `Platform`, `Offer`
+/// or `SessionKey`). Keys that waited in a lane before it may be delivered
+/// first in the same call, so the platform applies the effects in order. A
+/// `Queued` key later ends in exactly one `Deliver`, `Run` or `Dropped`; an
+/// `Offer`ed key may later get one `Run` (its page left it unhandled).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InputEffect {
     /// The key goes to `sink` now.
@@ -120,6 +132,13 @@ pub enum InputEffect {
     /// AppKit's own dispatch takes the key (a window or panel the router does
     /// not model).
     Platform { id: InputId },
+    /// The key goes to the page `sink` first; `action` runs only when the
+    /// page reports it unhandled ([`InputEvent::PageUnhandled`], then a `Run`).
+    Offer { id: InputId, sink: Sink, via: Via, action: Arc<str> },
+    /// The running key session takes the key.
+    SessionKey { id: InputId, key: SessionKey },
+    /// The key session ended (the platform removes its labels or recorder).
+    SessionEnded { kind: SessionKind, reason: SessionEnd },
     /// A focus effect of `window` (the focus reducer's).
     Focus { window: Arc<str>, effect: FocusEffect },
 }
@@ -133,8 +152,10 @@ impl InputEffect {
             | InputEffect::Queued { id, .. }
             | InputEffect::Consumed { id, .. }
             | InputEffect::Dropped { id, .. }
-            | InputEffect::Platform { id } => Some(*id),
-            InputEffect::Focus { .. } => None,
+            | InputEffect::Platform { id }
+            | InputEffect::Offer { id, .. }
+            | InputEffect::SessionKey { id, .. } => Some(*id),
+            InputEffect::Focus { .. } | InputEffect::SessionEnded { .. } => None,
         }
     }
 }
@@ -170,4 +191,16 @@ pub enum InputEvent {
     /// The input source composes text (an input method): a text key for a
     /// sink whose view is not the first responder waits for it.
     InputSource { composes: bool },
+    /// A key session starts in `window` (the action that starts it sends this
+    /// in its own turn); one that runs ends first.
+    SessionStarted { kind: SessionKind, window: Arc<str> },
+    /// The platform ended the running key session (a pick, nothing to label).
+    SessionEnded,
+    /// Dialog `id` shows and blocks `scope`.
+    DialogShown { id: u64, scope: DialogScope },
+    /// Dialog `id` was answered or dismissed: the keys its target kept wait
+    /// for go on.
+    DialogDismissed { id: u64 },
+    /// The page left key `id`, offered to it first, unhandled.
+    PageUnhandled { id: InputId },
 }

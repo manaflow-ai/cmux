@@ -15,15 +15,15 @@ use super::model::{Ending, Model, State};
 use cmux_focus_core::event::{FocusEvent, Source};
 use cmux_focus_core::input::ledger::Ledger;
 use cmux_focus_core::input::{
-    Binding, FieldKind, GoneReason, InputEffect, InputEvent, InputId, InputRouter, KeyPhase,
-    KeyRecord, Modifiers, Sink, TerminalKey, Tier, Via, WaitReason, WindowRole,
+    Binding, DialogScope, FieldKind, GoneReason, InputEffect, InputEvent, InputId, InputRouter,
+    KeyPhase, KeyRecord, Modifiers, SessionEnd, SessionKind, Sink, TerminalKey, Tier, WindowRole,
 };
 use cmux_focus_core::state::{ExpectationKey, Overlay, Target};
 use cmux_focus_core::topology::{Kind, Pane, Tab, Topology};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-fn env(name: &str, default: u64) -> u64 {
+pub(super) fn env(name: &str, default: u64) -> u64 {
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
@@ -80,7 +80,12 @@ struct World {
     pressed: Vec<KeyRecord>,
     reaches: Option<Sink>,
     queue: VecDeque<InputEvent>,
+    /// Dialogs shown, by id.
+    dialogs: Vec<u64>,
 }
+
+/// The letters of the key codes the fuzz types: a, b, c, d, e.
+const LETTERS: [(u16, char); 5] = [(0, 'a'), (11, 'b'), (8, 'c'), (2, 'd'), (14, 'e')];
 
 fn arc(text: &str) -> Arc<str> {
     Arc::from(text)
@@ -113,6 +118,7 @@ impl World {
             pressed: Vec::new(),
             reaches: None,
             queue: VecDeque::new(),
+            dialogs: Vec::new(),
         };
         let w1 = vec![
             WorldPane { id: "p1".into(), tabs: vec![terminal_tab("t1", "T1")], selected: 0 },
@@ -254,6 +260,9 @@ impl World {
             4..8 => WindowRole::Other,
             _ => WindowRole::Main,
         };
+        let letter = LETTERS.iter().find(|(c, _)| *c == code).map(|(_, l)| *l);
+        let letter =
+            letter.filter(|_| !(modifiers.command || modifiers.control || modifiers.option));
         KeyRecord {
             window: id,
             role,
@@ -265,6 +274,9 @@ impl World {
             terminal_copy_mode: self.rng.chance(20),
             reaches,
             binding,
+            letter,
+            page_editing_chord: modifiers.command && self.rng.chance(40),
+            field_uses_escape: code == 53 && self.rng.chance(30),
         }
     }
 
@@ -353,8 +365,9 @@ impl World {
         let roll = self.rng.below(100);
         match roll {
             0..30 => {
-                let code = [0u16, 11, 8, 2, 14, 36][self.rng.below(6)];
-                let record = self.key(window, model, code, Modifiers::default(), None);
+                let code = [0u16, 11, 8, 2, 14, 36, 51, 53][self.rng.below(8)];
+                let modifiers = Modifiers { shift: self.rng.chance(10), ..Modifiers::default() };
+                let record = self.key(window, model, code, modifiers, None);
                 self.press(record);
             }
             30..40 => {
@@ -465,9 +478,19 @@ impl World {
                 };
                 self.queue.push_back(InputEvent::Focus { window: id, event });
             }
-            89..92 => {
+            89..91 => {
                 let (modifiers, binding) = World::command("paste", Tier::Content, true);
                 let record = self.key(window, model, 9, modifiers, binding);
+                self.press(record);
+            }
+            91..92 => {
+                let (action, tier, code) = match self.rng.below(3) {
+                    0 => ("find", Tier::Navigation, 3),
+                    1 => ("browserReload", Tier::Content, 15),
+                    _ => ("toggleSidebar", Tier::Navigation, 11),
+                };
+                let (modifiers, binding) = World::command(action, tier, false);
+                let record = self.key(window, model, code, modifiers, binding);
                 self.press(record);
             }
             92..94 => {
@@ -485,7 +508,8 @@ impl World {
                 let composes = self.rng.chance(50);
                 self.queue.push_back(InputEvent::InputSource { composes });
             }
-            95..97 => {
+            95 => self.s1b(window, model),
+            96..97 => {
                 let id = arc(&self.windows.get(window).map_or("w1".into(), |w| w.id.clone()));
                 let target = if self.rng.chance(50) {
                     Target::SidebarField {}
@@ -505,7 +529,8 @@ impl World {
                     self.dispatch(Some(Sink::Field { window: id, field }));
                 }
             }
-            97..98 => {
+            97..98 => self.s1b(window, model),
+            98..99 => {
                 if let Some(second) = self.windows.get(1).map(|w| w.open) {
                     if second {
                         if let Some(w) = self.windows.get_mut(1) {
@@ -518,6 +543,61 @@ impl World {
                 }
             }
             _ => self.swap_stand_in(window),
+        }
+    }
+
+    /// A session, a dialog or a page's report (stage S1b's events).
+    fn s1b(&mut self, window: usize, model: &Model) {
+        let Some(id) = self.windows.get(window).map(|w| arc(&w.id)) else { return };
+        match self.rng.below(9) {
+            0 | 1 => {
+                // Link hints on the focused page, or (when none) on a random page tab.
+                let tab = match model.aim(&id) {
+                    Some(Sink::Content(tab)) => tab,
+                    _ => match self.pages.get(self.rng.below(self.pages.len())) {
+                        Some(page) => arc(page),
+                        None => return,
+                    },
+                };
+                self.queue.push_back(InputEvent::SessionStarted {
+                    kind: SessionKind::LinkHints { tab },
+                    window: id,
+                });
+            }
+            2 => {
+                let kind = if self.rng.chance(50) {
+                    SessionKind::WindowHints
+                } else {
+                    SessionKind::Recorder
+                };
+                self.queue.push_back(InputEvent::SessionStarted { kind, window: id });
+            }
+            3 => self.queue.push_back(InputEvent::SessionEnded),
+            4 | 5 => {
+                let dialog = u64::from(self.counter.wrapping_add(1000));
+                self.counter = self.counter.wrapping_add(1);
+                let scope = match model.focus(&id).and_then(|f| f.derived.resolved.tab().map(arc)) {
+                    Some(tab) if self.rng.chance(60) => DialogScope::Tab { window: id, tab },
+                    _ => DialogScope::Window(id),
+                };
+                self.dialogs.push(dialog);
+                self.queue.push_back(InputEvent::DialogShown { id: dialog, scope });
+            }
+            6 => {
+                if !self.dialogs.is_empty() {
+                    let dialog = self.dialogs.remove(self.rng.below(self.dialogs.len()));
+                    self.queue.push_back(InputEvent::DialogDismissed { id: dialog });
+                }
+            }
+            _ => {
+                // The page reports an offered key unhandled (sometimes one that is not offered).
+                let offered = model.offered();
+                let id = match offered.get(self.rng.below(offered.len().max(1))) {
+                    Some(id) if self.rng.chance(85) => *id,
+                    _ => self.rng.next_u64() % 64,
+                };
+                self.queue.push_back(InputEvent::PageUnhandled { id: InputId(id) });
+            }
         }
     }
 
@@ -585,7 +665,11 @@ impl World {
     /// The end of a run: every page ready, no input method, every window
     /// closed. Nothing may wait after it.
     fn finale(&self, router_waiting: &[Sink]) -> Vec<InputEvent> {
-        let mut events = vec![InputEvent::InputSource { composes: false }];
+        let mut events =
+            vec![InputEvent::InputSource { composes: false }, InputEvent::SessionEnded];
+        for dialog in &self.dialogs {
+            events.push(InputEvent::DialogDismissed { id: *dialog });
+        }
         for page in &self.pages {
             events.push(InputEvent::Ready { sink: Sink::Content(arc(page)) });
         }
@@ -604,7 +688,7 @@ impl World {
 // MARK: Running a case
 
 /// A router under test: the real one or a mutant.
-trait Under {
+pub(super) trait Under {
     fn handle(&mut self, event: &InputEvent) -> Vec<InputEffect>;
     fn waiting(&self) -> Vec<Sink>;
 }
@@ -621,11 +705,12 @@ impl Under for Real {
     }
 }
 
-/// What the router's effects say about every key.
+/// What the router's effects say about every key, and its session ends.
 #[derive(Default)]
 struct Tracker {
     states: HashMap<u64, State>,
     deliveries: HashMap<Sink, Vec<u64>>,
+    session_ends: Vec<(SessionKind, SessionEnd)>,
 }
 
 impl Tracker {
@@ -635,11 +720,20 @@ impl Tracker {
                 self.deliveries.entry(sink.clone()).or_default().push(id.0);
                 (id, State::Ended(Ending::Delivered(sink.clone(), *via)))
             }
+            InputEffect::Offer { id, sink, .. } => {
+                self.deliveries.entry(sink.clone()).or_default().push(id.0);
+                (id, State::Ended(Ending::Offered(sink.clone())))
+            }
             InputEffect::Run { id, .. } => (id, State::Ended(Ending::Ran)),
             InputEffect::Queued { id, sink, .. } => (id, State::Waiting(sink.clone())),
             InputEffect::Consumed { id, reason } => (id, State::Ended(Ending::Consumed(*reason))),
             InputEffect::Dropped { id, reason } => (id, State::Ended(Ending::Dropped(*reason))),
             InputEffect::Platform { id } => (id, State::Ended(Ending::Platform)),
+            InputEffect::SessionKey { id, key } => (id, State::Ended(Ending::Session(*key))),
+            InputEffect::SessionEnded { kind, reason } => {
+                self.session_ends.push((kind.clone(), *reason));
+                return;
+            }
             InputEffect::Focus { .. } => return,
         };
         self.states.insert(id.0, state);
@@ -647,14 +741,14 @@ impl Tracker {
 }
 
 #[derive(Debug)]
-struct Failure {
+pub(super) struct Failure {
     step: usize,
     why: String,
 }
 
 /// Runs `events` through `under` and the model; the first difference or
 /// broken invariant.
-fn check(events: &[InputEvent], under: &mut dyn Under) -> Result<(), Failure> {
+pub(super) fn check(events: &[InputEvent], under: &mut dyn Under) -> Result<(), Failure> {
     let mut model = Model::new();
     let mut ledger = Ledger::new();
     let mut tracker = Tracker::default();
@@ -686,6 +780,15 @@ fn check(events: &[InputEvent], under: &mut dyn Under) -> Result<(), Failure> {
                 why: format!("state differs: {}", detail.unwrap_or_default()),
             });
         }
+        if tracker.session_ends != model.session_ends {
+            return Err(Failure {
+                step,
+                why: format!(
+                    "session ends differ: router {:?}, model {:?}",
+                    tracker.session_ends, model.session_ends
+                ),
+            });
+        }
         if tracker.deliveries != model.deliveries {
             return Err(Failure {
                 step,
@@ -708,7 +811,11 @@ fn check(events: &[InputEvent], under: &mut dyn Under) -> Result<(), Failure> {
 
 /// The events of case `seed`, made against a model run alongside, with the
 /// finale.
-fn generate(seed: u64, len: usize, make: &dyn Fn() -> Box<dyn Under>) -> Vec<InputEvent> {
+pub(super) fn generate(
+    seed: u64,
+    len: usize,
+    make: &dyn Fn() -> Box<dyn Under>,
+) -> Vec<InputEvent> {
     let mut world = World::new(seed);
     let mut model = Model::new();
     let mut under = make();
@@ -763,9 +870,9 @@ fn fuzz(first: u64, cases: u64, len: usize, make: &dyn Fn() -> Box<dyn Under>) -
 }
 
 /// Makes a fresh router under test.
-type Make = fn() -> Box<dyn Under>;
+pub(super) type Make = fn() -> Box<dyn Under>;
 
-fn real() -> Box<dyn Under> {
+pub(super) fn real() -> Box<dyn Under> {
     Box::new(Real(InputRouter::new()))
 }
 
@@ -780,306 +887,4 @@ fn the_router_matches_the_reference_model() {
     if let Some(report) = fuzz(first, cases, len, &real) {
         panic!("{report}");
     }
-}
-
-// MARK: Mutants
-
-/// Today's replay: a key that waited goes where the focus is when it leaves
-/// the lane (P0 1193, #33198).
-struct RerouteAtDrain {
-    router: InputRouter,
-    windows: HashMap<InputId, Arc<str>>,
-    queued: HashSet<InputId>,
-}
-
-/// Every third delivery happens twice (#32537 v6 "fieldfieldkeysok").
-struct Twice {
-    router: InputRouter,
-    count: usize,
-}
-
-/// Two deliveries to one sink in one call swap places (#29693, #32409).
-struct Swap {
-    router: InputRouter,
-}
-
-/// A waiting key leaves after five more events, to wherever the focus is then
-/// (the 2 s `holdLimit`).
-struct Timer {
-    router: InputRouter,
-    waiting: Vec<(InputId, Arc<str>, usize)>,
-    released: HashSet<InputId>,
-}
-
-/// No readiness: a key for a page that cannot take it yet goes at once
-/// (REOPEN-F4's browser case, #32633).
-struct NoReadiness {
-    router: InputRouter,
-    sent: HashSet<InputId>,
-}
-
-/// AppKit decides: a key goes where AppKit's dispatch reaches (INVERSE-KEY).
-struct ResponderDecides {
-    router: InputRouter,
-}
-
-/// One waiting key is lost: its delivery never happens.
-struct LoseOne {
-    router: InputRouter,
-    lost: Option<InputId>,
-}
-
-fn key_of(event: &InputEvent) -> Option<&KeyRecord> {
-    match event {
-        InputEvent::Key(key) => Some(key),
-        _ => None,
-    }
-}
-
-impl Under for RerouteAtDrain {
-    fn handle(&mut self, event: &InputEvent) -> Vec<InputEffect> {
-        let mut effects = self.router.handle(event).to_vec();
-        if let (Some(key), Some(id)) =
-            (key_of(event), effects.iter().filter_map(InputEffect::id).max())
-        {
-            self.windows.insert(id, key.window.clone());
-        }
-        for effect in &mut effects {
-            match effect {
-                InputEffect::Queued { id, .. } => {
-                    self.queued.insert(*id);
-                }
-                InputEffect::Deliver { id, sink, .. } => {
-                    let id = *id;
-                    if self.queued.remove(&id)
-                        && let Some(aim) = self.windows.get(&id).and_then(|w| self.router.aim(w))
-                    {
-                        *sink = aim;
-                    }
-                }
-                _ => {}
-            }
-        }
-        effects
-    }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
-    }
-}
-
-impl Under for Twice {
-    fn handle(&mut self, event: &InputEvent) -> Vec<InputEffect> {
-        let mut out = Vec::new();
-        for effect in self.router.handle(event) {
-            out.push(effect.clone());
-            if matches!(effect, InputEffect::Deliver { .. }) {
-                self.count += 1;
-                if self.count.is_multiple_of(3) {
-                    out.push(effect.clone());
-                }
-            }
-        }
-        out
-    }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
-    }
-}
-
-impl Under for Swap {
-    fn handle(&mut self, event: &InputEvent) -> Vec<InputEffect> {
-        let mut effects = self.router.handle(event).to_vec();
-        let deliveries: Vec<usize> = effects
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| matches!(e, InputEffect::Deliver { .. }))
-            .map(|(i, _)| i)
-            .collect();
-        for (n, first) in deliveries.iter().enumerate() {
-            let same = deliveries.iter().skip(n + 1).find(|second| {
-                match (&effects[*first], &effects[**second]) {
-                    (
-                        InputEffect::Deliver { sink: a, .. },
-                        InputEffect::Deliver { sink: b, .. },
-                    ) => a == b,
-                    _ => false,
-                }
-            });
-            if let Some(second) = same.copied() {
-                effects.swap(*first, second);
-                break;
-            }
-        }
-        effects
-    }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
-    }
-}
-
-impl Under for Timer {
-    fn handle(&mut self, event: &InputEvent) -> Vec<InputEffect> {
-        let mut effects: Vec<InputEffect> = self
-            .router
-            .handle(event)
-            .iter()
-            .filter(|e| !matches!(e, InputEffect::Deliver { id, .. } if self.released.contains(id)))
-            .cloned()
-            .collect();
-        if let Some(key) = key_of(event) {
-            for effect in &effects {
-                if let InputEffect::Queued { id, .. } = effect {
-                    self.waiting.push((*id, key.window.clone(), 0));
-                }
-            }
-        }
-        let mut expired = Vec::new();
-        for (id, window, age) in &mut self.waiting {
-            *age += 1;
-            if *age > 5 && !self.released.contains(id) {
-                expired.push((*id, window.clone()));
-            }
-        }
-        for (id, window) in expired {
-            if let Some(aim) = self.router.aim(&window) {
-                self.released.insert(id);
-                effects.push(InputEffect::Deliver { id, sink: aim, via: Via::Direct });
-            }
-        }
-        effects
-    }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
-    }
-}
-
-impl Under for NoReadiness {
-    fn handle(&mut self, event: &InputEvent) -> Vec<InputEffect> {
-        let effects = self.router.handle(event).to_vec();
-        effects
-            .into_iter()
-            .filter_map(|effect| match effect {
-                InputEffect::Queued { id, sink, reason: WaitReason::NotReady } => {
-                    self.sent.insert(id);
-                    Some(InputEffect::Deliver { id, sink, via: Via::Direct })
-                }
-                InputEffect::Deliver { id, .. } if self.sent.contains(&id) => None,
-                other => Some(other),
-            })
-            .collect()
-    }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
-    }
-}
-
-impl Under for ResponderDecides {
-    fn handle(&mut self, event: &InputEvent) -> Vec<InputEffect> {
-        let mut effects = self.router.handle(event).to_vec();
-        if let Some(key) = key_of(event)
-            && let Some(reaches) = &key.reaches
-            && let Some(newest) = effects.iter().filter_map(InputEffect::id).max()
-        {
-            for effect in &mut effects {
-                if let InputEffect::Deliver { id, sink, via } = effect
-                    && *id == newest
-                    && sink != reaches
-                {
-                    *sink = reaches.clone();
-                    *via = Via::Responder;
-                }
-            }
-        }
-        effects
-    }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
-    }
-}
-
-impl Under for LoseOne {
-    fn handle(&mut self, event: &InputEvent) -> Vec<InputEffect> {
-        let effects = self.router.handle(event).to_vec();
-        for effect in &effects {
-            if let InputEffect::Queued { id, .. } = effect
-                && self.lost.is_none()
-            {
-                self.lost = Some(*id);
-            }
-        }
-        let lost = self.lost;
-        effects
-            .into_iter()
-            .filter(|e| !matches!(e, InputEffect::Deliver { id, .. } if Some(*id) == lost))
-            .collect()
-    }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
-    }
-}
-
-fn reroute_at_drain() -> Box<dyn Under> {
-    Box::new(RerouteAtDrain {
-        router: InputRouter::new(),
-        windows: HashMap::new(),
-        queued: HashSet::new(),
-    })
-}
-
-fn twice() -> Box<dyn Under> {
-    Box::new(Twice { router: InputRouter::new(), count: 0 })
-}
-
-fn swap() -> Box<dyn Under> {
-    Box::new(Swap { router: InputRouter::new() })
-}
-
-fn timer() -> Box<dyn Under> {
-    Box::new(Timer { router: InputRouter::new(), waiting: Vec::new(), released: HashSet::new() })
-}
-
-fn no_readiness() -> Box<dyn Under> {
-    Box::new(NoReadiness { router: InputRouter::new(), sent: HashSet::new() })
-}
-
-fn responder_decides() -> Box<dyn Under> {
-    Box::new(ResponderDecides { router: InputRouter::new() })
-}
-
-fn lose_one() -> Box<dyn Under> {
-    Box::new(LoseOne { router: InputRouter::new(), lost: None })
-}
-
-#[test]
-fn every_mutant_is_caught() {
-    let len = env("CMUX_INPUT_FUZZ_LEN", 160) as usize;
-    let cases = env("CMUX_INPUT_FUZZ_MUTANT_CASES", 200);
-    let mutants: [(&str, Make); 7] = [
-        ("reroute at drain", reroute_at_drain),
-        ("twice", twice),
-        ("swap", swap),
-        ("timer", timer),
-        ("no readiness", no_readiness),
-        ("responder decides", responder_decides),
-        ("lose one", lose_one),
-    ];
-    // The events come from the real router's world; each mutant runs them.
-    let missed: Vec<&str> = mutants
-        .iter()
-        .filter(|(_, make)| {
-            (1..=cases).all(|seed| {
-                let events = generate(seed, len, &real);
-                check(&events, &mut *make()).is_ok()
-            })
-        })
-        .map(|(name, _)| *name)
-        .collect();
-    assert!(missed.is_empty(), "mutants not caught: {missed:?}");
 }
