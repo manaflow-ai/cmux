@@ -153,7 +153,7 @@ struct BrowserChromeTabSwitch {
 
     /// The tab that shows: its own toolbar state, before the page binds and renders.
     private func restore(from state: BrowserChromeTabState) {
-        chrome.addressBar.controller.restore(state.omnibar ?? OmnibarState())
+        chrome.addressBar.restore(state.omnibar ?? OmnibarState())
         chrome.isOmnibarHidden = state.isOmnibarHidden
         chrome.wakingAddress = state.wakingAddress
         chrome.httpsFallback = state.httpsFallback
@@ -171,5 +171,14 @@ struct BrowserChromeTabSwitch {
         bar.alphaValue = 1
         bar.isHidden = false
         chrome.needsLayout = true
+    }
+}
+
+extension AddressBarView {
+    /// Puts back the resting omnibar a tab left; the reported address becomes that tab's, so the next page render
+    /// compares with the tab's own address, not the other tab's (which would clear the text it left).
+    func restore(_ resting: OmnibarState) {
+        reportedURL = resting.pageURL
+        controller.restore(resting)
     }
 }

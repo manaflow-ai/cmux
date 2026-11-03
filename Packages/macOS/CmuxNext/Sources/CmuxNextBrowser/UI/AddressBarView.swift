@@ -48,7 +48,7 @@ public final class AddressBarView: NSView {
     let panel = OmniboxSuggestionPanel()
     let density = DensityBinding()
 
-    private var reportedURL: URL?
+    var reportedURL: URL?
     /// Whether the field's cursor rects were last built for editing.
     private var cursorRectsEditing = false
     /// The text area the bar's cursor rects were last built for.
