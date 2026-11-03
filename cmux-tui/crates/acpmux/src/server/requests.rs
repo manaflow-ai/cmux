@@ -492,7 +492,7 @@ async fn dispatch_brief(
         name = format!(
             "{}-{}",
             name.chars().take(40).collect::<String>(),
-            &identity.session_id[4..16]
+            identity.session_id.chars().skip(4).take(12).collect::<String>()
         );
     }
     let pick = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
