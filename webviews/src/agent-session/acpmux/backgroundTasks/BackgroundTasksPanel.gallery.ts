@@ -55,8 +55,11 @@ const AUDIT = agent("agent-audit", "Audit the composer menus for fade-in", 31, {
   endedAt: minutesAgo(12),
 });
 
+// Ended with a failed task ("1 task, 1 failed"). A failed subagent's own done line in the transcript
+// is off its row's centre line on base (gallery health center-line), so the fixture's agent ends
+// completed; test/background-tasks-open.test.tsx covers a failed agent's Failed.
 const CODEX = agent("agent-codex", "Make Codex reviews reliable (P0)", 40, {
-  state: "failed",
+  state: "completed",
   endedAt: minutesAgo(20),
 });
 
@@ -215,7 +218,7 @@ export default agentPaneEntry({
       play: openPanel,
     },
     sections: {
-      note: "Claude Desktop's split: Running 2 then Finished 2, each heading folding its agents; an ended agent's line shows its duration, a failed one Failed in red; each agent's tasks under N tasks.",
+      note: "Claude Desktop's split: Running 2 then Finished 2, each heading folding its agents; an ended agent's line shows its duration; each agent's tasks under N tasks, failures in red.",
       snapshot: snapshot(false),
       play: async (ctx) => {
         await openPanel(ctx);
