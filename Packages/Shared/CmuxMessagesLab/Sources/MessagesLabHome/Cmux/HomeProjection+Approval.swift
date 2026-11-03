@@ -75,7 +75,9 @@ extension HomeProjection {
         let answer = AgentQuestionAnswer(selections: [item.id: selection])
         do {
             _ = try await homeStore.perform(.answerQuestion(message: message, conversation: conversation, partIndex: partIndex, answer: answer))
-            return .init(note: allow ? CmuxStrings.approvalAllowed : CmuxStrings.approvalDenied, ended: true)
+            let connect = HomeApprovalRowProvider.isConnect(question)
+            return .init(note: allow ? (connect ? CmuxStrings.approvalConnected : CmuxStrings.approvalAllowed)
+                                     : (connect ? CmuxStrings.approvalNotConnected : CmuxStrings.approvalDenied), ended: true)
         } catch {
             return .init(note: allow ? CmuxStrings.approvalAllowedNotRecorded : CmuxStrings.approvalDeniedNotRecorded, ended: true)
         }
