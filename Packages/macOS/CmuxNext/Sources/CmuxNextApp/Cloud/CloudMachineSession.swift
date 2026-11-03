@@ -38,6 +38,9 @@ final class CloudMachineSession {
     @ObservationIgnored private(set) var linkEndedDetail: String?
     /// The ended link went down or was revoked, not refused (``CloudLinkError/isDrop(_:)``).
     private(set) var linkDropped = false
+    /// The app link ended and one forced machine list read is learning whether a pause ended it
+    /// (``CloudMachineStageInput/linkEndConfirming``); false once it answers.
+    private(set) var linkEndConfirming = false
     /// The link as this session's endpoint calls see it (cx-lu8f): starting,
     /// up, or the last start's failure. Drives the booting and connecting
     /// stages; never set from elapsed time.
@@ -366,10 +369,21 @@ final class CloudMachineSession {
         linkEnded = message
         linkDropped = CloudLinkError.isDrop(error)
         linkPhase = .failed(message)
-        if let refresher {
-            // task-owner: one throttled list read; the reconcile it runs updates this record
-            Task { await refresher(false) }
+        guard let refresher else { return }
+        if appLink != nil, linkDropped, machine.status != .paused, !linkEndConfirming {
+            // A pause ends the app link before the list says paused (the idle pause, and soon the
+            // pause between tool calls): read the list now, past the 30 s throttle, once per ended
+            // link, and read as on its way until it answers, so a pause never flashes "Disconnected".
+            linkEndConfirming = true
+            // task-owner: one forced list read per ended link; the reconcile it runs updates this record
+            Task { [weak self] in
+                await refresher(true)
+                self?.linkEndConfirming = false
+            }
+            return
         }
+        // task-owner: one throttled list read; the reconcile it runs updates this record
+        Task { await refresher(false) }
     }
 
     /// A link start began. A previous start's failure stays shown until a
@@ -446,7 +460,7 @@ final class CloudMachineSession {
         return CloudMachineStageInput(creation: nil, machineStatus: machine.shownStatus, link: linkPhase, daemonConnected: connected,
                                       daemonLoaded: daemon.store.isLoaded, daemonFailure: daemonFailure, linkEnded: linkEnded,
                                       pauseReason: machine.pauseReason, resuming: resuming, resumeFailure: resumeFailure, changeFailure: machine.lastChangeFailure?.text,
-                                      linkDropped: linkDropped)
+                                      linkDropped: linkDropped, linkEndConfirming: linkEndConfirming)
     }
 
     /// Where the machine is on its way to a usable daemon.

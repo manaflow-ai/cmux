@@ -46,23 +46,58 @@ struct CloudLinkEndedHeaderTests {
     }
 
     /// The idle auto-pause parked the machine behind a frontmost cmux: its link ends and the
-    /// record still says running. The ended link reads the list again (unforced, so at most every
-    /// 30 seconds), and the header follows the record to Paused (idle).
+    /// record still says running. The ended link reads the list again at once (forced, past the
+    /// 30 s throttle: soon machines pause between tool calls), reads as on its way (a spinner,
+    /// never "Disconnected") until it answers, and the header follows the record to Paused (idle).
     @Test func anEndedLinkReadsTheMachineListAgainAndShowsTheIdlePause() async {
         let session = Self.session(status: .running)
         defer { session.disconnect() }
         let (reads, read) = AsyncStream.makeStream(of: Bool.self)
+        let (answers, answer) = AsyncStream.makeStream(of: Void.self)
         session.refresher = { [weak session] force in
+            read.yield(force)
+            for await _ in answers { break }
             session?.machine.status = .paused
             session?.machine.pauseReason = .idle
-            read.yield(force)
         }
         await Self.connectAndEnd(session)
         var iterator = reads.makeAsyncIterator()
-        #expect(await iterator.next() == false, "one unforced list read")
+        #expect(await iterator.next() == true, "one forced list read")
+        let waiting = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
+        #expect(waiting.status == .connecting, "on its way while the list read runs, not Disconnected")
+        #expect(waiting.status.linkState == .connecting)
+        #expect(session.stage.failure == nil)
+        answer.yield()
+        for await confirming in ObservationStream({ session.linkEndConfirming }) where !confirming { break }
         let header = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
         #expect(header.status == .pausedIdle)
         #expect(SectionHeaderRowView.statusText(header.status, hostGroup: false) == "Paused (idle)")
+    }
+
+    /// The forced read answers the machine still running: the link really dropped, and the header
+    /// reads Disconnected (#28409), with no second forced read for the same ended link.
+    @Test func anEndedLinkOnAMachineTheListSaysRunsReadsDisconnectedAfterTheRead() async {
+        let session = Self.session(status: .running)
+        defer { session.disconnect() }
+        let (reads, read) = AsyncStream.makeStream(of: Bool.self)
+        session.refresher = { force in read.yield(force) }
+        await Self.connectAndEnd(session)
+        var iterator = reads.makeAsyncIterator()
+        #expect(await iterator.next() == true)
+        for await confirming in ObservationStream({ session.linkEndConfirming }) where !confirming { break }
+        let header = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
+        #expect(header.status == .disconnected)
+    }
+
+    /// A paused Cloud machine resumes on use: a send to its chat runs its Reconnect (which connects
+    /// the app link and so starts it) instead of failing at once as a link a person must fix.
+    @Test func aPausedCloudMachineResumesOnUse() {
+        let services = MachineIconTests.services()
+        let session = Self.session(status: .paused)
+        defer { session.disconnect() }
+        session.machine.pauseReason = .idle
+        services.machines.add(session)
+        #expect(SidebarBridge.paneUse(session.machineID, in: services.machines) == .down)
     }
 
     /// The app server's `cloud.machine.connect` failed with a provider error (not a link that went
