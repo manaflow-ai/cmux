@@ -80,21 +80,21 @@
 .history-row-status,
 .history-error-detail {
   display: block;
-  margin: 6px 0 0 25px;
+  margin: 8px 0 0 24px;
   overflow-wrap: anywhere;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
 }
 .history-paste {
-  margin: 12px 0 0 25px;
+  margin: 12px 0 0 24px;
 }
 .history-paste p {
-  margin: 0 0 10px;
+  margin: 0 0 8px;
   color: var(--page-text-2);
 }
 .history-paste-label {
   display: block;
-  margin: 12px 0 6px;
+  margin: 12px 0 8px;
 }
 .history-paste textarea {
   display: block;
@@ -109,7 +109,7 @@
   user-select: text;
 }
 .history-safety {
-  margin: 20px 0;
+  margin: 24px 0;
   font-size: var(--text-caption);
   line-height: 1.5;
 }
