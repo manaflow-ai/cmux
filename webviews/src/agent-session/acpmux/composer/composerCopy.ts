@@ -285,7 +285,7 @@ export function writeComposerCopy(
         if ((reply?.skipped ?? 0) > 0)
           status?.({ phase: "failed", partial: true, retry: () => writeComposerCopy(copy, status, complete) });
         else {
-          if (staged) status?.(undefined);
+          status?.(undefined);
           complete?.();
         }
       }

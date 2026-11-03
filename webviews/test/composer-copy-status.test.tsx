@@ -319,6 +319,34 @@ test.each(["copy", "cut"] as const)("an incomplete 4 MiB %s warns and preserves 
   expect(box.attachmentIds()).toEqual(kind === "cut" ? [] : ["file", "missing"]);
 });
 
+test("a small incomplete Copy clears its warning when Retry publishes every item", async () => {
+  const native = stageHost("incomplete");
+  const box = await openBox(8);
+  act(() =>
+    box.addAttachment({
+      id: "missing",
+      kind: "text",
+      name: "deleted.txt",
+      mimeType: "text/plain",
+      size: 4,
+      path: "/deleted.txt",
+    }),
+  );
+  act(copySelection);
+  await act(async () => {
+    await native.published.promise;
+  });
+  const status = host.querySelector(".acpmux-composer-copy-status")!;
+  expect(status.textContent).toContain("Some attachments couldn’t be copied.");
+  act(() => status.querySelector<HTMLButtonElement>("button")!.click());
+  await act(async () => {
+    await native.republished.promise;
+  });
+  expect(native.commits()).toBe(2);
+  expect(native.begins()).toBe(0);
+  expect(host.querySelector(".acpmux-composer-copy-status")).toBeNull();
+});
+
 test("a 4 MiB Cut deletes its original selection after commit even if the caret moves", async () => {
   const native = stageHost("pause");
   const box = await openBox(4 * 1024 * 1024);
