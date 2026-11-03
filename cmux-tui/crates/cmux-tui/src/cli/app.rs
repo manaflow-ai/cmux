@@ -302,7 +302,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 run_action(id, tail, ActionName::Any)?
             }
         }
-        ("settings" | "config", Some("list")) => return settings::parse_list(&rest[1..]),
+        ("settings" | "config", Some("list")) => {
+            return settings::parse_list(rest.get(1..).unwrap_or_default());
+        }
         ("settings" | "config", Some(verb)) if settings::VERBS.contains(&verb) => {
             settings::parse(rest)?
         }
