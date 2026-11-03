@@ -50,6 +50,10 @@ struct HomeDiff: Equatable {
         let oldIndex = Dictionary(old.enumerated().map { ($1.key, $0) }, uniquingKeysWith: { a, _ in a })
         let newKeys = Set(new.map(\.key))
         if old.contains(where: { !newKeys.contains($0.key) }) { d.rebuild = true; return d }
+        // The first page of a chat whose view opened before it came (a chat picked in the list) shows at
+        // once at its newest message, as Messages does: as receives its rows slid up into place, which
+        // reads as the chat scrolling to the bottom (the user, 2026-11-03). My own sends still fly in.
+        if old.isEmpty, new.contains(where: { aliases[$0.key] == nil }) { d.rebuild = true; return d }
         func id(_ i: TranscriptItem) -> ID { HomeMapping.id(i, aliases: aliases) }
         let roots = HomeMapping.roots(in: new, aliases: aliases, summary: newSummary, media: media, links: links)
         let oldRoots = HomeMapping.roots(in: old, aliases: aliases, summary: oldSummary, media: media, links: links)
