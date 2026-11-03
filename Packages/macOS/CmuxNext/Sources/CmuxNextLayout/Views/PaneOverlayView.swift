@@ -37,6 +37,10 @@ final class PaneOverlayView: NSView {
     private let attention = CALayer()
     /// The attention ring's layer (for the glow, `PaneOverlayView+Glow`).
     var attentionLayer: CALayer { attention }
+    /// The focus glow's shadow path (for tests).
+    var glowShadowPath: CGPath? { glow.shadowPath }
+    /// Ring outlines this overlay stroked (a rounded rect stroked into a path, for a shadow; HOT PATH AUDIT motion-frame).
+    private(set) var ringOutlineBuilds = 0
     private let dimLayer = CALayer()
     /// The ring flashed when focus arrives without a click (`focus.flashOnMove`): its own layer, so
     /// the ring's opacity updates never cut the flash short.
@@ -188,6 +192,7 @@ final class PaneOverlayView: NSView {
         glow.borderWidth = focusRing.width
         glow.shadowRadius = max(2, focusRing.width * LayoutTunables.focusGlowRadiusFactor.value)
         // The shadow of the border it strokes, given: Core Animation needs no offscreen pass to find it (as `attention`).
+        ringOutlineBuilds &+= 2
         glow.shadowPath = Self.ringOutline(size: rect.size, radius: ringRadius, width: focusRing.width)
         attention.borderWidth = attentionSettings.width
         attention.shadowPath = Self.ringOutline(size: rect.size, radius: radius, width: attentionSettings.width)
