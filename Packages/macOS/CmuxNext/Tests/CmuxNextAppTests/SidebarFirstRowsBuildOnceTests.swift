@@ -37,32 +37,40 @@ import Testing
         return Int(((visible + 2 * SidebarStyle.overscan) / rowHeight).rounded(.up)) + 2
     }
 
-    @Test func theFirstRowsWithTheActiveRowFarDownAreBuiltOnce() throws {
-        let (sidebar, window) = Self.host()
-        defer { window.close() }
+    /// A window's first frame as WindowController makes it: the sidebar is made (its list reloads with no size), the
+    /// window's frame lays it out, the first render runs, then the window shows and displays. Returns the row views made.
+    private static func firstFrame(active: Int) -> (SidebarView, NSWindow, Int) {
         _ = SidebarPerfCounters.report(reset: true)
-        window.orderFrontRegardless()
+        let (sidebar, window) = host(active: active)
+        sidebar.layoutSubtreeIfNeeded()
         sidebar.renderNow()
         sidebar.layoutSubtreeIfNeeded()
+        window.orderFrontRegardless()
         window.displayIfNeeded()
-        let made = SidebarPerfCounters.report(reset: true)["row_views_made"] ?? 0
+        return (sidebar, window, SidebarPerfCounters.report(reset: true)["row_views_made"] ?? 0)
+    }
+
+    private static func placement(_ sidebar: SidebarView) -> String {
+        let clip = sidebar.list.enclosingScrollView?.contentView.bounds ?? .zero
+        return "clip y \(clip.minY) h \(clip.height), \(sidebar.list.rowViews.count) row views now"
+    }
+
+    @Test func theFirstRowsWithTheActiveRowFarDownAreBuiltOnce() throws {
+        let (sidebar, window, made) = Self.firstFrame(active: Self.active)
+        defer { window.close() }
         let budget = Self.budget(sidebar.list)
-        #expect(made <= budget, "the first frame built \(made) row views; the rows in view plus the overscan are \(budget)")
+        #expect(made <= budget, "the first frame built \(made) row views; the rows in view plus the overscan are \(budget) (\(Self.placement(sidebar)))")
         // The active workspace is on screen in that first frame.
-        let row = try #require(sidebar.list.rowViews[.workspace(WorkspaceID("first-rows-\(Self.active)"))])
+        let row = try #require(sidebar.list.rowViews[.workspace(WorkspaceID("first-rows-\(Self.active)"))],
+                               "the active row has no view after the first frame (\(Self.placement(sidebar)))")
         let clip = try #require(sidebar.list.enclosingScrollView?.contentView)
         #expect(clip.bounds.intersects(row.frame), "the active row is not in view after the first frame")
     }
 
     @Test func theFirstRowsWithTheActiveRowOnTopAreBuiltOnceToo() throws {
-        let (sidebar, window) = Self.host(active: 0)
+        let (sidebar, window, made) = Self.firstFrame(active: 0)
         defer { window.close() }
-        _ = SidebarPerfCounters.report(reset: true)
-        window.orderFrontRegardless()
-        sidebar.renderNow()
-        sidebar.layoutSubtreeIfNeeded()
-        window.displayIfNeeded()
-        let made = SidebarPerfCounters.report(reset: true)["row_views_made"] ?? 0
-        #expect(made <= Self.budget(sidebar.list), "the first frame built \(made) row views")
+        #expect(made <= Self.budget(sidebar.list), "the first frame built \(made) row views (\(Self.placement(sidebar)))")
+        #expect(sidebar.list.rowViews[.workspace(WorkspaceID("first-rows-0"))] != nil, "the active top row has no view")
     }
 }
