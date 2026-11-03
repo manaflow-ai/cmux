@@ -416,6 +416,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     public func events() -> AsyncStream<AgentSessionEvent> {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
         // What this source already has is history to a new reader: one change, drawn in place.
+        flushOpenChunk()
         if !replay.isEmpty { continuation.yield(.batch(replay)) }
         continuations.append(continuation)
         return stream
@@ -1312,11 +1313,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let hasEarlier = earlierBefore != nil
         log.info("earlier \(self.sessionID, privacy: .public) before \(before, privacy: .public): \(page.count, privacy: .public) records, failed \(read.failed, privacy: .public), more \(hasEarlier, privacy: .public)")
         // A new reader of this source gets the older turns first, then the rest, in order.
+        flushOpenChunk()
         if !events.isEmpty { replay.insert(contentsOf: events, at: 0) }
         yieldEarlier(events, hasEarlier: hasEarlier)
     }
 
     private func yieldEarlier(_ events: [AgentSessionEvent], hasEarlier: Bool) {
+        flushOpenChunk()
         replay.append(.earlierHistory(hasEarlier))
         for continuation in continuations { continuation.yield(.earlierPage(events, hasEarlier: hasEarlier)) }
     }
@@ -1380,7 +1383,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         guard let events = history else { return }
         history = nil
         guard !events.isEmpty else { return }
-        replay.append(contentsOf: events)
+        for event in events { record(replay: event) }
         for continuation in continuations { continuation.yield(.batch(events)) }
     }
 
@@ -1393,8 +1396,53 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 history?.append(event)
                 return
             }
-            replay.append(event)
+            record(replay: event)
         }
         for continuation in continuations { continuation.yield(event) }
     }
+
+    /// Keeps `event` for a later reader. A streamed reply arrives as one chunk per few
+    /// tokens, and the buffer kept each one for as long as the chat stayed open (tens of
+    /// thousands of events for one long turn). Consecutive chunks of one message, or of
+    /// one thought, are kept as a single chunk with their text joined: `AgentChatStore`
+    /// appends a chunk of the same message to it, so a reader draws the same transcript
+    /// and the buffer grows with messages, not tokens.
+    private func record(replay event: AgentSessionEvent) {
+        switch (openChunk, event) {
+        case (.message(let id)?, .update(.agentMessageChunk(let text, let nextID))) where id == nextID:
+            openChunkText += text
+        case (.thought?, .update(.agentThoughtChunk(let text))):
+            openChunkText += text
+        default:
+            flushOpenChunk()
+            switch event {
+            case .update(.agentMessageChunk(let text, let id)):
+                openChunk = .message(id)
+                openChunkText = text
+            case .update(.agentThoughtChunk(let text)):
+                openChunk = .thought
+                openChunkText = text
+            default:
+                replay.append(event)
+            }
+        }
+    }
+
+    /// The chunk being joined, kept out of `replay` so its text grows in place.
+    private enum OpenChunk { case message(String?), thought }
+    private var openChunk: OpenChunk?
+    private var openChunkText = ""
+
+    private func flushOpenChunk() {
+        guard let chunk = openChunk else { return }
+        switch chunk {
+        case .message(let id): replay.append(.update(.agentMessageChunk(text: openChunkText, messageId: id)))
+        case .thought: replay.append(.update(.agentThoughtChunk(text: openChunkText)))
+        }
+        openChunk = nil
+        openChunkText = ""
+    }
+
+    /// How many events the source keeps for a later reader (tests).
+    var replayCount: Int { replay.count + (openChunk == nil ? 0 : 1) }
 }

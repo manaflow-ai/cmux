@@ -15,6 +15,21 @@ if [[ "$TREE_PENDING" == true ]]; then
   cmux_tui_commit="$(scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}")"
 fi
 [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "resolve-nightly-cmux-tui-client produced no commit" >&2; exit 1; }
+# The prefetch "Fetch the resolved cmux-tui tree companions" started beside the compile
+# (app-fetch-tree-companions.sh). A failed or unfinished one is ended and its cache
+# dropped, so the install below downloads everything itself, as it did without it.
+state="$RUNNER_TEMP/nightly-helper-builds"
+if [[ -f "$state/cmux-tui-client.pid" ]]; then
+  set +e
+  python3 scripts/ci/background_build.py join --state "$state" cmux-tui-client --timeout 120 2>&1 \
+    | sed 's/^::error::/::warning::/'
+  joined=${PIPESTATUS[0]}
+  set -e
+  if [[ "$joined" -ne 0 ]]; then
+    python3 scripts/ci/background_build.py stop --state "$state"
+    rm -rf "${CMUX_TUI_CLIENT_CACHE:?}"
+  fi
+fi
 ./scripts/install-cmux-tui-client.sh \
   "$app" \
   --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \

@@ -2662,6 +2662,7 @@
     "agent-pane.transcript-chevron-column#light": [],
     "agent-pane.transcript-row-alignment#finished": [],
     "agent-pane.transcript-row-alignment#finished-hover": [],
+    "agent-pane.transcript-row-alignment#finished-work": [],
     "agent-pane.transcript-row-alignment#footer": [
       "center-line:row subagentDone:agent-docs-check"
     ],
@@ -3965,17 +3966,7 @@
     "viewer-empty.path-picker#recent-file": [],
     "viewer-empty.path-picker#recent-folders": [],
     "viewer-empty.path-picker#rtl": [
-      "menu-fit:div[aria-label=\"/Users/demo/Projects/cmux\"]",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-001\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-010\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-011\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-012\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-013\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-014\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-015\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-016\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-017\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-018\""
+      "menu-fit:div[aria-label=\"/Users/demo/Projects/cmux\"]"
     ],
     "viewer-empty.path-picker#virtualized": [
       "menu-fit:div[aria-label=\"/Users/demo/Projects/cmux/surfac"

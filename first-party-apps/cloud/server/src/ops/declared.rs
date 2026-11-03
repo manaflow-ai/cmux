@@ -192,6 +192,16 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
     ("cloud.vm.self.get", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),
     ("cloud.vm.status.report", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),
     ("cloud.vm.event.emit", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),
+    (
+        "cloud.vm.attention.emit",
+        VM_SELF,
+        &[
+            "cloud.machine.not_found",
+            "cloud.rate_limited",
+            "idempotency.conflict",
+            "owner.unreachable",
+        ],
+    ),
     // The Native guest receiver (#28947): its network policy read and its
     // lifecycle report, which carries a revision.
     ("cloud.vm.network_policy", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),

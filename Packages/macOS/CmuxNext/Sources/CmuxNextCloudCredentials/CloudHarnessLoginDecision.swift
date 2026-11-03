@@ -1,4 +1,4 @@
-import CCmuxLayoutReducerFFI
+public import CmuxNextCloud
 public import Foundation
 
 /// What a `cloud.startChat` start does about its machine's harness login, and why (the App's
@@ -8,10 +8,16 @@ public import Foundation
 /// `cloud.machines` row (`harness_login`), never a silent skip.
 ///
 /// The rules are Rust's (cmux-tui/crates/cmux-cloud-start-core `harness_login`, with their tests),
-/// asked over the app FFI (`cloud_harness_login*`); this type holds what the start knows so far and
-/// reads the decision back.
+/// asked in one app FFI call (`cloud_harness_login`) that reads the raw facts this type holds: the
+/// build and its setting, the chat's harness, the guest probe's output and the machine login probe's
+/// output. So an FFI that does not answer is the one failure, recorded as ``Reason/ffiFailed``, never
+/// an ordinary skip reason (cmux#32416).
 public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
-    public enum Step: String, Sendable, Equatable, Decodable { case skip, install, confirmThenInstall = "confirm-then-install" }
+    public enum Step: String, Sendable, Equatable, Decodable {
+        case skip, install, confirmThenInstall = "confirm-then-install"
+        /// A Release build's one-time consent before the first copy (``CloudLoginCopyConsentSetting``).
+        case askConsent = "ask-consent"
+    }
 
     /// The rules' reasons (cmux-cloud-start-core `Reason`), plus ``ffiFailed`` when the FFI did not answer.
     public enum Reason: String, Sendable, Equatable, Decodable {
@@ -24,54 +30,107 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
         case machineLoginKept = "machine-login-kept"
         case installCached = "install-cached"
         case confirmFirst = "confirm-first"
+        /// The consent (Release) or the person's own choice stands in for the confirm.
+        case installChosen = "install-chosen"
+        /// Release: the remote switch is off, or was not read; the machine offers its own sign-in.
+        case remoteSwitchOff = "remote-switch-off"
+        /// Release: the one-time consent has not been answered yet.
+        case consentFirst = "consent-first"
+        /// Release: the person said no, or took it back in Settings.
+        case consentDeclined = "consent-declined"
         /// The app FFI gave no answer: the start passes no login (never a silent one: the record says so).
         case ffiFailed = "ffi-failed"
     }
 
-    public var gate: Bool
-    public var provider: CloudCredentialTransfer.Provider?
+    /// What the machine's login probe answered (``CloudMachineLogin/probe(cachedFingerprint:endpoint:)``).
+    public struct MachineProbe: Sendable, Equatable, Encodable {
+        public var exitCode: Int
+        public var stdout: String
+
+        public init(exitCode: Int, stdout: String) {
+            (self.exitCode, self.stdout) = (exitCode, stdout)
+        }
+    }
+
+    /// A DEV or dogfood build (the app passes `DevTools.isEnabled`).
+    public var dogfood: Bool
+    /// The `cmux.cloud.passHarnessLogin` setting; nil when unset.
+    public var setting: Bool?
+    /// The chat's harness; nil for none named (the app's default agent, Claude).
+    public var harness: String?
     public var signedIn: Bool
     /// Nil when not asked (an earlier check decided).
     public var callerOwns: Bool?
-    /// The guest's `/etc/cmux/vm-kind` ("" when missing); nil when not read or the read failed.
-    public var guestKind: String?
+    /// The guest probe's stdout (``Verdict/guestKindProbe``); nil when not run or the exec failed.
+    public var guestStdout: String?
+    /// The machine login probe's answer; nil when not run.
+    public var machineProbe: MachineProbe?
+    /// The machine's login when known without the probe (an exec that failed reads as `.none`).
     public var machineLogin: CloudMachineLogin?
     public var cached: Bool
+    /// Release: the person's answer to the one-time consent; nil when never asked.
+    public var consent: Bool?
+    /// Release: the remote switch's fresh answer (``CloudHarnessLoginCopySwitch``); nil when not read.
+    public var remoteSwitch: Bool?
     /// What came of it once decided: "installed", "declined" (the confirm), or the transfer's fixed failure text.
     public var outcome: String?
 
-    public init(gate: Bool, provider: CloudCredentialTransfer.Provider?, signedIn: Bool, callerOwns: Bool? = nil,
-                guestKind: String? = nil, machineLogin: CloudMachineLogin? = nil, cached: Bool = false) {
-        (self.gate, self.provider, self.signedIn, self.callerOwns) = (gate, provider, signedIn, callerOwns)
-        (self.guestKind, self.machineLogin, self.cached) = (guestKind, machineLogin, cached)
+    public init(dogfood: Bool, setting: Bool?, harness: String?, signedIn: Bool) {
+        (self.dogfood, self.setting, self.harness, self.signedIn) = (dogfood, setting, harness, signedIn)
+        cached = false
     }
 
-    /// The rules' answer for these inputs.
+    /// Takes ``CloudMachineLogin/read(on:machineID:teamID:userID:)``'s answer: an exec that failed reads
+    /// as `.none`, as the probe before it did.
+    public mutating func take(_ read: (probe: MachineProbe?, cached: Bool)) {
+        (machineProbe, machineLogin, cached) = (read.probe, read.probe == nil ? CloudMachineLogin.none : nil, read.cached)
+    }
+
+    /// The rules' answer for these inputs, with the facts resolved.
     public struct Verdict: Sendable, Equatable, Decodable {
         public var step: Step
         public var reason: Reason
+        public var gate: Bool
+        public var provider: String?
+        public var guestKind: String?
+        public var machineLogin: CloudMachineLogin?
+        public var guestKindProbe: String
         public var readsMachine: Bool
         public var guestTakesLogin: Bool
         public var skippedTeamMachine: Bool
         public var summary: String
+
+        /// ``provider`` as a transfer provider; nil for a harness with no transfer (pi, opencode).
+        public var transferProvider: CloudCredentialTransfer.Provider? { provider.flatMap(CloudCredentialTransfer.Provider.init(rawValue:)) }
     }
 
     private struct Request: Encodable {
-        var gate: Bool, provider: String?, signedIn: Bool, callerOwns: Bool?, guestKind: String?
-        var machineLogin: String?, cached: Bool, outcome: String?
+        var dogfood: Bool, setting: Bool?, harness: String, signedIn: Bool, callerOwns: Bool?, guestStdout: String?
+        var machineProbe: MachineProbe?, machineLogin: String?, cached: Bool, outcome: String?
+        var consent: Bool?, remoteSwitch: Bool?
     }
 
     /// Asks the rules once; read every field off the one answer.
     public var verdict: Verdict {
-        let request = Request(gate: gate, provider: provider?.rawValue, signedIn: signedIn, callerOwns: callerOwns, guestKind: guestKind,
-                              machineLogin: machineLogin?.rawValue, cached: cached, outcome: outcome)
-        return Self.call("cloud_harness_login", request, as: Verdict.self) ?? Verdict(
-            step: .skip, reason: .ffiFailed, readsMachine: false, guestTakesLogin: false, skippedTeamMachine: false,
+        // "" is no harness named: the rules read it as the default agent, Claude.
+        let request = Request(dogfood: dogfood, setting: setting, harness: harness ?? "", signedIn: signedIn, callerOwns: callerOwns,
+                              guestStdout: guestStdout, machineProbe: machineProbe, machineLogin: machineLogin?.rawValue,
+                              cached: cached, outcome: outcome, consent: consent, remoteSwitch: remoteSwitch)
+        return CloudStartCore().call("cloud_harness_login", request, as: Verdict.self) ?? Verdict(
+            step: .skip, reason: .ffiFailed, gate: false, provider: nil, guestKind: nil, machineLogin: nil, guestKindProbe: "",
+            readsMachine: false, guestTakesLogin: false, skippedTeamMachine: false,
             summary: "skip (ffi-failed)" + (outcome.map { " -> \($0)" } ?? ""))
     }
 
     public var step: Step { verdict.step }
     public var reason: Reason { verdict.reason }
+    /// Whether this build passes a login: DEV and dogfood builds unless the setting turns it off; a
+    /// Release build only while the remote switch is on (its consent is asked after).
+    public var gate: Bool { verdict.gate }
+    /// The provider whose login the start passes; nil for a harness with no transfer (pi, opencode).
+    public var provider: CloudCredentialTransfer.Provider? { verdict.transferProvider }
+    /// The guest's `/etc/cmux/vm-kind` as read ("" when missing); nil when not read.
+    public var guestKind: String? { verdict.guestKind }
     /// The start passed no personal login because the machine is a team machine (handshake `cloudTeamMachine`).
     public var skippedTeamMachine: Bool { verdict.skippedTeamMachine }
     /// Whether the guest takes the caller's login (an `owner` or `team` guest of the caller's own machine).
@@ -80,44 +139,4 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     public var readsMachine: Bool { verdict.readsMachine }
     /// One line for the log and the `cloud.machines` row; no token, path or provider output.
     public var summary: String { verdict.summary }
-
-    /// The provider whose login a start needs; nil for a harness that has no transfer (pi, opencode).
-    /// No harness named is the app's default agent, Claude.
-    public static func loginProvider(harness: String?) -> CloudCredentialTransfer.Provider? {
-        struct Request: Encodable { var harness: String? }
-        struct Reply: Decodable { var provider: String? }
-        return call("cloud_harness_login_provider", Request(harness: harness), as: Reply.self)?.provider
-            .flatMap(CloudCredentialTransfer.Provider.init(rawValue:))
-    }
-
-    /// Prints the guest's kind after a fixed marker, so an exec that ran is told from one that failed.
-    public static let guestKindProbe: String = {
-        struct Reply: Decodable { var probe: String }
-        // An empty probe prints nothing, which reads as an unread kind (`guest-kind-unread`).
-        return call("cloud_guest_kind_probe", [String: String](), as: Reply.self)?.probe ?? ""
-    }()
-
-    /// The kind ``guestKindProbe`` printed ("" when the guest has none), or nil for output without the marker.
-    public static func guestKind(stdout: String) -> String? {
-        struct Request: Encodable { var stdout: String }
-        struct Reply: Decodable { var kind: String? }
-        return call("cloud_guest_kind", Request(stdout: stdout), as: Reply.self)?.kind
-    }
-
-    /// One JSON call of the app FFI; nil when it does not answer.
-    private static func call<Request: Encodable, Reply: Decodable>(_ operation: String, _ request: Request, as: Reply.Type) -> Reply? {
-        guard let data = try? JSONEncoder().encode(request) else { return nil }
-        var capacity = 4096
-        for _ in 0..<2 {
-            var output = [UInt8](repeating: 0, count: capacity); var outputLength = 0
-            let code: Int32 = data.withUnsafeBytes { requestBytes in operation.withCString { operationCString in output.withUnsafeMutableBytes { outputBytes in cmux_layout_reducer_json(requestBytes.bindMemory(to: UInt8.self).baseAddress, data.count, operationCString, outputBytes.bindMemory(to: UInt8.self).baseAddress, outputBytes.count, &outputLength) } } }
-            if code == CMUX_LAYOUT_REDUCER_ERR_BUFFER, outputLength > capacity {
-                capacity = outputLength
-                continue
-            }
-            guard code == CMUX_LAYOUT_REDUCER_OK, outputLength <= capacity else { return nil }
-            return try? JSONDecoder().decode(Reply.self, from: Data(output.prefix(outputLength)))
-        }
-        return nil
-    }
 }

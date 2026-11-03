@@ -14,10 +14,10 @@ extension AppServices: AgentShareHost {
     func shareConnection(holding tab: TabModel) -> DaemonConnection? { locateTab(tab.id).map(\.1).map(daemon(for:))?.connection }
     func shareIsOnThisMac(_ tab: TabModel) -> Bool { machines.local.store.tab(idOrResource: tab.id) === tab }
     var shareLocalConnection: DaemonConnection? { machines.local.connection }
-    func shareOwnerToken() async -> String? { await cloud.shareOwnerToken() }
+    func shareOwnerToken(api: URL?) async -> String? { await cloud.shareOwnerToken(api: api) }
     func shareCopy(_ text: String) { AppActionContext(services: self).copy(text) }
     func shareNotice(_ message: String) { BrowserFileImport.toast(self, id: "agent-share", message) }
-    func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { await AgentShareConsentSheet.ask(ask) }
+    func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { await AgentShareConsentSheet.ask(ask, feed: feed) }
 }
 
 /// The owner's consent sheet for a guest link a run they did not start asks for (#30263): a cmux
@@ -39,16 +39,37 @@ enum AgentShareConsentSheet {
                        identifier: identifier)
     }
 
-    static func ask(_ ask: AgentShareConsentAsk, center: CmuxDialogCenter = .shared, within limit: Duration = answerWithin) async -> Bool {
+    /// `feed`: while the sheet waits it is also an open Feed request (Needs you), withdrawn when the
+    /// sheet ends; a Feed answer only declines the sheet or brings the app forward
+    /// (``AgentShareConsentFeed``).
+    static func ask(_ ask: AgentShareConsentAsk, center: CmuxDialogCenter = .shared, within limit: Duration = answerWithin,
+                    feed: FeedService? = nil) async -> Bool {
         let timeout = DemandTimer(owner: "AgentShareConsentSheet.ask")
+        let request = feed.flatMap { feed in feed.isSignedIn ? AgentShareConsentFeed(owner: { try await feed.call($0, $1) }) : nil }
         return await withCheckedContinuation { continuation in
             // The center calls this once: the owner's press, or the dismissal below.
             let id = center.present(spec(ask), in: .app) { answer in
                 timeout.cancel()
+                // task-owner: AgentShareConsentSheet.ask: one feed.cancel when the sheet ends.
+                if let request { Task { await request.close() } }
                 continuation.resume(returning: answer.button == "allow")
             }
             // Cancelled by the answer; else ends the dialog at `limit` as a decline.
             timeout.schedule(after: limit) { @MainActor in center.dismiss(id) }
+            guard let feed, let request else { return }
+            // task-owner: AgentShareConsentSheet.ask: posts the Needs you request, then waits for a Feed
+            // answer at most until the sheet's own `limit`; ends with the sheet (close) or the deadline.
+            Task { @MainActor in
+                let deadline = ContinuousClock.now + limit
+                guard let item = await request.open(ask, key: "share-consent:\(UUID().uuidString)",
+                                                    expiresInMs: Int(limit.components.seconds) * 1000) else { return }
+                await feed.waitClosed(item, until: deadline)
+                switch feed.model.item(item).flatMap(AgentShareConsentFeed.answer(of:)) {
+                case .decline: center.dismiss(id)
+                case .show: NSApp.activate()
+                case nil: break
+                }
+            }
         }
     }
 }

@@ -25,8 +25,8 @@ export type PlatformSurface = "cloud"
 /** The surface of each op owner whose ops (on /v1/ops and /v1/read) can move. Owners not listed always stay. */
 export const OWNER_SURFACE: Readonly<Partial<Record<string, PlatformSurface>>> = { "cloud:CloudDO": "cloud" }
 
-/** NEXT Cloud's machine routes outside the op path (the ones index.ts sends to cloud-link, cloud-acpmux, cloud-client-session, cloud-machine-guest and cloud-trajectory). */
-const CLOUD_PATHS: ReadonlyArray<RegExp> = [/^\/v1\/cloud\/bind$/, /^\/v1\/cloud\/keyset$/, ACPMUX_PATH, CLIENT_SESSION_PATH, GUEST_PATH, TRAJECTORY_PATH]
+/** NEXT Cloud's machine routes outside the op path (the ones index.ts sends to cloud-link, cloud-acpmux, cloud-client-session, cloud-machine-guest and cloud-trajectory), the platform's Native network target read (cmux-platform NativeNetwork.ts) and the platform's remote off switch for the Mac's login copy (cmux-platform LoginCopySwitch.ts), which have no op and no route here. */
+const CLOUD_PATHS: ReadonlyArray<RegExp> = [/^\/v1\/cloud\/bind$/, /^\/v1\/cloud\/keyset$/, ACPMUX_PATH, CLIENT_SESSION_PATH, GUEST_PATH, TRAJECTORY_PATH, /^\/v1\/host\/network\/target$/, /^\/v1\/cloud\/harness-login-copy$/]
 
 /** The surfaces a `PLATFORM_SURFACES` value turns on; unknown names are ignored. */
 export const platformSurfaces = (value: string | undefined): ReadonlySet<PlatformSurface> => {

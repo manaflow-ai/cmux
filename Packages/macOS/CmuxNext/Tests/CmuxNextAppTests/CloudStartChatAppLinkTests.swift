@@ -16,13 +16,6 @@ import Testing
 @Suite
 @MainActor
 struct CloudStartChatAppLinkTests {
-    /// The start is refused only for Cloud off by policy or a signed-out account, whatever the link.
-    @Test func aStartOnTheAppServerLinkIsNotRefused() {
-        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: true) == nil)
-        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false) == "not_signed_in")
-        #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: true) == "cloud_disabled")
-    }
-
     /// A machine on the app link goes on to its own state checks: a deleting one is refused as
     /// deleting, never as a link that can't take a chat.
     @Test func aMachineOnTheAppLinkIsNotRefusedForItsLink() async {

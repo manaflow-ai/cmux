@@ -227,9 +227,6 @@ impl Brain {
         if call.action == "cloud" {
             return self.control_cloud(call.peer.as_deref());
         }
-        if call.action == "sessions" {
-            return self.control_sessions(call.n.unwrap_or(0));
-        }
         if call.action == "status" && call.id.is_none() {
             return Ok(self.status_all());
         }
@@ -877,6 +874,7 @@ impl Brain {
             s.inbox.clear();
             s.after_stop = None;
         }
+        self.sign_ins.abandoned(id);
         self.save();
         // No longer at work: its slot frees now, not when its turn ends.
         self.start_queued();
@@ -1077,6 +1075,12 @@ impl Brain {
             json!({"id": agent, "site": request.site, "kind": request.kind}),
         );
         self.queue_urgent(request.note(agent));
+        // The person's part waits in the Feed's Needs you until it is done.
+        let session = self
+            .state
+            .sub(agent)
+            .and_then(|(_, s)| s.session_id.clone());
+        self.sign_ins.opened(agent, request, session.as_deref());
         Ok(format!(
             "outcome: done. Your Chief has it now, ahead of its other work: it opens {url} in Home's right pane, fills what it may, presses the passkey or security-key button so macOS shows Touch ID, and asks the user to touch the sensor. It tells you when {site} is signed in. Until then do the parts that need no sign-in; never read or type a password, and do not escalate {site} again.",
             url = request.url,

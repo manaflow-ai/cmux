@@ -11,7 +11,8 @@ public import CmuxNextWakeups
 /// - off the main thread: the main actor only starts the GPU copy of the presented frame (as hover previews do);
 ///   the render waits on a detached task and the JPEG encode and write run on the files lane at best effort;
 /// - bounded: one file per visible terminal; a terminal hidden or closed loses its file, and files of terminals this
-///   run does not show are dropped once the launch read has ended (at most ``TerminalLaunchFrames/maximumFiles``).
+///   run does not show are dropped once the launch read has ended (at most ``TerminalLaunchFrames/maximumFiles``); a
+///   pane that still shows its saved frame ahead of its surface shows that terminal (#32274).
 ///
 /// A resize (a split, a window resize) or a file removed while hidden saves again as soon as the terminal is quiet,
 /// with no ``interval``: the launch refuses a frame of another size, so an old one is as good as none.
@@ -41,6 +42,8 @@ final class TerminalLaunchFrameKeeper {
     private let stopFlag = TerminalFrameChanges()
     /// Whether the launch read of the files has ended: files of terminals this run does not show are dropped only then.
     private let readEnded: @MainActor () -> Bool
+    /// The terminals whose saved frame a pane shows ahead of their surface (#32274): on screen, so never dropped.
+    private let shownAhead: @MainActor () -> Set<String>
     private var kept: [String: Kept] = [:]
     private var stopped = false
     /// Saves started, for tests and `debug.timings`.
@@ -71,10 +74,12 @@ final class TerminalLaunchFrameKeeper {
     }
 
     init(directory: URL, work: BackgroundWork,
-         readEnded: @escaping @MainActor () -> Bool) {
+         readEnded: @escaping @MainActor () -> Bool,
+         shownAhead: @escaping @MainActor () -> Set<String> = { [] }) {
         self.directory = directory
         self.work = work
         self.readEnded = readEnded
+        self.shownAhead = shownAhead
     }
 
     /// Keeps `session`'s frame under `key` from now on (again for a new session of the key). A first frame is saved
@@ -189,14 +194,16 @@ final class TerminalLaunchFrameKeeper {
         // The GPU copy starts on the main actor (the layer's IOSurface); the render waits off it.
         guard let frame = await session.snapshotInBackground(maxPixelSize: .greatestFiniteMagnitude), !stopped else { return }
         let scale = max(1, min(3, Int((CGFloat(frame.width) / size.width).rounded())))
-        let directory = directory, prune = readEnded() ? Set(kept.keys) : nil
+        // Kept: the terminals kept here and the panes still showing their saved frame ahead of a surface (#32274).
+        let directory = directory, prune = readEnded() ? Set(kept.keys).union(shownAhead()) : nil
         kept[key]?.onDisk = true
         kept[key]?.savedSize = size
         // Posted, not awaited: nothing waits for it, so it stays at best effort (BackgroundWork, priority inversion).
         let written = onWritten, stopped = stopFlag
         work.post(.bestEffort, mayBlock: .files) {
             guard stopped.generation == 0 else { return } // the quit saves every frame itself
-            TerminalLaunchFrames.writeOne(frame, key: key, scale: scale, to: directory, keeping: prune)
+            TerminalLaunchFrames.writeOne(frame, key: key, scale: scale, to: directory, keeping: prune,
+                                          stillWanted: { stopped.generation == 0 })
             written?(key)
         }
     }

@@ -26,6 +26,9 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import nightly_sign_runner as picker  # noqa: E402
 
+sys.path.insert(0, str(ROOT / "tests"))
+from runs_on_labels import holds_signing_material  # noqa: E402
+
 NOW = dt.datetime(2026, 10, 26, 9, 30, tzinfo=dt.timezone.utc)
 LARGE, SMALL = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
 LINUX4, LINUX16, LINUX32 = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404",
@@ -459,7 +462,9 @@ class Workflow(unittest.TestCase):
         for name, picked in SIGNING_JOBS.items():
             with self.subTest(job=name):
                 runs_on = str(jobs[name]["runs-on"])
-                self.assertIn(f"|| {picked} || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", runs_on)
+                # A job holding signing material keeps its literal route (tests/runs_on_labels.py SIGNING_JOB).
+                last = "'blacksmith-6vcpu-macos-26'" if holds_signing_material(jobs[name]) else "fromJSON(vars.RUNNER_POOLS).macos_26"
+                self.assertIn(f"|| {picked} || vars.MACOS_RUNNER_26 || {last}", runs_on)
                 # A re-run (attempt 2 on) takes the other size: GitHub never re-routes a queued job,
                 # so a label that stalls after the pick is left only by a re-run, which must not
                 # queue on it again (run 40489472569, 2026-10-27).
@@ -474,6 +479,7 @@ class Workflow(unittest.TestCase):
                 runs_on = str(jobs[name]["runs-on"])
                 self.assertTrue(runs_on.endswith(OWNED_FALLBACK), runs_on)
                 self.assertNotIn("blacksmith", runs_on)
+                self.assertNotIn("RUNNER_POOLS", runs_on)
                 self.assertNotIn("MACOS_RUNNER", runs_on)
                 self.assertNotIn("sign_runner", runs_on)
                 self.assertNotIn("sign_alternate", runs_on)
@@ -544,7 +550,9 @@ class OwnedVerify(unittest.TestCase):
                               "(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER) "
                               "|| github.run_attempt > 1 && "
                               "needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner "
-                              "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", str(job["runs-on"]))
+                              "|| vars.MACOS_RUNNER_26 || "
+                              + ("'blacksmith-6vcpu-macos-26'" if holds_signing_material(job) else "fromJSON(vars.RUNNER_POOLS).macos_26"),
+                              str(job["runs-on"]))
                 # The launch smoke selects no Xcode: it mounts a DMG and runs the app in it.
                 if name == "launch-smoke-nightly":
                     self.assertNotIn("CMUX_CI_XCODE_APP", job["env"])
@@ -739,6 +747,62 @@ class SnapshotReadToken(unittest.TestCase):
                 continue
             with self.subTest(job=name):
                 self.assertNotIn("snapshot-read-token", yaml.safe_dump(job))
+
+
+class Overtaken(unittest.TestCase):
+    """2026-11-03: Apple's daily notarization cap (429 RATE_LIMIT) failed every
+    nightly for hours while about ten runs signed side by side. A run whose build
+    a newer published build is already above can only be superseded at publish,
+    so pick-nightly-sign-runner's overtaken skips its notarizations; a newer push
+    alone never does (#28961), and an unreadable feed signs as before."""
+
+    SCRIPT = ROOT / "scripts/ci/nightly-steps/sign-pick-overtaken.sh"
+
+    def run_step(self, feed: str | None, run_id: str = "41571567978", attempt: str = "1") -> str:
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "feed"
+            base.mkdir()
+            if feed is not None:
+                (base / "appcast-arm64.xml").write_text(feed, encoding="utf-8")
+            out = Path(tmp) / "out"
+            env = dict(os.environ, NIGHTLY_NEXT_FEED_BASE=f"file://{base}", RUN_ID=run_id, RUN_ATTEMPT=attempt,
+                       GITHUB_OUTPUT=str(out))
+            result = subprocess.run(["bash", str(self.SCRIPT)], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return out.read_text(encoding="utf-8").strip()
+
+    @staticmethod
+    def feed(*builds: str) -> str:
+        items = "".join(f"<item><sparkle:version>{b}</sparkle:version></item>" for b in builds)
+        return f'<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel>{items}</channel></rss>'
+
+    def test_a_newer_published_build_skips_notarization(self) -> None:
+        self.assertEqual(self.run_step(self.feed("4157013432001", "4157485009901")), "overtaken=true")
+
+    def test_an_older_or_equal_feed_signs(self) -> None:
+        self.assertEqual(self.run_step(self.feed("4157013432001")), "overtaken=false")
+        self.assertEqual(self.run_step(self.feed("4157156797801")), "overtaken=false")
+
+    def test_the_attempt_is_part_of_the_build(self) -> None:
+        # Attempt 1 of this run is on the feed; attempt 2 is above it.
+        self.assertEqual(self.run_step(self.feed("4157156797801"), attempt="2"), "overtaken=false")
+        self.assertEqual(self.run_step(self.feed("4157156797802"), attempt="1"), "overtaken=true")
+
+    def test_an_unreadable_feed_signs(self) -> None:
+        self.assertEqual(self.run_step(None), "overtaken=false")
+
+    def test_the_signers_and_the_fallback_skip_on_it_and_the_step_cannot_fail_the_pick(self) -> None:
+        jobs = WORKFLOW["jobs"]
+        picker_job = jobs["pick-nightly-sign-runner"]
+        self.assertEqual(picker_job["outputs"]["overtaken"], "${{ steps.overtaken.outputs.overtaken }}")
+        step = next(s for s in picker_job["steps"] if s.get("id") == "overtaken")
+        self.assertTrue(step["continue-on-error"])
+        self.assertEqual(step["if"], "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next'")
+        gate = "needs.pick-nightly-sign-runner.outputs.overtaken != 'true'"
+        for name in ("signer-app", "build-sign-notarize-nightly"):
+            self.assertIn("pick-nightly-sign-runner", jobs[name]["needs"])
+            self.assertIn(gate, jobs[name]["if"], name)
 
 
 if __name__ == "__main__":

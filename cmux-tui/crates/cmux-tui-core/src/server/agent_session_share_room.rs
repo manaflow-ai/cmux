@@ -73,6 +73,13 @@ pub(in crate::server) struct Room {
     timing: Timing,
 }
 
+impl Room {
+    /// The room's origin.
+    pub(in crate::server) fn url(&self) -> &str {
+        &self.url
+    }
+}
+
 enum Cmd {
     /// Send `guests` and the pending kicks again (a guest was kicked).
     Reconcile,
@@ -1132,8 +1139,9 @@ fn refused(mux: &Mux, share_id: &str, guest: &str, ask: relay::Ask) -> Vec<Value
 }
 
 /// The redeem refusals the room may pass to a guest.
-const GUEST_REFUSALS: [&str; 8] = [
+const GUEST_REFUSALS: [&str; 9] = [
     "share.secret",
+    "share.not_invited",
     "share.used",
     "share.name",
     "share.expired",
@@ -1162,6 +1170,8 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 secret: field("secret"),
                 name: field("name"),
                 attempt_id: field("attempt_id"),
+                // The account the room signed in, for an invite (no secret then).
+                account: frame.get("account").and_then(Value::as_str).map(str::to_owned),
             };
             let directory = mux.session_state_directory();
             let redeemed = shares(mux).redeem(directory.as_deref(), redeem);

@@ -105,6 +105,14 @@ public final class IPhoneHostService {
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
     private(set) var allowed = false
+    /// Host-owned per-chat Remote Control policy. These are observed from the Rust host's replayable
+    /// supervisor state; the App never reads or writes the policy file itself.
+    private(set) var sessionExposureConfigured = false
+    private(set) var exposedSessionIDs: Set<String> = []
+    private(set) var blockedSessionIDs: Set<String> = []
+    private(set) var sessionExposureAvailable = false
+    private(set) var sessionExposureKnown = false
+    private(set) var sessionExposureRevision = 0
     /// Session Info's Remote Control switch every chat page shows (the App gives it to each page's model).
     public let remoteControl = AgentPaneRemoteControl()
     /// The service is wired and this build bundles hostd, so this Mac can serve cmux on iPhone
@@ -207,6 +215,18 @@ public final class IPhoneHostService {
                 guard let self else { return }
                 let before = self.state
                 self.state = next
+                sessionExposureConfigured = next.sessionExposureConfigured
+                exposedSessionIDs = next.exposedSessionIDs
+                blockedSessionIDs = next.blockedSessionIDs
+                sessionExposureAvailable = next.sessionExposureAvailable
+                sessionExposureKnown = next.sessionExposureKnown
+                if next.sessionExposureKnown != before.sessionExposureKnown
+                    || next.sessionExposureConfigured != before.sessionExposureConfigured
+                    || next.exposedSessionIDs != before.exposedSessionIDs
+                    || next.blockedSessionIDs != before.blockedSessionIDs
+                    || next.sessionExposureAvailable != before.sessionExposureAvailable {
+                    sessionExposureRevision &+= 1
+                }
                 if next.phase == .removed, before.phase != .removed { self.recordRemoval() }
                 // The list follows what hostd reports: online, and each phone that comes or goes.
                 if next.phase == .online, before.phase != .online || before.phones.map(\.sessionID) != next.phones.map(\.sessionID) {

@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+@testable import CmuxNextNotifications
 import Foundation
 import Testing
 
@@ -42,7 +43,7 @@ struct AttentionSnapshotTests {
         func apply() -> Set<String> {
             let snapshot = AttentionTabsWatch.Snapshot(machine: "local", store: store)
             let eligible = baseline.eligibleRequests([snapshot])
-            service.attentionMarksChanged(snapshot.items, eligibleRequests: eligible)
+            service.attention.marksChanged(snapshot.items, eligibleRequests: eligible)
             return eligible
         }
         #expect(apply().isEmpty)
@@ -50,7 +51,7 @@ struct AttentionSnapshotTests {
         #expect(apply().isEmpty, "neither partial stream is a baseline")
         if stateFirst { Self.tree(store) } else { Self.state(store, mark: 1_000) }
         #expect(apply().isEmpty, "pre-existing marks must not post at startup")
-        let before = service.attentionSeen
+        let before = service.attention.seen
         Self.mark(store, at: 2_000)
         let eligible = apply()
         let current = AttentionTabsWatch.Snapshot(machine: "local", store: store).items

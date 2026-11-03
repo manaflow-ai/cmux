@@ -158,6 +158,18 @@ final class CEFHostView: NSView {
     /// The pane's rounded clip, the column strip's clip and the window's corners, in this view.
     var pageClip: CGPath? { clipShape().path }
 
+    /// ``pageClip`` in window coordinates, the shape the page window's mask shows on screen; nil
+    /// when the page is a plain rectangle. A page clipped away entirely gets an empty path.
+    var pageClipInWindow: CGPath? {
+        guard let clip = pageClip else { return nil }
+        let origin = convert(NSPoint.zero, to: nil)
+        let unitX = convert(NSPoint(x: 1, y: 0), to: nil)
+        let unitY = convert(NSPoint(x: 0, y: 1), to: nil)
+        var toWindow = CGAffineTransform(a: unitX.x - origin.x, b: unitX.y - origin.y,
+                                         c: unitY.x - origin.x, d: unitY.y - origin.y, tx: origin.x, ty: origin.y)
+        return clip.copy(using: &toWindow)
+    }
+
     /// The last clip shape and what it was worked out from. The fork reads
     /// the clip and the occlusion rects on every geometry update, several
     /// times per display frame while a pane moves, and also on window moves,

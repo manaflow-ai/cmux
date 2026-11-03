@@ -149,6 +149,9 @@ impl Hub {
             crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all);
         *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers.clone());
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
+        if let Some(dirs) = super::additional_dirs::acp_value(meta) {
+            params.set(super::additional_dirs::FIELD, dirs);
+        }
         if let Some(id) = session_id {
             params.set("sessionId", json!(id));
         }
@@ -321,6 +324,25 @@ impl Hub {
             p.env
                 .entry(crate::agent_tools::TOOL_SEARCH_ENV.to_owned())
                 .or_insert_with(|| "true".to_owned());
+        }
+        // Claude Code keeps the prompt cache one hour only on a Claude
+        // subscription, five minutes on an API key or any other endpoint:
+        // acpmux starts it on the cache `agents.promptCache` names (one
+        // hour by default, prompt_cache_env.rs). A profile's own value wins.
+        // The login shell's values are applied after this env (agent/command.rs), so one it
+        // sets counts as set; a remote-origin chat gets no login env.
+        if crate::agent_tools::is_claude_code(&meta.harness, profile) {
+            let family = crate::config::derive_family(&meta.harness, profile);
+            let remote = meta.remote_origin;
+            let login = |key: &str| {
+                crate::login_env::var(key)
+                    .filter(|v| !remote && crate::login_env::allowed(key, v, Some(&family)))
+            };
+            crate::prompt_cache_env::apply(
+                &mut p.env,
+                crate::prompt_cache_env::PromptCache::current(),
+                &login,
+            );
         }
         // The MCP servers this chat turned off (`tools.rs`): Claude Code never calls their tools.
         if profile.kind == crate::config::HarnessKind::ClaudeStdio {

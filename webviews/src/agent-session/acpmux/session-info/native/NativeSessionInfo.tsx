@@ -34,6 +34,7 @@ import { useNativeOperations } from "./useNativeOperations";
 import { useNativeSourceFiles } from "./useNativeSourceFiles";
 import { NativeInfoActions, type NativeInfoSection, type NativeSessionInfo as NativeSessionInfoModel } from "./model";
 import { outputsSection } from "./outputs";
+import { useNativeOverlayReport } from "./overlays";
 import { panelAction } from "./panelActions";
 import { usageSection } from "./usage";
 import type { AccessGrant } from "../EnvironmentSection";
@@ -176,7 +177,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const language = usePaneLanguage();
   const state = useSessionInfoState();
   const { shown, summary, onShowUsage } = props;
-  const contextUsage = props.usage ?? compactingUsage(summary?.usage, summary?.usageStats);
+  const contextUsage = props.usage ?? compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const environmentEditor = useSyncExternalStore(subscribeCloudEnvironment, cloudEnvironmentRequest);
   const cloudSession =
     props.cloudRepositoryAvailable && machineOf(summary, props.machineName, props.peerKinds).kind === "cloud"
@@ -465,6 +466,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
     ...((props.revealed ?? localReveal) ? { reveal: props.revealed ?? localReveal } : {}),
     sections: orderSections(sections, t),
   };
+  // The page's popups over the App's panel: it steps behind them (overlays.ts).
+  useNativeOverlayReport(info.open);
   usePostSessionInfo(info, actions, () => {
     if (props.revealed) props.onRevealed?.();
     else setLocalReveal(undefined);

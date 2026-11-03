@@ -24,10 +24,11 @@ enum AgentPaneHandshakeReply {
                 handshake.cwd = seed.cwd
                 handshake.draft = seed.draft
                 handshake.prompt = seed.prompt
+                handshake.promptAttachments = seed.promptAttachments
                 // A prompt a person's own action seeded goes out by itself with a single-use
                 // ticket bound to its promptId (cx-k21v gap 4, chief: person only). The seed hands
                 // its prompt out once, so a reload gets neither the prompt nor a ticket again.
-                if let prompt = seed.prompt, !prompt.isEmpty, seed.promptBy.sendsBySelf {
+                if (seed.prompt?.isEmpty == false || seed.promptAttachments?.isEmpty == false), seed.promptBy.sendsBySelf {
                     let issued = model.transport.gestures.issueSeedTicket()
                     handshake.promptTicket = AgentPaneHandshake.PromptTicket(promptId: issued.promptId, ticket: issued.ticket)
                 }
@@ -49,7 +50,7 @@ enum AgentPaneHandshakeReply {
             // A new tab page is a new chat on every host, the mock included: the page
             // never falls back to the most recent session behind it. Its chat starts in
             // the page's folder unless a seed named one.
-            if model.sessionId == nil, handshake.peer == nil, let newTab = model.newTab {
+            if model.sessionId == nil, handshake.peer == nil, let newTab = model.newTabForPage {
                 handshake.newTab = newTab
                 handshake.newSession = true
                 if handshake.cwd == nil { handshake.cwd = model.tabsNewTabFolder }

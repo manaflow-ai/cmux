@@ -118,6 +118,7 @@
     "CmuxNextBrowser": {"layer": "ui", "mixes": ["core", "service", "domain"], "plan": "split: BrowserCore (engine protocols, values), BrowserCEF and BrowserWebKit (engines), Browser (UI)"},
     "CmuxNextFavicons": {"layer": "ui"},
     "CmuxNextAgentPane": {"layer": "ui", "mixes": ["service", "domain"]},
+    "CmuxNextNotifications": {"layer": "ui", "mixes": ["service"], "note": "the macOS notification center (DesktopNotifier, permission) and the Needs you banners, moved out of CmuxNextApp"},
     "CmuxNextPages": {"layer": "ui", "mixes": ["service"]},
     "CmuxNextPagesTestSupport": {"layer": "ui"},
     "CmuxNextAppPermissions": {"layer": "ui"},

@@ -37,6 +37,11 @@ public protocol PageChromiumHosting: AnyObject {
     func focusViewChanged(_ page: PageWebView) -> Bool
 }
 
+extension PageChromiumPage {
+    /// No clip: the page shows as a plain rectangle.
+    public var windowClip: CGPath? { nil }
+}
+
 extension PageChromiumHosting {
     /// No focus model: the page keeps its keyboard itself.
     public func focusViewChanged(_ page: PageWebView) -> Bool { false }
@@ -60,6 +65,10 @@ public protocol PageChromiumPage: AnyObject {
     /// leaves these rects uncovered: the native view under them shows there and takes the mouse
     /// (a chat's pane tabs while the chat shares the tab row, ``PageWebView/nativeRects``).
     var occlusionRects: [CGRect] { get set }
+    /// The shape the page window shows the page in, in window coordinates (a pane scrolled under
+    /// a docked column shows only its uncovered part); nil when the page shows as a plain
+    /// rectangle. A window image paints the page's image only inside it.
+    var windowClip: CGPath? { get }
     /// Runs a DevTools protocol method and returns its JSON result.
     ///
     /// - Parameters:

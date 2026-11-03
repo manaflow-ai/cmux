@@ -125,6 +125,7 @@ impl Translator {
                         self.turn_output.store(false, Ordering::SeqCst);
                         *self.prompt_echo.lock().await = Some(uuid);
                         self.cancelled.store(false, Ordering::SeqCst);
+                        self.step_stopped.store(false, Ordering::SeqCst);
                         let mut pending = self.pending.lock().await;
                         *self.abandoned.lock().await = pending
                             .iter()
@@ -235,6 +236,24 @@ impl Translator {
                                     json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "apply_flag_settings", "settings": effort_settings(effort)}}),
                                 ])
                             }
+                            super::RECAP_OPTION => {
+                                let Some(choice) =
+                                    ["default", "on", "off"].into_iter().find(|c| *c == val)
+                                else {
+                                    return Outbound::Reply(Message::err(
+                                        id.clone(),
+                                        RpcError::invalid_params(
+                                            "session-recap must be default, on or off",
+                                        ),
+                                    ));
+                                };
+                                // acpmux's own switch: answered here, Claude Code is not asked.
+                                *self.recap.lock().await = choice;
+                                Outbound::Reply(Message::ok(
+                                    id.clone(),
+                                    json!({"configOptions": self.config_options_value().await}),
+                                ))
+                            }
                             other => Outbound::Reply(Message::err(
                                 id.clone(),
                                 RpcError::invalid_params(format!("unknown config option {other}")),
@@ -269,10 +288,12 @@ impl Translator {
                         let tool = p.get("toolCallId").and_then(Value::as_str);
                         let tool = tool.filter(|t| !t.is_empty());
                         // The foreground shells it may move are the person's once they
-                        // move (`inbound.rs` `origin`).
+                        // move (`inbound.rs` `origin`), unless acpmux moves them on its own
+                        // (`auto`, `hub/auto_background.rs`): those stay `auto_backgrounded`.
+                        let auto = p.get("auto") == Some(&Value::Bool(true));
                         let mut asked = Vec::new();
                         for (call, shell) in self.background_shells.lock().await.iter_mut() {
-                            if !shell.background && tool.is_none_or(|t| t == call) {
+                            if !auto && !shell.background && tool.is_none_or(|t| t == call) {
                                 shell.asked = true;
                                 asked.push(call.clone());
                             }
@@ -348,6 +369,23 @@ impl Translator {
                             "type": "control_request",
                             "request_id": format!("side-{}", id),
                             "request": request,
+                        })])
+                    }
+                    RECAP => {
+                        // Only between turns: a recap asked while a turn runs would describe
+                        // work still under way, and the hub asks only an idle chat.
+                        if self.in_turn.load(Ordering::SeqCst) {
+                            return Outbound::Reply(Message::err(
+                                id.clone(),
+                                RpcError::invalid_params("a turn is running"),
+                            ));
+                        }
+                        // Answered like a side question (`side-` in `inbound.rs`).
+                        self.pending.lock().await.insert(id.to_string(), Pending::SideQuestion);
+                        Outbound::Lines(vec![json!({
+                            "type": "control_request",
+                            "request_id": format!("side-{}", id),
+                            "request": {"subtype": "side_question", "question": RECAP_PROMPT},
                         })])
                     }
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
@@ -473,9 +511,11 @@ impl Translator {
     }
 
     /// The interrupt that stops Claude Code's current step for a steer sent now: unlike a Stop
-    /// it leaves `cancelled` unset, so the steer Claude Code reads after the step runs on in the
-    /// same turn. Its ack answers `answer` (`MUX_STEP_NOW`), when one waits for it.
+    /// it leaves `cancelled` unset, and the stopped step's result ends the turn and carries the
+    /// steer, which runs as a turn of its own (`carry.rs`). Its ack answers `answer`
+    /// (`MUX_STEP_NOW`), when one waits for it.
     pub(super) fn step_interrupt(&self, answer: Option<&Id>) -> Value {
+        self.step_stopped.store(true, Ordering::SeqCst);
         let request_id = match answer {
             Some(id) => format!("now-{id}"),
             None => format!("int-{}", self.next_control.fetch_add(1, Ordering::SeqCst)),

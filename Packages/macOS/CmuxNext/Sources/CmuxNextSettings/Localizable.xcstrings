@@ -1,6 +1,792 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.agents.promptCache": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt Cache"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ذاكرة التخزين المؤقت للطلب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keš upita"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-cache"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-Cache"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caché de prompts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache des prompts"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache dei prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトキャッシュ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឃ្លាំងសម្ងាត់ប្រអប់បញ្ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프롬프트 캐시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-hurtigbuffer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pamięć podręczna promptów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache de prompts"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кэш промптов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แคชพรอมต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstem önbelleği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кеш промптів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bộ nhớ đệm lời nhắc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示词缓存"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示詞快取"
+          }
+        }
+      }
+    },
+    "settings.agents.promptCache.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المدة التي يحتفظ فيها Claude Code بطلب المحادثة في ذاكرة التخزين المؤقت. ساعة واحدة تُبقي الردود بعد التوقف رخيصة، لكن كتابة الذاكرة المؤقتة تكلف أكثر قليلًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko dugo Claude Code čuva upit razgovora u kešu. Jedan sat čini odgovore nakon pauze jeftinim; upisi u keš koštaju malo više."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor længe Claude Code gemmer en chats prompt i cachen. En time holder svar efter en pause billige; cacheskrivninger koster lidt mere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie lange Claude Code den Prompt eines Chats im Cache hält. Eine Stunde hält Antworten nach einer Pause günstig; Cache-Schreibvorgänge kosten etwas mehr."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuánto tiempo guarda Claude Code en caché el prompt de un chat. Una hora mantiene baratas las respuestas tras una pausa; sus escrituras en caché cuestan un poco más."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durée pendant laquelle Claude Code garde en cache le prompt d'une discussion. Une heure garde les réponses après une pause bon marché ; ses écritures en cache coûtent un peu plus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per quanto tempo Claude Code tiene in cache il prompt di una chat. Un'ora mantiene economiche le risposte dopo una pausa; le scritture in cache costano un po' di più."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code がチャットのプロンプトをキャッシュしておく時間です。1 時間にすると休憩後の返信も安く済みますが、キャッシュへの書き込みは少し高くなります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រយៈពេលដែល Claude Code រក្សាប្រអប់បញ្ចូលនៃការជជែកក្នុងឃ្លាំងសម្ងាត់។ មួយម៉ោងធ្វើឱ្យការឆ្លើយតបក្រោយការផ្អាកមានតម្លៃថោក ប៉ុន្តែការសរសេរទៅឃ្លាំងសម្ងាត់ថ្លៃជាងបន្តិច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code가 채팅의 프롬프트를 캐시에 보관하는 시간입니다. 1시간이면 잠시 쉰 뒤의 답변도 저렴하지만, 캐시 쓰기 비용이 조금 더 듭니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor lenge Claude Code holder promptet til en chat i hurtigbufferen. En time holder svar etter en pause billige; skriving til hurtigbufferen koster litt mer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak długo Claude Code przechowuje prompt czatu w pamięci podręcznej. Godzina sprawia, że odpowiedzi po przerwie są tanie; zapisy do pamięci podręcznej kosztują nieco więcej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por quanto tempo o Claude Code mantém o prompt de um chat em cache. Uma hora mantém as respostas após uma pausa baratas; as gravações em cache custam um pouco mais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сколько Claude Code хранит промпт чата в кэше. Час делает ответы после паузы дешёвыми; запись в кэш стоит немного дороже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระยะเวลาที่ Claude Code เก็บพรอมต์ของแชทไว้ในแคช หนึ่งชั่วโมงทำให้การตอบหลังพักยังถูกอยู่ แต่การเขียนแคชมีค่าใช้จ่ายสูงขึ้นเล็กน้อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code'un bir sohbetin istemini önbellekte ne kadar tuttuğu. Bir saat, aradan sonra gelen yanıtları ucuz tutar; önbelleğe yazmak biraz daha pahalıdır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скільки Claude Code тримає промпт чату в кеші. Година робить відповіді після паузи дешевими; запис у кеш коштує трохи більше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thời gian Claude Code giữ lời nhắc của cuộc trò chuyện trong bộ nhớ đệm. Một giờ giúp các câu trả lời sau khi tạm dừng vẫn rẻ; việc ghi vào bộ nhớ đệm tốn hơn một chút."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 将聊天提示词保留在缓存中的时长。1 小时可让暂停后的回复依然便宜，但写入缓存的费用稍高。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 將聊天提示詞保留在快取中的時間。1 小時可讓暫停後的回覆依然便宜，但寫入快取的費用稍高。"
+          }
+        }
+      }
+    },
+    "settings.choice.promptCacheOneHour": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Hour"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ساعة واحدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 sat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 time"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Stunde"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 hora"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 heure"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 ora"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 時間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 ម៉ោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1시간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 time"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 godzina"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 hora"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 час"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 ชั่วโมง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 saat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 година"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 giờ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 小时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 小時"
+          }
+        }
+      }
+    },
+    "settings.choice.promptCacheFiveMinutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 Minutes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 دقائق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minuta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minutter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 Minuten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minutos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minutes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minuti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 分"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 នាទី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5분"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minutter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minut"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minutos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 минут"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 นาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 dakika"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 хвилин"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 phút"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 分钟"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 分鐘"
+          }
+        }
+      }
+    },
+    "settings.chats.sessionRecap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Recap"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملخص الجلسة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sažetak sesije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionsopsummering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungszusammenfassung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumen de la sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Récapitulatif de session"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riepilogo della sessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションのまとめ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេចក្ដីសង្ខេបវគ្គ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 요약"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øktsammendrag"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podsumowanie sesji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumo da sessão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сводка сеанса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สรุปเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum özeti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підсумок сеансу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tóm tắt phiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话回顾"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段回顧"
+          }
+        }
+      }
+    },
+    "settings.chats.sessionRecap.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند عودتك إلى محادثة Claude بعد 5 دقائق أو أكثر، يُعرض سطر يوضح ما وصلت إليه. كل ملخص هو استدعاء إضافي صغير للنموذج يُحتسب ضمن استخدامك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada se vratite u Claude razgovor nakon 5 ili više minuta, prikaži red o tome gdje je stao. Svaki sažetak je jedan mali dodatni poziv modela koji se računa u vašu potrošnju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når du vender tilbage til en Claude-chat efter 5 minutter eller mere, vises en linje om, hvor den står. Hver opsummering er ét lille ekstra modelkald, der tæller med i dit forbrug."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn du nach 5 Minuten oder länger zu einem Claude-Chat zurückkehrst, zeigt eine Zeile den aktuellen Stand. Jede Zusammenfassung ist ein kleiner zusätzlicher Modellaufruf, der auf deine Nutzung angerechnet wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando vuelvas a un chat de Claude tras 5 minutos o más, muestra una línea sobre dónde está. Cada resumen es una pequeña llamada adicional al modelo que cuenta para tu uso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand vous revenez à un chat Claude après 5 minutes ou plus, affiche une ligne sur son état. Chaque récapitulatif est un petit appel supplémentaire au modèle, compté dans votre utilisation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando torni a una chat di Claude dopo 5 minuti o più, mostra una riga sul punto in cui si trova. Ogni riepilogo è una piccola chiamata aggiuntiva al modello che conta nel tuo utilizzo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5分以上離れてからClaudeのチャットに戻ると、現在の状況を1行で表示します。まとめごとにモデルを1回追加で呼び出し、使用量に含まれます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលអ្នកត្រឡប់មកការជជែក Claude វិញក្រោយ 5 នាទី ឬលើសនេះ បង្ហាញមួយបន្ទាត់អំពីស្ថានភាពរបស់វា។ សេចក្ដីសង្ខេបនីមួយៗជាការហៅម៉ូដែលបន្ថែមតូចមួយ ដែលរាប់ក្នុងការប្រើប្រាស់របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5분 이상 지난 뒤 Claude 채팅으로 돌아오면 현재 상황을 한 줄로 보여 줍니다. 요약마다 모델을 한 번 더 호출하며 사용량에 포함됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når du kommer tilbake til en Claude-chat etter 5 minutter eller mer, vises en linje om hvor den står. Hvert sammendrag er ett lite ekstra modellkall som teller med i bruken din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy wrócisz do czatu Claude po 5 minutach lub dłużej, pokaż wiersz o tym, na czym stanął. Każde podsumowanie to jedno małe dodatkowe wywołanie modelu, wliczane do Twojego użycia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao voltar a um chat do Claude após 5 minutos ou mais, mostra uma linha sobre onde ele está. Cada resumo é uma pequena chamada extra ao modelo que conta no seu uso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда вы возвращаетесь в чат Claude через 5 минут или позже, показывать строку о том, на чём он остановился. Каждая сводка — один небольшой дополнительный вызов модели, который учитывается в вашем использовании."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อคุณกลับมาที่แชต Claude หลังผ่านไป 5 นาทีขึ้นไป จะแสดงหนึ่งบรรทัดว่าอยู่ตรงไหนแล้ว สรุปแต่ละครั้งคือการเรียกโมเดลเพิ่มเล็กน้อยหนึ่งครั้งซึ่งนับรวมในการใช้งานของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 dakika veya daha uzun süre sonra bir Claude sohbetine döndüğünüzde, nerede kaldığını gösteren bir satır gösterir. Her özet, kullanımınıza sayılan küçük bir ek model çağrısıdır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли ви повертаєтеся до чату Claude через 5 хвилин або пізніше, показувати рядок про те, на чому він зупинився. Кожен підсумок — один невеликий додатковий виклик моделі, що враховується у вашому використанні."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi bạn quay lại một cuộc trò chuyện Claude sau 5 phút trở lên, hiển thị một dòng về tình trạng hiện tại. Mỗi bản tóm tắt là một lần gọi mô hình nhỏ thêm, được tính vào mức sử dụng của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离开 5 分钟或更久后回到 Claude 聊天时，显示一行说明当前进展。每次回顾是一次额外的小型模型调用，计入你的用量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離開 5 分鐘或更久後回到 Claude 聊天時，顯示一行說明目前進展。每次回顧是一次額外的小型模型呼叫，計入你的用量。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.harnessPlacement": {
       "extractionState": "manual",
       "localizations": {
@@ -4601,6 +5387,60 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Mỗi không gian làm việc mới (Cmd-N, nút + ở thanh bên) có máy đám mây mới của riêng nó. Các cuộc trò chuyện với tác tử bạn bắt đầu trong đó sẽ chạy trên máy đó."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "每个新工作区（Cmd-N、侧边栏的 +）都会获得一台自己的新云端机器。在其中开始的智能体聊天在该机器上运行。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "每個新工作區（Cmd-N、側邊欄的 +）都會取得一台自己的新雲端機器。在其中開始的代理程式聊天會在該機器上執行。"}}
+      }
+    },
+    "settings.cloud.useMyClaudeLogin": {
+      "comment": "Settings > Machines: title of the toggle that is the person's consent to copy their own Claude login from this Mac to the Cloud machines they own.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Use My Claude Login on My Own Cloud Machines"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "استخدام تسجيل دخول Claude الخاص بي على أجهزة Cloud التي أملكها"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Koristi moju Claude prijavu na mojim Cloud mašinama"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Brug mit Claude-login på mine egne Cloud-maskiner"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Meine Claude-Anmeldung auf meinen eigenen Cloud-Maschinen verwenden"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Usar mi inicio de sesión de Claude en mis propias máquinas Cloud"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Utiliser ma connexion Claude sur mes propres machines Cloud"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Usa il mio accesso a Claude sulle mie macchine Cloud"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "自分の Claude ログインを自分の Cloud マシンで使う"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រើការចូល Claude របស់ខ្ញុំលើម៉ាស៊ីន Cloud ផ្ទាល់ខ្លួនរបស់ខ្ញុំ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "내 Claude 로그인을 내 Cloud 머신에서 사용"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Bruk min Claude-pålogging på mine egne Cloud-maskiner"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Używaj mojego logowania do Claude na moich maszynach Cloud"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Usar meu login do Claude nas minhas próprias máquinas Cloud"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Использовать мой вход в Claude на моих облачных машинах"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ใช้การลงชื่อเข้าใช้ Claude ของฉันบนเครื่อง Cloud ของฉันเอง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Claude oturumumu kendi Cloud makinelerimde kullan"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Використовувати мій вхід у Claude на моїх хмарних машинах"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Dùng đăng nhập Claude của tôi trên các máy Cloud của tôi"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在我自己的 Cloud 机器上使用我的 Claude 登录"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在我自己的 Cloud 機器上使用我的 Claude 登入"}}
+      }
+    },
+    "settings.cloud.useMyClaudeLogin.help": {
+      "comment": "Settings > Machines: help under the toggle for copying the person's own Claude login to their own Cloud machines.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ينسخ تسجيل دخول Claude الخاص بك من هذا الـ Mac إلى أجهزة Cloud التي تملكها، فتبدأ محادثاتها وأنت مسجّل الدخول. لا يُنسخ أبدًا إلى أجهزة الفريق أو المشتركة، ولا يخزّنه cmux أبدًا. عند الإيقاف: يعرض كل جهاز خيار تسجيل الدخول إلى Claude بدلًا من ذلك."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Kopira vašu Claude prijavu s ovog Maca na Cloud mašine koje posjedujete, pa njihovi razgovori počinju prijavljeni. Nikad na timske ili dijeljene mašine, a cmux je nikad ne pohranjuje. Isključeno: svaka mašina nudi Prijava na Claude."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Kopierer dit eget Claude-login fra denne Mac til Cloud-maskiner, du ejer, så deres chats starter logget ind. Aldrig til team- eller delte maskiner, og cmux gemmer det aldrig. Fra: hver maskine tilbyder i stedet Log ind på Claude."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Kopiert deine eigene Claude-Anmeldung von diesem Mac auf Cloud-Maschinen, die dir gehören, damit ihre Chats angemeldet starten. Nie auf Team- oder geteilte Maschinen, und cmux speichert sie nie. Aus: Jede Maschine bietet stattdessen Bei Claude anmelden an."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Copia tu propio inicio de sesión de Claude de este Mac a las máquinas Cloud que tienes, para que sus chats empiecen con la sesión iniciada. Nunca a máquinas de equipo o compartidas, y cmux nunca lo guarda. Desactivado: cada máquina ofrece Iniciar sesión en Claude."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Copie votre propre connexion Claude de ce Mac vers les machines Cloud que vous possédez, afin que leurs conversations démarrent connectées. Jamais vers des machines d’équipe ou partagées, et cmux ne la stocke jamais. Désactivé : chaque machine propose Se connecter à Claude."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Copia il tuo accesso a Claude da questo Mac alle macchine Cloud che possiedi, così le loro chat partono già connesse. Mai su macchine del team o condivise, e cmux non lo salva mai. Disattivato: ogni macchina offre Accedi a Claude."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "あなた自身の Claude ログインをこの Mac からあなたが所有する Cloud マシンにコピーし、チャットがログイン済みで始まるようにします。チームや共有マシンには送られず、cmux が保存することもありません。オフの場合、各マシンに「Claude にサインイン」が表示されます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ចម្លងការចូល Claude ផ្ទាល់ខ្លួនរបស់អ្នកពី Mac នេះទៅម៉ាស៊ីន Cloud ដែលអ្នកមាន ដើម្បីឱ្យការជជែករបស់វាចាប់ផ្តើមដោយបានចូលរួចហើយ។ មិនដែលទៅម៉ាស៊ីនក្រុម ឬម៉ាស៊ីនចែករំលែកទេ ហើយ cmux មិនដែលរក្សាទុកវាទេ។ បិទ៖ ម៉ាស៊ីននីមួយៗផ្តល់ជូនចូលទៅ Claude ជំនួសវិញ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 Mac의 내 Claude 로그인을 내가 소유한 Cloud 머신에 복사해 채팅이 로그인된 상태로 시작되게 합니다. 팀 또는 공유 머신에는 절대 복사되지 않으며 cmux는 이를 저장하지 않습니다. 끄면 각 머신에서 Claude에 로그인 옵션이 표시됩니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Kopierer din egen Claude-pålogging fra denne Macen til Cloud-maskiner du eier, slik at chattene starter pålogget. Aldri til team- eller delte maskiner, og cmux lagrer den aldri. Av: hver maskin tilbyr Logg på Claude i stedet."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Kopiuje Twoje logowanie do Claude z tego Maca na należące do Ciebie maszyny Cloud, aby ich czaty startowały zalogowane. Nigdy na maszyny zespołu ani współdzielone, a cmux nigdy go nie przechowuje. Wyłączone: każda maszyna oferuje zamiast tego Zaloguj się do Claude."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Copia seu próprio login do Claude deste Mac para as máquinas Cloud que você possui, para que os chats delas comecem conectados. Nunca para máquinas de equipe ou compartilhadas, e o cmux nunca o armazena. Desativado: cada máquina oferece Entrar no Claude."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Копирует ваш собственный вход в Claude с этого Mac на принадлежащие вам облачные машины, чтобы их чаты начинались с выполненным входом. Никогда не на командные или общие машины, и cmux его не хранит. Выключено: каждая машина предлагает Войти в Claude."}},
+        "th": {"stringUnit": {"state": "translated", "value": "คัดลอกการลงชื่อเข้าใช้ Claude ของคุณเองจาก Mac เครื่องนี้ไปยังเครื่อง Cloud ที่คุณเป็นเจ้าของ เพื่อให้แชตเริ่มต้นโดยลงชื่อเข้าใช้แล้ว จะไม่ส่งไปยังเครื่องของทีมหรือเครื่องที่ใช้ร่วมกัน และ cmux ไม่เก็บไว้ ปิด: แต่ละเครื่องจะแสดงลงชื่อเข้าใช้ Claude แทน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Kendi Claude oturumunuzu bu Mac’ten sahip olduğunuz Cloud makinelerine kopyalar, böylece sohbetleri oturum açık başlar. Ekip veya paylaşılan makinelere asla gitmez ve cmux onu asla saklamaz. Kapalı: her makine bunun yerine Claude’da oturum aç seçeneğini sunar."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Копіює ваш власний вхід у Claude з цього Mac на хмарні машини, якими ви володієте, щоб їхні чати починалися з виконаним входом. Ніколи не на командні чи спільні машини, і cmux його не зберігає. Вимкнено: кожна машина пропонує Увійти в Claude."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Sao chép đăng nhập Claude của chính bạn từ Mac này sang các máy Cloud bạn sở hữu, để các cuộc trò chuyện bắt đầu khi đã đăng nhập. Không bao giờ sang máy của nhóm hoặc máy dùng chung, và cmux không bao giờ lưu nó. Tắt: mỗi máy sẽ đưa ra Đăng nhập Claude thay thế."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "将你自己的 Claude 登录从这台 Mac 复制到你拥有的 Cloud 机器，使其聊天启动时已登录。绝不会复制到团队或共享机器，cmux 也从不存储它。关闭时：每台机器会提供“登录 Claude”。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "將你自己的 Claude 登入從這台 Mac 複製到你擁有的 Cloud 機器，讓其聊天啟動時已登入。絕不會複製到團隊或共享機器，cmux 也從不儲存它。關閉時：每台機器會提供「登入 Claude」。"}}
       }
     },
     "settings.group.chiefEngine": {
@@ -97191,6 +98031,792 @@
           "stringUnit": {
             "state": "translated",
             "value": "你對主題顏色的修改，例如 \"Rose Pine/background\": \"#1f1d2e\"。主題本身不會改變；刪除某一項即可還原該顏色。"
+          }
+        }
+      }
+    },
+    "settings.appearance.favoriteThemes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starred Themes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السمات المميزة بنجمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teme označene zvjezdicom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stjernemarkerede temaer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Stern markierte Designs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temas marcados con estrella"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thèmes marqués d’une étoile"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temi con stella"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スター付きのテーマ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រចនាប័ទ្មដែលបានដាក់ផ្កាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "별표한 테마"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stjernemerkede temaer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motywy oznaczone gwiazdką"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temas com Estrela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отмеченные темы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ธีมที่ติดดาว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yıldızlı Temalar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позначені теми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chủ đề được gắn sao"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已加星标的主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已加星號的主題"
+          }
+        }
+      }
+    },
+    "settings.appearance.favoriteThemes.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Themes starred in a theme picker. The picker lists them first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السمات التي ميّزتها بنجمة في منتقي السمات. يعرضها المنتقي أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teme označene zvjezdicom u biraču tema. Birač ih prikazuje prve."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temaer, der er stjernemarkeret i en temavælger. Vælgeren viser dem først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In einer Designauswahl mit Stern markierte Designs. Die Auswahl zeigt sie zuerst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temas marcados con estrella en un selector de temas. El selector los muestra primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thèmes marqués d’une étoile dans un sélecteur de thème. Le sélecteur les affiche en premier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temi contrassegnati con una stella in un selettore di temi. Il selettore li mostra per primi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマピッカーでスターを付けたテーマ。ピッカーの先頭に表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រចនាប័ទ្មដែលបានដាក់ផ្កាយក្នុងកម្មវិធីជ្រើសរចនាប័ទ្ម។ កម្មវិធីជ្រើសបង្ហាញពួកវាមុនគេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테마 선택기에서 별표한 테마입니다. 선택기에서 맨 위에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temaer som er stjernemerket i en temavelger. Velgeren viser dem først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motywy oznaczone gwiazdką w selektorze motywów. Selektor pokazuje je na początku."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temas marcados com estrela em um seletor de temas. O seletor os mostra primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Темы, отмеченные звездой в списке выбора темы. Они показываются первыми."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ธีมที่ติดดาวในตัวเลือกธีม ตัวเลือกจะแสดงธีมเหล่านี้ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir tema seçicide yıldızlanan temalar. Seçici bunları en üstte gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Теми, позначені зірочкою у виборі теми. Вони показуються першими."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các chủ đề được gắn sao trong bộ chọn chủ đề. Bộ chọn hiển thị chúng trước tiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在主题选择器中加星标的主题。选择器会将它们列在最前面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在主題選擇器中加上星號的主題。選擇器會將它們列在最前面。"
+          }
+        }
+      }
+    },
+    "settings.appearance.rotateFavoriteThemes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotate Starred Themes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل السمات المميزة بنجمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotiraj teme označene zvjezdicom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift mellem stjernemarkerede temaer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Stern markierte Designs wechseln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar temas marcados con estrella"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alterner les thèmes marqués d’une étoile"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alterna i temi con stella"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スター付きのテーマを切り替える"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូររចនាប័ទ្មដែលបានដាក់ផ្កាយជាវេន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "별표한 테마 순환"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytt mellom stjernemerkede temaer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmieniaj motywy oznaczone gwiazdką"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar Temas com Estrela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смена отмеченных тем"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หมุนเวียนธีมที่ติดดาว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yıldızlı Temaları Döndür"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зміна позначених тем"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xoay vòng chủ đề được gắn sao"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轮换已加星标的主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輪換已加星號的主題"
+          }
+        }
+      }
+    },
+    "settings.appearance.rotateFavoriteThemes.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند فتح cmux، تتغير سمة الطرفية إلى السمة التالية المميزة بنجمة. يتطلب ذلك سمتين مميزتين بنجمة، ولا يكون له أي تأثير أثناء تشغيل «مطابقة مظهر النظام»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada se cmux otvori, tema terminala prelazi na sljedeću temu označenu zvjezdicom. Potrebne su dvije teme označene zvjezdicom, a nema efekta dok je uključeno „Prati izgled sistema“."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når cmux åbner, skifter terminaltemaet til det næste stjernemarkerede tema. Kræver to stjernemarkerede temaer og har ingen effekt, mens “Følg systemets udseende” er slået til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Öffnen von cmux wechselt das Terminal-Design zum nächsten mit Stern markierten Design. Erfordert zwei mit Stern markierte Designs und hat keine Wirkung, solange „Systemdarstellung folgen“ aktiviert ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al abrir cmux, el tema del terminal cambia al siguiente tema marcado con estrella. Requiere dos temas marcados con estrella y no tiene efecto mientras «Seguir el aspecto del sistema» esté activado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À l’ouverture de cmux, le thème du terminal passe au thème suivant marqué d’une étoile. Nécessite deux thèmes marqués d’une étoile et n’a aucun effet tant que « Suivre l’apparence du système » est activé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All’apertura di cmux, il tema del terminale passa al tema con stella successivo. Richiede due temi con stella e non ha effetto mentre “Segui l’aspetto del sistema” è attivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を開くと、ターミナルのテーマが次のスター付きのテーマに切り替わります。スター付きのテーマが2つ必要で、「システムの外観に合わせる」がオンの間は効果がありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេល cmux បើក រូបរាងទែមីណាល់ប្ដូរទៅរចនាប័ទ្មដែលបានដាក់ផ្កាយបន្ទាប់។ ត្រូវការរចនាប័ទ្មដែលបានដាក់ផ្កាយពីរ ហើយគ្មានប្រសិទ្ធភាពទេ ពេល «តាមរូបរាងប្រព័ន្ធ» បើក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux를 열 때마다 터미널 테마가 별표한 다음 테마로 바뀝니다. 별표한 테마가 두 개 있어야 하며, '시스템 화면 모드에 맞추기'가 켜져 있으면 적용되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når cmux åpnes, bytter terminaltemaet til neste stjernemerkede tema. Krever to stjernemerkede temaer og har ingen virkning mens «Følg systemets utseende» er på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po otwarciu cmux motyw terminala zmienia się na następny motyw oznaczony gwiazdką. Wymaga dwóch motywów oznaczonych gwiazdką i nie działa, gdy włączona jest opcja „Dopasuj do wyglądu systemu”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando o cmux abre, o tema do terminal muda para o próximo tema com estrela. Requer dois temas com estrela e não tem efeito enquanto “Seguir a Aparência do Sistema” estiver ativado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При открытии cmux тема терминала меняется на следующую отмеченную тему. Нужны две отмеченные темы; не действует, пока включено «Как в системе»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเปิด cmux ธีมเทอร์มินัลจะเปลี่ยนเป็นธีมที่ติดดาวถัดไป ต้องมีธีมที่ติดดาวสองธีม และจะไม่มีผลขณะที่เปิด “ตามลักษณะของระบบ” อยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux açıldığında terminal teması sıradaki yıldızlı temaya geçer. İki yıldızlı tema gerektirir ve “Sistem Görünümüne Uy” açıkken etkisi yoktur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Під час відкриття cmux тема термінала змінюється на наступну позначену тему. Потрібні дві позначені теми; не діє, поки ввімкнено «Як у системі»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi cmux mở, chủ đề terminal chuyển sang chủ đề được gắn sao tiếp theo. Cần hai chủ đề được gắn sao và không có tác dụng khi “Theo giao diện hệ thống” đang bật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 打开时，终端主题会切换到下一个已加星标的主题。需要两个已加星标的主题；开启“跟随系统外观”时不起作用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 開啟時，終端機主題會切換到下一個已加星號的主題。需要兩個已加星號的主題；開啟「跟隨系統外觀」時不會生效。"
+          }
+        }
+      }
+    },
+    "settings.appearance.rotateFavoriteThemes.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change to the next starred theme"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التبديل إلى السمة التالية المميزة بنجمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prelazak na sljedeću temu označenu zvjezdicom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift til det næste stjernemarkerede tema"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum nächsten mit Stern markierten Design wechseln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar al siguiente tema marcado con estrella"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer au thème suivant marqué d’une étoile"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa al tema con stella successivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のスター付きのテーマに切り替える"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូរទៅរចនាប័ទ្មដែលបានដាក់ផ្កាយបន្ទាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "별표한 다음 테마로 변경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytt til neste stjernemerkede tema"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmień na następny motyw oznaczony gwiazdką"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mudar para o próximo tema com estrela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключение на следующую отмеченную тему"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปลี่ยนเป็นธีมที่ติดดาวถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sıradaki yıldızlı temaya geç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемикання на наступну позначену тему"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chuyển sang chủ đề được gắn sao tiếp theo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到下一个已加星标的主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換到下一個已加星號的主題"
+          }
+        }
+      }
+    },
+    "settings.choice.eachLaunch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each Launch"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند كل تشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pri svakom pokretanju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ved hver start"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei jedem Start"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En cada inicio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À chaque lancement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A ogni avvio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動するたび"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រាល់ពេលបើក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행할 때마다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ved hver oppstart"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przy każdym uruchomieniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cada abertura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При каждом запуске"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุกครั้งที่เปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her açılışta"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Під час кожного запуску"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mỗi lần mở"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次启动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次啟動"
           }
         }
       }
