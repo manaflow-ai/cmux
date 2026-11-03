@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Icon } from "./Icon";
 import { IconsProvider } from "./IconsContext";
-import { Copy, Retry, Pin, Spinner } from "../conversation/icons";
+import { Copy, Retry, Pin, Spinner, PlayTriangle, StopSquare } from "../conversation/icons";
 import { iconLayers } from "./iconLayers";
 import { rowIconSize } from "./iconSize";
 import type { IconPack } from "./types";
@@ -79,4 +79,12 @@ test("normalization preserves knockout clearance and the animated spinner", () =
   const spinner = renderToStaticMarkup(<Spinner />);
   expect(spinner).toContain('stroke-width="1.5"');
   expect(spinner).toContain('class="cv-spinner__arc"');
+});
+
+test("media play and stop retain their filled silhouette", () => {
+  for (const glyph of [<PlayTriangle />, <StopSquare />]) {
+    const html = renderToStaticMarkup(glyph);
+    expect(html).toContain('fill="currentColor"');
+    expect(html).not.toContain('stroke="currentColor"');
+  }
 });

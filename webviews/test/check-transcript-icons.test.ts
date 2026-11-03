@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { inlineSvgs, newInlineSvgs } from "./check-transcript-icons";
+import { inlineSvgs, newInlineSvgs } from "../scripts/check-transcript-icons";
 
 describe("transcript inline icon guard", () => {
   test("finds opening and self-closing SVG elements, not strings or comments", () => {
