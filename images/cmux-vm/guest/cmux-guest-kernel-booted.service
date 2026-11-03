@@ -1,0 +1,17 @@
+[Unit]
+Description=Record that the cmux guest kernel came up
+Documentation=file:///usr/local/sbin/cmux-guest-kernel
+# Early and cheap: clears the switch attempt count as soon as a boot runs the
+# cmux kernel, so a snapshot or a later cold boot never sees a stale count.
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
+ConditionPathExists=/var/lib/cmux/guest-kernel-attempts
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cmux-guest-kernel booted
+
+[Install]
+WantedBy=sysinit.target

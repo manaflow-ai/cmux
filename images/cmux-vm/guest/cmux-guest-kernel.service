@@ -1,0 +1,9 @@
+[Unit]
+Description=Switch to the cmux guest kernel after a cold boot
+Documentation=file:///usr/local/sbin/cmux-guest-kernel
+ConditionPathExists=/usr/lib/cmux/kernel/vmlinuz
+# Started by cmux-guest-kernel.timer, never at boot directly: see the timer.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cmux-guest-kernel boot

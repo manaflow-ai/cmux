@@ -1,0 +1,152 @@
+#!/usr/bin/python3 -I
+"""Run the cmux guest kernel instead of the provider's.
+
+The provider boots every machine with its own kernel and offers no kernel
+setting, so the image carries a kernel built from a locked kernel.org stable
+release (images/cmux-vm/inputs.lock.json, `kernel`) and switches to it with
+kexec. A memory snapshot taken after the switch resumes on the cmux kernel;
+a cold boot (power off and start, or the provider's automatic restart) comes
+up on the provider kernel again, and cmux-guest-kernel.timer switches back
+30 s into the boot (the timer says why not sooner).
+
+The switch is `systemctl kexec`: a clean shutdown of every unit, then the
+system-shutdown hook cmux-guest-kernel.shutdown resets the virtio devices
+(Linux 6.1 leaves them running across kexec) and systemd jumps to the
+loaded kernel.
+
+  cmux-guest-kernel status       print the running and the installed release
+  cmux-guest-kernel load         verify and load the installed kernel (no switch)
+  cmux-guest-kernel boot         from the timer: load and switch, once per cold boot
+  cmux-guest-kernel switch       load and switch now; ends every process, keeps the disk
+
+The kernel file is checked against its sha256 before every load. A machine
+that fails to come up on the cmux kernel is not switched again: each switch is
+counted in ATTEMPTS, the count is cleared early in every boot that runs the
+cmux kernel (`booted`, from cmux-guest-kernel-booted.service), and
+`boot` stops after MAX_ATTEMPTS so the machine stays on the provider kernel
+(reported by `status` and the journal) instead of looping.
+"""
+
+import ctypes
+import hashlib
+import os
+import subprocess
+import sys
+
+KERNEL_DIR = "/usr/lib/cmux/kernel"
+KERNEL = f"{KERNEL_DIR}/vmlinuz"
+RELEASE_FILE = f"{KERNEL_DIR}/release"
+SHA256_FILE = f"{KERNEL_DIR}/vmlinuz.sha256"
+ATTEMPTS = "/var/lib/cmux/guest-kernel-attempts"
+MAX_ATTEMPTS = 2
+
+SYS_KEXEC_FILE_LOAD = 320  # x86_64
+KEXEC_FILE_NO_INITRAMFS = 0x4
+
+
+def log(message):
+    print(f"cmux-guest-kernel: {message}", flush=True)
+
+
+def read(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read().strip()
+
+
+def installed_release():
+    return read(RELEASE_FILE)
+
+
+def running_release():
+    return os.uname().release
+
+
+def attempts():
+    try:
+        return int(read(ATTEMPTS))
+    except (FileNotFoundError, ValueError):
+        return 0
+
+
+def set_attempts(value):
+    os.makedirs(os.path.dirname(ATTEMPTS), exist_ok=True)
+    tmp = f"{ATTEMPTS}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(f"{value}\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, ATTEMPTS)
+
+
+def verify():
+    want = read(SHA256_FILE).split()[0]
+    h = hashlib.sha256()
+    with open(KERNEL, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    if h.hexdigest() != want:
+        raise SystemExit(f"cmux-guest-kernel: {KERNEL} sha256 {h.hexdigest()} does not match {want}")
+
+
+def load():
+    verify()
+    # The provider's command line starts its guest agent and network; the cmux kernel keeps it.
+    cmdline = read("/proc/cmdline").encode() + b"\0"
+    libc = ctypes.CDLL(None, use_errno=True)
+    fd = os.open(KERNEL, os.O_RDONLY | os.O_CLOEXEC)
+    try:
+        rc = libc.syscall(SYS_KEXEC_FILE_LOAD, fd, -1, len(cmdline), ctypes.c_char_p(cmdline), KEXEC_FILE_NO_INITRAMFS)
+    finally:
+        os.close(fd)
+    if rc != 0:
+        err = ctypes.get_errno()
+        raise SystemExit(f"cmux-guest-kernel: kexec_file_load failed: {os.strerror(err)} ({err})")
+    if read("/sys/kernel/kexec_loaded") != "1":
+        raise SystemExit("cmux-guest-kernel: kexec_file_load returned 0 but no kernel is loaded")
+    log(f"loaded {installed_release()}")
+
+
+def switch(block):
+    set_attempts(attempts() + 1)
+    load()
+    # systemd does a clean shutdown of every unit and then reboots into the loaded kernel.
+    subprocess.run(["systemctl", "kexec"] + ([] if block else ["--no-block"]), check=True)
+
+
+def main(argv):
+    command = argv[1] if len(argv) > 1 else "status"
+    if command == "status":
+        running, installed = running_release(), installed_release()
+        print(f"running={running} installed={installed} attempts={attempts()} on-cmux-kernel={'yes' if running == installed else 'no'}")
+        return 0
+    if command == "load":
+        load()
+        return 0
+    if command == "booted":
+        if running_release() == installed_release() and attempts():
+            set_attempts(0)
+        return 0
+    if command == "boot":
+        if running_release() == installed_release():
+            if attempts():
+                set_attempts(0)
+            log(f"running {running_release()}")
+            return 0
+        if attempts() >= MAX_ATTEMPTS:
+            log(f"staying on {running_release()}: {attempts()} switches to {installed_release()} did not come up")
+            return 0
+        log(f"switching from {running_release()} to {installed_release()}")
+        switch(block=False)
+        return 0
+    if command == "switch":
+        if running_release() == installed_release():
+            log(f"already running {running_release()}")
+            return 0
+        switch(block=True)
+        return 0
+    print(__doc__, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

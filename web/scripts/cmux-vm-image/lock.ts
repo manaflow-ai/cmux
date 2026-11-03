@@ -125,6 +125,8 @@ export type InputsLock = {
     readonly basePackages: Readonly<Record<string, string>>;
     readonly npmGlobals: { readonly keep: Readonly<Record<string, string>>; readonly strip: readonly string[] };
   };
+  /** The guest kernel the image runs instead of the provider's (guest-kernel.ts). */
+  readonly kernel: GuestKernelLock;
   readonly apt: {
     readonly ubuntu: AptRepo & {
       readonly snapshot: string;
@@ -140,6 +142,22 @@ export type InputsLock = {
   readonly tools: { readonly syft: Artifact };
   /** The source tree `bake.ts --dev-tree` bakes in (dev-tree.ts); absent, no bake can add one. */
   readonly devTree?: DevTreeLock;
+};
+
+/**
+ * A kernel.org stable release built with the provider base's own configuration
+ * (`/proc/config.gz`, pinned by its sha256) on a throwaway `builder` VM.
+ * `buildTimestamp` fixes KBUILD_BUILD_TIMESTAMP so the build does not stamp the bake's clock.
+ */
+export type GuestKernelLock = {
+  readonly version: string;
+  readonly url: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly checksumsUrl: string;
+  readonly baseConfigSha256: string;
+  readonly builder: string;
+  readonly buildTimestamp: string;
 };
 
 /**
@@ -385,6 +403,29 @@ function checkBase(raw: unknown, problems: string[]): void {
   }
 }
 
+const KERNEL_VERSION = /^\d+\.\d+\.\d+$/;
+const KERNEL_ORG_TARBALL = /^https:\/\/cdn\.kernel\.org\/pub\/linux\/kernel\/v\d+\.x\/linux-(\d+\.\d+\.\d+)\.tar\.xz$/;
+
+function checkKernel(raw: unknown, problems: string[]): void {
+  if (!isRec(raw)) {
+    problems.push("kernel: missing");
+    return;
+  }
+  const version = str(raw.version);
+  if (!version || !KERNEL_VERSION.test(version)) problems.push("kernel.version: needs an exact stable release such as 6.1.191");
+  const url = str(raw.url);
+  const tarball = url ? KERNEL_ORG_TARBALL.exec(url) : null;
+  if (!tarball) problems.push("kernel.url: must be a cdn.kernel.org linux-<version>.tar.xz URL");
+  else if (version && tarball[1] !== version) problems.push(`kernel.url: names ${tarball[1]}, kernel.version is ${version}`);
+  if (typeof raw.sha256 !== "string" || !SHA256.test(raw.sha256)) problems.push("kernel.sha256: missing or not 64 lowercase hex");
+  if (typeof raw.size !== "number" || !Number.isInteger(raw.size) || raw.size <= 0) problems.push("kernel.size: missing");
+  const sums = str(raw.checksumsUrl);
+  if (!sums || !url || sums !== url.replace(/linux-[^/]+$/, "sha256sums.asc")) problems.push("kernel.checksumsUrl: must be the sha256sums.asc next to kernel.url");
+  if (typeof raw.baseConfigSha256 !== "string" || !SHA256.test(raw.baseConfigSha256)) problems.push("kernel.baseConfigSha256: missing or not 64 lowercase hex");
+  if (!str(raw.builder)) problems.push("kernel.builder: missing (the snapshot the kernel builds on)");
+  if (typeof raw.buildTimestamp !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(raw.buildTimestamp)) problems.push("kernel.buildTimestamp: needs an ISO UTC time");
+}
+
 function checkApt(raw: unknown, problems: string[]): void {
   if (!isRec(raw) || !isRec(raw.ubuntu) || !isRec(raw.pgdg)) {
     problems.push("apt: needs ubuntu and pgdg");
@@ -486,6 +527,7 @@ export function validateInputsLock(raw: unknown): InputsLock {
   if (raw.schema !== LOCK_SCHEMA) problems.push(`schema: expected ${LOCK_SCHEMA}`);
   if (!str(raw.image)) problems.push("image: missing");
   checkBase(raw.base, problems);
+  checkKernel(raw.kernel, problems);
   checkApt(raw.apt, problems);
   const seen = new Set<string>();
   if (!Array.isArray(raw.programs)) problems.push("programs: missing");

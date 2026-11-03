@@ -1,0 +1,22 @@
+#!/bin/sh
+# systemd-shutdown runs this right before the final reboot(2), with the
+# action as $1 and the root file system already read-only.
+#
+# Before a kexec, reset every virtio device. Linux 6.1 leaves them running
+# across kexec (virtio has no shutdown hook until 6.14), so the host keeps
+# writing into buffers and queues the old kernel posted (network and vsock
+# receive buffers, balloon free page reports, disk completions), in pages the
+# new kernel already uses, and the new kernel hangs during boot. Unbinding a
+# driver resets its device. Measured on Freestyle (2026-11-03): with the disk
+# left bound 1 of 4 small machines came up; with it unbound every one did.
+# The disk goes last; the root file system is read-only and synced by now,
+# and nothing touches it again before the reboot call.
+[ "$1" = kexec ] || exit 0
+drivers="${CMUX_SYSFS:-/sys}/bus/virtio/drivers"
+for driver in virtio_net vmw_vsock_virtio_transport virtio_balloon virtio_rng virtio_console 9pnet_virtio virtiofs virtio_blk; do
+  for dev in "$drivers/$driver"/virtio*; do
+    [ -e "$dev" ] || continue
+    echo "${dev##*/}" > "$drivers/$driver/unbind"
+  done
+done
+exit 0

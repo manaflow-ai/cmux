@@ -45,6 +45,7 @@ import { browserRoleProbe } from "./browser-probe";
 import { GH_SHIM } from "./github-auth";
 import { HOST_CLI, NATIVE_RECEIVER_SMOKE } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
+import { GUEST_KERNEL_CLI, guestKernelProblems } from "./guest-kernel";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
 
 const REMOTE_IDENTITY = `${DEVBOX_WORK_HOME}/.local/state/cmux/remote/sessions/${Buffer.from(CMUX_TUI_SESSION).toString("base64url")}/auth/identity.json`;
@@ -256,6 +257,10 @@ async function functionalChecks(vm: Vm, lock: InputsLock, report: Report): Promi
   check(report, "cr-capabilities", capsOk, caps.stdout.trim().slice(0, 300) || caps.stderr.slice(-300));
   const pg = await run(vm, POSTGRES_CHECK);
   check(report, "postgres-binaries-no-cluster", pg.code === 0, pg.stdout.trim() || pg.stderr.slice(-300));
+  // A clone resumes the snapshot's memory image, so it runs the cmux guest kernel without a switch.
+  const kernel = await run(vm, `${GUEST_KERNEL_CLI} status`);
+  const kernelProblems = kernel.code === 0 ? guestKernelProblems(lock.kernel, kernel.stdout) : [`status exited ${kernel.code}: ${kernel.stderr.slice(-200)}`];
+  check(report, "guest-kernel", kernelProblems.length === 0, kernelProblems.join("; ") || kernel.stdout.trim());
   const docker = await run(vm, DOCKER_CHECK);
   check(report, "docker-socket-only", docker.code === 0, docker.stdout.trim() || docker.stderr.slice(-300));
   const acpmux = await run(vm, acpmuxListCommand(), 120_000);

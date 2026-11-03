@@ -1,0 +1,19 @@
+[Unit]
+Description=Switch to the cmux guest kernel after a cold boot
+
+# Once per boot. A machine that resumes from a snapshot or a pause is already
+# on the cmux kernel and the service only clears its attempt count; a cold
+# boot (power off and start, or the provider's automatic restart) comes up on
+# the provider kernel and switches here.
+#
+# Not earlier: the provider's start call waits for its guest agent to answer
+# and fails when the machine reboots before that (measured on Freestyle,
+# 2026-11-03: a switch at 2 s of uptime made every start fail; start returns
+# at 2.3 to 2.8 s, n = 4). Nothing in the guest marks that the call returned,
+# so the switch waits a fixed, bounded 30 s, about ten times that.
+[Timer]
+OnBootSec=30s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

@@ -20,7 +20,6 @@ Decided input: coderouter is in every VM by default (team VM, user cloud machine
 
 - A second VM provider. The provider seam stays (`VMProvider`), but this image targets Freestyle's Ubuntu 24.04 guests.
 - A desktop in the default image. The desktop becomes an optional role package (section 4.4).
-- Kernel changes. Freestyle owns the guest kernel (6.1.102 today).
 
 ## 3. Today (baseline)
 
@@ -69,6 +68,18 @@ Shipping to running machines is limited today (docs/cloud-guest-upgrades.md): on
 L0 is pinned by fingerprint, not by slug: the bake records the base snapshot id the provider resolved, the kernel release, and the sha256 of the base's package list. A bake refuses to run when the fingerprint differs from `images/cmux-vm/inputs.lock.json` unless the lock is updated in the same change (a base change is then a reviewed diff).
 
 Unrequested base software is removed in L1 (the third-party agent package, the npm copy of bun, the TypeScript tools; together about 0.75 GiB). The provider's own Python (`/opt/freestyle/python`, 1.5 GiB) stays until we prove the provider agent does not need it (UNVERIFIED); cmux scripts stop depending on it.
+
+### 4.1a Guest kernel
+
+The provider boots every machine with its own kernel (6.1.102, built 2026-08-26) and has no kernel setting. The image runs the current 6.1 stable release instead, pinned in `inputs.lock.json` (`kernel`: the kernel.org tarball by sha256, the base's `/proc/config.gz` by sha256, the builder snapshot and a fixed build timestamp). `web/scripts/cmux-vm-image/guest-kernel.ts` builds it on a throwaway `freestyle/ubuntu-2xl` VM in parallel with the bake (about 5 minutes) with the base's own configuration (`make olddefconfig`), and the bake switches the builder to it with kexec right after the disk-only steps (apt, store), so the snapshot's memory image is the cmux kernel's and every clone resumes on it.
+
+The guest side is `images/cmux-vm/guest/cmux-guest-kernel` (load with `kexec_file_load`, switch with `systemctl kexec`) and three pieces, each from a measurement on Freestyle (2026-11-03):
+
+- `cmux-guest-kernel.shutdown`, a system-shutdown hook: before the jump it unbinds every virtio driver, the disk last. 6.1 leaves virtio devices running across kexec, and the host kept writing into buffers the old kernel posted: without the hook the new kernel hung on every `sm` and default-size machine (it came up only on `2xl`); without the disk, 1 of 4; with all of them, 10 of 10 (8 to 22 s).
+- `cmux-guest-kernel.timer`: a cold boot (power off and start, or the provider's automatic restart) runs the provider kernel again, and the timer switches 30 s into the boot. Not earlier: the provider's start call waits for its guest agent and failed every time the machine rebooted at 2 s; start returns at 2.3 to 2.8 s and nothing in the guest marks it.
+- `cmux-guest-kernel-booted.service` clears the switch attempt count early in every boot on the cmux kernel; after two switches that did not come up, the timer leaves the machine on the provider kernel instead of looping.
+
+Running machines get it with `images/cmux-vm/guest-kernel-install.ts` (docs/cloud-guest-upgrades.md).
 
 ### 4.2 Package list (V1 "package list pending")
 
@@ -264,7 +275,7 @@ Today a clone sends a gratuitous ARP burst at bind and every 30 s, because an ea
 
 ### 6.5 Guest capabilities (measured)
 
-Kernel 6.1.102 with everything built in and no loadable modules: WireGuard (`ip link add type wireguard` works, `wg` installed), `/dev/net/tun`, nftables and iptables-nft, IP forwarding on, cgroup v2 with cpu, memory, io and pids controllers and working user delegation (`systemd-run --user -p MemoryMax=… -p CPUQuota=…`), user namespaces (rootless overlay mounts work), overlayfs, loop devices, `/dev/kvm` (nested virtualization), systemd 255 with socket activation, Docker 29.1.3. FUSE works (`/dev/fuse` 0666) once the image installs `fuse3` (setuid `fusermount3`; add `user_allow_other` to `/etc/fuse.conf` for JuiceFS); POSIX ACLs work on the ext4 root once `acl` is installed. Pause takes 104 to 219 ms (the first call 7 s), start 71 to 217 ms; inotify watches survive, and monotonic timers count paused time.
+Provider kernel 6.1.102 (the image now runs its own, section 4.1a, built from the same configuration) with everything built in and no loadable modules: WireGuard (`ip link add type wireguard` works, `wg` installed), `/dev/net/tun`, nftables and iptables-nft, IP forwarding on, cgroup v2 with cpu, memory, io and pids controllers and working user delegation (`systemd-run --user -p MemoryMax=… -p CPUQuota=…`), user namespaces (rootless overlay mounts work), overlayfs, loop devices, `/dev/kvm` (nested virtualization), systemd 255 with socket activation, Docker 29.1.3. FUSE works (`/dev/fuse` 0666) once the image installs `fuse3` (setuid `fusermount3`; add `user_allow_other` to `/etc/fuse.conf` for JuiceFS); POSIX ACLs work on the ext4 root once `acl` is installed. Pause takes 104 to 219 ms (the first call 7 s), start 71 to 217 ms; inotify watches survive, and monotonic timers count paused time.
 
 ## 6b. Team VM bind route (owner: lane 1; pairing side reviewed by lane 10)
 

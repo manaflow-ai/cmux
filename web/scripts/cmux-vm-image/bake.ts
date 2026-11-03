@@ -82,6 +82,7 @@ import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
+import { buildGuestKernel, type BuiltGuestKernel, GUEST_KERNEL_CLI, GUEST_KERNEL_DIRS_COMMAND, GUEST_KERNEL_IMAGE, guestKernelFiles, guestKernelInstallCommand, guestKernelProblems, switchToGuestKernel } from "./guest-kernel";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, hostConfig, hostUnit } from "./host-agent";
 import {
   METADATA_GUARD_FILE,
@@ -629,6 +630,27 @@ async function recordDaemonInfo(ctx: Ctx): Promise<void> {
 }
 
 /** The health loop and guard drop-ins, through the script's own `install` (machine-health.ts); one pass recorded. */
+/**
+ * The cmux guest kernel (guest-kernel.ts): written with its script, shutdown hook and units, then
+ * the builder switches to it. Everything before this step is files on disk, which the switch keeps;
+ * everything after it runs on the cmux kernel, so the snapshot's memory image is that kernel's.
+ */
+async function installGuestKernel(ctx: Ctx, built: BuiltGuestKernel): Promise<void> {
+  const { vm, L, lock, options, result } = ctx;
+  writeFileSync(path.join(options.outDir, `vmlinuz-${built.release}`), built.bytes);
+  await L.step(vm, "kernel-dirs", GUEST_KERNEL_DIRS_COMMAND);
+  await writeGuestFile(vm, GUEST_KERNEL_IMAGE, built.bytes, 0o644);
+  for (const file of guestKernelFiles()) await writeGuestFile(vm, file.path, file.bytes, file.mode);
+  await L.step(vm, "kernel-install", guestKernelInstallCommand(lock.kernel, built.sha256));
+  const switchMs = await switchToGuestKernel(vm, L, lock.kernel.version);
+  await firstExec(vm, Date.now());
+  const problems = guestKernelProblems(lock.kernel, await L.step(vm, "kernel-status", `${GUEST_KERNEL_CLI} status`));
+  if (problems.length > 0) throw new Error(`guest kernel: ${problems.join("; ")}`);
+  // The clock source is a runtime setting the switch reset; the rest of the bake runs after this.
+  await L.step(vm, "snapshot-clock-after-kernel", devboxSnapshotClockCommand);
+  result.guestKernel = { release: built.release, sha256: built.sha256, gcc: built.gcc, builderVmId: built.builderVmId, buildSecs: Math.round(built.buildMs / 1000), switchSecs: Math.round(switchMs / 1000) };
+}
+
 async function installMachineHealth(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
   for (const file of machineHealthFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
@@ -743,6 +765,9 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const fs = freestyleClient();
   const t0 = Date.now();
   let builder: Awaited<ReturnType<typeof createVm>> | null = null;
+  // The kernel builds on its own VM while the image's first steps run; awaited before the switch.
+  const kernelBuild = buildGuestKernel(fs, ledger, L, lock.kernel, name, options.promotion || options.prodCopy === true);
+  kernelBuild.catch(() => undefined);
   try {
     builder = await createVm(fs, ledger, { name, snapshotId: lock.base.snapshot, allowUnprefixed: options.promotion || options.prodCopy === true });
     result.builderVmId = builder.vmId;
@@ -756,6 +781,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     result.npmStrip = await L.step(ctx.vm, "npm-strip", npmStripCommand(ctx.lock));
     await installApt(ctx);
     await installStore(ctx);
+    await installGuestKernel(ctx, await kernelBuild);
     await wireCmuxTui(ctx);
     await configureSystem(ctx);
     await installMetadataGuard(ctx);
@@ -781,6 +807,8 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     L.log(`BAKE FAILED: ${result.error}`);
   } finally {
     if (builder && !options.keepBuilder) await deleteVm(builder.vm, builder.vmId, name, ledger);
+    // The kernel builder deletes its own VM; a failed bake still waits for that.
+    await kernelBuild.catch(() => undefined);
   }
   result.bakeMs = Date.now() - t0;
   result.steps = L.steps;

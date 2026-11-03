@@ -48,6 +48,16 @@
       ]
     }
   },
+  "kernel": {
+    "version": "6.1.191",
+    "url": "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.1.191.tar.xz",
+    "sha256": "02f15b77d213e15607923832ef9382e2414ea90df6c007f15a910e139645c35d",
+    "size": 135558564,
+    "checksumsUrl": "https://cdn.kernel.org/pub/linux/kernel/v6.x/sha256sums.asc",
+    "baseConfigSha256": "29b9fa03adab52f57f682d62cbe3e5dd7f0093c8f89c193f8ba7f623c6a18334",
+    "builder": "freestyle/ubuntu-2xl",
+    "buildTimestamp": "2026-11-01T00:00:00Z"
+  },
   "apt": {
     "ubuntu": {
       "uri": "https://snapshot.ubuntu.com/ubuntu/20261022T000000Z/",
