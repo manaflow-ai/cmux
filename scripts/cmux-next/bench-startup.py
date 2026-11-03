@@ -667,8 +667,8 @@ def launch_profile(out, app_pid, until_ms):
             for depth in range(1, len(path) + 1):
                 tree[" > ".join(path[:depth])] += weight
     # Scratch (REOPEN-F7 profile 7): the subtree under each anchor frame, system frames kept, 8 levels.
-    anchors = ("WindowActivation.show", "SidebarContainerView.__allocating_init", "SidebarItemRowView.layout",
-               "WindowController.show(_:on:)", "ShellWindow.init(contentRect", "SidebarBridge.init(services")
+    anchors = ("ContentPresentationScheduler.showNow", "WorkspaceRowView.__allocating_init", "SidebarIconButton.init(icon",
+               "TabStripView.applyTokens", "LayoutRootView.updateVisibility", "SidebarListView.apply(_:animated:newRowsInPlace")
     sub = {a: collections.Counter() for a in anchors}
     for t, weight, _, frames in rows:
         outer = list(reversed(frame_names(frames)))
@@ -676,7 +676,7 @@ def launch_profile(out, app_pid, until_ms):
             at = next((i for i, n in enumerate(outer) if a in n), None)
             if at is None:
                 continue
-            path = [n[:100] for n in outer[at + 1:] if not n.startswith(("0x", "<"))][:8]
+            path = [n[:100] for n in outer[at + 1:] if not n.startswith(("0x", "<"))][:10]
             sub[a]["(self+all)"] += weight
             for depth in range(1, len(path) + 1):
                 sub[a][" > ".join(path[:depth])] += weight
