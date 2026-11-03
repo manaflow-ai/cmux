@@ -50,6 +50,8 @@ fn native_workflow_engine_forbids_clock_and_randomness_before_effects() {
         "return crypto.getRandomValues(new Uint8Array(1));",
         "return crypto.randomUUID();",
         "return Temporal.Now.instant();",
+        "return new WeakRef({}).deref();",
+        "return new FinalizationRegistry(() => {});",
     ] {
         let result = workflow_exec(script, json!([]), Limits::default(), &mut |_| {
             panic!("a nondeterministic script dispatched a host call")
