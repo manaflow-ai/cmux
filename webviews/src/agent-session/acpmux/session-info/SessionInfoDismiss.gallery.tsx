@@ -15,6 +15,7 @@ function SessionInfoDismiss() {
         <SessionInfoPanel width={360} placement="overlay" onDismiss={() => setOpen(false)}>
           <div className="acpmux-session-info__body">
             <ChangesSection
+              statuses={{}}
               pullRequests={[
                 {
                   url: "https://github.com/example/project/pull/42",
