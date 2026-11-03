@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4169666218001",
+  "notes": "notes/4169666218001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 33940,
+      "title": "fix(focus): a restored page is ready for keys from a paint it cannot miss (follow-up of #32633)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34113,
+      "title": "perf(cef): a motion frame works out the geometry of the pages that moved, not of every page in the window",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34055,
+      "title": "base red: a Cloud start ask's reply refusals are CmuxNextControl's CloudAskDialog.reply (arch app_lines +2 from #32734)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34025,
+      "title": "fix(design): themes playground search field shows no focus ring (web-lint red since c0230efd501)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34137,
+      "title": "fix(link-hints): an ended session never acts on a newer one (follow-up of #32537, review findings 2 and 3)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33986,
+      "title": "swift-logic-classes: classify the false counts of the tip's swift-logic red since 25c69ee58fe4",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33963,
+      "title": "perf(chromium host): a forwarded input event allocates nothing (inline header, stack encode, one writev)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34047,
+      "title": "perf-hot: feed-live-event marks FeedOrderedIndex.apply, and the chats-window bench row says what its test measures",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33945,
+      "title": "perf(home): a streamed talk token wakes no whole-message Home view",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34026,
+      "title": "perf(layout): a tab drag's room check and edge preview are computed once per target and layout, not on every pointer move",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33874,
+      "title": "Keyboard pane resize: the tab strip moves with its pane in every frame; only the content below it holds (FRAME OWNER S1)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33935,
+      "title": "Frame owner S2 ON: drags lay out once per display frame; springs keep their curve after a late frame",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34144,
+      "title": "ci(nightly): the older-tree step-script restore loops instead of xargs -r",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
