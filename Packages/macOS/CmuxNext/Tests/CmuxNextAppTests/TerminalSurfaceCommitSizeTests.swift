@@ -38,6 +38,30 @@ struct TerminalSurfaceCommitSizeTests {
         #expect(fixture.samples > 0, "no turn was sampled")
         #expect(fixture.mismatches.isEmpty,
                 "\(fixture.mismatches.count) turns ended with the layer at one size and its frame at another: \(fixture.mismatches.prefix(8))")
+        let stats = TerminalFramePresenter.forWindow(fixture.window).stats
+        #expect(stats.presented > 0 && stats.fallbacks == 0, "presenter: \(stats)")
+    }
+
+    /// A terminal hidden while its new size waits for its frame (a tab switched away mid-drag) takes the size its
+    /// host gives it then, and keeps it: the pass that sees it hidden never puts back the older size it had asked
+    /// for, and the grid it reports is that size's (review of 114c5ef217d).
+    @Test func aTerminalHiddenWhileASizeWaitsKeepsItsNewestSize() async throws {
+        let fixture = try await Fixture()
+        defer { fixture.close() }
+        // A size goes to Ghostty and waits for this turn's commit; the terminal hides in the same turn and its host
+        // lays it out at another size.
+        fixture.container.terminalWidth = 520
+        fixture.container.layoutSubtreeIfNeeded() // sync-layout: the request, in this turn
+        let surface = fixture.session.surfaceView
+        #expect(TerminalFramePresenter.forWindow(fixture.window).isWaiting(surface), "520 pt did not wait for its frame")
+        fixture.session.view.isHidden = true
+        fixture.container.terminalWidth = 460
+        fixture.container.layoutSubtreeIfNeeded() // sync-layout: the hidden terminal's newest size
+        await fixture.commits(3)
+        #expect(surface.frame.width == 460, "the hidden terminal is \(surface.frame.width) pt wide, its host gave it 460")
+        fixture.session.view.isHidden = false
+        await fixture.commits(3)
+        #expect(surface.frame.width == 460, "shown again, the terminal is \(surface.frame.width) pt wide, its host gave it 460")
     }
 
     /// One resize: the first turn whose layer has the new bounds shows the frame drawn at that size, and Ghostty
@@ -113,8 +137,6 @@ struct TerminalSurfaceCommitSizeTests {
             _ = NSApplication.shared
             TunableStore.shared.activate(file: nil)
             TunableStore.shared.register(TerminalDragTunables.all)
-            let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
-            try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
             drew = WindowDrawPolicy.drawsWhenOccluded
             WindowDrawPolicy.drawsWhenOccluded = true
             let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
@@ -127,25 +149,34 @@ struct TerminalSurfaceCommitSizeTests {
             window.contentView = root
             window.orderFrontRegardless()
             root.layoutSubtreeIfNeeded() // sync-layout: the panes exist before their terminals attach
+            let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
+            if on != .bool(true) { close() }
+            try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
             let line = String(repeating: "y", count: 40)
             let text = Array(repeating: line, count: 400).joined(separator: "\r\n")
             for pane: PaneID in ["p1", "p2"] {
                 let io = ScriptedTerminalIO()
                 let session = TerminalSession(io: io)
-                try #require(session.surfaceView.surface != nil, "libghostty created no surface")
-                let container = try #require(provider.containers[pane])
+                ios.append(io)
+                guard session.surfaceView.surface != nil, let container = provider.containers[pane] else {
+                    close()
+                    try #require(Bool(false), "libghostty created no surface, or pane \(pane) has no container")
+                    return
+                }
                 session.view.frame = container.bounds
                 session.view.autoresizingMask = [.width, .height]
                 container.addSubview(session.view)
                 session.view.layoutSubtreeIfNeeded() // sync-layout: the attach's own layout pass
                 io.send(.output(Data(text.utf8)))
                 sessions.append(session)
-                ios.append(io)
             }
-            for _ in 0..<240 where sessions.contains(where: { $0.surfaceView.presentedFrame == nil }) {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+            while ContinuousClock.now < deadline, sessions.contains(where: { $0.surfaceView.presentedFrame == nil }) {
                 await Self.commit()
             }
-            try #require(!sessions.contains { $0.surfaceView.presentedFrame == nil }, "a terminal never showed its first frame")
+            let drawn = !sessions.contains { $0.surfaceView.presentedFrame == nil }
+            if !drawn { close() }
+            try #require(drawn, "a terminal never showed its first frame")
             // Every turn ends after Core Animation's commit with what it committed.
             sampler = MainRunLoopObserver(activities: [.beforeWaiting, .exit], order: CommitBoundary.order,
                                           drawsNothingAfterCommit: true) { [weak self] _ in self?.sample() }
@@ -239,10 +270,8 @@ struct TerminalSurfaceCommitSizeTests {
             _ = NSApplication.shared
             TunableStore.shared.activate(file: nil)
             TunableStore.shared.register(TerminalDragTunables.all)
-            let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
-            try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
             // The runner's window may report itself occluded (an app never in front): draw anyway, as automation
-            // launches do.
+            // launches do. Set back by ``close()``, which also runs when the setup below fails.
             drew = WindowDrawPolicy.drawsWhenOccluded
             WindowDrawPolicy.drawsWhenOccluded = true
             session = TerminalSession(io: io)
@@ -254,11 +283,19 @@ struct TerminalSurfaceCommitSizeTests {
             container.terminal = session.view
             container.addSubview(session.view)
             window.orderFrontRegardless()
-            try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+            do {
+                try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+                let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
+                try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
+            } catch {
+                close()
+                throw error
+            }
             container.layoutSubtreeIfNeeded() // sync-layout: the first size, before the text
             let line = String(repeating: "x", count: 30)
             io.send(.output(Data(("\u{1b}[?25l" + Array(repeating: line, count: 6).joined(separator: "\r\n")).utf8)))
             let shown = await waitShown(width: 600)
+            if !shown { close() }
             try #require(shown, "the terminal never showed its first frame")
             // Sample from here on: every turn ends after Core Animation's commit with what it committed.
             observer = MainRunLoopObserver(activities: [.beforeWaiting, .exit], order: CommitBoundary.order,
@@ -318,9 +355,10 @@ struct TerminalSurfaceCommitSizeTests {
             }
         }
 
-        /// Waits, commit by commit (at most 240), until the shown frame is `width` points wide at the layer's scale.
+        /// Waits, commit by commit (at most 10 s), until the shown frame is `width` points wide at the layer's scale.
         func waitShown(width: CGFloat) async -> Bool {
-            for _ in 0..<240 {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+            while ContinuousClock.now < deadline {
                 let scale = session.surfaceView.layer?.contentsScale ?? 2
                 if shownPixels?.width == Int((width * scale).rounded()) { return true }
                 await commits(1)
