@@ -8616,6 +8616,15 @@ function AcpmuxPane() {
   /// The same, for dictation's field getter (below), which is made once.
   const cloudStartingNow = useRef(false);
   cloudStartingNow.current = cloudStarting;
+  /// The same transition as the native cap card's Run on This Mac answer: keep the
+  /// failed Cloud prompt in the composer, change its destination and send it once.
+  const runCloudHere = () => {
+    setCloudStart(undefined);
+    runModePicked.current = true;
+    runHereSend.current = true;
+    sandbox.setMode("persistent");
+  };
+  const dismissCloudFailure = () => setCloudStart(undefined);
   const sendToCloud = (
     text: string,
     attachments: ComposerAttachment[],
@@ -8640,10 +8649,7 @@ function AcpmuxPane() {
       setCloudStartsEnded((count) => count + 1);
       if (cloudRunsHere(answer)) {
         // The cap card's Run on This Mac: the prompt still in the composer goes to a chat here once the mode is.
-        setCloudStart((current) => (current?.key === key ? undefined : current));
-        runModePicked.current = true;
-        runHereSend.current = true;
-        sandbox.setMode("persistent");
+        runCloudHere();
         return;
       }
       setCloudStart((current) => cloudStartEnded(current, key, answer));
@@ -14667,7 +14673,18 @@ function AcpmuxPane() {
                         runMode: sandboxModeRows,
                         // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
                         // the prompt and attachments put back in its composer.
-                        ...(cloudStart ? { cloudStatus: <CloudStartView start={cloudStart} bubble={false} /> } : {}),
+                        ...(cloudStart
+                          ? {
+                              cloudStatus: (
+                                <CloudStartView
+                                  start={cloudStart}
+                                  bubble={false}
+                                  onRunHere={runCloudHere}
+                                  onDismiss={dismissCloudFailure}
+                                />
+                              ),
+                            }
+                          : {}),
                         cloudStarting,
                         onCloud: (
                           harness: string,
@@ -15079,7 +15096,7 @@ function AcpmuxPane() {
                 ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
                   <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
                 ) : cloudStart && !snapshot.sessionId ? (
-                  <CloudStartView start={cloudStart} />
+                  <CloudStartView start={cloudStart} onRunHere={runCloudHere} onDismiss={dismissCloudFailure} />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
                   <SandboxRunView
                     run={sandboxView}
