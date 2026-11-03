@@ -11,11 +11,8 @@ import Foundation
 /// account, else after one confirm that runs `setup-token` once in a visible local terminal. Every
 /// later machine of the account then gets it with no prompt.
 ///
-/// DEV and dogfood builds pass it as before. A Release build passes it only on Leo's three
-/// conditions (2026-11-02; CloudService+LoginCopy.swift): the remote switch on, the person's
-/// one-time consent ("Use my Claude login on my own Cloud machines?", which is the confirm, so no
-/// second prompt follows), and an `owner` guest of a machine the caller owns, never a team one.
-/// Otherwise the machine's chat offers its own one-click "Sign in to Claude".
+/// DEV and dogfood builds pass it as before. A Release build passes it only on Leo's three conditions
+/// (``CloudLoginCopyGate``); otherwise the machine's chat offers its own one-click "Sign in to Claude".
 ///
 /// The decision's rules are Rust's (``CloudHarnessLoginDecision``, cmux-cloud-start-core); this
 /// extension reads the machine and the account and acts on it.
@@ -23,26 +20,6 @@ import Foundation
 /// Never blocks the chat: a machine that is not the person's, a cancelled confirm or a failed install
 /// opens the chat anyway, and its turn card still offers recovery (#26148).
 extension CloudStartChat {
-    /// This process's answer to ``CloudCredentialTransfer/passesHarnessLogin(isDogfoodBuild:defaults:remoteSwitch:)``,
-    /// with a Release build's last fresh switch answer (`switch`): what the turn card and the
-    /// workspace setup offer. The copy itself reads the switch again first.
-    nonisolated static func passesHarnessLoginHere(switch remoteSwitch: CloudHarnessLoginCopySwitch?) -> Bool {
-        CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: DevTools.isEnabled, defaults: .standard, remoteSwitch: remoteSwitch?.current)
-    }
-
-    /// Whether this build may offer the copy at all (the turn card's recovery): DEV and dogfood by
-    /// their gate; Release unless `cmux.cloud.passHarnessLogin` is NO, the switch and the consent
-    /// being checked when it runs.
-    nonisolated static var offersLoginCopyHere: Bool {
-        DevTools.isEnabled ? passesHarnessLoginHere(switch: nil) : CloudCredentialTransfer.passHarnessLoginSetting(.standard) != false
-    }
-
-    /// Whether a team guest whose creator is the caller may take the login: DEV and dogfood only.
-    /// A Release copy goes only to an `owner` guest ("never on team machines").
-    nonisolated static var allowsCreatorTeamGuestHere: Bool {
-        DevTools.isEnabled && passesHarnessLoginHere(switch: nil)
-    }
-
     /// Gives the start's machine the person's Claude login when this build passes it. Returns
     /// whether a login was installed; never throws. `cmux cloud start-session` passes it the same way.
     func passHarnessLogin(harness: String?, machine: CloudMachineSession) async -> Bool {
@@ -51,11 +28,8 @@ extension CloudStartChat {
         let api = cloud.machineAPI.pinningTeam(teamID)
         var decision = CloudHarnessLoginDecision(dogfood: DevTools.isEnabled, setting: CloudCredentialTransfer.passHarnessLoginSetting(.standard),
                                                  harness: harness, signedIn: userID != nil)
-        if !DevTools.isEnabled {
-            // Release: the switch is read fresh for every start, so turning it off holds the next machine.
-            decision.remoteSwitch = await cloud.readHarnessLoginCopySwitch()
-            decision.consent = Self.loginCopyConsent(services)
-        }
+        let gate = Self.loginCopyGate(services)
+        await gate.read(into: &decision)
         // Never silent (CloudHarnessLoginDecision): the reason goes to the log and the machine's `cloud.machines` row.
         defer {
             machine.harnessLogin = decision
@@ -76,14 +50,7 @@ extension CloudStartChat {
             case .skip: return false
             case .install: break
             case .askConsent:
-                // The one-time consent is the confirm: yes copies now, with no second prompt.
-                guard await Self.askLoginCopyConsent(services) else {
-                    decision.consent = Self.loginCopyConsent(services)
-                    decision.outcome = "declined"
-                    return false
-                }
-                decision.consent = true
-                guard decision.verdict.step == .install else { return false }
+                guard await gate.askConsent(&decision) else { return false }
             case .confirmThenInstall:
                 guard await CloudPresenter.confirmFirstLogin(provider: provider, machine: machine.machine.title, services: services) else {
                     decision.outcome = "declined"
@@ -92,10 +59,10 @@ extension CloudStartChat {
             }
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return false }
             let transfer = CloudCredentialTransfer(provider: provider, machineID: machineID, teamID: teamID, userID: userID,
-                allowsCreatorTeamGuest: verdict.guestKind == "team" && Self.allowsCreatorTeamGuestHere, openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
+                allowsCreatorTeamGuest: verdict.guestKind == "team" && CloudCredentialTransfer.allowsCreatorTeamGuest(isDogfoodBuild: DevTools.isEnabled, defaults: .standard), openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
             try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID }, currentUserID: { cloud.auth.user?.id },
                                    confirmed: true, callerOwnsVM: { try await cloud.callerOwnsVM(machineID) },
-                                   stillAllowed: Self.releaseStillAllowed(services))
+                                   stillAllowed: gate.stillAllowed)
             decision.outcome = "installed"
             return true
         } catch {

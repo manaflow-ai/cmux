@@ -82,7 +82,7 @@ export default componentEntry<Props>({
       checks: {
         layoutShiftMax: {
           value: 0.05,
-          reason: "Choosing All adds Include new files to the row, so the hint and buttons move along.",
+          reason: "Choosing All rewrites the hint line and adds Include new files to it; the buttons stay.",
         },
       },
     },
@@ -93,7 +93,7 @@ export default componentEntry<Props>({
       checks: {
         layoutShiftMax: {
           value: 0.05,
-          reason: "Choosing All adds Include new files to the row, so the hint and buttons move along.",
+          reason: "Choosing All rewrites the hint line and adds Include new files to it; the buttons stay.",
         },
       },
     },

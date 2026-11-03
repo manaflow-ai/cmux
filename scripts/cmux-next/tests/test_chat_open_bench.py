@@ -191,5 +191,33 @@ class TableTests(unittest.TestCase):
         self.assertEqual(sum("FAILED" in line for line in table.splitlines()), 1)  # the legend's one mention
 
 
+
+class ClickRowTests(unittest.TestCase):
+    """The click cases read workspace ids from debug.sidebar_rows, whose keys are SidebarRowKey descriptions."""
+
+    def test_workspace_id_reads_the_row_key(self):
+        bench = load_bench()
+        self.assertEqual(bench.workspace_id({"key": "workspace(ws_1a2b)"}), "ws_1a2b")
+        self.assertEqual(bench.workspace_id({"key": "workspace(mac:ws_1a2b)"}), "mac:ws_1a2b")
+        self.assertIsNone(bench.workspace_id({"key": "group(grp_1)"}))
+        self.assertIsNone(bench.workspace_id({"key": "item(home)"}))
+        self.assertIsNone(bench.workspace_id(None))
+
+    def test_shown_workspace_makes_one_when_home_is_shown(self):
+        bench = load_bench()
+        calls = []
+        replies = [{"windows": [{"rows": [{"key": "item(home)", "selected": True}]}]},
+                   {"windows": [{"rows": [{"key": "item(home)", "selected": False},
+                                          {"key": "workspace(ws_new)", "selected": True}]}]}]
+
+        class Run:
+            app = types.SimpleNamespace(action=lambda name, **kw: calls.append(name) or {})
+
+            def rpc(self, method, params=None, timeout=40):
+                return replies.pop(0) if len(replies) > 1 else replies[0]
+
+        self.assertEqual(bench.shown_workspace(Run()), "ws_new")
+        self.assertEqual(calls, ["workspace.newAtBottom"])
+
 if __name__ == "__main__":
     unittest.main()
