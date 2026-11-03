@@ -486,7 +486,8 @@ export async function measureFirstFrame(page: Page, url: string, turns: number, 
     frames: frames.length,
     first,
     last,
-    lengthGapPx: Math.abs(last.height - first.height),
+    // The rail's length: its tick track (a row per prompt), which a box at its height cap hides.
+    lengthGapPx: Math.max(Math.abs(last.height - first.height), Math.abs(last.prompts - first.prompts) * 10),
     promptGap: Math.abs(last.prompts - first.prompts),
     shiftPx: shift,
   };
