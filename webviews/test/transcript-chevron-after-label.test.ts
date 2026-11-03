@@ -62,10 +62,20 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
     await vite?.close();
   });
 
-  type Chevron = { row: string; gap: number | null; width: number; height: number; edge: number };
+  type Chevron = {
+    row: string;
+    gap: number | null;
+    /** Whether the words it follows are a trailing status or duration, not the label. */
+    trail: boolean;
+    width: number;
+    height: number;
+    edge: number;
+  };
+  /** A row's trailing status or duration column, which goes after the chevron. */
+  const TRAIL = ".cv-tool__trail, .cv-command__meta, .cv-agent-activity__trail, .cv-subagent-done__trail";
 
   const measure = (page: Page): Promise<Chevron[]> =>
-    page.evaluate(() => {
+    page.evaluate((TRAIL) => {
       const laidOut = (element: Element) => {
         const box = element.getBoundingClientRect();
         if (box.width === 0 || box.height === 0) return false;
@@ -85,6 +95,8 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
         let edge = right;
         for (let node: Element | null = from; node && node !== top.parentElement; node = node.parentElement) {
           const style = getComputedStyle(node);
+          // A `display: contents` box draws nothing and clips nothing (a message line's sentence).
+          if (style.display === "contents") continue;
           if (style.overflowX !== "visible" || style.textOverflow === "ellipsis")
             edge = Math.min(edge, node.getBoundingClientRect().right);
         }
@@ -94,6 +106,7 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
       const wordsEnd = (scope: Element, glyph: DOMRect, chevron: Element) => {
         const middle = (glyph.top + glyph.bottom) / 2;
         let end: number | null = null;
+        let trail = false;
         const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
         for (let node = walker.nextNode(); node; node = walker.nextNode()) {
           const parent = node.parentElement;
@@ -103,10 +116,13 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
           for (const rect of range.getClientRects()) {
             if (rect.width === 0 || rect.top > middle || rect.bottom < middle || rect.left >= glyph.left) continue;
             const right = clipped(parent, scope, rect.right);
-            if (right <= glyph.left + 1) end = end === null ? right : Math.max(end, right);
+            if (right <= glyph.left + 1 && (end === null || right > end)) {
+              end = right;
+              trail = parent.closest(TRAIL) !== null;
+            }
           }
         }
-        return end;
+        return end === null ? null : { end, trail };
       };
       const out: Chevron[] = [];
       for (const chevron of document.querySelectorAll(".acpmux-row .cv-rotor")) {
@@ -117,14 +133,16 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
         if (!path) continue;
         const glyph = path.getBoundingClientRect();
         let gap: number | null = null;
+        let trail = false;
         let row: Element = chevron;
         // The nearest box around the chevron that holds words before it on its line: its own toggle,
         // or the line a chevron-only toggle sits on.
         for (let scope = chevron.parentElement; scope; scope = scope.parentElement) {
           row = scope;
-          const end = wordsEnd(scope, glyph, chevron);
-          if (end !== null) {
-            gap = glyph.left - end;
+          const words = wordsEnd(scope, glyph, chevron);
+          if (words !== null) {
+            gap = glyph.left - words.end;
+            trail = words.trail;
             break;
           }
           if (scope.classList.contains("acpmux-row")) break;
@@ -133,13 +151,14 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
         out.push({
           row: `${row.className || row.tagName} | ${(row.textContent || "").replace(/\s+/g, " ").trim().slice(0, 50)}`,
           gap,
+          trail,
           width: glyph.width,
           height: glyph.height,
           edge: line.right - glyph.right,
         });
       }
       return out;
-    });
+    }, TRAIL);
 
   const measured = new Map<string, Chevron[]>();
   const of = async (scene: (typeof SCENES)[number], width: number) => {
@@ -181,7 +200,10 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
         expect((await of(scene, width)).length).toBeGreaterThan(0);
       });
       test(`${name}: every chevron starts within ${MAX_GAP}px after its words`, async () => {
-        const far = (await of(scene, width)).filter(({ gap }) => gap === null || gap < -0.5 || gap > MAX_GAP + 0.5);
+        // After its label's words, never after a trailing status or duration at the line's end.
+        const far = (await of(scene, width)).filter(
+          ({ gap, trail }) => trail || gap === null || gap < -0.5 || gap > MAX_GAP + 0.5,
+        );
         expect(far).toEqual([]);
       });
       test(`${name}: every chevron points down or up, never right`, async () => {
