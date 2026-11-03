@@ -211,6 +211,21 @@
 .acpmux-minimap__rail[data-reduce] .acpmux-minimap__dot {
   transition: none;
 }
+/* The hover wave (hoverWave.ts, wave.experiment.ts; Leo 2026-11-03: "it doesn't feel as wave-y as
+   chatgpt's ... it doesn't feel smooth when you're hoving your mouse through it"). While the pointer
+   is on the ticks, each tick's length follows --acpmux-minimap-wave (0 at rest to 1 hovered), which
+   one loop writes on the bars and dots inside the bump's reach as it eases toward the pointer's y.
+   The loop is the easing, so no per-tick transition restarts as the pointer crosses rows. It
+   overrides the stepped fisheye's inline transform; the pointer leaving drops data-wave, and the
+   ticks ease back to rest on the rule above. Transform only: nothing here lays out. */
+.acpmux-minimap__rail[data-wave] .acpmux-minimap__bar {
+  transform: scaleX(calc(0.2308 + 0.7692 * var(--acpmux-minimap-wave, 0))) !important;
+  transition: none !important;
+}
+.acpmux-minimap__rail[data-wave] .acpmux-minimap__dot {
+  transform: translateX(calc(26px * (0.2308 + 0.7692 * var(--acpmux-minimap-wave, 0)))) !important;
+  transition: none !important;
+}
 @media (prefers-reduced-motion: reduce) {
   .acpmux-minimap__rail {
     animation: none;

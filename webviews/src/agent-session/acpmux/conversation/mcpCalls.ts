@@ -237,6 +237,15 @@ export function mcpTitleName(title: string): string | undefined {
   return name ? mcpPlainName({ server: name[1]!, tool: name[2]!, args: undefined }) : undefined;
 }
 
+/// A call no friendlier line names, as Claude Code words it: "Using repo: repo grep" while it runs,
+/// "Used repo: repo grep" once done (Leo, 2026-11-03: "comparing claude code's to ours, we're not
+/// faithfully following how they're doing stuff"). The tool part is its words and what it acts on.
+export function mcpUsing(t: Translate, call: McpCall, running: boolean, names: McpNames = new Map()): string {
+  const target = mcpTarget(call, names);
+  const tool = `${words(call.tool).join(" ") || call.tool}${target ? ` ${target}` : ""}`;
+  return t(running ? "tools.mcp.using" : "tools.mcp.used", { server: serverWords(call.server), tool });
+}
+
 /// The rest of the tool's name after its verb, for a call with no target: `read_chat` reads "chat".
 function toolNoun(call: McpCall): string {
   const all = words(call.tool);
@@ -245,7 +254,7 @@ function toolNoun(call: McpCall): string {
 }
 
 /// One line for a run of calls to one MCP tool.
-export function mcpLabel(t: Translate, calls: readonly McpCall[], names: McpNames): string {
+export function mcpLabel(t: Translate, calls: readonly McpCall[], names: McpNames, running = false): string {
   const first = calls[0]!;
   const targets = new Set(calls.map((call) => mcpTarget(call, names)));
   const target = targets.size === 1 ? [...targets][0] : undefined;
@@ -260,7 +269,7 @@ export function mcpLabel(t: Translate, calls: readonly McpCall[], names: McpName
   const object = target ? (action === "start" && noun !== first.tool ? `${noun} ${target}` : target) : noun;
   const line =
     action === "call"
-      ? t("tools.mcp.call", { target: `${serverWords(first.server)} · ${noun}` })
+      ? t(running ? "tools.mcp.using" : "tools.mcp.used", { server: serverWords(first.server), tool: noun })
       : t(`tools.mcp.${action}`, { target: object });
   return n > 1 ? `${line} ×${n}` : line;
 }

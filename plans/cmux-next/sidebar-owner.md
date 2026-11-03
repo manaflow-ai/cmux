@@ -1169,6 +1169,22 @@ An empty group now keeps only its header at rest. The header's existing + appear
   `WorkspaceHoverCardBehaviorTests.comingBackToTheSameRowShowsTheSameCardWithNoCrossfade`,
   `WorkspaceTabHoverCardRichRowsTests`.
 
+## The spaces row's + always sits right of the last space (2026-11-03)
+
+- Leo 2026-11-03 03:30Z: "I don't want hovering near the row to also just immediately turn it to a plus. only when
+  im direclty over it. or, rather, why do we not just have the plus to the right of the center circle? always to the
+  rightmost of the circles, maybe with the horizontal scrollbar?"
+- The + in the spaces row is drawn at rest, always right after the last space's dot (one space included: the dot
+  stays centered and the + sits to its right). Entering the row changes nothing; only the slot directly under the
+  pointer shows a hover chip. No dot turns into a + on hover. This replaces the hover-only + and the lone space's
+  dot-to-+ swap of #30232 (444237863ce).
+- Too many spaces still narrow, then turn compact; a strip that still does not fit now scrolls: it keeps the current
+  space in view (a swipe or wheel over the row pages spaces, so the row scrolls with it) and the + stays pinned on the
+  trailing edge, rightmost. Dots, the current-space chip, the profile control, drag reorder, tear-off and paging are
+  unchanged. Gallery: `ProfileBarVariantGalleryTests` (sidebar-space-variants): one space, four spaces, overflow with
+  the + pinned (chosen) and overflow with the + riding the end of the dots, each at rest, pointer in the row and over
+  the +, light/dark at 2x. Test: `ProfileBarPlusPlacementTests`.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:

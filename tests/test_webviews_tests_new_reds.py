@@ -174,6 +174,16 @@ class Wrapper(unittest.TestCase):
         self.assertTrue(0 < len(ran) < len(files), out)  # the head ran its shard only
         self.assertEqual(out.count("::warning title=Webview test red on the base too::"), len(ran), out)
 
+    def test_the_base_replay_runs_one_file_at_a_time_whatever_widths_the_shard_set(self):
+        """The shard step sets CMUX_WEB_TEST_DEV_JOBS (4) for its own run; inherited, the base replay
+        would run its red dev-server files 4 at once, and a red that only contention causes there
+        would pass a change's own red off as the base's."""
+        replay = WRAPPER.read_text(encoding="utf-8")
+        replay = replay[replay.index('CMUX_WEB_TEST_JOBS=1'):]
+        replay = replay[:replay.index('bash "$here/run-webviews-tests.sh"')]
+        for name in ("CMUX_WEB_TEST_DEV_JOBS", "CMUX_WEB_TEST_BROWSER_JOBS", "CMUX_WEB_TEST_SHARD"):
+            self.assertIn(f"-u {name} ", replay)
+
     def test_the_changes_files_do_not_reach_the_base_run(self):
         files = {"test/a.test.ts": "SCOPED\n" + body(["old red"])}
         done, out = self.run_pr(files, dict(files), extra_env={"CMUX_PR_CHANGED_FILES": "webviews/src/x.gallery.tsx"})

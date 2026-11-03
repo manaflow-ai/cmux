@@ -2081,6 +2081,14 @@ pre.cv-math-source {
    keeps the footer's 4px meta gap) and 20px under a tool row, as the Codex and Claude desktop apps
    space it, never flush under the text (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE").
    The line reserves the normal turn gap below it, so the end-of-turn swap does not move anything. */
+/* The live line keeps the shared icon slot empty: its words start on the text column every iconed
+   status row's words start on, never 24px left of them on the icon column (Leo, 2026-11-03, on
+   "Writing a command" under "Subagent finished" and over "1 message from 1 session": "weird
+   indenting /cut off text?"; design/chat-transcript.md "One icon column"). A folded turn's
+   "Worked for" line keeps col-left. */
+.cv-worked.cv-worked--live {
+  padding-inline-start: var(--cv-tool-text-inset);
+}
 .cv-worked.is-below {
   /* The footer's slot (transcriptGrid.ts MARK_FOOTER_SLOT): its 32 line, 8 under a reply. */
   height: var(--cv-footer-row);
@@ -2159,6 +2167,11 @@ pre.cv-math-source {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* The live line's action in full ink, the rest of its words at the line's muted tone, as Claude Code
+   desktop draws "Using repo: repo grep" (Thinking.tsx `liveLead`). */
+.cv-worked__lead {
+  color: var(--cv-text);
 }
 .cv-shimmer__band {
   display: none;
@@ -3394,13 +3407,14 @@ button.cv-video-frames__frame:focus-visible {
 }
 /* "⌃B to run in background" while a command runs (BackgroundHint.tsx), at the right of the running
    turn's live line; never on the command's own row. Its live-line hover rule controls visibility. */
+/* At the line's own size, so its words share the command's baseline and middle: a smaller face
+   centered beside it sat on a different baseline (Leo, 2026-11-03: "this isn't really centered with
+   the tool call i think it should be or at least it looks weird?"). The dim color keeps it a hint. */
 .cv-command__bg {
   flex: none;
   margin-left: auto;
   color: var(--cv-text-dim);
-  font-size: var(--text-detail);
   white-space: nowrap;
-  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* A message to another agent (MessageCard.tsx) is the shared agent message row
    (AgentMessageRow.css). Opened, its text grows in place under the line, at the line's text
@@ -5092,10 +5106,16 @@ a.cv-sha:focus-visible {
   z-index: var(--layer-sticky, 10);
   height: 0;
 }
+/* The bar belongs to the chat's column: with Session Info open it sits left of the panel in every stage
+   (float, push, over the chat), keeping the panel's reach into the chat (--acpmux-session-info-clear,
+   SessionInfo.tsx sessionInfoClear) and its inset, and narrows (its field shrinks) to the room left of
+   it, never under the panel (Leo, 2026-11-03: "oh no the command f overlaps with the session info..").
+   Where even its narrowest does not fit, the panel steps aside when Find opens and Find closes when the toggle opens the panel (findBarCramped). */
 .acpmux-find__bar {
   position: absolute;
   top: var(--find-pill-inset, 10px);
-  right: var(--find-pill-inset, 10px);
+  right: calc(var(--find-pill-inset, 10px) + var(--acpmux-session-info-clear, 0px));
+  max-width: calc(100% - 2 * var(--find-pill-inset, 10px) - var(--acpmux-session-info-clear, 0px));
 }
 /* Find matches: the theme's highlight (the yellow is only for an unthemed preview). */
 ::highlight(acpmux-find) {
