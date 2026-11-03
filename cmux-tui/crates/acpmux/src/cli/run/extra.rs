@@ -400,6 +400,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             leave_dirty,
             cwd,
             dry_run,
+            from,
         } => {
             let args = super::session_move::MoveArgs {
                 sessions,
@@ -410,6 +411,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 cwd,
                 dry_run,
                 resume_there: false,
+                from,
             };
             super::session_move::run(args, json_out).await
         }
