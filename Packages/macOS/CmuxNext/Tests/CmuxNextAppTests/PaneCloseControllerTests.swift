@@ -369,7 +369,8 @@ import Testing
         let shownLayout = try #require(shown.layout)
         #expect(!shownLayout.contains(closing))
         let column = try #require(shownLayout.columns.first { $0.id == LayoutColumnID("column:10") })
-        #expect(column.rows.isEmpty && column.root == .leaf(LayoutPaneID(try shown.key(1))), "c10: \(column)")
+        let kept = LayoutPaneID(try shown.key(1))
+        #expect(column.rows.isEmpty && column.root == .leaf(kept), "c10: \(column)")
         shown.echo([ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(1)), Self.rowStrip[1]])
         #expect(shown.layout == shownLayout, "the echo moved the layout: \(String(describing: shown.layout)) after \(shownLayout)")
     }
@@ -391,7 +392,8 @@ import Testing
         _ = try #require(try shown.controller(4).showPaneClose(), "the bottom row's pane waited for the daemon's tree")
         let afterBottom = try #require(shown.layout)
         guard case let .splits(root) = afterBottom else { Issue.record("not a split tree: \(afterBottom)"); return }
-        #expect(root.panes == [LayoutPaneID(try shown.key(2)), LayoutPaneID(try shown.key(3))])
+        let left = [LayoutPaneID(try shown.key(2)), LayoutPaneID(try shown.key(3))]
+        #expect(root.panes == left)
         shown.echo(middle)
         #expect(shown.layout == afterBottom, "the echo moved the layout: \(String(describing: shown.layout)) after \(afterBottom)")
     }
