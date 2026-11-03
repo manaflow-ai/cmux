@@ -42,8 +42,10 @@ const NOT_STARTED_PAUSE: Duration = Duration::from_secs(2);
 /// link to the daemon's own `~/.cmux/bin/cmux-tui` on a NEXT image; the script prefers that one, so
 /// the client is the build the machine's acpmux runs.
 const GUEST_CMUX: &str = "cmux-tui";
-const GUEST_PRELUDE: &str =
-    "c=cmux-tui; [ -x \"$HOME/.cmux/bin/cmux-tui\" ] && c=\"$HOME/.cmux/bin/cmux-tui\"; ";
+/// An exec may run without a login profile: the work user's home holds the acpmux socket
+/// (`~/.acpmux/acpmux.sock`).
+const GUEST_PRELUDE: &str = "export HOME=\"${HOME:-/home/cmux}\"; c=cmux-tui; \
+    [ -x \"$HOME/.cmux/bin/cmux-tui\" ] && c=\"$HOME/.cmux/bin/cmux-tui\"; ";
 
 /// Which machine the chat starts on.
 #[derive(Clone, Debug, PartialEq, Eq)]
