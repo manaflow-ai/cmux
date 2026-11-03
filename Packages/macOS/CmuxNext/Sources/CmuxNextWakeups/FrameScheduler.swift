@@ -309,7 +309,7 @@ public final class FrameScheduler: NSObject {
         // Never back: a link frame due before a synthesized one that ran late steps 0 and the motion stays on its curve.
         lastTarget = max(lastTarget ?? target, target)
         let tick = FrameTick(timestamp: now, elapsed: min(max(elapsed, 1.0 / 240.0), 1.0 / 30.0),
-                             rawElapsed: elapsed, refreshInterval: refreshInterval, targetTimestamp: target, frameElapsed: shown)
+                             refreshInterval: refreshInterval, targetTimestamp: target, frameElapsed: shown)
         // Visible motion (not batch work) explains CPU use to the busy watchdog.
         if clients.values.contains(where: { $0.isActive && $0.isAnimation }) {
             ExpectedActivity.shared.note(.animationFrame)
