@@ -889,12 +889,12 @@ final class CloudService {
         startSessionAsks.endAll()
         for hook in willSignOut { hook() }
         await codexBroker.signOut()
-        AgentPaneTailCache.shared.clear() // the panes' chat tails: memory only, forgotten whole
         // No ensure starts from here until the session's final endLink (the
         // signed-out branch above, after auth.signOut).
         link.beginEnding()
         dropAllMachines()
         await link.endLink(final: false)
+        do { try await AcpmuxEnvironment.clearPeerTails(build: LaunchIdentity.current().build, work: work) } catch { logger.error("clear peer tails on sign-out: \(String(describing: error), privacy: .public)") }
         desktopRdTokens.removeAll()
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.

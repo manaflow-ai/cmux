@@ -18,7 +18,9 @@ public enum TransportCloseReason: Sendable, Equatable {
 /// A dedicated reader thread splits lines and routes them without touching
 /// any actor: responses resume their waiter by `id` (FIFO fallback for the
 /// id-less `bad request` envelope, which is safe because commands start
-/// serially per connection), and events go to `onEvent` on the reader thread.
+/// serially per connection; a plain `identify` and `ping` are answered before
+/// the queue, #32724, but always carry an id), and events go to `onEvent` on
+/// the reader thread.
 /// The server drops slow readers (4,096-event mailbox, 2 s write deadline),
 /// so the reader never blocks on the main actor.
 final class LineTransport: Sendable {
