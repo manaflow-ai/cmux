@@ -4,7 +4,8 @@
 // turn and between turns. Each running subagent, background command (inspector/processes.ts
 // `backgroundCommands`, the process registry's merged with the transcript's) and chat the agent
 // started is one line (AgentLine.tsx, the summary card's rows too): its icon in the theme's accent,
-// its name, what it does now, how long it has run (ticking) and its state, Running or Waiting. A
+// its name, what it does now, how long it has run (ticking) and its state when it waits (a running
+// line says it runs by its time and Stop alone, no spinner and no "Running" word; Leo, 2026-11-03). A
 // click opens it: a subagent's pane or view (App.tsx `showSubagent`), a command's terminal
 // (processTerminal.ts), a chat. A running subagent, and a command the registry lists, has a Stop
 // square in the fixed row track and the same action in its context menu (a right-click, or Shift-F10
@@ -85,7 +86,7 @@ import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
 import { toolDetail } from "./trayDetail";
-import { trayPanelLook, trayRowLook } from "./trayPanel.experiment";
+import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
 import { trayFoldHeadLook } from "./trayFoldHead.experiment";
@@ -189,6 +190,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [head] = useState(() => experimentArm(trayHeadLook));
   const [surface] = useState(() => experimentArm(traySurfaceLook));
   const [foldHead] = useState(() => experimentArm(trayFoldHeadLook));
+  const [stopLook] = useState(() => experimentArm(trayStopLook));
   // Only the bottom stack's tray leaves on a snapshot: one placed in the transcript moves with it.
   const motionRef = useTrayMotion(shown, enters, placement === "tray");
   const setTrayRef = useCallback(
@@ -395,6 +397,7 @@ export const SubagentTray = memo(function SubagentTray({
       data-motion={motion}
       data-narrow={narrow || undefined}
       data-head={head}
+      data-stop={stopLook}
     >
       {headed && (
         <button
@@ -520,7 +523,7 @@ export const SubagentTray = memo(function SubagentTray({
           after={
             stop &&
             item.agent.state === "running" &&
-            !item.agent.command && <StopButton agent={item.agent} stop={stop} />
+            !item.agent.command && <StopButton agent={item.agent} stop={stop} solid />
           }
         />,
         // An agent a shell call started stops with that call, not through the harness.
@@ -578,6 +581,7 @@ export const SubagentTray = memo(function SubagentTray({
                     name={item.command.command}
                     label={t("tray.stopCommand")}
                     stop={stopProcess}
+                    solid
                   />
                 )
               }
