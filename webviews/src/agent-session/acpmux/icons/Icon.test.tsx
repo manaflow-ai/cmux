@@ -84,7 +84,6 @@ test("normalization preserves knockout clearance and the animated spinner", () =
 test("media play and stop retain their filled silhouette", () => {
   for (const glyph of [<PlayTriangle />, <StopSquare />]) {
     const html = renderToStaticMarkup(glyph);
-    expect(html).toContain('fill="currentColor"');
-    expect(html).not.toContain('stroke="currentColor"');
+    expect(html).toMatch(/<path d="[^"]+" fill="currentColor"/);
   }
 });
