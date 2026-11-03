@@ -174,9 +174,8 @@ fn c_name(name: &str) -> io::Result<CString> {
 fn open_dir(path: &Path) -> io::Result<OwnedFd> {
     let path = CString::new(path.as_os_str().as_bytes()).map_err(io::Error::other)?;
     // SAFETY: a NUL-terminated path; the descriptor is owned at once.
-    let fd = unsafe {
-        libc::open(path.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC)
-    };
+    let fd =
+        unsafe { libc::open(path.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC) };
     if fd < 0 {
         return Err(io::Error::last_os_error());
     }
