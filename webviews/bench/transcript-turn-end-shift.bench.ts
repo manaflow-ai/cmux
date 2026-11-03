@@ -9,7 +9,7 @@
 // arriving mid-turn splits the turn's fold, which hid #33286's bug: the scenario has none.)
 // Rows (bench/perfRow.ts), median of the rounds, per engine (WebKit's carry .webkit):
 //   ui.transcript.turn_end.cls              Chromium: the Layout Instability API's layout-shift entries over the
-//                                           window, without those after input (hadRecentInput). WebKit has no such
+//                                           window (none follow input: the wheel ends 600 ms before). WebKit has no such
 //                                           entries: the visible rows' frame-by-frame box diff (src/gallery/shift.ts).
 //   ui.transcript.turn_end.anchor_drift_px  how far the first row in sight at the window's start moved in the view
 //                                           at most; a row that left the view (folded away) counts the view height.
@@ -33,7 +33,7 @@ import { perfRow } from "./perfRow";
 
 const argv = process.argv.slice(2);
 const enginesAt = argv.indexOf("--engines");
-const ENGINES = (enginesAt >= 0 ? argv[enginesAt + 1] : "chromium,webkit")!.split(",");
+const ENGINES = (enginesAt >= 0 ? (argv[enginesAt + 1] ?? "") : "chromium,webkit").split(",");
 const ROUNDS = Number(argv.find((arg, index) => /^\d+$/.test(arg) && argv[index - 1] !== "--engines") ?? 3);
 if (!Number.isInteger(ROUNDS) || ROUNDS < 1 || ENGINES.some((name) => name !== "chromium" && name !== "webkit")) {
   console.error("usage: bun bench/transcript-turn-end-shift.bench.ts [rounds=3] [--engines chromium,webkit]");
@@ -267,6 +267,8 @@ export function measure(
         }),
       ),
   );
+  // No row in sight at the start is a broken setup, never a still view.
+  if (!frames[0]?.length) throw new Error("no transcript row was in view when the window started");
   const box = scoreBoxFrames(boxFrames, view, { restedAtStart: true });
   const anchor = [...frames[0]!].sort((a, b) => a.y - b.y).find((row) => row.y + row.height > 0);
   let drift = 0;
