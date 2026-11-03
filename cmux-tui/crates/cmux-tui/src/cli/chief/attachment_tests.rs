@@ -1,4 +1,5 @@
 use std::io::{BufRead, BufReader, Seek, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 use std::path::Path;
 
@@ -24,6 +25,7 @@ fn upload(
     after_begin: impl FnOnce() + Send + 'static,
 ) -> (Result<Value, String>, Received) {
     let dir = cmux_unix_socket::short_test_dir("chief-upload");
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let socket = dir.path().join("daemon.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     let peer = std::thread::spawn(move || {
