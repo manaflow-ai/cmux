@@ -8,7 +8,7 @@ import Testing
 @MainActor
 @Suite struct CloudTunnelControllerTests {
     static let identifier = "com.cmuxterm.app.nightly.tunnel"
-    static let wgQuick = """
+    nonisolated static let wgQuick = """
         [Interface]
         PrivateKey = cHJpdmF0ZS1rZXktYnl0ZXMtMzItbG9uZy1hYWFhYWE=
         Address = 10.192.0.7/32
