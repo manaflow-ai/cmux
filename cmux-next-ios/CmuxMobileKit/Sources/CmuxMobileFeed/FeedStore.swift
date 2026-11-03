@@ -283,7 +283,9 @@ public final class FeedStore {
     /// them, then every other event newest first. The Mac's Feed pins its open requests the same
     /// way (CmuxNextFeed `FeedLedger`, section 0), so an ask never sinks under later turns.
     nonisolated static func pinningNeedsYou(_ items: [FeedItem]) -> [FeedItem] {
-        items
+        // Stable: each group keeps the order it came in (newest first).
+        guard items.contains(where: \.needsYou) else { return items }
+        return items.filter(\.needsYou) + items.filter { !$0.needsYou }
     }
 
     /// Whether the Feed knows the ask with acpmux permission `permissionID` from `mac` closed:
@@ -292,7 +294,9 @@ public final class FeedStore {
     /// reconnect that has not reloaded it); an Allow still waiting for Face ID has no resolution
     /// yet, so it stays open.
     public func isClosedAsk(permissionID: String, mac: String?) -> Bool {
-        false
+        guard let item = item(id: "ask-\(permissionID)") else { return false }
+        if let mac, let owner = item.macID, mac != owner { return false }
+        return item.isDone || !item.needsYou
     }
 
     /// Persisted read flags (`FeedReadMarks`); nil keeps them in memory only (tests).
