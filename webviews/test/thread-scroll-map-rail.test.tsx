@@ -190,7 +190,10 @@ test("focus opens the card at once; the arrows walk the prompts; Escape closes; 
 // the index names above them (model.ts pendingTurns, `earlier`). A click lands on its own prompt.
 for (const [name, props] of [
   ["a count of prompts not held yet", { promptCount: 45 }],
-  ["indexed earlier prompts", { earlier: Array.from({ length: 33 }, (_, index) => row(`user-${index + 100}`, "user", `Earlier ${index}`)) }],
+  [
+    "indexed earlier prompts",
+    { earlier: Array.from({ length: 33 }, (_, index) => row(`user-${index + 100}`, "user", `Earlier ${index}`)) },
+  ],
 ] as const)
   test(`a mark's click lands on its prompt with ${name} above the loaded ones`, async () => {
     const view = await mount(12, props);
