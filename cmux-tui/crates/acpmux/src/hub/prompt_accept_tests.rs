@@ -89,3 +89,43 @@ async fn a_prompt_behind_one_about_to_start_its_turn_is_accepted_queued_at_once(
         .collect();
     assert_eq!(order, [json!("g1-a"), json!("g1-b")]);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn exact_prompt_stop_fences_admission_before_turn_without_stopping_next_person() {
+    let (hub, session) = chat().await;
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.prompt_start_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let (accepted_tx, _accepted) = tokio::sync::oneshot::channel();
+    let stopped = prompt(&hub, &session, "workflow-dequeued", "must not reach agent", accepted_tx);
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    assert!(session.turn().is_none());
+    hub.cancel_prompt(&session, "workflow-dequeued").await.unwrap();
+    release.send(()).unwrap();
+    let result = tokio::time::timeout(WAIT, stopped).await.unwrap().unwrap();
+    assert!(result.is_err() || result.unwrap()["stopReason"] == "cancelled");
+    assert!(
+        !hub.events(&session.id, 0, 10000)
+            .unwrap()
+            .iter()
+            .any(|event| event.kind == "user_message"
+                && event.msg["promptId"] == "workflow-dequeued")
+    );
+    let (accepted_tx, _accepted) = tokio::sync::oneshot::channel();
+    let next = prompt(&hub, &session, "person-after-pause", "person next", accepted_tx);
+    assert_eq!(
+        tokio::time::timeout(WAIT, next).await.unwrap().unwrap().unwrap()["stopReason"],
+        "end_turn"
+    );
+    // Reconstruct the lazy cache as after a daemon restart: the fence is durable.
+    hub.clear_prompt_stop_cache_for_test(&session);
+    let turn = TurnInfo::prompted(
+        "workflow",
+        "replay",
+        "new-turn",
+        "workflow-dequeued~resume-1",
+        Control::Local,
+    );
+    assert!(hub.start_turn(&session, None, false, false, turn).is_err());
+    hub.shutdown_all().await;
+}
