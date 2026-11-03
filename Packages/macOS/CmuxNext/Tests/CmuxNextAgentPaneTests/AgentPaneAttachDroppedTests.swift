@@ -68,7 +68,6 @@ struct AgentPaneAttachDroppedTests {
         for params: [String: Any] in [
             ["kind": "pick", "names": ["a.zip"]],
             ["kind": "drop", "names": [String]()],
-            ["kind": "drop", "names": Array(repeating: "a.zip", count: AgentPaneDroppedPaths.maximumNames + 1)],
             ["kind": "drop", "names": ["a/b.zip"]],
             ["kind": "drop", "names": [".."]],
             ["kind": "drop", "names": ["."]],
@@ -76,6 +75,38 @@ struct AgentPaneAttachDroppedTests {
         ] {
             #expect(AgentPaneRequest(body: ["method": method, "params": params]) == .unsupported(method), "\(params)")
         }
+    }
+
+    @Test func aLargeBatchKeepsEveryPathInThePagesOrder() async throws {
+        let rig = Rig()
+        let urls = (0..<1024).map { URL(fileURLWithPath: "/tmp/attachment-\($0).bin") }
+        for kind in [AgentPaneDroppedPaths.Kind.drop, .paste, .choose] {
+            rig.model.droppedPaths.stash(urls, kind: kind)
+            let ordered = Array(urls.reversed())
+            let reply = await rig.ask(kind.rawValue, ordered.map(\.lastPathComponent))
+            #expect(Self.errorCode(reply) == nil, "\(reply)")
+            let items = try #require(Self.items(reply))
+            #expect(items.compactMap { $0["path"] as? String } == ordered.map(\.path))
+            #expect(Self.items(await rig.ask(kind.rawValue, ordered.map(\.lastPathComponent)))?.isEmpty == true)
+        }
+    }
+
+    @Test func aLargeBatchSourceRequestStillConsumesOnlyItsOwnGesture() async throws {
+        let rig = Rig()
+        let names = (0..<1024).map { "attachment-\($0).bin" }
+        rig.model.droppedPaths.stashSource([], items: names.count, claimed: "com.apple.finder", kind: .drop, madeAt: 1000)
+        func request(at milliseconds: Int) -> AgentPaneRequest {
+            AgentPaneRequest(body: ["method": "chat.attach.source", "params": ["kind": "drop", "names": names, "gestureAt": milliseconds]])
+        }
+        #expect(request(at: 1_000_000) == .attachSource(.drop, names: names, gestureAt: 1000))
+        let reply = await rig.model.respond(to: request(at: 999_000))
+        #expect(Self.errorCode(reply) == nil)
+        let sources = try #require((reply["value"] as? [String: Any])?["sources"] as? [Any])
+        #expect(sources.count == names.count)
+        #expect(sources.allSatisfy { $0 is NSNull })
+        // The stale request did not take the current gesture. Its own request still can, once.
+        #expect(rig.model.droppedPaths.source(.drop, names: names, gestureAt: 1000)?.claimed == "com.apple.finder")
+        #expect(rig.model.droppedPaths.source(.drop, names: names, gestureAt: 1000) == nil)
     }
 
     /// A drop of a folder and a file answers each one's path, and whether it is a folder.

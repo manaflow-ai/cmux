@@ -49,6 +49,8 @@ type Props = ComponentProps<typeof SessionInfo> & {
   edge?: string;
   /// Gallery-only: panel width used by narrow workflow layout states.
   panelWidth?: number;
+  /// Gallery-only: the old always-drawn thin thumb, for comparison with the shipped no-scrollbar body.
+  scroller?: "thumb";
 };
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
@@ -106,6 +108,7 @@ function GallerySessionInfo({
   ceiling,
   edge,
   panelWidth = 320,
+  scroller,
   more: moreAtFirst,
   ...props
 }: Props) {
@@ -115,6 +118,7 @@ function GallerySessionInfo({
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
       {ceiling ? <style>{`.acpmux-session-info[data-placement]{max-height:${ceiling}}`}</style> : null}
       {edge ? <style>{`.acpmux-session-info[data-placement]{${edge}}`}</style> : null}
+      {scroller === "thumb" ? <style>{".acpmux-session-info__body{scrollbar-width:thin}"}</style> : null}
       {transcript ? <Transcript /> : null}
       <SessionInfoPanel
         width={panelWidth}
@@ -229,6 +233,62 @@ const waveAgents: Subagent[] = Array.from({ length: RUNNING + 2 }, (_, index) =>
   startedAt: started - (index + 1) * 60_000,
   ...(index < RUNNING ? { action: "Reading SessionInfo.tsx" } : { endedAt: started - index * 30_000 }),
 }));
+
+/// Leo's Session Info of 2026-11-02 ("but what's going on with these?"): three subagents at work, two
+/// that stopped two hours ago and wait on background work of their own (Idle, out of the shimmer and
+/// out of "running" in the head too), one met first through its progress and named by its prompt
+/// rather than its id, and the chat-start limit named for what it counts.
+const idleAgents: Subagent[] = [
+  {
+    id: "idle-a",
+    parent: null,
+    name: "Drop server login",
+    state: "running",
+    startedAt: started - 6_900_000,
+    quietSince: started - 6_600_000,
+  },
+  {
+    id: "idle-b",
+    parent: null,
+    name: "Audit Session Info strings",
+    state: "running",
+    startedAt: started - 6_890_000,
+    quietSince: started - 6_500_000,
+  },
+  {
+    id: "busy-a",
+    parent: null,
+    name: "Fix the running tray",
+    state: "running",
+    startedAt: started - 300_000,
+    quietSince: started - 5_000,
+    action: "Reading SubagentTray.tsx",
+  },
+  {
+    id: "busy-b",
+    parent: null,
+    name: "Measure the rail",
+    state: "running",
+    startedAt: started - 200_000,
+    action: "Running bun test",
+  },
+  {
+    id: "acp-1/toolu_c",
+    parent: null,
+    name: "Check the permission receipt",
+    state: "running",
+    startedAt: started - 120_000,
+    quietSince: started - 2_000,
+  },
+  {
+    id: "done-a",
+    parent: null,
+    name: "Read the design spec",
+    state: "completed",
+    startedAt: started - 7_000_000,
+    endedAt: started - 6_800_000,
+  },
+];
 
 /// Where the play holds every wave loop: one point on each loop's own timeline, past its delay (the
 /// delay is never positive, wave.css), so each icon's phase differs only by its index. At 840 ms
@@ -358,7 +418,9 @@ const chevronOnHoverAfterTitle: Play = async (ctx) => {
 };
 
 /// As native #32674: the six-dot grip draws nothing at rest, nor for a pointer over a section's other
-/// rows; it shows while its section's head is hovered, at the head's right edge.
+/// rows; it shows while its section's head is hovered, left of the title (Leo, 2026-11-03: "why dont
+/// we have the drag grabber to the left of the title"), overlapping neither the title nor the head's
+/// icon, and the title does not move when it shows.
 const gripOnHeadHoverOnly: Play = async (ctx) => {
   const handles = () => [...ctx.document.querySelectorAll(".acpmux-session-info-section__handle")];
   await ctx.waitFor(() => handles().length > 0);
@@ -374,12 +436,46 @@ const gripOnHeadHoverOnly: Play = async (ctx) => {
     });
     if (style(ctx, handle).opacity !== "0") throw new Error("A body row's hover showed its section's grip");
   }
+  const title = head.querySelector(".acpmux-session-info-section__title")!;
+  const before = title.getBoundingClientRect();
   await ctx.hover({
     selector: `[data-section="${section.dataset.section}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`,
   });
   await ctx.waitFor(() => style(ctx, handle).opacity === "1");
-  if (handle.getBoundingClientRect().left < head.getBoundingClientRect().right - 0.5)
-    throw new Error("The grip is not at the head's right edge");
+  const after = title.getBoundingClientRect();
+  if (after.left !== before.left || after.width !== before.width)
+    throw new Error("The title moved when the grip showed");
+  if (handle.getBoundingClientRect().right > after.left + 0.5) throw new Error("The grip is not left of the title");
+  const icon = head.querySelector(".acpmux-session-info-section__icon");
+  if (icon && handle.getBoundingClientRect().right > icon.getBoundingClientRect().left + 0.5)
+    throw new Error("The grip overlaps the head's icon");
+};
+
+/// Leo, 2026-11-03: "why dont we have the drag grabber to the left of the title". Every section's grip,
+/// icon heads (Context, Usage, Connectors) and the bare Environment rows included, ends at or before its
+/// head's first glyph (its icon, else its title) and sits far from the panel's right edge, where the
+/// scrollbar's thumb runs.
+const gripLeftOfEveryTitle: Play = async (ctx) => {
+  const sections = () => [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-section")];
+  await ctx.waitFor(() => sections().some((s) => s.querySelector(":scope > .acpmux-session-info-section__handle")));
+  const body = ctx.find({ selector: ".acpmux-session-info__body" }).getBoundingClientRect();
+  for (const section of sections()) {
+    const handle = section.querySelector(":scope > .acpmux-session-info-section__handle");
+    if (!handle || handle.getClientRects().length === 0) continue;
+    const grip = handle.getBoundingClientRect();
+    const first = section.querySelector(
+      ":scope > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger, :scope > .acpmux-session-info-section__head",
+    );
+    // A bare section (the Environment rows) has no head: its first row's leading icon stands in.
+    const glyph = first
+      ? first.querySelector(":scope > .acpmux-session-info-section__icon, :scope > .acpmux-session-info-section__title")
+      : section.querySelector(":scope > :not(.acpmux-session-info-section__handle) svg");
+    if (glyph && grip.right > glyph.getBoundingClientRect().left + 0.5)
+      throw new Error(`${section.dataset.section}'s grip is not left of its title`);
+    if (grip.left < body.left - 0.5) throw new Error(`${section.dataset.section}'s grip spills out of the panel`);
+    if (grip.right > body.left + body.width / 2)
+      throw new Error(`${section.dataset.section}'s grip is on the right, by the scrollbar's thumb`);
+  }
 };
 
 /// As native #32661: pushed beside the chat (or in the empty gutter) the panel draws no card behind its
@@ -393,6 +489,26 @@ const noCardBehind: Play = async (ctx) => {
     throw new Error(`The panel paints a card: ${look.backgroundColor} ${look.backgroundImage}`);
   if (!["none", ""].includes(look.backdropFilter) || look.boxShadow !== "none")
     throw new Error(`The panel draws a card's blur or shadow: ${look.backdropFilter} ${look.boxShadow}`);
+};
+
+/// Leo, 2026-11-03: "i mean there's literally no scrollbar in claude code it's just scrollable". A busy
+/// body overflows, draws no scrollbar and keeps no width for one (its client width is its whole width
+/// inside its borders), and it still scrolls.
+const scrollsWithNoScrollbar: Play = async (ctx) => {
+  const selector = ".acpmux-session-info__body";
+  await ctx.waitFor(() => {
+    const body = ctx.document.querySelector<HTMLElement>(selector);
+    return body !== null && body.scrollHeight > body.clientHeight + 1;
+  });
+  const body = ctx.find({ selector }) as HTMLElement;
+  const look = style(ctx, body);
+  if ("scrollbarWidth" in look && look.scrollbarWidth !== "none")
+    throw new Error(`The body's scrollbar-width is ${look.scrollbarWidth}, not none`);
+  const borders = Number.parseFloat(look.borderLeftWidth) + Number.parseFloat(look.borderRightWidth);
+  if (Math.abs(body.offsetWidth - borders - body.clientWidth) > 0.5)
+    throw new Error(`The body keeps ${body.offsetWidth - borders - body.clientWidth}px for a scrollbar`);
+  await ctx.scroll({ selector }, 120);
+  await ctx.waitFor(() => body.scrollTop > 0);
 };
 
 // The panel's edge: a hairline (at most 1px) in the pane's border color all round, on its rounded corners,
@@ -1313,6 +1429,22 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => /Show less/.test(text(ctx)));
       },
     },
+    "subagents-idle": {
+      note: 'Subagents that stopped and wait on background work of their own read Idle, not Running for two hours, and the head counts them as idle ("3 running · 2 idle · 1 done"). Every line is named by its task, never its id. The limit line says it caps the chats this one started: "Started chats: 0 of 1000 at once".',
+      props: {
+        ...full,
+        agents: idleAgents,
+        sessions: [],
+        summary: {
+          ...summary,
+          harness: "claude",
+          subsessionLimits: { maxRunning: 1000, maxRunningSource: "settings" },
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => /2 idle/.test(text(ctx)) && /Started chats: 0 of 1000 at once/.test(text(ctx)));
+      },
+    },
     "subagents-wave": {
       note: "Five running subagents, one per line, share one shimmer that sweeps down their icons, held mid-sweep for the still: dim, brighter, the crest, brighter, dim. The row of the done and the failed one under them stays at full strength.",
       props: { ...full, agents: waveAgents, sessions: [] },
@@ -1359,6 +1491,15 @@ export default componentEntry<Props>({
         closable: true,
       },
     },
+    "scroller-none": {
+      note: "Chosen. A busy coordinator: the body scrolls by wheel, trackpad and keyboard with no scrollbar at all, as Claude Code's panel, and its edge fades say there is more; nothing takes width at the right edge, so no thumb sits by a section's grip (Leo, 2026-11-03: \"i mean there's literally no scrollbar in claude code it's just scrollable\"). The play scrolls it and checks it keeps no scrollbar width.",
+      props: { ...busy, closable: true },
+      play: scrollsWithNoScrollbar,
+    },
+    "scroller-thumb": {
+      note: 'Before, for comparison: a thin thumb drawn at the right edge beside the section grips (Leo, 2026-11-03: "there\'s basically no thumb on the claude code session info section").',
+      props: { ...busy, closable: true, scroller: "thumb" },
+    },
     ceiling: {
       note: "Chosen. A busy coordinator over the same 900px pane: the card uses the full room under the header, less its 8px inset at the foot, and only then does its body scroll; it still floats over the chat with its own edge (Leo, 2026-10-26: \"you still haven't done the full-length thing. It's still just this constrained height for, like, no reason at all\").",
       props: { ...busy, closable: true },
@@ -1387,9 +1528,14 @@ export default componentEntry<Props>({
       play: chevronOnHoverAfterTitle,
     },
     "header-grip-hover": {
-      note: "A section head under the pointer: the six-dot grip shows at the head's right edge (as native #32674). At rest no grip draws, and a pointer over the section's other rows shows none.",
+      note: "A section head under the pointer: the six-dot grip shows left of the title, in the head's leading padding (Leo, 2026-11-03: \"why dont we have the drag grabber to the left of the title\"). The title does not move. At rest no grip draws, and a pointer over the section's other rows shows none.",
       props: { ...full, placement: "push" },
       play: gripOnHeadHoverOnly,
+    },
+    "header-grip-left": {
+      note: "Every section's grip, icon heads and the bare Environment rows included, sits left of its head's icon or title, away from the scrollbar's thumb on the right.",
+      props: { ...full, placement: "push" },
+      play: gripLeftOfEveryTitle,
     },
     "edge-hairline": {
       note: "Chosen. The panel in the gutter with no fill of its own and a hairline edge in the pane's border color (--agent-border, 0.5px) on its rounded corners (Leo, 2026-11-03: \"maybe it's ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better\").",

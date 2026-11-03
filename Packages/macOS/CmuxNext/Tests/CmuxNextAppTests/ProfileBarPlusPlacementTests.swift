@@ -5,7 +5,7 @@ import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-21: "new space plus button needs to be right next to the last space too". The
-/// "+" (shown on hover) sits right after the last space's dot, with the same gap the dots have
+/// "+" (always shown, Leo 2026-11-03) sits right after the last space's dot, with the same gap the dots have
 /// between each other, at every bar width and space count; it follows the last dot as spaces are
 /// added or removed and never leaves the bar.
 @MainActor @Suite(.serialized, .closesItsWindows) struct ProfileBarPlusPlacementTests {
@@ -17,7 +17,7 @@ import Testing
 
     /// Every count and width where the strip fits (full slots, narrowed slots and compact dots);
     /// a strip too long for its bar is clipped, which is not this rule.
-    nonisolated static let cases: [Case] = [2, 5].flatMap { count in
+    nonisolated static let cases: [Case] = [1, 2, 5].flatMap { count in
         [120, 160, 240, 400].map { Case(count: count, width: CGFloat($0)) }
     } + [240, 400].map { Case(count: 12, width: CGFloat($0)) }
 
@@ -26,7 +26,7 @@ import Testing
         #expect(!ProfileBarLogic.isVisible(profileCount: 0))
     }
 
-    /// A bar with `count` spaces (the first current), the pointer over it, in a window.
+    /// A bar with `count` spaces (the first current), at rest, in a window.
     private func makeBar(count: Int, width: CGFloat) -> (ProfileBarView, NSWindow) {
         _ = NSApplication.shared
         let model = SidebarModel()
@@ -39,7 +39,6 @@ import Testing
         window.contentView = view
         view.layoutSubtreeIfNeeded()
         view.refresh()
-        view.setPointerInside(true)
         return (view, window)
     }
 
@@ -78,54 +77,76 @@ import Testing
         expectPlusFollowsLastDot(view, "two spaces removed")
     }
 
-    @Test func showingThePlusMovesNoDot() {
-        let (view, window) = makeBar(count: 5, width: 240)
+    /// Leo 2026-11-03: "I don't want hovering near the row to also just immediately turn it to a plus.
+    /// only when im direclty over it. or, rather, why do we not just have the plus to the right of the
+    /// center circle? always to the rightmost of the circles". At rest the + is drawn, rightmost of every
+    /// drawn dot; the pointer entering the row or hovering a dot turns no dot into a + and moves nothing.
+    @Test(arguments: [1, 3, 12]) func thePlusIsThereAtRestAndNearHoverTurnsNoDotIntoAPlus(_ count: Int) {
+        let (view, window) = makeBar(count: count, width: 240)
         defer { window.close() }
-        let hovered = view.slotRects().dropLast()
-        view.setPointerInside(false)
-        #expect(Array(view.slotRects().dropLast()) == Array(hovered), "the dots moved when the + hid")
-    }
-
-    @Test(arguments: [CGFloat(20), 120, 300])
-    func oneSpaceKeepsItsDotAndHoverMakesTheOverlaidPlusReachable(_ width: CGFloat) {
-        let (view, window) = makeBar(count: 1, width: width)
-        defer { window.close() }
-        view.setPointerInside(false)
-        #expect(view.drawnDotCount == 1, "the only space's dot disappeared at rest")
-        let dot = view.slotRects()[0]
-        #expect(view.bounds.contains(dot))
-        #expect(view.interactionIndex(at: NSPoint(x: dot.midX, y: dot.midY)) == 0, "the resting dot is not interactive")
+        let rest = view.slotRects()
+        let plus = rest[count]
+        #expect(view.plusIsDrawn, "the + is not drawn at rest")
+        #expect(view.drawnDotCount == count, "a dot is missing at rest")
+        for index in view.drawnDotIndices {
+            #expect(rest[index].maxX <= plus.minX + 0.5, "dot \(index) \(rest[index]) is not left of the + \(plus)")
+        }
+        #expect(view.interactionIndex(at: NSPoint(x: plus.midX, y: plus.midY)) == ProfileBarView.plusIndex)
 
         view.setPointerInside(true)
-        let plus = view.slotRects().last!
-        #expect(view.drawnDotCount == 0, "the dot must give way to +, never paint under it")
-        #expect(plus == dot, "hover must not move the shared slot")
-        #expect(plus.intersects(dot), "the narrow fixture did not exercise the overlaid plus slot")
-        #expect(view.interactionIndex(at: NSPoint(x: plus.midX, y: plus.midY)) == ProfileBarView.plusIndex,
-                "hovering the dot's slot did not resolve to +")
+        for index in 0..<count {
+            view.setHovered(index)
+            #expect(view.slotRects() == rest, "hovering dot \(index) moved the strip")
+            #expect(view.drawnDotCount == count, "hovering dot \(index) hid a dot")
+            let slot = rest[index]
+            #expect(view.interactionIndex(at: NSPoint(x: slot.midX, y: slot.midY)) == index,
+                    "dot \(index) resolves to \(String(describing: view.interactionIndex(at: NSPoint(x: slot.midX, y: slot.midY)))) under the pointer")
+        }
+        view.setHovered(nil)
+        view.setPointerInside(false)
+        #expect(view.slotRects() == rest && view.plusIsDrawn, "leaving the row changed the + or the dots")
     }
 
-    @Test(arguments: [true, false], [true, false])
-    func visibilityChoicesNeverDrawDotUnderPlus(_ dotsIdle: Bool, _ plusIdle: Bool) {
-        let (view, window) = makeBar(count: 1, width: 120)
+    /// Too many spaces for the row even as compact dots: the row scrolls so the current space stays in view,
+    /// and the + stays pinned on the trailing edge, rightmost.
+    @Test func anOverflowingRowScrollsToTheCurrentSpaceWithThePlusPinnedRightmost() {
+        let (view, window) = makeBar(count: 40, width: 160)
         defer { window.close() }
-        view.showsDotsWhenIdle = dotsIdle
-        view.showsPlusWhenIdle = plusIdle
-        view.setPointerInside(false)
-        #expect(view.drawnDotCount == (dotsIdle && !plusIdle ? 1 : 0))
-        #expect(view.plusIsDrawn == plusIdle)
-        view.setPointerInside(true)
+        #expect(view.strip.scrolled, "the fixture does not overflow")
+        for active in [0, 20, 39] {
+            view.model.activeProfileID = view.model.profiles[active].id
+            view.refresh()
+            let rects = view.slotRects()
+            let plus = rects[40]
+            #expect(view.plusIsDrawn)
+            #expect(plus.maxX <= view.bounds.maxX + 0.5 && plus.maxX >= view.bounds.maxX - Metrics.roomDotSlot,
+                    "the + \(plus) is not on the trailing edge of \(view.bounds)")
+            #expect(view.dotIsDrawn(at: active), "the current space \(active) scrolled out of view")
+            #expect(rects[active].maxX <= plus.minX + 0.5, "the current space \(active) sits under the +")
+            for index in view.drawnDotIndices {
+                #expect(rects[index].maxX <= plus.minX + 0.5, "dot \(index) is drawn right of the +")
+            }
+        }
+    }
+
+    /// The gallery's other choice: the + rides the end of the scrolled dots (off the bar until the end is shown).
+    @Test func thePlusCanRideTheEndOfTheScrolledDots() {
+        let (view, window) = makeBar(count: 40, width: 160)
+        defer { window.close() }
+        view.plusRidesContent = true
+        #expect(!view.plusIsDrawn, "the + rode past the bar but still draws")
+        view.model.activeProfileID = view.model.profiles[39].id
+        view.refresh()
+        let rects = view.slotRects()
         #expect(view.plusIsDrawn)
-        #expect(view.drawnDotCount == 0)
-        #expect(view.indicatorRect == nil)
+        #expect(abs(rects[40].minX - rects[39].maxX) <= 0.5, "the riding + is not right after the last dot")
     }
 
-    @Test func clickingTheOverlaidPlusSendsNewProfile() {
-        let (view, window) = makeBar(count: 1, width: 20)
+    @Test func clickingThePlusAtRestSendsNewProfile() {
+        let (view, window) = makeBar(count: 1, width: 120)
         defer { window.close() }
         var intents: [SidebarIntent] = []
         view.model.onIntent = { intents.append($0) }
-        view.setPointerInside(true)
         let plus = view.slotRects().last!
         #expect(view.bounds.contains(plus), "the + target must be fully inside the bar")
         let point = NSPoint(x: plus.midX, y: plus.midY)
@@ -137,6 +158,6 @@ import Testing
         view.mouseDown(with: event(.leftMouseDown))
         view.mouseUp(with: event(.leftMouseUp))
         #expect(intents.contains { if case .newProfile = $0 { true } else { false } },
-                "clicking the narrow hover slot did not create a new profile: \(intents)")
+                "clicking the + did not create a new profile: \(intents)")
     }
 }

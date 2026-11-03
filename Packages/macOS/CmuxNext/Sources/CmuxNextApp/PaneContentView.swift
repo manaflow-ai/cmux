@@ -25,6 +25,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The pane's own background and tint (`PaneContentView+Backdrop`).
     let backdropState = PaneBackdropState()
     private var paneBackgroundsObservation: Task<Void, Never>?
+    private var loneTabObservation: Task<Void, Never>?
     let contentHost = NSView()
     private(set) weak var content: NSView?
     /// Explicitly observed ownership: first-paint holds can change this without a tab-store update.
@@ -133,6 +134,9 @@ final class PaneContentView: NSView, PaneContentChrome {
                 self?.refreshBandHeight()
             }
         }
+        loneTabObservation = Task { [weak self] in // a lone tab gives a chat the whole row (layout)
+            for await _ in ObservationStream({ stripModel.hasLoneTab }) { self?.needsLayout = true }
+        }
         paneBackgroundsObservation = Task { [weak self] in
             for await _ in ObservationStream({ DesignSettings.shared.paneBackgrounds }) { self?.paintPaneBackdrop() }
         }
@@ -157,6 +161,7 @@ final class PaneContentView: NSView, PaneContentChrome {
             tokenObservation?.cancel()
             placementObservation?.cancel()
             paneBackgroundsObservation?.cancel()
+            loneTabObservation?.cancel()
             agentTagObservation?.cancel()
         }
     }
@@ -170,10 +175,11 @@ final class PaneContentView: NSView, PaneContentChrome {
         // Pinned to a browser's band, the strip follows its constraints and
         // the browser fills the pane (its band holds the strip's place).
         let shown = shownStripHeight
-        stripView.isHidden = shown <= 0
         toolbar?.view.isHidden = shown <= 0
         let tools = toolbarWidth(shown: shown), room = bounds.width - tools, row = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
         let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0 // a chat's tools in the row when they fit (PaneTabRowSharing)
+        let loneTab = rowTools > 0 && rowContent?.tabRowTakesLoneTab == true && stripView.model.hasLoneTab // TabStripModel.hasLoneTab
+        stripView.isHidden = shown <= 0 || loneTab
         if !isBandActive {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
@@ -218,7 +224,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         }
         layoutParked()
         layoutAgentTag()
-        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, in: self) }
+        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, tabs: !loneTab, in: self) }
         if hostChanged { onResize?() }
     }
 

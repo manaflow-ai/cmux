@@ -52,6 +52,11 @@ mod handshake_tests;
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
+/// Instances created before this point cannot repopulate a signed-out account's snapshots.
+pub(crate) fn generation_boundary() -> u64 {
+    NEXT_GENERATION.load(Ordering::SeqCst)
+}
+
 /// A peer watch includes the hub's remote sessions as well as its local ones.
 /// A bidirectional pair must not import those already-mirrored rows, or each
 /// reconnect/update would prefix the name with another peer hop.
@@ -552,7 +557,7 @@ impl Peer {
         String,
     > {
         let (host, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
-        let mut child = tokio::process::Command::new("ssh")
+        let mut child = self.ssh_command()
             .args(tunnel_argv(&host, remote_port))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -577,7 +582,7 @@ impl Peer {
         if let (Some(t), Some(p)) = (&self.token, &self.peer_token) {
             return Ok((t.clone(), Some(p.clone())));
         }
-        let mut child = tokio::process::Command::new("ssh")
+        let mut child = self.ssh_command()
             .args(read_config_argv(&host))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())

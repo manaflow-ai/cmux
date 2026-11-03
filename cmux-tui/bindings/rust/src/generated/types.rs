@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR fabfba1bcd97ac5c3a54de28f3bdbd11036eaf321b2694500f9bec05aeaecb8a.
+// cmux-tui mux protocol 12, IR dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1668,6 +1668,23 @@ pub struct Screen {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
     pub zoomed_pane: Nullable<Id>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SelectionPane {
+    pub active_tab: u64,
+    pub focused_at: u64,
+    pub id: Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SelectionScreen {
+    pub active: bool,
+    pub active_pane: Id,
+    pub id: Id,
+    pub panes: Vec<SelectionPane>,
 }
 
 #[rustfmt::skip]
