@@ -60,7 +60,11 @@ Then `web/index.html`, `web/app.js` and `web/style.css`. The sample
   seconds) or on a button.
 - Every scope the page uses goes in the manifest with a reason the user
   reads. Reads in `scopes`; anything that changes something in
-  `optionalScopes`, and tell the user to allow it.
+  `optionalScopes`, and tell the user to allow it. Describe what the scope
+  lets any code in the pane do, not only how this page uses it: a granted
+  scope is not tied to a click, so `terminal:execute` reads "Send input and
+  commands to your terminals while this app is enabled.", never "Send the
+  line you type".
 
 | Op | Scope | Answer |
 | --- | --- | --- |

@@ -14,7 +14,7 @@
     "terminal:read": "List the terminals in each workspace."
   },
   "optionalScopes": {
-    "terminal:execute": "Send the line you type to a terminal."
+    "terminal:execute": "Send input and commands to your terminals while this app is enabled."
   },
   "files": ["web/"]
 }

@@ -26,7 +26,7 @@ async function send(workspace, terminal, input) {
     say(`Sent to ${terminal}.`)
   } catch (error) {
     if (error.code === "scope.missing") {
-      say("Allow “Send the line you type to a terminal” for Workspace Board in the App Store → Installed.", true)
+      say("Allow “Send input and commands to your terminals” for Workspace Board in the App Store → Installed.", true)
     } else {
       say(`${error.code}: ${error.message}`, true)
     }
