@@ -48,6 +48,9 @@ extension CMUXCLI {
         /// The environment's route snapshot came from a matched viewer lease,
         /// not merely a PID probe. Only this marker bypasses a lagging record.
         var viewerSnapshot: Bool = false
+        /// A viewer target validated by `liveClaudeViewerTarget` during this
+        /// invocation. It is authoritative over the mapped session record.
+        var trustedViewerTarget: CallerTerminalBinding? = nil
         /// Frequent events (per-tool PreToolUse) skip the pid/tty scan and
         /// rely on records healed by the turn-level hooks. This does NOT gate
         /// the cheap `{surface_id}` re-home probe: that probe only fires when
@@ -70,6 +73,14 @@ extension CMUXCLI {
         routing: ClaudeHookRoutingContext,
         client: SocketClient
     ) throws -> AgentHookDeliveryTarget? {
+        if let trusted = routing.trustedViewerTarget,
+           isUUID(trusted.workspaceId), isUUID(trusted.surfaceId) {
+            return AgentHookDeliveryTarget(
+                workspaceId: trusted.workspaceId,
+                surfaceId: trusted.surfaceId,
+                isAuthoritative: true
+            )
+        }
         let pidProbeAllowed = routing.allowsPidProbe && routing.preferCallerTTYRouting
         let rehomeAllowed = routing.preferCallerTTYRouting
         if pidProbeAllowed {

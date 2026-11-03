@@ -89,7 +89,47 @@ function installObserver({ report, acceptsPath, onClosed }) {
   return restore;
 }
 
-module.exports = { installObserver };
+function createReportQueue(deliver, options = {}) {
+  const deadlineMs = options.deadlineMs ?? 5000;
+  const intervalMs = options.intervalMs ?? 250;
+  const now = options.now ?? Date.now;
+  const schedule = options.schedule ?? ((callback, delay) => {
+    const timer = setTimeout(callback, delay);
+    timer.unref?.();
+    return timer;
+  });
+  const pending = new Map();
+  let timer = null;
+  const retryOne = () => {
+    for (const [key, entry] of [...pending]) {
+      if (deliver(entry.value) || now() > entry.deadline) pending.delete(key);
+      return;
+    }
+  };
+  const arm = () => {
+    if (timer || pending.size === 0) return;
+    timer = schedule(() => { timer = null; retryOne(); arm(); }, intervalMs);
+  };
+  return {
+    report(value) {
+      // A closed connection cancels its queued attach: a later retry must not
+      // resurrect a lease for a socket that no longer exists.
+      if (value.action === 'detached') pending.delete(value.attach_id + ':attached');
+      retryOne();
+      if (deliver(value)) return;
+      const key = value.attach_id + ':' + value.action;
+      if (pending.size >= 32 && !pending.has(key)) return;
+      const entry = pending.get(key) ?? { value, deadline: now() + deadlineMs };
+      entry.value = value;
+      pending.set(key, entry);
+      arm();
+    },
+    flush() { retryOne(); },
+    pendingCount() { return pending.size; }
+  };
+}
+
+module.exports = { installObserver, createReportQueue };
 
 // Context is captured by the managed wrapper, then removed before Claude or
 // any child executes. Bun flags are likewise restored before app startup.
@@ -114,10 +154,6 @@ if (process.env.CMUX_CLAUDE_ATTACH_CONTEXT) {
       // a bounded asynchronous deadline. Timers do not block Claude's event
       // loop and are unref'd; after the deadline the entry is dropped and the
       // next connection event still reconciles it.
-      const pending = new Map();
-      const retryDeadlineMs = 5000;
-      const retryIntervalMs = 250;
-      let retryTimer = null;
       const deliver = value => {
         try {
           execFileSync(context.cli, ['__claude-viewer', value.action],
@@ -125,21 +161,7 @@ if (process.env.CMUX_CLAUDE_ATTACH_CONTEXT) {
           return true;
         } catch { return false; }
       };
-      const scheduleRetry = () => {
-        if (retryTimer || pending.size === 0) return;
-        retryTimer = setTimeout(() => {
-          retryTimer = null;
-          retryOnePending();
-          scheduleRetry();
-        }, retryIntervalMs);
-        retryTimer.unref?.();
-      };
-      const retryOnePending = () => {
-        for (const [key, entry] of [...pending]) {
-          if (deliver(entry.value) || Date.now() > entry.deadline) pending.delete(key);
-          return;
-        }
-      };
+      const reportQueue = createReportQueue(deliver);
       const nodePath = require('node:path');
       const nodeFS = require('node:fs');
       const statePath = context.environment.CMUX_CLAUDE_HOOK_STATE_PATH
@@ -158,21 +180,7 @@ if (process.env.CMUX_CLAUDE_ATTACH_CONTEXT) {
       const observer = installObserver({
         acceptsPath: path => new RegExp('^/(?:private/)?tmp/cc-daemon-' + process.getuid() + '/[^/]+/control\\.sock$').test(path),
         onClosed: markClosed,
-        report: value => {
-          // A closed connection cancels a queued attach for the same
-          // attachment: a later retry must not resurrect a closed lease.
-          if (value.action === 'detached') pending.delete(value.attach_id + ':attached');
-          // A synchronous removal also survives Claude's immediate process.exit
-          // path. SIGKILL is covered by kernel process-generation validation.
-          retryOnePending();
-          if (deliver(value)) return;
-          const key = value.attach_id + ':' + value.action;
-          if (pending.size >= 32 && !pending.has(key)) return;
-          const entry = pending.get(key) ?? { value, deadline: Date.now() + retryDeadlineMs };
-          entry.value = value;
-          pending.set(key, entry);
-          scheduleRetry();
-        }
+        report: value => reportQueue.report(value)
       });
       process.once('exit', () => observer.detachAll());
     }

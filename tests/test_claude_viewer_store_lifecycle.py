@@ -134,14 +134,28 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
         }))
         self.reset_state()
 
+    def worker_generation(self):
+        output = subprocess.check_output(
+            [self.cli, "__process-generation", str(self.worker.pid)],
+            env={"PATH": os.environ.get("PATH", ""), "HOME": str(self.home),
+                 "CFFIXED_USER_HOME": str(self.home),
+                 "CMUX_SOCKET_PATH": "/nonexistent/cmux.sock"},
+            text=True, timeout=10)
+        parts = [int(part) for part in output.split()]
+        self.assertEqual(len(parts), 2)
+        return parts
+
     def reset_state(self):
         now = time.time()
+        seconds, microseconds = self.worker_generation()
         self.state_path.write_text(json.dumps({
             "version": 1,
             "sessions": {self.worker_session: {
                 "sessionId": self.worker_session,
                 "workspaceId": self.worker_workspace, "surfaceId": self.worker_surface,
-                "pid": self.worker.pid, "startedAt": now, "updatedAt": now,
+                "pid": self.worker.pid,
+                "pidStartSeconds": seconds, "pidStartMicroseconds": microseconds,
+                "startedAt": now, "updatedAt": now,
             }},
             "activeSessionsBySurface": {self.worker_surface: {
                 "sessionId": self.launcher_session, "updatedAt": now}},
@@ -189,6 +203,9 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
         self.assertEqual(record["workspaceId"], self.worker_workspace)
         self.assertEqual(record["surfaceId"], self.worker_surface)
         self.assertEqual(record["pid"], self.worker.pid)
+        seconds, microseconds = self.worker_generation()
+        self.assertEqual(record.get("pidStartSeconds"), seconds)
+        self.assertEqual(record.get("pidStartMicroseconds"), microseconds)
         state = json.loads(self.state_path.read_text())
         if slot_surface is not None:
             self.assertEqual(state["activeSessionsBySurface"][slot_surface]["sessionId"],
@@ -230,6 +247,19 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
         first.close()
         second.close()
 
+    def test_empty_original_slot_is_not_replaced_by_the_worker_slot(self):
+        pane_surface = str(uuid.uuid4())
+        first, _ = self.viewer(self.worker_workspace, pane_surface)
+        second, _ = self.viewer(self.worker_workspace, pane_surface)
+        first.run("attached")
+        second.run("attached")
+        first.run("detached")
+        second.run("detached")
+        state = json.loads(self.state_path.read_text())
+        self.assertIsNone(state.get("activeSessionsBySurface", {}).get(pane_surface))
+        first.close()
+        second.close()
+
     def test_later_owner_is_not_overwritten(self):
         pane_surface = str(uuid.uuid4())
         viewer, _ = self.viewer(self.worker_workspace, pane_surface)
@@ -246,6 +276,34 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
         self.assertEqual(state.get("activeSessionsBySurface", {}).get(pane_surface, {}).get("sessionId"),
                          new_owner)
         viewer.close()
+
+    def test_remaining_viewer_survives_newest_viewer_detach_across_workspaces(self):
+        workspace_a, surface_a = str(uuid.uuid4()), str(uuid.uuid4())
+        workspace_b, surface_b = str(uuid.uuid4()), str(uuid.uuid4())
+        self.server.workspace_surfaces[workspace_a] = surface_a
+        self.server.workspace_surfaces[workspace_b] = surface_b
+        self.set_surface_owner(surface_a)
+        older, _ = self.viewer(workspace_a, surface_a)
+        newer, _ = self.viewer(workspace_b, surface_b)
+        older.run("attached")
+        newer.run("attached")
+        newer.run("detached")
+        self.server.commands.clear()
+        stop = subprocess.run(
+            [self.cli, "--socket", self.server.socket_path, "hooks", "claude", "stop"],
+            input=json.dumps({"session_id": self.worker_session, "hook_event_name": "Stop",
+                              "cwd": str(self.home), "last_assistant_message": "remaining viewer"}),
+            env=self.env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(stop.returncode, 0, stop.stderr)
+        completed = [command for command in self.server.commands
+                     if "agent.turn.completed" in command]
+        self.assertTrue(completed, self.server.commands)
+        self.assertTrue(any(surface_a in command for command in completed),
+                        "the remaining viewer was not selected")
+        self.assertFalse(any(surface_b in command for command in completed),
+                         "the detached newest viewer was selected")
+        older.close()
+        newer.close()
 
     def test_closed_marker_blocks_a_lease_without_a_detach_event(self):
         pane_surface = str(uuid.uuid4())

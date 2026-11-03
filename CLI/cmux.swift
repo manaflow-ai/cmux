@@ -6481,6 +6481,16 @@ struct CMUXCLI {
             idFormatArg = parsedIDFormat
         }
         let commandArgs = presentationOptions.remaining
+        if command == "__process-generation" {
+            // Producer-side helper: never resolve or connect a socket. Spooled
+            // hooks must keep a verifiable identity while the app is offline.
+            guard let rawPID = commandArgs.first, let pid = Int(rawPID),
+                  pid > 1, let identity = ClaudeViewerProcessIdentity(pid: pid) else {
+                exit(1)
+            }
+            print("\(identity.seconds) \(identity.microseconds)")
+            return
+        }
         if try runGuideCommand(command: command, commandArgs: commandArgs, jsonOutput: jsonOutput) {
             return
         }
@@ -9806,14 +9816,6 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 windowOverride: windowId
             )
-        case "__process-generation":
-            // Producer-side helper: print the kernel start generation of a
-            // live same-user PID. No socket connection or app state is used.
-            guard let rawPID = commandArgs.first, let pid = Int(rawPID),
-                  pid > 1, let identity = ClaudeViewerProcessIdentity(pid: pid) else {
-                exit(1)
-            }
-            print("\(identity.seconds) \(identity.microseconds)")
         case "__claude-viewer":
             guard try runClaudeViewerHook(commandArgs: commandArgs, client: client) else { exit(1) }
 
@@ -31250,13 +31252,9 @@ struct CMUXCLI {
                 client: client
             )
             : nil
-        let workspaceArg = hookWsFlag
-            ?? snapshottedRoute?.workspaceId
-            ?? env["CMUX_WORKSPACE_ID"]
-        let surfaceArg = hookSurfaceFlag
-            ?? (hookWsFlag == nil
-                ? snapshottedRoute?.surfaceId ?? env["CMUX_SURFACE_ID"]
-                : nil)
+        let rawInput = rawInputOverride
+            ?? String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         // Queued replay may run after the admitted process exits and its PID is
         // recycled. The immutable surface snapshot remains valid across that
         // delay; process/TTY identity does not. Keep the observed PID for
@@ -31276,6 +31274,25 @@ struct CMUXCLI {
                 processIsAlive: { ClaudeViewerProcessIdentity(pid: $0) != nil }
             )
             : nil
+        // A validated viewer target is authoritative for this direct
+        // invocation. Carrying it explicitly avoids the mapped record
+        // workspace winning over the viewer's current workspace.
+        let viewerTarget: AgentHookDeliveryTarget? = {
+            guard preferCallerTTYRouting, liveProcessIdentityAllowed,
+                  let sessionID = parsedInput.sessionId,
+                  let workerPID = viewerLookupPID else { return nil }
+            return try? liveClaudeViewerTarget(
+                sessionID: sessionID, workerPID: workerPID, client: client)
+        }()
+        let workspaceArg = viewerTarget?.workspaceId
+            ?? hookWsFlag
+            ?? snapshottedRoute?.workspaceId
+            ?? env["CMUX_WORKSPACE_ID"]
+        let surfaceArg = viewerTarget?.surfaceId
+            ?? hookSurfaceFlag
+            ?? (hookWsFlag == nil
+                ? snapshottedRoute?.surfaceId ?? env["CMUX_SURFACE_ID"]
+                : nil)
         var callerTTYBindingCache: CallerTerminalBinding?
         var didResolveCallerTTYBinding = false
         func callerTTYBinding() -> CallerTerminalBinding? {
@@ -31318,22 +31335,10 @@ struct CMUXCLI {
             preferCallerTTYRouting: preferCallerTTYRouting,
             callerTerminalBinding: callerTTYBindingProvider,
             agentPid: liveHookAgentPID,
-            viewerSnapshot: viewerSnapshot
+            viewerSnapshot: viewerSnapshot,
+            trustedViewerTarget: viewerTarget
         )
         hookRouting.allowsPidProbe = liveProcessIdentityAllowed
-        let rawInput = rawInputOverride
-            ?? String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let parsedInput = parseClaudeHookInput(rawInput: rawInput)
-        if preferCallerTTYRouting, liveProcessIdentityAllowed,
-           let sessionID = parsedInput.sessionId, let workerPID = viewerLookupPID,
-           let viewerTarget = try? liveClaudeViewerTarget(sessionID: sessionID, workerPID: workerPID, client: client) {
-            try runClaudeHook(
-                commandArgs: commandArgs + ["--workspace", viewerTarget.workspaceId, "--surface", viewerTarget.surfaceId],
-                client: client, telemetry: telemetry, socketPassword: socketPassword,
-                rawInputOverride: rawInput
-            )
-            return
-        }
         let hookCwd = relayOrigin ? nil : parsedInput.cwd
         let hookTranscriptPath = relayOrigin ? nil : parsedInput.transcriptPath
         let sessionStore = ClaudeHookSessionStore()

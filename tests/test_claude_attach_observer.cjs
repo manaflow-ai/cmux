@@ -9,8 +9,9 @@ const { spawnSync } = require('node:child_process');
 
 const modulePath = path.resolve(__dirname, '../Resources/claude-attach-observer.cjs');
 // On the unfixed base, native sockets have no attachment observer.
-const install = fs.existsSync(modulePath)
-  ? require(modulePath).installObserver : () => () => {};
+const observerModule = fs.existsSync(modulePath) ? require(modulePath) : {};
+const install = observerModule.installObserver ?? (() => () => {});
+const createReportQueue = observerModule.createReportQueue ?? (() => ({ report: () => {}, flush: () => {} }));
 
 async function exchange(t, response, { oversized = false, unrelated = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cmux-attach-test-'));
@@ -142,6 +143,18 @@ test('a closed acknowledged connection records an authoritative closure', async 
   client.destroy();
   await closedEvent;
   assert.deepEqual(closed, [attachment]);
+});
+
+test('a closed connection cancels its queued attach', () => {
+  const calls = [];
+  const queue = createReportQueue(value => {
+    calls.push(value.action);
+    return value.action === 'detached';
+  }, { schedule: () => null, now: () => 0 });
+  queue.report({ action: 'attached', attach_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', job_id: 'job', viewer_pid: 1 });
+  queue.report({ action: 'detached', attach_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', job_id: 'job', viewer_pid: 1 });
+  queue.flush();
+  assert.deepEqual(calls, ['attached', 'detached'], 'the pending attach must not be retried after close');
 });
 
 test('preload restores Bun options and removes private context before children', () => {
