@@ -331,6 +331,20 @@
   font-size: var(--text-caption);
 }
 .acpmux-cols-update > span { flex: 1 1 auto; min-width: 0; }
+/* The chat's readiness under the search row: its words wrap, its actions sit at the end. */
+.acpmux-cols-auth {
+  /* It never widens the menu: the columns set its width. */
+  contain: inline-size;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
+  padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-1) var(--ds-space-3);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
+.acpmux-cols-auth > span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.acpmux-cols-auth > button { flex: none; }
 .acpmux-cols-update-action {
   height: var(--ds-control-icon);
   padding: 0 var(--ds-space-2);

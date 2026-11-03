@@ -18,7 +18,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
 import { OnNewTab } from "./newTabComposer";
 import { isModelRouterKind } from "./routerKinds";
-import { canSessionLogin } from "./sessionAuth";
+import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import { useChatAccounts, type ChatAccount } from "./chatAccounts";
 import {
   QuickModelMenu,
@@ -662,6 +662,7 @@ function Columns({
     ? accounts.list?.accounts.find((choice) => choice.id === accounts.list?.active)
     : undefined;
   const signedOut = (!!owner?.note && !!owner.logIn) || (onChatTab && !!auth && canSessionLogin(auth.verdict));
+  const authNote = auth ? authText(auth.verdict, t) : undefined;
   // No harness (an empty Starred tab) or one this Mac does not have: no account, so a blank person
   // ring with no badge and no card.
   const avatarShown = !!owner && !owner.setUp;
@@ -1069,6 +1070,33 @@ function Columns({
             />
           </div>
           <hr className="acpmux-cols-sep" />
+          {/* The chat's own readiness (an expired login, a route that needs sign-in, an unreachable
+              machine), whatever tab or search shows: the avatar is the account, not the readiness. */}
+          {auth && authNote && (
+            <>
+              <div className="acpmux-cols-auth">
+                <span>{authNote}</span>
+                {canSessionLogin(auth.verdict) && auth.onLogin && (
+                  <button
+                    type="button"
+                    className="acpmux-cols-update-action"
+                    onClick={() => {
+                      close();
+                      auth.onLogin?.();
+                    }}
+                  >
+                    {authLoginText(auth.verdict, t)}
+                  </button>
+                )}
+                {auth.onRefresh && (
+                  <button type="button" className="acpmux-cols-update-action" onClick={() => auth.onRefresh?.()}>
+                    {t("harnesses.checkAgain")}
+                  </button>
+                )}
+              </div>
+              <hr className="acpmux-cols-sep" />
+            </>
+          )}
           <div ref={bodyRef} className="acpmux-cols-body">
             <DrivenList
               ref={railList}

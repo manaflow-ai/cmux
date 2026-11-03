@@ -6,6 +6,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { ChatAccounts, NewChatAccount } from "./chatAccounts";
 import type { QuickFamily, QuickModel } from "./QuickModelMenu";
+import { authText, type SessionAuth } from "./sessionAuth";
+import { translate } from "./i18n";
 
 let QuickModelColumns: typeof import("./QuickModelColumns").QuickModelColumns;
 
@@ -117,9 +119,21 @@ type Calls = {
   fast: boolean[];
   added: NewChatAccount[];
   open: boolean;
+  logins: number;
+  refreshes: number;
 };
 
-function Harness({ calls, list, startEffort }: { calls: Calls; list: QuickFamily[]; startEffort: string }) {
+function Harness({
+  calls,
+  list,
+  startEffort,
+  auth,
+}: {
+  calls: Calls;
+  list: QuickFamily[];
+  startEffort: string;
+  auth?: SessionAuth;
+}) {
   const [open, setOpen] = useState(false);
   const [effort, setEffort] = useState(startEffort);
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -150,6 +164,19 @@ function Harness({ calls, list, startEffort }: { calls: Calls; list: QuickFamily
         current: "claude-Opus",
         onModel() {},
         inlineEffort: true,
+        ...(auth
+          ? {
+              auth: {
+                verdict: auth,
+                onLogin: () => {
+                  calls.logins += 1;
+                },
+                onRefresh: () => {
+                  calls.refreshes += 1;
+                },
+              },
+            }
+          : {}),
         effort: {
           levels: [
             { id: "low", name: "Low" },
@@ -196,13 +223,13 @@ function Harness({ calls, list, startEffort }: { calls: Calls; list: QuickFamily
   );
 }
 
-async function openMenu(list: QuickFamily[] = [claude, codex, gemini], startEffort = "medium") {
+async function openMenu(list: QuickFamily[] = [claude, codex, gemini], startEffort = "medium", auth?: SessionAuth) {
   const container = installDom();
   QuickModelColumns ??= (await import("./QuickModelColumns")).QuickModelColumns;
-  const calls: Calls = { picks: [], efforts: [], fast: [], added: [], open: false };
+  const calls: Calls = { picks: [], efforts: [], fast: [], added: [], open: false, logins: 0, refreshes: 0 };
   await act(async () => {
     root = createRoot(container);
-    root.render(<Harness calls={calls} list={list} startEffort={startEffort} />);
+    root.render(<Harness calls={calls} list={list} startEffort={startEffort} {...(auth ? { auth } : {})} />);
   });
   await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
   await settle();
@@ -449,4 +476,108 @@ test("a re-render never takes the keyboard back from a control outside the menu"
   await settle();
   expect(document.activeElement).toBe(other);
   other.remove();
+});
+
+// The chat's readiness (#31689's contract): one row under the search, whatever tab or search shows.
+const authRow = () => popup().querySelector<HTMLElement>(".acpmux-cols-auth");
+const authActions = () => [...(authRow()?.querySelectorAll("button") ?? [])].map((button) => button.textContent);
+async function search(text: string) {
+  const input = popup().querySelector<HTMLInputElement>(".acpmux-cols-search input")!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(input, text);
+    input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  await settle();
+}
+const local = { host: null, login: { kind: "terminal" as const, command: "claude /login", host: null } };
+const SIGN_IN_AGAIN = translate("turn.signInAgain");
+const CHECK_AGAIN = translate("harnesses.checkAgain");
+const cases: { name: string; auth: SessionAuth; words: string; actions: string[] }[] = [
+  {
+    name: "an expired local login",
+    auth: { state: "expired", source: "authCheck", evidenceAt: 1, harness: "Claude Code", ...local },
+    words: translate("turn.authExpired"),
+    actions: [SIGN_IN_AGAIN, CHECK_AGAIN],
+  },
+  {
+    name: "a turn that found it signed out",
+    auth: { state: "signedOut", source: "turn", evidenceAt: 1, harness: "Claude Code", ...local },
+    words: translate("harness.signedOut", { agent: "Claude Code" }),
+    actions: [SIGN_IN_AGAIN, CHECK_AGAIN],
+  },
+  {
+    // The strongest false-ready case: a route login is no local terminal login.
+    name: "a route that needs sign-in",
+    auth: {
+      state: "routeAuthNeeded",
+      source: "routeProbe",
+      evidenceAt: 1,
+      host: null,
+      login: { kind: "route", routeId: "team-route" },
+    },
+    words: "team-route",
+    actions: [CHECK_AGAIN],
+  },
+  {
+    name: "a signed-out harness on another machine",
+    auth: {
+      state: "signedOut",
+      source: "peerLink",
+      evidenceAt: 1,
+      harness: "Claude Code",
+      host: "studio-mac",
+      login: { kind: "terminal", command: "claude /login", host: "studio-mac" },
+    },
+    words: "studio-mac: claude /login",
+    actions: [CHECK_AGAIN],
+  },
+  {
+    name: "an unreachable machine",
+    auth: { state: "peerUnreachable", source: "peerLink", evidenceAt: 1, harness: "Claude Code", host: "studio-mac" },
+    words: "studio-mac",
+    actions: [CHECK_AGAIN],
+  },
+];
+for (const { name, auth, words, actions } of cases)
+  test(`${name}: the readiness row says why and offers its actions, also during a search`, async () => {
+    const calls = await openMenu(undefined, undefined, auth);
+    for (const query of ["", "sol"]) {
+      if (query) await search(query);
+      expect(authRow()?.textContent, `${name} with "${query}"`).toContain(words);
+      expect(authRow()?.querySelector("span")?.textContent).toBe(authText(auth));
+      expect(authActions()).toEqual(actions);
+    }
+    // Another harness's tab shows the chat's readiness still: it is the chat's, not the tab's.
+    await search("");
+    await click(tab("Codex"));
+    expect(authRow()?.textContent).toContain(words);
+    const check = [...authRow()!.querySelectorAll("button")].find((button) => button.textContent === CHECK_AGAIN)!;
+    await click(check);
+    expect(calls.refreshes).toBe(1);
+    expect(calls.open).toBe(true);
+    const signIn = [...authRow()!.querySelectorAll("button")].find((button) => button.textContent === SIGN_IN_AGAIN);
+    if (signIn) {
+      await click(signIn);
+      expect(calls.logins).toBe(1);
+      expect(calls.open).toBe(false);
+    }
+  });
+
+test("an unknown verdict draws no readiness row, before or during a search", async () => {
+  await openMenu(undefined, undefined, { state: "unknown", source: "none", evidenceAt: null });
+  expect(authRow()).toBeNull();
+  await search("sol");
+  expect(authRow()).toBeNull();
+});
+
+test("a harness this Mac does not have keeps its Install row beside the chat's readiness", async () => {
+  await openMenu(undefined, undefined, cases[0]!.auth);
+  await click(tab("Gemini"));
+  expect(authRow()?.textContent).toContain(translate("turn.authExpired"));
+  expect(
+    [...popup().querySelectorAll("[role=listbox] [role=button]")].some(
+      (row) => row.textContent === translate("harnesses.install"),
+    ),
+  ).toBe(true);
 });
