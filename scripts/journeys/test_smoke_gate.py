@@ -701,6 +701,29 @@ class RealKeySteps(unittest.TestCase):
         except self.ext.D.StepError as error:
             self.assertNotIn("not cmd+ctrl+x", str(error))
 
+    def test_a_build_with_both_keys_presses_the_chosen_one_and_a_build_with_none_fails(self):
+        # Review notes at aed1e6712cc: the old key's row first was a wrong FAIL; no New Column key was NOT JUDGED.
+        need = {"keys": "cmd+ctrl+x", "ref": "KEY SET A"}
+        step = {"command": "newColumn", "key": "x", "modifiers": ["control", "cmd"], "real_key_requires": need}
+        j = self.journey("real")
+        both = [{"command": "newColumn", "key": "cmd+ctrl+d", "when": None, "source": "default"},
+                {"command": "newColumn", "key": "command+ctrl+x", "when": None, "source": "default"}]
+        run = {"outcome": "run", "winner": {"command": "newColumn", "source": "default"}}
+        j.app.rpc = self.bindings(both, {"cmd+ctrl+d": run, "command+ctrl+x": run})
+        done = self.ext.step_smoke_key(j, step)
+        self.assertEqual(self.sent, [("hotkey", {"scope": "desktop", "keys": ["cmd", "ctrl", "x"]})])
+        self.assertEqual(done["key_source"]["binding"], "command+ctrl+x")
+        self.sent.clear()
+        j.app.rpc = self.bindings([], {})
+        with self.assertRaises(self.ext.D.StepError) as caught:
+            self.ext.step_smoke_key(j, step)
+        self.assertNotIsInstance(caught.exception, self.NotRun)
+        self.assertIn("the build has no cmd+ctrl+x", str(caught.exception))
+        self.assertEqual(self.sent, [])
+        # Without the requirement, no runnable key stays not run (a host binding or a build gap of another key).
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_key(j, {"command": "newColumn", "key": "x", "modifiers": ["control", "cmd"]})
+
     def test_a_build_without_keybinding_list_keeps_the_journeys_key(self):
         j = self.journey("real")
 

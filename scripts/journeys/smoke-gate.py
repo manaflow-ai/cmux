@@ -955,7 +955,7 @@ def main(argv=None):
         texts = sorted({t for _, steps in gap_rounds for _, t in steps})
         lines.append(" | ".join(texts) + ": rounds " + ", ".join(
             f"{n} (step {', '.join(str(i) for i, _ in steps)})" for n, steps in gap_rounds)
-            + "; each round went on with New Column through the app's action path, so a failure after it is still a result")
+            + "; each round went on with the gap's fallback steps, so a failure after it is still a result")
     unread = [(r["round"], r.get("ocr_unread") or []) for r in rounds if r.get("ocr_unread")]
     if unread:
         lines.append("OCR could not read a line the daemon check of the same step passed (no failed step): "

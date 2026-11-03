@@ -233,7 +233,7 @@ def _realkey():
     return ext_realkey
 
 
-_MOD_NAMES = {"cmd": "cmd", "shift": "shift", "opt": "option", "ctrl": "control"}
+_MOD_NAMES = {"cmd": "cmd", "command": "cmd", "shift": "shift", "opt": "option", "alt": "option", "ctrl": "control"}
 
 
 # configString key tokens (ShortcutBindingFormat.configToken) that CuaDriver and debug.key name differently, and
@@ -261,6 +261,10 @@ def _bound_key(j, step):
         raise D.NotRun(f"keybinding.list {command} failed: {str(error)[:200]}")
     rows = [r for r in reply.get("bindings") or [] if isinstance(r, dict) and r.get("command") == command
             and r.get("key") and " " not in str(r["key"]) and not r.get("removed")]
+    if step.get("real_key_requires") and _key_path(j) != "debug.key":
+        # The chosen key's row first: a build that still binds the old key as well presses the chosen one.
+        want = _key_set(str(step["real_key_requires"]["keys"]))
+        rows.sort(key=lambda r: _key_set(str(r["key"])) != want)
     default_keys = [r["key"] for r in reply.get("bindings") or [] if isinstance(r, dict)
                     and r.get("command") == command and r.get("source") == "default"]
     try:
@@ -288,7 +292,13 @@ def _bound_key(j, step):
         mods = [_MOD_NAMES.get(m, m) for m in parts[:-1]]
         return token, mods, {"source": "build", "binding": row["key"], "binding_source": winner.get("source"),
                              "defaults": default_keys, "resolved": tried}
-    raise D.NotRun(f"no key runs {command} in the journey's window (defaults {default_keys}; tried {json.dumps(tried)[:300]})")
+    why = f"no key runs {command} in the journey's window (defaults {default_keys}; tried {json.dumps(tried)[:300]})"
+    if step.get("real_key_requires") and _key_path(j) != "debug.key":
+        # The build must have the chosen key: a build with none fails this step (it never passes, and it is no
+        # host fault).
+        raise D.StepError(f"{why}: the build has no {step['real_key_requires']['keys']} "
+                          f"({step['real_key_requires'].get('ref', 'the chosen key')})")
+    raise D.NotRun(why)
 
 
 def step_smoke_key(j, step):
@@ -319,15 +329,20 @@ def step_smoke_key(j, step):
             "send_ms": sent_ms, "landed": landed, "waited_out_hold_s": held, "key_source": source}
 
 
+def _key_set(keys):
+    """("+"-joined key text) as (modifier set, key token), so "cmd+ctrl+x" and "ctrl+cmd+x" compare equal."""
+    parts = keys.split("+")
+    return frozenset(_MOD_NAMES.get(m, m) for m in parts[:-1]), _KEY_TOKENS.get(parts[-1], parts[-1])
+
+
 def _require_key_set(step, key, mods, source):
     """A real-key round presses the key Lawrence chose for the step's command (`real_key_requires`: {"keys":
     "cmd+ctrl+x", "ref": ...}; KEY SET A, #29866, 2026-11-03). A build that binds the command to another key
     (Ctrl-Cmd-D, which macOS's Look Up takes before the app) FAILS the step: the step stays red until a build
     has the chosen key, never a known gap and never a stand-in."""
     want = step["real_key_requires"]
-    norm = lambda keys: (frozenset(_MOD_NAMES.get(m, m) for m in keys[:-1]), _KEY_TOKENS.get(keys[-1], keys[-1]))
     got = (frozenset(_MOD_NAMES.get(m, m) for m in mods), key)
-    if got != norm(str(want["keys"]).split("+")):
+    if got != _key_set(str(want["keys"])):
         raise D.StepError(f"{step.get('command') or 'the step'}: the build's key is "
                           f"{source.get('binding') or '+'.join(list(mods) + [key])}, not {want['keys']} "
                           f"({want.get('ref', 'the chosen key')}): this build does not have it, so the real key is not pressed")
