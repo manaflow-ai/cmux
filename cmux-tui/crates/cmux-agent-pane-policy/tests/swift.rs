@@ -72,7 +72,7 @@ fn the_known_params_are_the_macos_hosts() {
 fn the_act_as_me_covers_are_the_macos_hosts() {
     let swift: BTreeSet<String> = strings(&block(
         &read("AgentPaneActAsMe.swift"),
-        "public static let covers: Set<String> = [",
+        "public nonisolated static let covers: Set<String> = [",
         "\n    ]",
     ))
     .into_iter()

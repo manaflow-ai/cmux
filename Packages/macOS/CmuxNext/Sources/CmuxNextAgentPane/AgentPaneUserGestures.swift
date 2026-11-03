@@ -217,11 +217,12 @@ import CmuxNextCompat
     }
 
     /// ``reserve(connection:intent:)``; `paid`: the person's gesture was already taken for this
-    /// pick (a new chat's start credit, ``AgentPaneTransport/startCredit``). Module-only.
-    func reserve(connection: Int, intent: AgentPaneGestureIntent, paid: Bool) -> String? {
+    /// pick (a new chat's start credit, ``AgentPaneTransport/startCredit``). `personOnly`: a posted
+    /// gesture never pays for it, whatever the grant. Module-only.
+    func reserve(connection: Int, intent: AgentPaneGestureIntent, paid: Bool, personOnly: Bool = false) -> String? {
         var postedUnder: Int?
         if !paid, !(intent.method == "session/prompt" ? consumeForSend() : consume()) {
-            guard consumePosted(for: intent.method), let actAsMe else { return nil }
+            guard !personOnly, consumePosted(for: intent.method), let actAsMe else { return nil }
             postedUnder = actAsMe.revocations
         }
         let at = now()

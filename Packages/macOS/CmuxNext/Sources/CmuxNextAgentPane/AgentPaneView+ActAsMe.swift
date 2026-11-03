@@ -13,6 +13,8 @@ extension AgentPaneView {
             badge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.space2),
         ])
         actAsMeBadge = badge
+        badge.onFrameChange = { [weak self] in self?.applyNativeRects() }
+        applyNativeRects()
     }
 
     /// Below the page's header row (its title and tab tools), so the pill covers none of its controls.

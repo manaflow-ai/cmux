@@ -214,6 +214,48 @@ struct AgentPaneActAsMeTests {
         #expect(gestures.redeem(own, connection: 1, pick: pick), "Turn Off voided the person's own Send")
     }
 
+    /// A credential transfer rides on a Send ticket, but the grant never covers it: a posted gesture
+    /// cannot reserve one while the grant is on.
+    @Test func aPersonOnlyReservationRefusesPostedInput() throws {
+        let grant = AgentPaneActAsMe()
+        grant.turnOn(.taken())
+        let gestures = Self.gestures(grant)
+        let send = try #require(AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": ["promptId": "p-1"]]]))
+        gestures.recordPosted(driver: Self.driver)
+        #expect(gestures.reserve(connection: 1, intent: send, paid: false, personOnly: true) == nil,
+                "posted input reserved a credential transfer")
+        gestures.record()
+        #expect(gestures.reserve(connection: 1, intent: send, paid: false, personOnly: true) != nil)
+    }
+
+    /// Turn Off pressed before the launch's managed read lands holds the forced grant off.
+    @Test func turnOffBeforeTheManagedReadHoldsItOff() {
+        let grant = AgentPaneActAsMe()
+        grant.turnOn(.taken())
+        grant.turnOff()
+        grant.setManaged(true)
+        #expect(!grant.isOn, "a managed read that landed after Turn Off turned it back on")
+    }
+
+    /// Turn Off pressed while the stored grant is read wins over the read.
+    @Test func turnOffDuringTheStoredReadWins() async {
+        let (started, reading) = AsyncStream.makeStream(of: Void.self)
+        let release = DispatchSemaphore(value: 0)
+        // A stored grant that is on, read only once Turn Off was pressed.
+        let store = AgentPaneActAsMe.Store(read: {
+            reading.yield()
+            release.wait()
+            return true
+        }, write: { _ in })
+        let grant = AgentPaneActAsMe(store: store)
+        let read = Task { await grant.load() }
+        for await _ in started { break }
+        grant.turnOff()
+        release.signal()
+        await read.value
+        #expect(!grant.isOn, "the launch read undid Turn Off")
+    }
+
     @Test func aGesturePostedBeforeTurnOffDoesNotGrantOnceTurnedOnAgain() {
         let grant = AgentPaneActAsMe()
         grant.turnOn(.taken())

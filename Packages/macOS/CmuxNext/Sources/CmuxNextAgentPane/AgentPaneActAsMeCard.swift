@@ -200,6 +200,12 @@ final class AgentPaneActAsMeBadge: NSView {
     let grant: AgentPaneActAsMe
     private let text = NSTextField(labelWithString: "")
     private var following: Task<Void, Never>?
+    private var row: NSStackView?
+    private var width: NSLayoutConstraint?
+    private var height: NSLayoutConstraint?
+    /// The pill showed, hid, resized or moved: a Chromium page (a window above the pane) leaves its rect
+    /// uncovered (``AgentPaneView/applyNativeRects()``), so it stays visible and Turn Off takes clicks.
+    var onFrameChange: (@MainActor () -> Void)?
 
     init(grant: AgentPaneActAsMe) {
         self.grant = grant
@@ -221,8 +227,11 @@ final class AgentPaneActAsMeBadge: NSView {
         NSLayoutConstraint.activate([
             glass.leadingAnchor.constraint(equalTo: leadingAnchor), glass.trailingAnchor.constraint(equalTo: trailingAnchor),
             glass.topAnchor.constraint(equalTo: topAnchor), glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            widthAnchor.constraint(equalToConstant: row.fittingSize.width + 8), heightAnchor.constraint(equalToConstant: row.fittingSize.height),
         ])
+        self.row = row
+        width = widthAnchor.constraint(equalToConstant: 0)
+        height = heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([width, height].compactMap { $0 })
         render()
         // task-owner: the pill's `following`, cancelled in stop() with the pane
         following = Task { [weak self] in
@@ -241,9 +250,27 @@ final class AgentPaneActAsMeBadge: NSView {
         following = nil
     }
 
+    /// Sized from the filled label, so a holder change (the managed text is longer) still fits.
     private func render() {
         isHidden = !grant.isOn
         text.stringValue = grant.holder == .managed ? AgentPaneActAsMeStrings.badgeManaged : AgentPaneActAsMeStrings.badge
+        if let row {
+            let fit = row.fittingSize
+            width?.constant = fit.width + 8
+            height?.constant = fit.height
+        }
+        onFrameChange?()
+    }
+
+    override func layout() {
+        super.layout()
+        onFrameChange?()
+    }
+
+    /// A pane resize moves the pill without laying it out again.
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        onFrameChange?()
     }
 
     /// Revoking needs no proof: any press turns it off.

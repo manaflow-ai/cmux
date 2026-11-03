@@ -586,7 +586,7 @@ public final class AgentPaneModel {
             guard let connection = transport.connection,
                   let intent = AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": [
                     "promptId": request.retryPromptID, "sessionId": request.sessionID,
-                  ]]]), let ticket = transport.reserveGesture(intent) else { return Self.transportFailure(.gestureRequired) }
+                  ]]]), let ticket = transport.reserveGesture(intent, personOnly: true) else { return Self.transportFailure(.gestureRequired) }
             var released = false
             defer { if !released { _ = transport.gestures.redeem(ticket, connection: connection, pick: nil) } }
             guard await onCloudCredentialTransfer(request), !Task.isCancelled,

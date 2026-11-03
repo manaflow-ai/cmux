@@ -134,8 +134,10 @@ import Security
     }
 
     /// Reads the person's stored grant (off main: a Keychain read).
+    /// A Turn Off pressed while the read runs wins: the stored grant does not turn it back on.
     public func load() async {
-        if await Self.read(store) { person = true }
+        let before = revocations
+        if await Self.read(store), revocations == before { person = true }
     }
 
     public var holder: Holder? {
@@ -166,7 +168,8 @@ import Security
     public func turnOff() {
         person = false
         revocations += 1
-        if managed { managedHeldOff = true }
+        // Held off even before the launch's managed read lands, so a forced value read later cannot undo it.
+        managedHeldOff = true
         Self.logger.notice("act-as-me turned off")
         persist(false)
     }
