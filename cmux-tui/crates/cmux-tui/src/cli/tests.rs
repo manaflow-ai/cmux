@@ -244,6 +244,19 @@ mod remote_cli_docs {
     }
 
     #[test]
+    fn documented_agents_commands_resolve_through_the_agents_grammar() {
+        // `cmux agents` routes before the core parser, so its own grammar
+        // decides which documented lines are real; a stale one still fails.
+        let names = action_names();
+        let missing = missing_commands(
+            "`cmux agents chat new`, `cmux agents chat new --harness codex -- \"hi\"`, \
+             `cmux agents chat deliberately-stale-verb`",
+            &names,
+        );
+        assert_eq!(missing, vec!["cmux agents chat deliberately-stale-verb"]);
+    }
+
+    #[test]
     fn a_deliberately_stale_cmux_line_is_rejected() {
         let names = action_names();
         let missing = missing_commands("`cmux cloud deliberately-stale-action`", &names);
@@ -510,6 +523,17 @@ fn server_stats_help_routes_to_the_stats_topic() {
     };
     assert_eq!(topic, "server stats");
     assert!(scope_help_for(&topic, crate::localization::catalog()).contains("--json"));
+}
+
+#[test]
+fn help_workflow_shows_the_workflow_usage_not_the_root_help() {
+    for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+        let help = scope_help_for("workflow", crate::localization::catalog_for_locale(locale));
+        assert!(help.contains("USAGE"), "{locale}: {help}");
+        assert!(help.contains("cmux workflow start <file>"), "{locale}: {help}");
+        assert!(help.contains("cmux workflow pause|resume <run-id>"), "{locale}: {help}");
+        assert!(!help.contains("GLOBAL OPTIONS"), "{locale}: root help shown instead: {help}");
+    }
 }
 
 #[test]
