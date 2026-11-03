@@ -96,13 +96,14 @@ class ContentWaitTests(unittest.TestCase):
         self.assertIsInstance(pacing, dict, "the report has no pacing classes (main missed / content wait)")
         self.assertTrue(pacing["trace"])
         # Every no-change refresh in the motion windows is classified once: the old judge's 22 split in three.
-        self.assertEqual(pacing["main_missed"] + pacing["content_wait"] + pacing["unclassified"], OLD_DROPPED, pacing)
+        self.assertEqual(pacing["main_missed"] + pacing["not_shown"] + pacing["content_wait"] + pacing["unclassified"],
+                         OLD_DROPPED, pacing)
         # The 141.7 ms gap after the first changed frame: the main thread ticks at nearly every vsync.
         self.assertGreaterEqual(pacing["content_wait"], 14, pacing)
         # The key turn's main-thread stall before the first changed frame counts as drops now.
         self.assertGreaterEqual(pacing["main_missed_before_first_frame"], 1, pacing)
         self.assertEqual(report["dropped"], pacing["main_missed"] + pacing["main_missed_before_first_frame"]
-                         + pacing["unclassified"], pacing)
+                         + pacing["not_shown"] + pacing["unclassified"], pacing)
         self.assertLess(report["dropped"], OLD_DROPPED // 2, pacing)
         waits = pacing_findings(report, "content wait")
         self.assertTrue(waits and all(f["severity"] == "note" for f in waits), report["findings"])
@@ -119,7 +120,8 @@ class ContentWaitTests(unittest.TestCase):
         self.assertFalse(pacing["trace"])
         self.assertEqual(self.untraced["dropped"], OLD_DROPPED)
         self.assertEqual(pacing["unclassified"], OLD_DROPPED)
-        self.assertEqual(pacing["main_missed"] + pacing["content_wait"] + pacing["main_missed_before_first_frame"], 0)
+        self.assertEqual(pacing["main_missed"] + pacing["not_shown"] + pacing["content_wait"]
+                         + pacing["main_missed_before_first_frame"], 0)
         self.assertIn("unclassified", vj.summary(self.untraced))
 
     @unittest.skipUnless(Path(f"{REAL_BV}.mov.scan").is_file(), "the real film is not on this machine")
@@ -127,6 +129,7 @@ class ContentWaitTests(unittest.TestCase):
         self.check_classes(vj.judge(REAL_BV, movie=False))
 
 
+@unittest.skipUnless(JUDGE_TRACE.is_file(), "this kit has no video-cases/judge_trace.py")
 class PerDragTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -163,6 +166,20 @@ class PerDragTests(unittest.TestCase):
 
     def test_events_beside_the_trace_are_used(self):
         self.check_two_drags(self.run_judge())
+
+    def test_sparse_drag_end_is_not_an_end_jump(self):
+        """Once each drag is judged, a fast drag back with input under the refresh rate has 0 steps between its
+        steps (rkd-col-drag-2: 12.5, 0, 12.5 pt): the last step is compared with the last step that moved."""
+        xs = [100.0] * 5 + [112.5, 112.5, 125.0, 137.5, 137.5, 150.0] + [150.0] * 5
+        samples = [{"t": round(k * 8.33, 2), "panes": [["a", 0, 0, x, 100, 1], ["b", x + 1, 0, 300 - x, 100, 1]]}
+                   for k, x in enumerate(xs)]
+        trace = {"t0_s": 100.0, "refresh_ms": 8.33, "samples": samples}
+        down = {"kind": {"mouse": {"_0": {"phase": "down"}}}, "uptimeNanos": int((100.0 + 0.030) * 1e9)}
+        sys.path.insert(0, str(JUDGE_TRACE.parent))
+        import judge_trace  # noqa: E402
+        report = judge_trace.judge(trace, None, 2.0, {"hid": [], "journal": [down]})
+        self.assertNotIn("end-jump", report["counts"], report["defects"])
+        self.assertEqual(report["split"], "journal")
 
 
 if __name__ == "__main__":
