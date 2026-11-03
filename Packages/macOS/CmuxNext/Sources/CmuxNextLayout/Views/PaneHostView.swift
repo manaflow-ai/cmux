@@ -136,13 +136,12 @@ final class PaneHostView: NSView, RestingPlacement {
         layoutClip()
     }
 
-    /// The one layout at the size the spring landed at, before the content hears it landed.
+    /// The one layout at the size the spring landed at, before the content hears it landed: its whole subtree, not only its
+    /// frame, or a terminal sizes its surface from its stale host (its start grid, then the final grid again: D1).
     private func releaseHeldContent() {
-        holdsUntilAfterLanding = false
-        heldPin = nil
-        heldContentSize = nil
-        heldAnchor = nil
+        (holdsUntilAfterLanding, heldPin, heldContentSize, heldAnchor) = (false, nil, nil, nil)
         layoutClip()
+        if window != nil, bounds.width >= 1, bounds.height >= 1 { layoutSubtreeIfNeeded() } // a real size in a window only
         content.notifyPaneMotionSettled()
         isContentHandoff = false
     }
