@@ -899,7 +899,7 @@ def blob_at(repo: Path, rev: str, path: str) -> bytes | None:
 
 def check_script(repo: Path, head: str, path: str, trusted_scripts: Path | None) -> bytes | None:
     """The check script at PATH to run for a push to HEAD: the installed reviewed copy on a hook run (TRUSTED_SCRIPTS),
-    the checkout's otherwise; None when HEAD is older than the check. A hook run never falls back to the pushed head's
+    HEAD's own on a manual run; None when HEAD is older than the check. A hook run never falls back to the pushed head's
     copy (the hook never runs code a push controls): an install that lacks a check HEAD has refuses the push."""
     at_head = blob_at(repo, head, path)
     if trusted_scripts is None:
@@ -1238,7 +1238,12 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     found: list[tuple[str, list[str]]] = list(reserved)
     with tempfile.TemporaryDirectory(prefix="cmux-prepush-") as tmp:
         base_tree, head_tree = build_trees(repo, base, head, changed + deleted, Path(tmp), trusted_scripts)
-        # The tool rules and pins come from the head; a commit older than the gate uses the checkout's.
+        # The tool rules and pins: on a hook run, only the installed reviewed copy's (head_tree/SCRIPTS is that copy);
+        # a pin names a binary the gate downloads and runs, and its sha256 proves nothing when the same file names it.
+        # An install without them refuses. A manual run reads the head's, else (a commit older than the gate) the
+        # checkout's.
+        if trusted_scripts is not None and not (trusted_scripts / "lint-tools.lock").is_file():
+            raise SystemExit(f"prepush-gate: {STALE_INSTALL} (it has no lint-tools.lock).")
         config_root = head_tree if (head_tree / SCRIPTS / "lint-tools.lock").is_file() else repo
         lint = config_root / SCRIPTS / "lint"
         lock = config_root / SCRIPTS / "lint-tools.lock"
