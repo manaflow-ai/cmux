@@ -50,7 +50,7 @@ public final class CmuxDialogPersonClick {
     /// person's mouse-down is kept until its click ends: with the mouse-up's dispatch, or with the
     /// mouse-down's when a button took the mouse-up in its tracking loop there. A drag or pressure change
     /// while the button is held keeps it; any other event clears it.
-    public func dispatch(_ event: NSEvent, allow: @MainActor () -> NSControl?, in windowNumber: Int, _ body: () -> Void) -> Bool {
+    public func dispatch(_ event: NSEvent, allow: @MainActor () -> NSControl?, in windowNumber: Int, _ body: @MainActor () -> Void) -> Bool {
         switch event.type {
         case .leftMouseDown:
             personDown = nil
