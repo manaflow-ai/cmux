@@ -252,6 +252,10 @@ fn report(
         files.retain(|file| file.path.as_str() > after_path);
     }
     let page_files = files.len();
+    // The commit preview uses this warning before staging all untracked files.
+    // Count only this page's omissions: every one is available via next_path.
+    let untracked_skipped =
+        files.iter().skip(max_files).filter(|file| file.status == "untracked").count();
     files.truncate(max_files);
     let files_omitted = page_files - files.len();
     let wants_patch = include_patch && page_offset.is_none() && comparison.revisions.is_some();
@@ -279,6 +283,9 @@ fn report(
     }
     if let Some(base) = &comparison.base {
         value.set("base", json!(base));
+    }
+    if untracked_skipped > 0 {
+        value.set("untracked_skipped", json!(clamp(untracked_skipped as u64)));
     }
     if files_omitted > 0
         && let Some(last) = files.last()

@@ -435,7 +435,7 @@ fn git_diff_untracked_pages_include_every_file_and_large_line_counts() {
     assert_eq!(first["additions"], additions, "{first}");
     assert_eq!(first["files"].as_array().unwrap().len(), 500);
     assert_eq!(first["files_omitted"], 525);
-    assert!(first.get("untracked_skipped").is_none(), "{first}");
+    assert_eq!(first["untracked_skipped"], 525, "commit preview must name omitted files: {first}");
 
     let mut names = Vec::new();
     let mut after = Value::Null;
@@ -446,6 +446,11 @@ fn git_diff_untracked_pages_include_every_file_and_large_line_counts() {
         );
         assert_eq!(page["total_files"], 1025, "{page}");
         assert_eq!(page["additions"], additions, "{page}");
+        assert_eq!(
+            page.get("untracked_skipped").and_then(Value::as_u64).unwrap_or(0),
+            page["files_omitted"].as_u64().unwrap(),
+            "all omissions on this page are untracked: {page}",
+        );
         for file in page["files"].as_array().unwrap() {
             let name = file["path"].as_str().unwrap();
             assert_eq!(file["status"], "untracked");
