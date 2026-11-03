@@ -14,7 +14,8 @@ name: cmux NEXT Stable
 # Gates, all on the candidate's exact nightly-next commit or on the signed stable DMG itself:
 #   crash-class   the cmux-next-crash-class.yml rules on the whole tree (Linux)
 #   swift-suites  every CmuxNext test target, package-test-lane.sh suite, as build-fleet steps on
-#                 macOS 27 M4 Pro workers (labels macos-27 + ram48; no M6 mini has ram48)
+#                 macOS 27 workers (labels macos-27 + ram48: no M6 mini has ram48; two 16 GB M4
+#                 minis keep ram48 for old clients, which is fine for tests)
 #   perf-budgets  scripts/cmux-next/perf-budgets.py --gate (split-spring.sh --suite=budgets) on an
 #                 exclusive macOS 27 M4 Pro measure worker, against apple-m4-pro-macos27's baseline
 #   smoke-27      UI tests of the signed stable app on an owned M4 Pro mini, macOS 27: fresh-home
@@ -319,7 +320,7 @@ jobs:
           python3 -I .stable-tooling/scripts/ci/stable_next.py crash-delta --base-tree "$RUNNER_TEMP/base-tree" --head-tree "$RUNNER_TEMP/head-tree"
 
   # Every CmuxNext test target, four shards, each a build-fleet step (package-test-lane.sh suite) on a
-  # macOS 27 M4 Pro worker, submitted from an owned GUI-pool runner (a fleet client); a re-run lands on
+  # macOS 27 worker (never an M6), submitted from an owned GUI-pool runner (a fleet client); a re-run lands on
   # Blacksmith, where cmux-ci is missing, and fails closed.
   swift-suites:
     needs: plan
@@ -344,7 +345,7 @@ jobs:
       # The shard runs as a build-fleet step (package-test-lane.sh suite), not on this runner: run on a
       # GUI runner directly, each suite's XCTest pass hung ~10 min on the runner account's own Contacts
       # store after its Swift tests passed (run 41582798853: every suite "failed" at ~659 s). The fleet
-      # routes display suites to its console workers itself. macos-27 + ram48: M4 Pro only, never an M6.
+      # routes display suites to its console workers itself. macos-27 + ram48: never an M6 (no M6 has ram48).
       - name: Every CmuxNext suite of shard ${{ matrix.shard }} (build fleet, macOS 27)
         env:
           COMMIT: ${{ needs.plan.outputs.commit }}
@@ -379,7 +380,8 @@ jobs:
           exit "$status"
 
   # scripts/cmux-next/perf-budgets.py --gate through split-spring.sh, as a build-fleet measurement: an
-  # exclusive step on an idle macOS 27 M4 Pro measure worker (macos-27 + ram48 + measure, never an M6),
+  # exclusive step on an idle macOS 27 M4 Pro measure worker (measure + macos-27 + ram48 + cmux: ram48 rules
+  # out every M6, and cmux the two 16 GB M4 lent minis, which have no perf baseline for their chip),
   # the same host class and quiet the apple-m4-pro-macos27 baseline was taken in. Fails when a row's p95
   # is over 10 % above that baseline. Measured on a busy GUI runner instead (run 41613684939), 9 benches
   # gave no numbers and the rest regressed against an idle baseline, so the numbers judged nothing.
@@ -398,7 +400,9 @@ jobs:
       - name: Perf budgets gate (exclusive macOS 27 M4 Pro measure worker)
         env:
           COMMIT: ${{ needs.plan.outputs.commit }}
-          KEY: stable-next-${{ needs.plan.outputs.build }}-perf-${{ github.run_id }}-${{ github.run_attempt }}
+          # One key per build: a later run or re-run for the same build re-attaches to its step (still
+          # queued, running, or done) instead of queuing a second whole-host measurement.
+          KEY: stable-next-${{ needs.plan.outputs.build }}-perf
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
@@ -409,7 +413,7 @@ jobs:
           # One step, never resubmitted: an exclusive measure worker can queue for hours (the p90 wait
           # was about an hour), and a still-queued step (exit 75) keeps its place.
           "$client" run --class exclusive --measurement --script scripts/measure/split-spring.sh --ref "$COMMIT" \
-            --label measure --label macos-27 --label ram48 --key "$KEY" \
+            --label measure --label macos-27 --label ram48 --label cmux --key "$KEY" \
             --artifact artifacts/split-spring/report.json \
             --arg=--suite=budgets --arg=--gate --arg=--vdisplay=120 \
             --timeout 7200 --queue-timeout 10800
