@@ -48,13 +48,19 @@ final class HomeApprovalRowProvider: TranscriptCustomRowProvider {
         case .pending: p.local.note
         case .cancelled: CmuxStrings.approvalExpired
         case .answered(let answer): answer.selections.values.contains { $0.optionIDs.contains("allow") }
-            ? CmuxStrings.approvalAllowed : CmuxStrings.approvalDenied
+            ? (isConnect(question) ? CmuxStrings.approvalConnected : CmuxStrings.approvalAllowed)
+            : (isConnect(question) ? CmuxStrings.approvalNotConnected : CmuxStrings.approvalDenied)
         }
         let snapshot = question.items.first?.options.first { $0.id == "allow" }?.preview?.text
         let request = snapshot.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) } as? [String: Any]
         let raw = (request?["toolCall"] as? [String: Any])?["rawInput"]
         let input = question.isPending ? raw.flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys, .prettyPrinted, .fragmentsAllowed]) }.map { String(decoding: $0, as: UTF8.self) } : nil
         return visible([title, input, status].compactMap { $0 }.joined(separator: "\n\n"))
+    }
+    /// An agent's MCP connect card (optchat-chief brain/home_mcp_connect.rs): its buttons say Connect and
+    /// Don't connect; the app answers acpmux's card, not a tool permission (ChiefApprovalDecider).
+    static func isConnect(_ question: AgentQuestion) -> Bool {
+        question.source.permission?.hasPrefix("mcp-connect:") == true
     }
     /// Never let invisible direction/zero-width characters disguise the requested command.
     static func visible(_ text: String) -> String {
@@ -110,7 +116,9 @@ final class HomeApprovalRowProvider: TranscriptCustomRowProvider {
             ctx.setFillColor(ink.withAlphaComponent(p.takesClicks ? (allow ? 1 : 0.1) : 0.2).cgColor)
             ctx.addPath(CGPath(roundedRect: r, cornerWidth: 8, cornerHeight: 8, transform: nil))
             ctx.fillPath()
-            let title = allow ? CmuxStrings.approvalAllow : CmuxStrings.approvalDeny
+            let connect = Self.isConnect(p.question)
+            let title = allow ? (connect ? CmuxStrings.approvalConnect : CmuxStrings.approvalAllow)
+                : (connect ? CmuxStrings.approvalDontConnect : CmuxStrings.approvalDeny)
             let color = allow ? Fixture.incoming : ink
             TextDraw.line(title, font: font, color: color, x: r.midX - TextDraw.width(title, font: font) / 2,
                           baseline: r.midY + (font.ascender + font.descender) / 2, in: ctx)
