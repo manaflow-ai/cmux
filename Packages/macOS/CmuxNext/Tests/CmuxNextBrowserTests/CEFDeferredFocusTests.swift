@@ -303,6 +303,29 @@ import Testing
         #expect(asked.count == 1, "the page was asked \(asked.count) times")
     }
 
+    /// Lead on STATUS 9778 (a page that never paints content, REOPEN rounds rpk-empty-*: 6/6 waited the 2 s bound):
+    /// a document whose first frame is presented takes input, whether or not it has content. Chromium says so with its
+    /// `firstPaint` lifecycle event; `firstContentfulPaint` comes only once the page shows text (an empty field: when
+    /// the person types). The page is ready at its first frame, never at the bound.
+    @Test func aLoadedPageIsReadyAtItsFirstFrameEvenWithNoContent() async throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, reported) = try Self.readyTab(runtime, browser: 33, restored: "http://127.0.0.1:8080/?c=1")
+        tab.paintQuery = { _ in nil } // the page's own answer does not come (its promise waits for content)
+        runtime.handle(.loadingState(browser: 33, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadStart(browser: 33, url: "http://127.0.0.1:8080/?c=1", fromPost: false))
+        runtime.handle(.loadEnd(browser: 33, httpStatus: 200))
+        runtime.handle(.loadingState(browser: 33, loading: false, canGoBack: false, canGoForward: false))
+        #expect(!tab.pageReady, "ready before the document's first frame")
+        runtime.handle(.devToolsMessage(browser: 33, json: Self.lifecycle("firstPaint")))
+        #expect(tab.pageReady && reported() == 1, "a loaded page whose first frame is presented, with no content, waited for content")
+    }
+
+    /// A Chromium lifecycle event of the main frame (`CEFFirstPaintBridge`: every frame counts before the main frame is known).
+    private static func lifecycle(_ name: String) -> String {
+        #"{"method":"Page.lifecycleEvent","params":{"frameId":"MAIN","loaderId":"L1","name":"\#(name)","timestamp":1.5}}"#
+    }
+
     /// The page's answer is for the document it was asked about: an answer that comes after the next document
     /// committed makes nothing ready, and a failed answer keeps the page waiting for its paint report.
     @Test func aPaintAnswerForAReplacedDocumentOrAFailedAnswerMakesNothingReady() async throws {
