@@ -2131,13 +2131,13 @@ button.menu-disclosure {
 
 /* Updates > App Update: the download's bar under its status row, and Restart to Update filled. */
 .app-update-progress-row {
-  padding: 0 8px 10px;
+  padding: 0 8px 8px;
 }
 
 .app-update-progress {
   display: block;
   width: 100%;
-  height: 4px;
+  block-size: 4px;
   overflow: hidden;
   border: 0;
   border-radius: 2px;
