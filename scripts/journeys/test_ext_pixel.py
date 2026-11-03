@@ -68,7 +68,10 @@ class FakeApp:
                 return {"available": True, "active": True}
             key = params.get("key", "")
             if action == "reset":
-                self.overrides.clear()
+                # The app resets one section (`section`), one key, or `all`: only the springs here.
+                if params.get("all") or params.get("section") == "springs":
+                    for k in [k for k in self.overrides if k.startswith("motion.spring.") or params.get("all")]:
+                        self.overrides.pop(k, None)
                 return {"active": self.active}
             if key.startswith("motion.spring."):
                 r, d = self.default(key.split(".")[-1])
@@ -645,6 +648,15 @@ class SwitchVariantTests(unittest.TestCase):
             names = [n for s in specs for n in s["recordings"]]
             self.assertEqual(len(names), 20)
             self.assertEqual(len(names), len(set(names)))
+
+    def test_a_plain_run_keeps_the_switch_journeys(self):
+        """A regeneration without --switch never deletes switch journeys an earlier --switch run wrote."""
+        with tempfile.TemporaryDirectory() as out:
+            specs = self.generate(out)
+            done = subprocess.run([sys.executable, str(HERE / "video-cases" / "gen_pixel.py"), "--out", out],
+                                  capture_output=True, text=True, timeout=120)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(sorted(p.name for p in Path(out).glob("*-sw-*.json")), sorted(s["id"] + ".json" for s in specs))
 
     def test_without_switch_no_variants(self):
         with tempfile.TemporaryDirectory() as out:
