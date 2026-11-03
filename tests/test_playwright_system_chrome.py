@@ -122,8 +122,8 @@ class SystemChromeTests(unittest.TestCase):
                 if "git restore" in script:
                     # Only execute the base browser invocation; classification and rebuilding
                     # do not select the executable. Keep its real command and arguments.
-                    script = re.search(r"(?m)^\s*bun health\.ts[^\n]*(?:\\\n[^\n]*)*", script).group()
-                subprocess.run(["bash", "-euc", script], cwd=work, env=env,
+                    script = re.search(r"(?m)^[ \t]*bun health\.ts(?:[^\n]*\\\n)*[^\n]*", script).group()
+                subprocess.run(["bash", "-euc", script], cwd=work / entry.get("working-directory", "."), env=env,
                                check=True, capture_output=True, text=True)
                 # Actions imports GITHUB_ENV between steps, never into the writer's shell.
                 env.update(line.split("=", 1) for line in env_file.read_text().splitlines())
