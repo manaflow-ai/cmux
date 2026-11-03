@@ -2,7 +2,7 @@ use std::os::unix::fs::MetadataExt as _;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use super::{keep_previous, runs_this_install, stop};
+use super::{claim, claim_path, keep_previous, runs_this_install, stop};
 
 const INSTALL: &str = "/home/u/.cmux/bin/cmux-tui";
 
@@ -134,4 +134,18 @@ fn a_daemon_on_a_deleted_build_keeps_a_copy_of_it_as_previous() {
     assert_eq!(std::fs::read(&previous).unwrap(), b"R");
     assert_eq!(std::fs::read(&install).unwrap(), b"B");
     assert!(!install.with_file_name(".cmux-tui.prev.part").exists());
+}
+
+#[test]
+fn a_second_run_of_one_update_finds_its_outcome_claimed() {
+    let folder = tempfile::tempdir().unwrap();
+    let result = folder.path().join(".cmux-tui.update-0123456789abcdef.json");
+    assert_eq!(claim_path(&result), folder.path().join(".cmux-tui.update-0123456789abcdef.lock"));
+    let first = claim(&result).expect("the first run claims the outcome");
+    // A start sent again while the first run checks: it writes nothing.
+    assert!(claim(&result).is_none());
+    // Another update (its own nonce) is not held by it; the folder lock orders those.
+    assert!(claim(&folder.path().join(".cmux-tui.update-fedcba9876543210.json")).is_some());
+    drop(first);
+    assert!(claim(&result).is_some());
 }

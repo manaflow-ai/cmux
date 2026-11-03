@@ -248,6 +248,10 @@ fn update(request: &Request) -> Result<Value, Failed> {
     }
     let _ = super::sync_cli::delete_remote(socket, &result);
     let _ = super::sync_cli::delete_remote(socket, &staged);
+    let claim = apply::claim_path(Path::new(&result));
+    if let Some(claim) = claim.to_str() {
+        let _ = super::sync_cli::delete_remote(socket, claim);
+    }
     let build = outcome?;
     Ok(json!({"updated": true, "build": build, "previous_build": previous}))
 }

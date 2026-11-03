@@ -97,15 +97,26 @@ pub(crate) fn run(args: &[String]) -> i32 {
         );
         return 64;
     };
+    // A second run of this same update (its start sent again after a lost
+    // answer) leaves everything, its outcome file included, to the first:
+    // the first holds the outcome's own lock until it has written it.
+    let _claim = match own_install(&args.install) {
+        Ok(()) => match claim(&args.result) {
+            Some(claim) => Some(claim),
+            None => {
+                eprintln!("cmux machine update: this update already runs");
+                return 1;
+            }
+        },
+        Err(_) => None,
+    };
     let (state, detail) = apply(&args);
     let outcome = json!({"state": state, "detail": detail});
     eprintln!("cmux machine update: {outcome}");
     // The outcome goes only next to this user's own binary.
-    // A second run while one runs leaves that run's outcome file to it.
-    let theirs = state == "busy" && std::fs::symlink_metadata(&args.result).is_ok();
-    let written = own_install(&args.install).map_err(std::io::Error::other).and_then(|()| {
-        if theirs { Ok(()) } else { write_atomically(&args.result, outcome.to_string().as_bytes()) }
-    });
+    let written = own_install(&args.install)
+        .map_err(std::io::Error::other)
+        .and_then(|()| write_atomically(&args.result, outcome.to_string().as_bytes()));
     if written.is_err() || state != "updated" { 1 } else { 0 }
 }
 
@@ -156,7 +167,8 @@ fn apply(args: &Args) -> (&'static str, String) {
         return ("busy", "another update of this machine is running".into());
     };
     // The Mac sees this step began even when its start's answer was lost,
-    // and so never starts it twice (machine_update.rs `start`).
+    // and so does not start it again (machine_update.rs `start`); a run it
+    // starts anyway finds the outcome claimed ([`claim`]) and writes nothing.
     let _ = write_atomically(&args.result, RUNNING.as_bytes());
     let own = match check(args) {
         Ok(own) => own,
@@ -347,12 +359,23 @@ fn stop(pid: i32, term: Duration, kill: Duration) -> bool {
 
 /// The folder's update lock, held while this process lives.
 fn lock(install: &Path) -> Option<std::fs::File> {
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(install.with_file_name(LOCK_NAME))
-        .ok()?;
+    lock_at(&install.with_file_name(LOCK_NAME))
+}
+
+/// The lock of one update's outcome file `result`, held by the one run of
+/// that update while it lives; None while another run of it holds it.
+fn claim(result: &Path) -> Option<std::fs::File> {
+    lock_at(&claim_path(result))
+}
+
+/// `.cmux-tui.update-<nonce>.lock` beside `.cmux-tui.update-<nonce>.json`.
+pub(crate) fn claim_path(result: &Path) -> PathBuf {
+    result.with_extension("lock")
+}
+
+fn lock_at(path: &Path) -> Option<std::fs::File> {
+    let file =
+        std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(path).ok()?;
     // SAFETY: flock on a descriptor this function owns.
     let locked = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
     locked.then_some(file)
