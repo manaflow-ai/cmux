@@ -425,7 +425,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     let cfg = this.config()
     if ((cfg.agent !== null && cfg.agent !== agent) || (cfg.owner !== null && cfg.owner !== owner)) return { ok: false, reason: "other_chief" }
     // A machine binding carries execution authority: read it fresh rather than through the record cache.
-    const record = await chiefRecord(this.env, owner, agent).catch(() => undefined)
+    const record = await chiefRecord(this.env, owner, agent, true).catch(() => undefined)
     if (record === undefined) return { ok: false, reason: "owner.unreachable" }
     if (!record) return { ok: false, reason: "chief_archived" }
     if (record.brain_place) return { ok: false, reason: "chief_placed" }
@@ -464,7 +464,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     const cfg = this.config()
     if ((cfg.agent !== null && cfg.agent !== agent) || (cfg.owner !== null && cfg.owner !== owner)) return { ok: false, reason: "other_chief" }
     if (this.env.CHIEF_BRAIN_ENABLED !== "1" || this.env.HANDS_ENABLED !== "1") return { ok: false, reason: "provisioning_pending" }
-    const record = await chiefRecord(this.env, owner, agent)
+    const record = await chiefRecord(this.env, owner, agent, true)
     if (!record) return { ok: false, reason: "chief_archived" }
     if (record.brain_place) return { ok: false, reason: "chief_placed" }
     if (!record.cloud_machine) {

@@ -307,7 +307,7 @@ export const machineTurn = async (b: ChiefBrainDO, id: string, route: MachineRou
   const { owner, agent } = cfg
   const startedAt = Number(b.sql.exec<{ started: number }>(`SELECT started FROM cb_turn WHERE id = ?`, id).one().started)
   if (Date.now() >= startedAt + 10 * 60_000 && !readMachineState(b.sql, id)) return { ok: false, reason: "chief.machine.timeout" }
-  const record = await chiefRecord(b.doEnv, owner, agent)
+  const record = await chiefRecord(b.doEnv, owner, agent, true)
   if (!record?.cloud_machine || record.brain_place) return { ok: false, reason: "chief.machine.binding_changed" }
   if (machineHarness(record.harness) !== route.harness) return { ok: false, reason: "chief.machine.harness_changed" }
   const scope = { ...record.cloud_machine, owner, chief: agent }

@@ -210,6 +210,14 @@ describe("default Chief activation", () => {
       expect(b.sql.exec(`SELECT 1 FROM cb_config WHERE name = 'default_machine_pending'`).toArray()).toEqual([])
     })
   })
+
+  it("retries a failed Chief-record read rather than treating it as an archived Chief", async () => {
+    await activation("unavailable", async (b, chief) => {
+      const object = b as unknown as { env: Env }, original = object.env
+      object.env = { ...original, USER_DO: { idFromName: (name: string) => name, get: () => ({ readOp: async () => ({ ok: false, code: "owner.unreachable", message: "temporary owner failure" }) }) } } as unknown as Env
+      try { expect(await b.admit(chief.id, chief.owner_user, false)).toEqual({ ok: false, reason: "owner.unreachable" }) } finally { object.env = original }
+    })
+  })
 })
 
 describe("default machine sign-in recovery", () => {

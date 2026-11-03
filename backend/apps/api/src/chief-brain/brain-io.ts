@@ -144,10 +144,13 @@ export const chiefRecordFresh = async (env: Env, owner: string, agent: string, n
   return record
 }
 
-export const chiefRecord = async (env: Env, owner: string, agent: string): Promise<ChiefRecord> => {
+export const chiefRecord = async (env: Env, owner: string, agent: string, requireRead = false): Promise<ChiefRecord> => {
   const stub = env.USER_DO.get(env.USER_DO.idFromName(owner)) as unknown as OwnerStub
   const r = await stub.readOp(owner, { identity: `session:${owner}`, kind: "session", user: owner }, "chief.list", {})
-  if (!r.ok) return null
+  if (!r.ok) {
+    if (requireRead) throw new Error("owner.unreachable")
+    return null
+  }
   const chiefs = (r.value as { chiefs?: Array<{ id: string; display_name: string; archived_at: string | null; brain_place?: unknown; is_default?: boolean; is_hosted_default?: boolean; harness?: string | null; cloud_machine?: DefaultChiefMachine | null }> }).chiefs ?? []
   const c = chiefs.find((x) => x.id === agent && x.archived_at === null)
   return c ? { display_name: c.display_name, brain_place: c.brain_place ?? null, is_default: c.is_default === true, is_hosted_default: c.is_hosted_default === true, harness: c.harness ?? null, cloud_machine: c.cloud_machine ?? null } : null
