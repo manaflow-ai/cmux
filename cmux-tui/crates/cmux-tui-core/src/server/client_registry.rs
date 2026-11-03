@@ -343,17 +343,9 @@ pub(super) struct ConnectionFacts {
     pub(super) remote_device: bool,
     /// The connection's base actor (`ConnectionOrigin::actor`).
     pub(super) actor: crate::workspace_registry::Actor,
-    /// The terminal the connection's keys to each attached surface go to (`AttachedSurface::input`).
-    pub(super) inputs: Vec<KeptInput>,
-}
-
-/// `AttachedSurface::input` of one attached surface, with whether the connection can type into it.
-pub(super) struct KeptInput {
-    pub(super) surface: SurfaceId,
-    pub(super) terminal: Weak<crate::Surface>,
-    /// The route generation of `surface` when the terminal was kept (`route_table`).
-    pub(super) generation: u64,
-    pub(super) can_type: bool,
+    /// The surfaces the connection is attached to, each with whether it can type into it
+    /// (`AttachedSurface::can_type`): its keys there are the person's (server/input_qos.rs).
+    pub(super) attached: Vec<(SurfaceId, bool)>,
 }
 
 impl ClientFacts {
@@ -366,21 +358,16 @@ impl ClientFacts {
             .clients
             .iter()
             .map(|(client, record)| {
-                let inputs = record
+                let attached = record
                     .attached
                     .iter()
-                    .map(|(surface, attached)| KeptInput {
-                        surface: *surface,
-                        terminal: attached.input.0.clone(),
-                        generation: attached.input.1,
-                        can_type: attached.can_type(),
-                    })
+                    .map(|(surface, attached)| (*surface, attached.can_type()))
                     .collect();
                 let facts = ConnectionFacts {
                     transport: record.transport,
                     remote_device: record.remote_device,
                     actor: record.origin.actor(),
-                    inputs,
+                    attached,
                 };
                 (*client, facts)
             })
@@ -423,6 +410,9 @@ pub(crate) struct ClientRegistry {
     /// Every connection's record. A change publishes the [`ClientFacts`] projection, which a connection's
     /// own line and key paths read without this lock (R-DAEMON-STATE stage S1).
     pub(super) state: crate::published::Published<ClientRegistryState, ClientFacts>,
+    /// R-DAEMON-STATE stage S1 (`CMUX_TUI_RDS_INPUT`): the line and key paths read [`ClientFacts`] and the
+    /// session's published routes instead of taking the registry and session locks.
+    pub(crate) input_lane: crate::rds_switch::InputLaneSwitch,
     /// Who created each live incognito workspace (incognito_orphans.rs).
     pub(super) incognito_creators: super::incognito_orphans::IncognitoCreators,
 }
@@ -463,7 +453,9 @@ fn validate_resource_client_label(
 }
 
 impl ClientRegistry {
-    pub(crate) fn new() -> Self {
+    /// `input_lane` is the mux's stage S1 switch (R-DAEMON-STATE): on, the registry publishes [`ClientFacts`].
+    pub(crate) fn new(input_lane: crate::rds_switch::InputLaneSwitch) -> Self {
+        let publishing = input_lane.on();
         Self {
             detach_waker: Mutex::new(None),
             client_presence_observers: Mutex::new(Vec::new()),
@@ -494,7 +486,9 @@ impl ClientRegistry {
             state: crate::published::Published::new(
                 ClientRegistryState::default(),
                 ClientFacts::of,
+                publishing,
             ),
+            input_lane,
             incognito_creators: Default::default(),
         }
     }
@@ -567,15 +561,31 @@ impl ClientRegistry {
         self.state.lock().recover_poison().daemon_handoff.is_some()
     }
 
+    /// Turns stage S1 on or off for this registry (tests): the switch, and the publication it reads.
+    #[cfg(test)]
+    pub(crate) fn set_input_lane_for_test(&self, on: bool) {
+        self.state.set_publishing_for_test(on);
+        self.input_lane.set_for_test(on);
+    }
+
+    /// Whether `client` is attached to `surface` and can type into it (`AttachedSurface::can_type`): its keys there
+    /// are the person's. Reads the published facts, never the registry lock (R-DAEMON-STATE stage S1).
+    pub(super) fn types_into(&self, client: u64, surface: SurfaceId) -> bool {
+        let facts = self.state.load().recover_poison();
+        facts.clients.get(&client).is_some_and(|connection| {
+            connection.attached.iter().any(|(attached, can_type)| *attached == surface && *can_type)
+        })
+    }
+
     pub(crate) fn daemon_handoff_in_progress(&self) -> bool {
-        if crate::rds_switch::input_lane() {
+        if self.input_lane.on() {
             return self.state.load().recover_poison().handoff.is_some();
         }
         self.state.lock().recover_poison().daemon_handoff.is_some()
     }
 
     pub(crate) fn daemon_handoff_committed(&self) -> bool {
-        if crate::rds_switch::input_lane() {
+        if self.input_lane.on() {
             return self.state.load().recover_poison().handoff == Some(true);
         }
         matches!(

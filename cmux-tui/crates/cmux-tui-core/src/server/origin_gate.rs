@@ -220,7 +220,7 @@ fn check_pairing_accept(
 /// The actor of a durable mutation that `client` asks for on the legacy
 /// control protocol. A client with no record is never the local user.
 pub(super) fn connection_actor(mux: &Mux, client: u64) -> Actor {
-    if crate::rds_switch::input_lane() {
+    if mux.control_clients.input_lane.on() {
         // The published facts, never the registry lock (R-DAEMON-STATE S1).
         let facts = mux.control_clients.state.load().recover_poison();
         let Some(connection) = facts.clients.get(&client) else {

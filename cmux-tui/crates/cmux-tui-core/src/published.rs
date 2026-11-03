@@ -9,8 +9,13 @@
 //!
 //! The projection is the only copy a reader sees, and only the guard writes it: no code path can
 //! change the value without publishing the change, because every change goes through the guard.
+//!
+//! Publishing is on or off for the value's life (a stage switch decides it when the value is made;
+//! tests can turn it on). Off, a guard builds no projection, so a value nobody reads lock-free costs
+//! what a plain mutex costs.
 
 use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LockResult, Mutex, MutexGuard, PoisonError};
 #[cfg(test)]
 use std::sync::{TryLockError, TryLockResult};
@@ -22,14 +27,31 @@ pub(crate) struct Published<T, S> {
     value: Mutex<T>,
     projection: ArcSwap<S>,
     project: fn(&T) -> S,
+    /// Whether a changing guard publishes; read and written only under `value`'s lock.
+    publishing: AtomicBool,
 }
 
 impl<T, S> Published<T, S> {
     /// `project` makes the immutable projection that readers load. It runs under the mutex after
-    /// each change, so it must read only and stay small.
-    pub(crate) fn new(value: T, project: fn(&T) -> S) -> Self {
+    /// each change while `publishing` is on, so it must read only and stay small.
+    pub(crate) fn new(value: T, project: fn(&T) -> S, publishing: bool) -> Self {
         let projection = ArcSwap::from_pointee(project(&value));
-        Self { value: Mutex::new(value), projection, project }
+        Self {
+            value: Mutex::new(value),
+            projection,
+            project,
+            publishing: AtomicBool::new(publishing),
+        }
+    }
+
+    /// Turns publishing on or off; on, the current value is published first, under the lock (tests).
+    #[cfg(test)]
+    pub(crate) fn set_publishing_for_test(&self, on: bool) {
+        let value = self.value.lock().unwrap_or_else(PoisonError::into_inner);
+        if on {
+            self.projection.store(Arc::new((self.project)(&*value)));
+        }
+        self.publishing.store(on, Ordering::Relaxed);
     }
 
     /// The projection of the newest finished change: one atomic load, never a wait. When a writer
@@ -97,7 +119,8 @@ impl<T, S> DerefMut for PublishGuard<'_, T, S> {
 
 impl<T, S> Drop for PublishGuard<'_, T, S> {
     fn drop(&mut self) {
-        if self.changed {
+        // The flag is read under the lock this guard holds, where it is also written.
+        if self.changed && self.owner.publishing.load(Ordering::Relaxed) {
             self.owner.projection.store(Arc::new((self.owner.project)(&*self.guard)));
         }
     }
@@ -119,7 +142,7 @@ mod tests {
 
     #[test]
     fn a_change_is_published_when_its_guard_drops_and_a_read_publishes_nothing() {
-        let published = Published::new(Counter::default(), project);
+        let published = Published::new(Counter::default(), project, true);
         assert_eq!(**published.load().unwrap_or_else(|poison| poison.into_inner()), 0);
         {
             let mut guard = published.lock().unwrap_or_else(|poison| poison.into_inner());
@@ -145,7 +168,7 @@ mod tests {
 
     #[test]
     fn a_reader_does_not_wait_for_a_writer_that_holds_the_value() {
-        let published = std::sync::Arc::new(Published::new(Counter::default(), project));
+        let published = std::sync::Arc::new(Published::new(Counter::default(), project, true));
         let (held, holding) = std::sync::mpsc::channel();
         let (release, released) = std::sync::mpsc::channel::<()>();
         let writer = std::thread::spawn({
@@ -170,7 +193,7 @@ mod tests {
 
     #[test]
     fn a_poisoned_value_gives_its_projection_in_the_error() {
-        let published = Published::new(Counter::default(), project);
+        let published = Published::new(Counter::default(), project, true);
         assert!(published.load().is_ok());
         published.poison_for_test();
         assert!(published.load().is_err(), "a reader can fail closed on a poisoned value");

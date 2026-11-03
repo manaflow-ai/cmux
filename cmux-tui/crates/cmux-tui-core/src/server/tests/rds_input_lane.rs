@@ -54,6 +54,7 @@ struct TypingConnection {
 impl TypingConnection {
     fn open() -> Self {
         let mux = test_mux();
+        mux.set_input_lane_for_test(true);
         let terminal = mux.new_workspace(Some("typing".into()), Some((80, 24))).unwrap();
         let (sent, input) = mpsc::channel();
         terminal.replace_input_writer_for_test(Box::new(TimedInput(sent)));
@@ -146,7 +147,6 @@ fn hold_workspace_registry(mux: &Arc<Mux>, hold: &dyn Fn()) {
 
 /// Sends two keys while another thread holds each lock in turn, and fails when a key waited for one of them.
 fn assert_keys_wait_for_none(locks: &[(&str, Holder)]) {
-    crate::rds_switch::set_input_lane_for_test(true);
     let connection = TypingConnection::open();
     // The first key of a view may take the long way; every key after it must not wait.
     connection.submit("warm", b'w');
@@ -221,7 +221,6 @@ fn a_key_waits_for_neither_the_session_nor_the_workspace_registry_lock() {
 /// shell, never the replaced one (the route rule of #31940, on the stage's path).
 #[test]
 fn after_a_respawn_the_next_key_reaches_the_new_terminal_on_the_input_lane() {
-    crate::rds_switch::set_input_lane_for_test(true);
     let connection = TypingConnection::open();
     connection.submit("before", b'a');
     assert!(connection.arrival(b'a').is_some(), "the first key never reached its terminal");
