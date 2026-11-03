@@ -47,6 +47,17 @@ public actor CloudMachineLink {
         self.deviceName = deviceName
     }
 
+    /// `attachEndpoint`'s 30 s request, with room for its token read.
+    static let attachBound: Duration = .seconds(45)
+    /// A hub start's enrollment (60 s) and first line (45 s), with room for its token read.
+    static let hubBound: Duration = .seconds(120)
+
+    /// A connect that did nothing, so a stuck machine's log says why no link started.
+    public nonisolated static func noteConnectSkipped(_ machineID: String, disconnected: Bool, changing: Bool) {
+        Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.link")
+            .notice("connect skipped for \(machineID, privacy: .public): disconnected=\(disconnected) changing=\(changing)")
+    }
+
     public func socketPath() async throws -> String {
         let generation = generation
         try checkGeneration(generation)
@@ -162,14 +173,23 @@ public actor CloudMachineLink {
         child = nil
         socket = nil
         setOwnsVM(false)
+        logger.notice("link start for \(self.machineID, privacy: .public): begin")
         try paths.prepare()
         let deviceFingerprint = paths.loadLinkDeviceFingerprint(machineID: machineID)
         // Lifecycle transitions can run during every await. A stale start
         // must never publish a socket or replace a newer link.
-        let endpoint = try await api.attachEndpoint(machineID, deviceFingerprint: deviceFingerprint)
+        // Each wait is bounded so a stuck step fails with its name instead of leaving the machine
+        // "booting" with no error. Past the API call's own 30 s: its token read has no deadline.
+        let (api, hub, machineID) = (api, hub, machineID)
+        logger.notice("link start for \(machineID, privacy: .public): attach endpoint")
+        let endpoint = try await SandboxDeadline.race(Self.attachBound, timedOut: "link attach endpoint") {
+            try await api.attachEndpoint(machineID, deviceFingerprint: deviceFingerprint)
+        }
         try checkGeneration(generation)
-        let hubEndpoint = try await hub.endpoint()
+        logger.notice("link start for \(machineID, privacy: .public): tunnel hub")
+        let hubEndpoint = try await SandboxDeadline.race(Self.hubBound, timedOut: "link tunnel hub") { try await hub.endpoint() }
         try checkGeneration(generation)
+        logger.notice("link start for \(machineID, privacy: .public): spawn")
         unlink(paths.linkSocket(machineID: machineID))
         let inviteFile = endpoint.invitation.map { _ in
             paths.linkState.appendingPathComponent("invite-\(UUID().uuidString.lowercased())")

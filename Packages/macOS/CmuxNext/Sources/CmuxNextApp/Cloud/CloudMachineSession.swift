@@ -146,7 +146,10 @@ final class CloudMachineSession {
     /// click never drops a healthy connection, and only a click starts a
     /// paused machine (`cloud.machine.connect` starts it).
     func connect(origin: CloudLinkOrigin = .script) {
-        guard !disconnected, !machine.shownStatus.isChanging else { return }
+        guard !disconnected, !machine.shownStatus.isChanging else {
+            CloudMachineLink.noteConnectSkipped(machineID, disconnected: disconnected, changing: machine.shownStatus.isChanging)
+            return
+        }
         if appLink != nil {
             guard machine.status.isLive || origin == .user, !appConnecting, appTicket == nil || linkEnded != nil else { return }
             appConnecting = true

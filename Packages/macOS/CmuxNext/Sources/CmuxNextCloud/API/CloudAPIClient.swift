@@ -532,7 +532,7 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
     }
     private let state = Mutex(State())
 
-    static func race(_ bound: Duration, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+    static func race(_ bound: Duration, timedOut: String = "/api/runs", _ work: @escaping @Sendable () async throws -> T) async throws -> T {
         let gate = SandboxDeadline<T>()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -548,7 +548,7 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
                 let timer = Task {
                     // wakeup-allow: one-shot deadline for a sandbox run (stops at the bound or the answer)
                     try? await Task.sleep(for: bound)
-                    gate.finish(.failure(CloudAPIError.timedOut("/api/runs")))
+                    gate.finish(.failure(CloudAPIError.timedOut(timedOut)))
                 }
                 gate.onFinish { job.cancel(); timer.cancel() }
             }
