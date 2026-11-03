@@ -12,6 +12,7 @@
 // transcript calls it on the next switch and on unmount). Motion off or a zero motion token: nothing.
 // Reduce Motion: the same elements fade, with no travel.
 import { MOTION_MS, MOTION_SPRING } from "../../motion/scale.generated";
+import { springEasing } from "../../ui/motion/motionMode";
 import { entranceAllowed } from "../shared/pageReveal";
 import type { ChatSwitchArm } from "./chatSwitch.experiment";
 
@@ -158,7 +159,7 @@ export function playChatSwitch(
     part.element.animate([starts[index]!, part.to], {
       duration: part.duration,
       delay: part.delay,
-      easing: mode === "reduced" ? "ease-out" : SWITCH_SPRING,
+      easing: mode === "reduced" ? "ease-out" : springEasing(SWITCH_SPRING, "ease-out", scroller.ownerDocument),
       // Before its delay a part is drawn at its start, so nothing shows whole and then jumps back.
       fill: "backwards",
     }),

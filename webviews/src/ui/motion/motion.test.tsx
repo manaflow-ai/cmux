@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { MOTION_MS, MOTION_SPRING } from "../../motion/scale.generated";
+import { MOTION_EASE_OUT, MOTION_MS, MOTION_SPRING } from "../../motion/scale.generated";
 import { motionMode } from "./motionMode";
 import { SlidingIndicator } from "./SlidingIndicator";
 import { swapFrames, ViewSwap } from "./ViewSwap";
@@ -17,10 +17,15 @@ const saved = new Map<string, unknown>();
 type Played = { element: Element; frames: Keyframe[]; timing: KeyframeAnimationOptions };
 let played: Played[] = [];
 
-function installDom(options: { reduced?: boolean } = {}): HTMLElement {
+function installDom(options: { reduced?: boolean; noLinear?: boolean } = {}): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
   const win = dom.window as unknown as Window & typeof globalThis;
   win.matchMedia = ((query: string) => ({ matches: Boolean(options.reduced) && query.includes("reduce") })) as never;
+  // An engine with `linear()` easing, or (noLinear) one without it, like WebKit on macOS 14.0 and 14.1.
+  Object.defineProperty(win, "CSS", {
+    configurable: true,
+    value: { supports: (_property: string, value: string) => !(options.noLinear && value.startsWith("linear(")) },
+  });
   // jsdom lays nothing out: each element's box is its data-box (x,y,w,h), the host's at 0,0.
   win.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
     const [x = 0, y = 0, w = 0, h = 0] = (this.dataset.box ?? "").split(",").map(Number);
@@ -114,6 +119,17 @@ test("a selection change places it on the new tab at once and slides on transfor
   for (const frame of frames) expect(Object.keys(frame)).toEqual(["transform"]);
   expect(frames[0]!.transform).toBe("translate(4px, 4px) scale(0.5, 1)");
   expect(timing).toEqual({ duration: MOTION_MS.large, easing: MOTION_SPRING });
+});
+
+test("an engine without linear() easing slides on the ease-out instead of throwing", async () => {
+  const mount = installDom({ noLinear: true });
+  await act(async () => {
+    root = createRoot(mount);
+    root.render(<Tabs />);
+  });
+  await act(async () => select(1));
+  expect(played).toHaveLength(1);
+  expect(played[0]!.timing).toEqual({ duration: MOTION_MS.large, easing: MOTION_EASE_OUT });
 });
 
 test("Reduce Motion and motion off place it with no slide", async () => {

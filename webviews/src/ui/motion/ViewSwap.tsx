@@ -20,7 +20,7 @@
 import { type ReactNode, useLayoutEffect, useRef } from "react";
 import { MOTION_EASE_OUT, MOTION_MS, MOTION_SPRING, MOTION_SPRING_STEP } from "../../motion/scale.generated";
 import { cx } from "../cx";
-import { motionMode } from "./motionMode";
+import { motionMode, springEasing } from "./motionMode";
 import "./motion.css";
 
 export type ViewSwapLook = "fade" | "slide" | "wipe" | "sweep" | "none";
@@ -100,7 +100,10 @@ export function ViewSwap({ swapKey, order, look = "slide", className, children }
     if (frames.content) {
       const timing =
         chosen === "slide"
-          ? { duration: MOTION_MS[MOTION_SPRING_STEP], easing: MOTION_SPRING }
+          ? {
+              duration: MOTION_MS[MOTION_SPRING_STEP],
+              easing: springEasing(MOTION_SPRING, MOTION_EASE_OUT, element.ownerDocument),
+            }
           : { duration: chosen === "fade" ? MOTION_MS.micro : MOTION_MS.standard, easing: MOTION_EASE_OUT };
       playing.current.push(element.animate(frames.content, timing));
     }

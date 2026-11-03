@@ -19,7 +19,7 @@
 import { type CSSProperties, type RefObject, useLayoutEffect, useRef } from "react";
 import { MOTION_EASE_OUT, MOTION_MS, MOTION_SPRING, MOTION_SPRING_STEP } from "../../motion/scale.generated";
 import { cx } from "../cx";
-import { motionMode } from "./motionMode";
+import { motionMode, springEasing } from "./motionMode";
 import "./motion.css";
 
 /** How the highlight looks: a filled pill, a quiet plate (the toolbar's pressed fill), or an underline. */
@@ -109,7 +109,10 @@ export function useSlidingIndicator(
         { transform: `translate(${target.x}px, ${target.y}px)` },
       ],
       travel === "spring"
-        ? { duration: MOTION_MS[MOTION_SPRING_STEP], easing: MOTION_SPRING }
+        ? {
+            duration: MOTION_MS[MOTION_SPRING_STEP],
+            easing: springEasing(MOTION_SPRING, MOTION_EASE_OUT, element.ownerDocument),
+          }
         : { duration: MOTION_MS.standard, easing: MOTION_EASE_OUT },
     );
     slide.current.onfinish = () => {
