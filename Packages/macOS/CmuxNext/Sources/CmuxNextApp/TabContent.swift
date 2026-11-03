@@ -39,7 +39,7 @@ enum TabContent {
     @MainActor var inputReadiness: PageInputReadiness? {
         switch self {
         case .agent(let view): view.inputReadiness
-        case .page(let view): PageWebView.shown(in: view.content)?.inputReadiness
+        case .page(let view): (view.content as? PageWebView)?.inputReadiness // not a container's page: docked Channels focuses no input, a hold ate j/k/r (#33869)
         default: nil
         }
     }
