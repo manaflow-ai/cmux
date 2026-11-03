@@ -14,7 +14,7 @@ type Fixture = {
   putCalls: number
   failStorage: boolean
   lostResponse: boolean
-  finish: ReturnType<typeof vi.fn>
+  finish: ReturnType<typeof vi.fn<() => void>>
 }
 
 const textPart = (parts: ReadonlyArray<MessagePart>) => parts.find((part) => part.type === "text")?.text ?? ""
