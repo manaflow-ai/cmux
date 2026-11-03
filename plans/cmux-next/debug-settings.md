@@ -35,17 +35,25 @@ never calls it keeps the inert store (every read one atomic load). What a
   motion starts, `MotionSpring.base`): its next read.
 - A reader that tracks the key after `activate` (`withObservationTracking`, a
   view): it is told of each change.
-- A reader that tracked the key before `activate` (a view drawn at launch,
-  `SidebarTunablesWatch`): an off store returns before it registers the
-  dependency, so it is not told. It shows the value only when it reads again
-  for another reason.
-- A reader at one moment: the `synced` choice of `browserResize.dragResize`
-  when Chromium starts (`dragResizeAtLaunch`; set it before the launch's first
-  Chromium page, else it applies at the next start: relaunch, `activate`,
-  `set`, then open a page); `browserResize.layerHosting` at a page's next
-  show. Each tunable's help says when it applies. `icons.family` (native icons
-  read it at launch) and `auth.signInWindow` (wired by
-  `DebugSettingsService.start()` only) change nothing in a bench build.
+- A reader that tracked the key before `activate`: an off store returns before
+  it registers the dependency, so that observation never fires and the reader
+  keeps what it read. `SidebarTunablesWatch` keeps its launch snapshot (agent
+  mark, presence dots, row badge, stack cap, title motion, quiet unnamed rows,
+  row title, single-chat title) until a relaunch; `sidebar.rowCloseSpot`
+  follows, because each row layout reads it. An `ObservationStream` loop that
+  started before (an open agent page's `icons.family`) stays where it is.
+- A reader at one moment: `browserResize.dragResize`'s `synced` choice when
+  Chromium starts (`dragResizeAtLaunch`). With Chromium as the default engine,
+  `ChromiumWarmup` starts it about 3 s after launch at the first idle moment
+  (sooner when a restored Chromium tab shows), so `activate` and `set` must
+  come before that; else relaunch and send them first. `browserResize.layerHosting`
+  applies at a page's next show; each tunable's help says when it applies.
+  `icons.family`: native icons read it at launch; agent pages made after the
+  `set` use it.
+- Readers gated on `DevTools.isEnabled`, or wired only by
+  `DebugSettingsService.start()`, keep their Release behavior in a bench build
+  whatever the store holds: `auth.signInWindow`, `home.chiefViewGallery`,
+  `sidebar.sections.localPrototype`, `home.flightRecorder` and its captures.
 
 ## Registry
 

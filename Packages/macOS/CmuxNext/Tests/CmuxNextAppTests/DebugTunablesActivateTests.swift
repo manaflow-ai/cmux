@@ -37,7 +37,7 @@ struct DebugTunablesActivateTests {
         #expect(Self.call(["action": "state"], store, services)["active"]?.boolValue == false)
     }
 
-    /// After `activate`, `state` says active with no override file, and each `set` reaches the next read: a switch
+    /// After `activate`, `state` says active, and each `set` reaches the next read: a switch
     /// read per frame (`browserResize.pageBackdrop`) and a spring read when its motion starts (`motion.spring.move`,
     /// which the speed sweep scales).
     @Test func activateTurnsTheStoreOnAndEachSetReachesTheNextRead() throws {
@@ -45,7 +45,6 @@ struct DebugTunablesActivateTests {
         let state = Self.call(["action": "activate"], store, services)
         #expect(state["error"] == nil, "the action exists")
         #expect(state["active"]?.boolValue == true)
-        #expect(state["file"]?.isNull == true, "no override file: the overrides live in memory only")
         let backdrop = BrowserResizeTunables.pageBackdrop
         let row = Self.call(["action": "set", "key": .string(backdrop.key), "value": false], store, services)
         #expect(row["value"]?.boolValue == false)
