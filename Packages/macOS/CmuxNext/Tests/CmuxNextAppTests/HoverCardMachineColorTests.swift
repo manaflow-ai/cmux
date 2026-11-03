@@ -13,12 +13,12 @@ import Testing
     static func machineName(picks: MachineColorOverrides) throws -> (name: NSColor, secondary: NSColor, card: WorkspaceHoverCardView) {
         ThemeScope.app.store.setMachineColors(picks)
         defer { ThemeScope.app.store.setMachineColors(.none) }
-        let machine = SidebarMachine(id: CmuxNextSidebar.MachineID("big-red"), name: "big-red", kind: .ssh, status: .connected)
+        let machine = SidebarMachine(id: CmuxNextSidebar.MachineID("my-vm"), name: "my-vm", kind: .ssh, status: .connected)
         var workspace = SidebarWorkspace(id: CmuxNextSidebar.WorkspaceID("ws-remote"), machineID: machine.id, title: "Deploy")
         workspace.directory = "~/code"
         let card = WorkspaceHoverCardView()
         card.configure(.make(workspace, machine: machine, now: Date()))
-        try #require(card.hostLabel.stringValue == "big-red" && !card.hostLabel.isHidden)
+        try #require(card.hostLabel.stringValue == "my-vm" && !card.hostLabel.isHidden)
         let name = try #require(card.hostLabel.textColor?.usingColorSpace(.sRGB))
         let secondary = try #require(card.performWithTheme { Palette.textSecondary }.usingColorSpace(.sRGB))
         return (name, secondary, card)
@@ -32,7 +32,7 @@ import Testing
     @Test func withNoPickTheNameStaysSecondary() throws {
         let (name, secondary, card) = try Self.machineName(picks: .none)
         #expect(Self.same(name, secondary), "name \(name), textSecondary \(secondary)")
-        #expect(card.lines.filter { $0.contains("big-red") }.count == 1, "\(card.lines)")
+        #expect(card.lines.filter { $0.contains("my-vm") }.count == 1, "\(card.lines)")
     }
 
     @Test func aPickForAnotherMachineLeavesItSecondary() throws {
@@ -41,7 +41,7 @@ import Testing
     }
 
     @Test func withAPickTheNameDrawsIt() throws {
-        let (name, _, _) = try Self.machineName(picks: MachineColorOverrides(["Big-Red": "#12ab34"]))
+        let (name, _, _) = try Self.machineName(picks: MachineColorOverrides(["My-VM": "#12ab34"]))
         let picked = try #require(ThemeRGB(cssHex: "#12ab34")?.nsColor.usingColorSpace(.sRGB))
         #expect(Self.same(name, picked), "name \(name), pick \(picked)")
     }
@@ -49,7 +49,7 @@ import Testing
     /// A pick made while the card is open reaches the name: the store's repaint runs each view's appearance hook.
     @Test func aPickWhileTheCardIsOpenRecolorsTheName() throws {
         let (_, secondary, card) = try Self.machineName(picks: .none)
-        ThemeScope.app.store.setMachineColors(MachineColorOverrides(["big-red": "#12ab34"]))
+        ThemeScope.app.store.setMachineColors(MachineColorOverrides(["my-vm": "#12ab34"]))
         defer { ThemeScope.app.store.setMachineColors(.none) }
         card.viewDidChangeEffectiveAppearance()
         let name = try #require(card.hostLabel.textColor?.usingColorSpace(.sRGB))
