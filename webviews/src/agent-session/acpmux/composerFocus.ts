@@ -135,8 +135,16 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
     // A live transcript preview is a nested browsing context: its pointer press does not bubble
     // to this document. The browser blurs the editor when that frame takes focus; keep the same
     // boundary explicit for hosts that only report the outer window blur.
-    const onWindowBlur = () => blurActiveComposer();
+    const onWindowBlur = () => {
+      blurActiveComposer();
+      clearTimeout(settling);
+      settling = undefined;
+    };
     /// The pane became active (window focus, the host's focusContent): claim unless a click did it.
+    /// A claim whose pane gave the keyboard away while it settled is dropped (onWindowBlur): it
+    /// would take the keyboard back from the pane that has it now, whose own late claim then took
+    /// it back again (two chats side by side traded focus every 120 ms, never going still;
+    /// agent-pane.subagent-split-pair).
     const claimOnActivation = () => {
       if (performance.now() - pressedAt < PRESS_WINDOW_MS) return;
       clearTimeout(settling);

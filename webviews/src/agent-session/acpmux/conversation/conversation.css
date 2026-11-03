@@ -4166,6 +4166,59 @@ a.cv-sha:focus-visible {
   border-radius: 4px;
 }
 
+/* A session recap (RecapNote.tsx): muted text with its lead-in, a × on hover-free reach. The card
+   look is the shipped one (Claude's recap card); line and rule are the gallery's alternatives. */
+.cv-recap {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-block: 4px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-recap[data-look="card"] {
+  padding: 8px 8px 8px 12px;
+  border: 1px solid var(--agent-border);
+  border-radius: var(--grid-cards-radius);
+}
+.cv-recap[data-look="rule"] {
+  padding-left: 12px;
+  box-shadow: inset 2px 0 0 var(--agent-border);
+}
+.cv-recap[data-look="line"] {
+  padding-left: var(--cv-tool-text-inset);
+}
+.cv-recap__text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.cv-recap__label {
+  color: var(--agent-text);
+}
+.cv-recap__close {
+  all: unset;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--ds-radius-control);
+  color: var(--cv-text-dim);
+  cursor: default;
+}
+.cv-recap__close:hover {
+  color: var(--agent-text);
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+}
+.cv-recap__close:focus-visible {
+  outline: 2px solid var(--agent-focus, currentColor);
+  outline-offset: 1px;
+}
+
 /* The answer's action row; its height is reserved. One quiet line under the answer, where its text
    starts, as Claude Code desktop's: Copy, Fork, Pin and Read aloud, then the answer's age. */
 .cv-turn-actions {
