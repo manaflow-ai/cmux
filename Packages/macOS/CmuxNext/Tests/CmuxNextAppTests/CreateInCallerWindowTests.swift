@@ -45,10 +45,21 @@ struct CreateInCallerWindowTests {
                                        workspaceRevision: 11, origin: DaemonStore.resourceAPIOrigin, mutationID: mutation))
     }
 
-    /// The window `id` is filed into: its claim (the store's personal state does not list it, so reconcile
-    /// does not place it here) or, once reconcile took the claim, its owner.
-    private static func filed(_ id: String, _ services: AppServices) -> String? {
-        services.windows.claims.pending[id] ?? services.windows.registry.value.owner(of: id)
+    /// Applies the workspace-added delta of `id` and returns the claim membership reconcile sees for it
+    /// as it runs (the window it is filed into, and whether quietly): the store names the create's key
+    /// before its list hook, which runs reconcile.
+    private static func reconciledClaim(_ id: String, surface: UInt64, mutation: String,
+                                        _ services: AppServices) throws -> (window: String?, quiet: Bool) {
+        let store = services.machines.local.store
+        let reconcile = try #require(store.onWorkspaceListChanged, "membership installed no list hook")
+        var seen: (window: String?, quiet: Bool) = (nil, false)
+        store.onWorkspaceListChanged = {
+            seen = (services.windows.claims.pending[id], services.windows.claims.quiet.contains(id))
+            reconcile()
+        }
+        defer { store.onWorkspaceListChanged = reconcile }
+        store.apply(added(id, surface: surface, mutation: mutation))
+        return seen
     }
 
     @Test func anAnnouncedCreateOpensInItsWindowNotTheMostRecent() async throws {
@@ -62,11 +73,9 @@ struct CreateInCallerWindowTests {
         let reply = try services.windows.expectCreate(["idempotency_key": "cli-key-1", "window": .string(prompted.state.id)], topology: ControlSnapshotPublisher.topology(services))
         #expect(reply["window"] == .string(ControlWindowInfo.publicID(forKey: prompted.state.id)))
         // A terminal create (the CLI default): the daemon names its workspace `<key>/workspace`.
-        services.machines.local.store.apply(Self.added("ws-new", surface: 3, mutation: "cli-key-1" + DaemonStore.workspaceReservationSuffix))
-
-        #expect(Self.filed("ws-new", services) == prompted.state.id,
-                "it went to \(Self.filed("ws-new", services) ?? "no window"), not the window it was announced for")
-        #expect(services.windows.claims.quiet.contains("ws-new"), "an agent's create would change what the window shows")
+        let claim = try Self.reconciledClaim("ws-new", surface: 3, mutation: "cli-key-1" + DaemonStore.workspaceReservationSuffix, services)
+        #expect(claim.window == prompted.state.id, "it went to \(claim.window ?? "the most recent window"), not the window it was announced for")
+        #expect(claim.quiet, "an agent's create would change what the window shows")
         #expect(prompted.state.workspaceID == "ws-a", "an agent's create changed what the window shows")
     }
 
@@ -83,9 +92,7 @@ struct CreateInCallerWindowTests {
         let topology = ControlSnapshotPublisher.topology(services)
         #expect(topology.chiefPromptWindowID == prompted.state.id)
         _ = try services.windows.expectCreate(["idempotency_key": "turn-key", "caller": ["home_chat": true]], topology: topology)
-        services.machines.local.store.apply(Self.added("ws-turn", surface: 3, mutation: "turn-key"))
-
-        #expect(Self.filed("ws-turn", services) == prompted.state.id)
+        #expect(try Self.reconciledClaim("ws-turn", surface: 3, mutation: "turn-key", services).window == prompted.state.id)
     }
 
     @Test func anUnannouncedCreateStillGoesToTheMostRecentWindow() async throws {
@@ -96,9 +103,8 @@ struct CreateInCallerWindowTests {
         let (prompted, other) = try await Self.twoWindows(services)
         defer { for controller in [prompted, other] { controller.teardown(); controller.window?.close() } }
 
-        services.machines.local.store.apply(Self.added("ws-plain", surface: 3, mutation: "someone-else"))
         // No claim: reconcile's most recent window, as before.
-        #expect(services.windows.claims.pending["ws-plain"] == nil)
+        #expect(try Self.reconciledClaim("ws-plain", surface: 3, mutation: "someone-else", services).window == nil)
     }
 
     @Test func aNamedWindowTheAppDoesNotHaveIsRefused() async throws {
