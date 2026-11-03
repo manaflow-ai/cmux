@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4156722095701",
+  "notes": "notes/4156722095701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32842,
+      "title": "fix(acpmux): end compact after late prompt replay",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32644,
+      "title": "Agent transcript: opening a line at the very bottom pushes the text up",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32867,
+      "title": "Agent chat: every disclosure chevron sits right after its label, pointing down, the ChatGPT way",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32806,
+      "title": "base red: find-import-pressed reads a button's paint after its Reduce Motion transition settles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32808,
+      "title": "perf(agent-chat): reserve older-history height only on first layout",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32823,
+      "title": "test(webviews): message-preview opens the \"Received N messages\" row before it reads a preview",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32828,
+      "title": "base red: the Session Info overlays comment names the popup classes as selectors",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32851,
+      "title": "cmux NEXT: Changes opens its diff as a tab in the pane on the right, never a lower split",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32865,
+      "title": "release: approve DO migration v20 (TrajectoryDO) for production",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32838,
+      "title": "fix(cmux-tui): when PTYs are low, closed tabs' terminals waiting out the reap grace give theirs back first (STATUS 7938)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
