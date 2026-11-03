@@ -238,6 +238,23 @@ import Testing
         #expect(creates.made[1].split == nil, "a placement owner's tab is its own to move")
     }
 
+    /// A second open from Home's dock while the first one's split is still on its way (Split Browser
+    /// Right pressed twice) keeps the make-and-move: the first makes the column, and the daemon refuses
+    /// a split of a dock no longer alone (review of #33548).
+    @Test(.timeLimit(.minutes(1))) func aSecondOpenWhileTheFirstSplitIsOnItsWayKeepsTheMove() async throws {
+        let (_, pane, creates) = try Self.pane(capabilities: Self.served + [.pinnedDock, .pinnedDockAlone], tree: Self.homeDockAlone())
+        defer { pane.teardown() }
+        creates.reply = SurfaceID(rawValue: 7) // answered, but no snapshot lists it yet: its split stays pending
+        #expect(pane.newBrowserTab(url: URL(string: "https://example.com/")))
+        if creates.made.isEmpty { for await _ in creates.heard { break } }
+        #expect(creates.made.first?.split != nil)
+        #expect(!PaneBrowserTabOpener(controller: pane).opensBesideDockInSplit)
+        #expect(pane.newBrowserTab(url: URL(string: "https://example.com/2")))
+        if creates.made.count < 2 { for await _ in creates.heard { break } }
+        try #require(creates.made.count == 2)
+        #expect(creates.made[1].split == nil, "a second split of Home's dock went out while the first was pending")
+    }
+
     /// An older daemon (no `pinned-dock-alone-v1`) keeps the make-and-move beside the dock.
     @Test func withoutPinnedDockAloneHomesDockKeepsTheMove() throws {
         let (_, pane, _) = try Self.pane(capabilities: Self.served + [.pinnedDock], tree: Self.homeDockAlone())
