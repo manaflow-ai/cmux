@@ -423,6 +423,8 @@ export function shellEntry(
 
 export type ChatCard = {
   sessionId: string;
+  /** Owning acpmux machine, for identity-safe live list deduplication. */
+  peer?: string;
   /// A device chat from the acpmux chat index (`harness:sessionId`): opens through the host's
   /// shared Open Chat path (`chats.open`), not as an acpmux session.
   chatKey?: string;
@@ -520,6 +522,7 @@ function liveChatCards(
 function sessionCard(session: AcpmuxSessionEntry, now: number, t: Translate): ChatCard {
   return {
     sessionId: session.sessionId,
+    ...(session.peer ? { peer: session.peer } : {}),
     title: session.displayTitle ?? session.sessionId,
     ...(session.agentSessionId ? { chatId: session.agentSessionId } : {}),
     ...(session.harness ? { harness: session.harness } : {}),
