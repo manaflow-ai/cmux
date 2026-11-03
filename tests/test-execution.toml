@@ -456,6 +456,10 @@ path = "tests/test_shell_cli_shim_private_dir.py"
 lane = "macos-shell"
 
 [[test]]
+path = "tests/test_bash_private_dirs_spawn_budget.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_workspace_initial_command_shim_root_owner.py"
 lane = "macos-shell"
 
