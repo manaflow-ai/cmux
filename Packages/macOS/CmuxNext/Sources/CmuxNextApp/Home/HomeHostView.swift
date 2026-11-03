@@ -143,6 +143,7 @@ final class HomeHostView: NSView {
         settingsView.onRename = { [weak service] name in
             await service?.renameChief(conversation: conversation, to: name) ?? .noConnection
         }
+        settingsView.bindPrimary(directory: service.directory, conversation: conversation)  // the Primary Chief row
         // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
         wireStopButton(registry)
