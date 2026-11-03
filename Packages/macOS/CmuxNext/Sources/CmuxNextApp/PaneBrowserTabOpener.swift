@@ -197,10 +197,10 @@ extension PaneBrowserTabOpener {
     /// (``BrowserTabSplitCommand``), so LinkOpener never makes it here and moves it: the pane's daemon
     /// makes its browser tabs and serves the split, and the pane is not Home's pinned dock.
     var opensInSplit: Bool {
-        let daemon = controller.daemon
-        let route = BrowserTabRoute(isLocal: daemon.isLocal, connected: daemon.connection != nil,
-                                    servesTabs: controller.services.cache.browserTabs.isAvailable(in: controller.pane))
-        return route == .daemon && BrowserTabSplitCommand.isServed(by: daemon) && !controller.isOpenPinnedDockPane && ActionRunScope.viewChangeAllowed()
+        let daemon = controller.daemon, tabs = controller.services.cache.browserTabs, pane = controller.pane
+        let route = BrowserTabRoute(isLocal: daemon.isLocal, connected: daemon.connection != nil, servesTabs: tabs.isAvailable(in: pane))
+        // Not incognito: its record holds about:blank until the reply registers the URL, so a pane arriving first mounts a blank page.
+        return route == .daemon && BrowserTabSplitCommand.isServed(by: daemon) && !controller.isOpenPinnedDockPane && ActionRunScope.viewChangeAllowed() && !tabs.isIncognitoPane(pane)
     }
 
     /// The split and the tab's stand-in show now, with the chain's even sizing (as PaneHandlers.split),

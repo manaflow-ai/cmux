@@ -1,5 +1,7 @@
 public import CmuxNextDaemon
 public import CmuxNextLayout
+import CmuxNextCompat
+import CmuxNextWakeups
 
 /// A browser tab opened straight into a new split of its pane (`frontend-browser-tab-split-v1`):
 /// one `new-frontend-browser-tab {pane, split}`, one daemon commit and one `pane-added` delta. The
@@ -63,8 +65,25 @@ public struct BrowserTabSplitCommand: Sendable {
             }
             let cancelled = store.creations.wasCancelled(transaction)
             if let sizing { if cancelled { layout?.cancelSplitSizing(sizing) } else { layout?.commitSplitSizing(sizing) } }
-            return cancelled ? nil : surface
+            if cancelled { return nil }
+            // The reply can come before the pane's events: the next open beside this pane must find the
+            // daemon's pane, not the provisional one (a create aimed at it is refused), as the move did.
+            return await Self.listed(surface, in: store) ? surface : nil
         }
+    }
+
+    /// Whether `store` lists the daemon's tab `surface` (its pane arrived), heard as it appears and given
+    /// up after 30 s, as LinkOpener's move waits for a made tab.
+    @MainActor static func listed(_ surface: SurfaceID, in store: DaemonStore) async -> Bool {
+        if store.tab(surface: surface) != nil { return true }
+        let wait = Task { @MainActor () -> Bool in
+            for await found in ObservationStream({ _ = store.tabListRevision; return store.tab(surface: surface) != nil }) where found { return true }
+            return false
+        }
+        let bound = DemandTimer(owner: "BrowserTabSplitCommand.listed")
+        bound.schedule(after: .seconds(30)) { @MainActor in wait.cancel() }
+        defer { bound.cancel() }
+        return await wait.value
     }
 }
 

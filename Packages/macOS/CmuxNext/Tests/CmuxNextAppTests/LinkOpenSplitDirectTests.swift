@@ -17,6 +17,8 @@ import Testing
     /// What the faked `new-frontend-browser-tab` was asked.
     @MainActor private final class Creates {
         var made: [(pane: PaneID, url: String, after: SurfaceID?, split: ConversationTabSplit?)] = []
+        /// The surface a create answers; nil refuses it.
+        var reply: SurfaceID?
         /// Hears each create as it is made.
         let (heard, hear) = AsyncStream<Void>.makeStream()
     }
@@ -45,7 +47,8 @@ import Testing
         browserTabs.create = { _, pane, url, _, _, _, after, split in
             creates.made.append((pane, url, after, split))
             creates.hear.yield()
-            throw CancellationError()
+            guard let reply = creates.reply else { throw CancellationError() }
+            return reply
         }
         let model = try #require(store.workspaces.first?.screens.first?.panes.first)
         let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
@@ -141,5 +144,40 @@ import Testing
         }
         #expect(direction == .right)
         #expect(moved)
+    }
+
+    /// The reply can come before the daemon's pane (review of #32900): the open's turn ends only once
+    /// the store lists the new tab, so the next link beside the pane never aims at the provisional pane.
+    @Test(.timeLimit(.minutes(1))) func theTurnWaitsForTheDaemonsPaneNotJustTheReply() async throws {
+        let (services, pane, creates) = try Self.pane(capabilities: Self.served)
+        defer { pane.teardown() }
+        services.linkOpener.placement = { .splitRight }
+        let store = services.daemon.store
+        let made = SurfaceID(rawValue: 7)
+        creates.reply = made
+        let url = try #require(URL(string: "https://example.com/"))
+        #expect(services.linkOpener.openWeb(url, from: pane, background: false))
+        if creates.made.isEmpty { for await _ in creates.heard { break } }
+        #expect(services.linkOpener.openWeb(url, from: pane, background: false))
+        for _ in 0..<20 { await Task.yield() }
+        #expect(creates.made.count == 1, "the next open went out before the daemon's pane arrived")
+
+        // The daemon's pane arrives: the turn ends and the queued open is asked.
+        let source = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")])
+        let right = PaneSnapshot(id: PaneID(rawValue: 2), tabs: [TabSnapshot(surface: made, title: url.absoluteString)])
+        let layout = LayoutNode.split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(PaneID(rawValue: 1)), b: .leaf(PaneID(rawValue: 2)))
+        let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: layout, panes: [source, right])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil, name: "w1", screens: [screen])]))
+        if creates.made.count < 2 { for await _ in creates.heard { break } }
+        #expect(creates.made.count == 2)
+    }
+
+    /// An incognito pane keeps make-and-move: its daemon record holds about:blank until the reply
+    /// registers the URL, so a pane that arrived first would mount a blank page (review of #32900).
+    @Test func anIncognitoPaneKeepsTheMove() throws {
+        let (services, pane, _) = try Self.pane(capabilities: Self.served)
+        defer { pane.teardown() }
+        services.cache.browserTabs.isIncognitoPane = { _ in true }
+        #expect(!PaneBrowserTabOpener(controller: pane).opensInSplit)
     }
 }

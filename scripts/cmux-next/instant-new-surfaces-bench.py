@@ -203,6 +203,8 @@ def arm_quick(window):
     the same command, so it finds the stand-in or spare the first press took. Both results are undone."""
     rows = []
     for command in COMMANDS:
+        if command not in KEYS:
+            continue  # no key (link_right): timed by the warm arm alone
         for index in range(opts.quick_runs):
             if not ensure_terminal():
                 rows.append({"phase": "quick", "run": index, "command": command, "arm": "quick", "error": "no focused terminal"})
