@@ -73,8 +73,16 @@ public final class LinkHintController {
             guard !Task.isCancelled else { return }
             collected((false, targets ?? []), from: tab)
         }
-        bound.schedule(after: answerBound) { @MainActor [weak self] in self?.answerTimedOut() }
+        let fire = boundForCurrentSession()
+        bound.schedule(after: answerBound) { @MainActor in fire() }
     }
+
+    /// The bound of a session's focus check passed (``DemandTimer`` fires on the main actor; a fire it already took can
+    /// come after ``cancel()`` and a new ``start(_:tab:window:isFocused:openInSplit:noLinks:)``).
+    func boundFired() { answerTimedOut() }
+
+    /// What the current session's bound runs when it fires (a test fires an ended session's bound late).
+    func boundForCurrentSession() -> @MainActor @Sendable () -> Void { { [weak self] in self?.boundFired() } }
 
     /// The page did not say within the bound whether a text field has the keyboard (a hung renderer, a closed tab): the
     /// keys typed meanwhile go to the page, in order.
