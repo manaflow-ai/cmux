@@ -236,6 +236,50 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
+        Some("rights-hook") => {
+            // Claude Code's PreToolUse/PostToolUse hook of a Chief turn.
+            let phase = args.get(1).map(String::as_str).unwrap_or("");
+            let socket = flags.value("socket").map(std::path::PathBuf::from);
+            if let Some(socket) = socket {
+                let out = optchat_chief::rights::hook(phase, &socket, &mut std::io::stdin());
+                if !out.is_empty() {
+                    println!("{out}");
+                }
+            }
+            0
+        }
+        Some(verb @ ("rights" | "audit")) => {
+            // The table and the log of this Chief (`--mux-home` or MUX_HOME).
+            // Read here, not through `Flags`: a bare flag before it
+            // (`--json --mux-home X`) would take X as its value there, and
+            // the change would go to the default home's table.
+            let (home, words) = match optchat_chief::rights::split_mux_home(&args[1..]) {
+                Ok(split) => split,
+                Err(e) => {
+                    eprintln!("optchat-chief {verb}: {e}");
+                    return std::process::ExitCode::from(2);
+                }
+            };
+            let home = home.unwrap_or_else(optchat_chief::paths::mux_home);
+            let root = optchat_chief::paths::Paths::new(&home).root;
+            let owner =
+                std::env::var("OPTCHAT_CHIEF_OWNER").unwrap_or_else(|_| "user_local".to_owned());
+            let out = if verb == "rights" {
+                optchat_chief::rights::run(&words, &root, &owner)
+            } else {
+                optchat_chief::audit::run(&words, &root, &mut std::io::stdin())
+            };
+            match out {
+                Ok(out) => {
+                    println!("{out}");
+                    0
+                }
+                Err(e) => {
+                    eprintln!("optchat-chief {verb}: {e}");
+                    1
+                }
+            }
+        }
         Some("usage") => match optchat_chief::usage::run(&args[1..]) {
             Ok(out) => {
                 print!("{out}");

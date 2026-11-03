@@ -113,12 +113,13 @@ impl Brain {
             peers = vec![crate::subagents::PER_AGENT.to_owned()];
         }
         match place {
-            Some("local") => Ok(Vec::new()),
+            Some("here" | "local" | "mac") => Ok(Vec::new()),
             Some("cloud") if peers.is_empty() => Err(
                 "no cloud peer is set up: `control cloud PEER[,PEER...]` names the acpmux peers (`acpmux host ls`) cloud subagents run on".to_owned(),
             ),
             Some("cloud") => Ok(peers),
-            Some(other) => Err(format!("spawn: no place {other}; cloud or local")),
+            // Paired names are validated by the pure picker against acpmux.
+            Some(_) => Ok(peers),
             None if saved.as_deref() == Some("") => Ok(Vec::new()),
             None => Ok(peers),
         }
@@ -618,6 +619,8 @@ impl Brain {
         peers: &[String],
         place: Option<&str>,
         size: Option<&str>,
+        machines: &[crate::place_route::Machine],
+        family: crate::acpmux::Family,
     ) -> Result<SpawnPlan, String> {
         if let Some(s) = size
             && !crate::subagents::SIZES.contains(&s)
@@ -634,24 +637,55 @@ impl Brain {
         let mut free = self
             .live_cap()
             .map_or(usize::MAX, |n| n.saturating_sub(self.live_subs()));
+        use crate::place_route::{Kind, Machine, Placement, Target};
+        // Paused Cloud VMs are disconnected until the pool resumes them.
+        // Only discard a disconnected saved peer we have no way to resume.
+        let peers: Vec<String> = peers
+            .iter()
+            .filter(|peer| {
+                per_agent
+                    || self.cloud_paused.contains(*peer)
+                    || self.cloud_vms.as_ref().is_some_and(|vms| vms.available())
+                    || machines
+                        .iter()
+                        .find(|m| m.kind == Kind::Paired && m.name == **peer)
+                        .is_none_or(|m| m.connected)
+            })
+            .cloned()
+            .collect();
         // B4: each cloud subagent goes to the peer with the fewest live
         // ones (counting this spawn's), ties to the first listed.
         let mut load: Vec<usize> = peers.iter().map(|p| self.live_on(p)).collect();
-        let mut pick = || -> Option<String> {
-            let k = (0..peers.len()).min_by_key(|&k| (load[k], k))?;
-            load[k] += 1;
-            Some(peers[k].clone())
-        };
-        let chosen: Vec<Option<String>> = if per_agent {
-            Vec::new()
-        } else {
-            tasks.iter().map(|_| pick()).collect()
-        };
-        for p in chosen.iter().flatten() {
-            self.cloud_paused.remove(p);
-            self.cloud_idle_since.remove(p);
-            self.cloud_pause_retry.remove(p);
+        let mut machines = machines.to_vec();
+        if !peers.is_empty() {
+            machines.push(Machine {
+                name: "cloud".into(),
+                kind: Kind::Cloud,
+                os: "linux".into(),
+                connected: true,
+                pressure_ok: true,
+                live_sessions: 0,
+                logins: Vec::new(),
+            });
         }
+        // A saved `control cloud off` means here until explicitly overridden.
+        let override_place =
+            place.or_else(|| (self.state.cloud_peer.as_deref() == Some("")).then_some("here"));
+        let placements: Vec<Placement> = tasks
+            .iter()
+            .map(|task| {
+                let mut p = crate::place_route::pick(task, &machines, family, override_place)?;
+                if place.is_none() && override_place == Some("here") {
+                    p.reason = "Cloud is off; staying here".into();
+                }
+                if let Target::Peer(name) = &p.target
+                    && let Some(m) = machines.iter_mut().find(|m| m.name == *name)
+                {
+                    m.live_sessions += 1;
+                }
+                Ok(p)
+            })
+            .collect::<Result<_, String>>()?;
         // Never below an id already handed out: a reset or unreadable
         // counter must not give `a<N>` twice (persistent-ids-DESIGN.md).
         let prior = self.state.next_subagent;
@@ -665,17 +699,25 @@ impl Brain {
         self.state.next_subagent = first + tasks.len() as u64;
         // One VM per subagent: its own peer, named after its id; a task that
         // needs the Mac (and was not sent to the cloud) runs here.
-        let chosen: Vec<Option<String>> = if per_agent {
-            ids.iter()
-                .zip(tasks)
-                .map(|(id, task)| {
-                    (place == Some("cloud") || !crate::subagents::needs_mac(task))
-                        .then(|| crate::subagents::agent_peer(id))
-                })
-                .collect()
-        } else {
-            chosen
-        };
+        let chosen: Vec<Option<String>> = ids
+            .iter()
+            .zip(&placements)
+            .map(|(id, p)| match &p.target {
+                Target::Here => None,
+                Target::Peer(name) => Some(name.clone()),
+                Target::CloudVm if per_agent => Some(crate::subagents::agent_peer(id)),
+                Target::CloudVm => {
+                    let k = (0..peers.len()).min_by_key(|&k| (load[k], k))?;
+                    load[k] += 1;
+                    Some(peers[k].clone())
+                }
+            })
+            .collect();
+        for p in chosen.iter().flatten() {
+            self.cloud_paused.remove(p);
+            self.cloud_idle_since.remove(p);
+            self.cloud_pause_retry.remove(p);
+        }
         let sizes: Vec<Option<String>> = chosen
             .iter()
             .zip(tasks)
@@ -773,6 +815,7 @@ impl Brain {
             peer: chosen.iter().flatten().next().cloned(),
             peers: chosen,
             sizes,
+            placements,
         })
     }
 
