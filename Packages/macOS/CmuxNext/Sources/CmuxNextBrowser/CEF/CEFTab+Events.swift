@@ -55,6 +55,8 @@ extension CEFTab {
             // A new document: the one before is gone. Its own first paint may have come first, if this is the load's first commit.
             (documentLoaded, documentPainted, committedIsErrorPage) = (false, paintBeforeCommit && !committedThisLoad, false)
             (paintBeforeCommit, committedThisLoad) = (false, true)
+            paintAsk?.cancel() // an answer about the document before is not this one's
+            paintAsk = nil
             if !hasDocument { host.lifecycleTrace.record(id, "cef-commit real=\(PageBackground.isRealPage(committedURL)) painted=\(documentPainted)") }
             pageInfoDocumentCommitted(URL(string: url))
             resetPageBackdrop()
@@ -68,6 +70,7 @@ extension CEFTab {
             if PageBackground.isRealPage(committedURL) || blankIsDocument { documentLoaded = true } // its script ran: a focused field and listeners exist
             if !hasDocument { host.lifecycleTrace.record(id, "cef-load-end loaded=\(documentLoaded) painted=\(documentPainted) loading=\(chromiumLoading)") }
             documentMayTakeKeys() // loading may have stopped before this load end
+            askPaintIfLoaded() // no paint report yet: the page's own answer, which cannot be lost
             if let navigation { machine.apply(.finished(navigation)) }
             // Read-then-settle, as at the first paint (one read per document), and a fresh read after it.
             documentDidFinishLoad()
@@ -248,9 +251,9 @@ extension CEFTab {
     /// Runs a DevTools protocol method on this tab in process (an app page's script batches and replies,
     /// diagnostics, trusted-input tests). Returns the method's JSON result. Large parameters are encoded off the
     /// main actor, in this tab's call order.
-    public func devTools(method: String, params: [String: any Sendable]) async throws -> String {
+    public func devTools(method: String, params: [String: any Sendable], timeout: Duration = .seconds(5)) async throws -> String {
         guard let browserID, !isClosed else { throw BrowserTabError.closed }
-        return try await runtime.devTools(browserID, method: method, payload: params)
+        return try await runtime.devTools(browserID, method: method, payload: params, timeout: timeout)
     }
 
     // MARK: Find

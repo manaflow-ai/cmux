@@ -2077,6 +2077,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-wg-tun"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "boringtun",
+ "cmux-wg",
+ "getrandom 0.3.4",
+ "libc",
+ "tokio",
+ "x25519-dalek",
+]
+
+[[package]]
 name = "cmux-worktree-care"
 version = "0.1.0"
 dependencies = [
