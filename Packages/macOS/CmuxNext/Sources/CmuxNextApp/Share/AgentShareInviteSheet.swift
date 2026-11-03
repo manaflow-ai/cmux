@@ -126,12 +126,12 @@ final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
             view.removeFromSuperview()
         }
         empty.isHidden = !rows.isEmpty
-        let model = model
+        let sheet = self.model
         for row in rows {
-            let view = AgentShareInviteRowView(account: row.account, detail: model.rowDetail(row), removeTitle: model.removeTitle,
+            let view = AgentShareInviteRowView(account: row.account, detail: sheet.rowDetail(row), removeTitle: sheet.removeTitle,
                                                isRemoving: removing.contains(row.account)) {
                 // task-owner: one Remove; the model ignores a second press for the same account meanwhile
-                Task { await model.remove(row.account) }
+                Task { await sheet.remove(row.account) }
             }
             rowStack.addArrangedSubview(view)
             view.widthAnchor.constraint(equalTo: rowStack.widthAnchor).isActive = true
@@ -142,9 +142,9 @@ final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
 
     @objc func invitePressed() {
         guard model.canInvite else { return }
-        let model = model
+        let sheet = self.model
         // task-owner: one Invite; the model refuses another while it runs
-        Task { await model.invite() }
+        Task { await sheet.invite() }
     }
 
     @objc private func closePressed() { onClose?() }
