@@ -225,6 +225,10 @@ pub struct Inbox {
     /// The person's own turn held a notice back (module docs): its messages are due as a turn of
     /// their own once the chat is idle, whatever their class. Cleared when a notice goes.
     pub(super) held_by_person: bool,
+    /// A Stop kept a notice out of the turn it ended, or the turn's end answered it before the
+    /// agent read it (`cancel.rs` module docs): its messages are due as a turn of their own once
+    /// the chat is idle, whatever their class. Cleared when a notice goes.
+    pub(super) due_now: bool,
 }
 
 /// How [`Hub::inbox_route`] routes a prompt.
@@ -1052,7 +1056,14 @@ impl Hub {
                             // the person's own: the notice goes in as a turn after it, never
                             // into a turn carried on from it (`carried_turn.rs`).
                             held_by_person = turn.persons;
-                            if !steers
+                            // Nor does a turn a Stop is ending: what is new goes in as the next
+                            // turn, at once (`cancel.rs` module docs).
+                            let stopping = super::cancel::is_stopping(session, &turn.turn_id);
+                            if stopping {
+                                inbox.due_now = true;
+                            }
+                            if stopping
+                                || !steers
                                 || turn.persons
                                 || inbox.held_by_person
                                 || capped(&meta, turn.started_at, now)
@@ -1075,6 +1086,12 @@ impl Hub {
                         None if inbox.first.is_some() || first_work_waits(session) => {
                             Next::WakeAt(now.saturating_add(WAKE_DEBOUNCE_MS))
                         }
+                        // While the person's Stop holds the other agents' messages (`cancel.rs`
+                        // `hold_agent_messages`), none starts a turn: they wait until the
+                        // person's next turn or a resume of the queue ends the hold, which
+                        // reviews the inbox again (`release_held_agent_messages`,
+                        // `queue_edit.rs` `resume`). A message a Stop sent back included.
+                        None if session.stop_hold.load(Ordering::SeqCst) != 0 => Next::Nothing,
                         None => {
                             // A waking message after the debounce; anything after the flush, so no
                             // message is stranded in an idle chat.
@@ -1083,7 +1100,7 @@ impl Hub {
                             let waking = new.iter().filter(|i| wakes(&meta, i)).map(|i| i.at).min();
                             let oldest = new.iter().map(|i| i.at).min().unwrap_or(now);
                             let flush = oldest.saturating_add(FLUSH_MS);
-                            let due = if inbox.held_by_person {
+                            let due = if inbox.held_by_person || inbox.due_now {
                                 now
                             } else {
                                 waking.map_or(flush, |at| {
@@ -1150,6 +1167,7 @@ impl Hub {
                 timer.abort();
             }
             inbox.held_by_person = false;
+            inbox.due_now = false;
             let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
             let (text, parts) = render(&new);
             let whole = team_page::whole_notice(&new);
@@ -1218,6 +1236,23 @@ impl Hub {
                 }
                 inbox.settled.notify_waiters();
                 Some(answer)
+            } else if super::steer_end::is_stopped_steer_refused(&result) {
+                // A Stop kept it out of its turn, or took it back unread: no refusal of the agent's,
+                // so no backoff; it goes in as the next turn (`inbox_review`).
+                inbox.due_now = true;
+                for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
+                    item.noticed = false;
+                }
+                for (id, waiter) in waiters {
+                    match inbox.items.iter_mut().find(|i| i.prompt_id == id) {
+                        Some(item) if !closed => item.answer = Some(waiter),
+                        _ => {
+                            waiter.send_replace(Some(Err(super::queue::closing_error())));
+                        }
+                    }
+                }
+                inbox.settled.notify_waiters();
+                None
             } else {
                 // Tried again after the backoff, or sooner when a turn starts or ends.
                 inbox.refused_at = now_ms();
@@ -1313,6 +1348,26 @@ impl Hub {
         self.inbox_review(session);
     }
 
+    /// Notice `notice_id`, written as a steer, was taken back by a Stop before the agent read it
+    /// (`steer_end.rs` `steer_turn`): it did not go in. Its messages are no notice's now, and the
+    /// log says so (`inbox_returned`), so a restart finds them new too; `notice_done` makes them
+    /// new again.
+    pub(super) fn inbox_notice_unwritten(&self, session: &Arc<Session>, notice_id: &str) {
+        let ids: Vec<String> = {
+            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(at) = inbox.written.iter().position(|id| id == notice_id) else { return };
+            inbox.written.remove(at);
+            let mut ids = Vec::new();
+            for item in inbox.items.iter_mut().filter(|i| i.notice.as_deref() == Some(notice_id)) {
+                item.notice = None;
+                ids.push(item.prompt_id.clone());
+            }
+            ids
+        };
+        let msg = json!({"noticePromptId": notice_id, "promptIds": ids, "reason": "stopped"});
+        self.append(session, "mux", "inbox_returned", msg);
+    }
+
     /// A turn ended (`finish_turn`, `fail_unstarted_turn`): a refusal during it no longer holds
     /// the next try back.
     pub(super) fn inbox_turn_ended(self: &Arc<Self>, session: &Arc<Session>) {
@@ -1370,8 +1425,14 @@ impl Hub {
     }
 
     /// The record kinds `restore_inbox` reads (a log load's, so `store/kind_index.rs` copies them).
-    pub(crate) const INBOX_KINDS: &[&str] =
-        &["inbox", "inbox_noticed", "inbox_answered", "inbox_read", "inbox_removed"];
+    pub(crate) const INBOX_KINDS: &[&str] = &[
+        "inbox",
+        "inbox_noticed",
+        "inbox_returned",
+        "inbox_answered",
+        "inbox_read",
+        "inbox_removed",
+    ];
 
     /// The inbox from the session's log (`restore_queue`): every message, read and noticed as
     /// the log says. Run again, it adds only what it does not hold.
@@ -1422,6 +1483,12 @@ impl Hub {
                     let notice = e.msg.get("noticePromptId").and_then(Value::as_str);
                     let notice = notice.unwrap_or_default().to_owned();
                     noticed.extend(ids().map(|id| (id, notice.clone())));
+                }
+                // Taken back by a Stop unread (`inbox_notice_unwritten`): new again.
+                "inbox_returned" => {
+                    for id in ids() {
+                        noticed.remove(&id);
+                    }
                 }
                 "inbox_answered" => {
                     if let Some((notice, answer)) = answered_record(&e.msg) {

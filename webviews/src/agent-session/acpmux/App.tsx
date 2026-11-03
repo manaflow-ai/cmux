@@ -8611,13 +8611,16 @@ function AcpmuxPane() {
   /// The same, for dictation's field getter (below), which is made once.
   const cloudStartingNow = useRef(false);
   cloudStartingNow.current = cloudStarting;
-  const sendToCloud = (text: string, attachmentCount: number, start: Omit<CloudStart, "task">): string | false => {
-    const refused = cloudPageRefusal(sandboxOffered, attachmentCount);
+  const sendToCloud = (
+    text: string,
+    attachments: ComposerAttachment[],
+    start: Omit<CloudStart, "task" | "attachments">,
+  ): string | false => {
+    const refused = cloudPageRefusal(sandboxOffered);
     if (refused === "cloud_not_now")
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
-    if (refused) return translate("composer.cloudAttachments");
     const key = crypto.randomUUID();
-    const started = startCloud({ task: text, ...start }, key);
+    const started = startCloud({ task: text, attachments, ...start }, key);
     // Another Return while a start waits starts nothing, and the card keeps that start.
     if (!started) return false;
     cloudStartPending.current = true;
@@ -10740,6 +10743,7 @@ function AcpmuxPane() {
     // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
     // here until a connect succeeds: a first connect that fails retries without it.
     let pendingPrompt: string | undefined;
+    let pendingAttachments: ComposerAttachment[] | undefined;
     let pendingTicket: { promptId: string; ticket: string } | undefined;
     // The harness that seeded prompt starts on (`newTab.submit --agent`), kept with it.
     let pendingHarness: string | undefined;
@@ -10794,6 +10798,7 @@ function AcpmuxPane() {
           cwd?: string;
           draft?: string;
           prompt?: string;
+          promptAttachments?: ComposerAttachment[];
           promptTicket?: { promptId?: unknown; ticket?: unknown };
           harness?: string;
           peer?: string;
@@ -10922,10 +10927,11 @@ function AcpmuxPane() {
         // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
         if (host.harnesses === true) setHarnessesOpen(true);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
+        pendingAttachments = host.promptAttachments ?? pendingAttachments;
         // A prompt a person's action seeded has a single-use host ticket bound to its promptId
         // (cx-k21v gap 4); a CLI, MCP or script seed has none and the host refuses its send.
         if (
-          host.prompt &&
+          (host.prompt || host.promptAttachments?.length) &&
           typeof host.promptTicket?.promptId === "string" &&
           typeof host.promptTicket.ticket === "string"
         )
@@ -12058,15 +12064,18 @@ function AcpmuxPane() {
         // Onboarding's first task runs without a Send press, once. If the chat cannot start,
         // the prompt waits in the composer instead of vanishing.
         const prompt = pendingPrompt;
+        const attachments = pendingAttachments ?? [];
+        const hasPrompt = Boolean(prompt || attachments.length);
         const harness = pendingHarness;
         const model = pendingModel;
         const ticket = pendingTicket;
         pendingPrompt = undefined;
+        pendingAttachments = undefined;
         pendingHarness = undefined;
         pendingModel = undefined;
         pendingTicket = undefined;
         // The seeded prompt goes with its ticket, under the ticket's promptId.
-        if (prompt && ticket) heldPrompt.keep(ticket);
+        if (hasPrompt && ticket) heldPrompt.keep(ticket);
         // A chat seeded with an agent starts on it, the prompt queued on the switch; a switch
         // that fails hands it back to the composer.
         if (host.peer && !host.sessionId && !client.attachedSession() && !client.adopted) {
@@ -12079,11 +12088,17 @@ function AcpmuxPane() {
               if (!cancelled && directClient.current === client) client.notice(errorMessage(error) || String(error));
             },
           );
-        } else if (harness && prompt) {
+        } else if (harness && hasPrompt) {
           void harnessSwitch.switchTo(harness, host.cwd, { model });
-          void send(prompt, [], undefined, false, ticket?.promptId, undefined, true).catch(() => undefined);
-        } else if (prompt)
-          void send(prompt, [], undefined, false, ticket?.promptId, undefined, true).catch(() => setDraft(prompt));
+          void send(prompt ?? "", attachments, undefined, false, ticket?.promptId, undefined, true).catch(
+            () => undefined,
+          );
+        } else if (hasPrompt)
+          void send(prompt ?? "", attachments, undefined, false, ticket?.promptId, undefined, true).catch(
+            (error: unknown) => {
+              if (!isTrustRefusal(error)) restorePrompt(prompt ?? "", attachments);
+            },
+          );
         // A new chat seeded with the harness/model starts on them with the first Send; no session opens before that.
         // A model-only seed stays sessionless until the first Send; AcpmuxDirectClient retains
         // it in its host config and ensureSession() carries it into session/new.
@@ -13952,10 +13967,14 @@ function AcpmuxPane() {
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               if (cloudPicked) {
                 // The chat's project, copied to the machine; none: the machine's own folder (cloudStartFolder).
-                const refused = sendToCloud(text, chips?.length ?? 0, {
-                  ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
-                  ...heldPick(composerSnapshot),
-                });
+                const refused = sendToCloud(
+                  text,
+                  shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                  {
+                    ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
+                    ...heldPick(composerSnapshot),
+                  },
+                );
                 if (refused) directClient.current?.notice(refused);
                 return false;
               }
@@ -14643,7 +14662,7 @@ function AcpmuxPane() {
                           model: string | undefined,
                           attachments: ComposerAttachment[],
                         ) =>
-                          sendToCloud(text, attachments.length, {
+                          sendToCloud(text, attachments, {
                             harness,
                             ...cloudStartFolder(cwd),
                             ...(model ? { model } : {}),

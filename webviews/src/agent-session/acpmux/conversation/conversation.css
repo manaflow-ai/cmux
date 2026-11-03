@@ -3648,11 +3648,12 @@ button.cv-video-frames__frame:focus-visible {
   justify-content: center;
   color: var(--cv-text-muted);
 }
-.cv-received__mark > :is(svg, img) {
+.cv-received__mark :is(svg, img) {
   display: block;
 }
-/* A harness mark's wrapper centres its glyph too; the Chief's text avatar keeps its own box. */
-.cv-received__mark > span:not(.cv-chief-text-avatar) {
+/* A harness mark's wrappers (AgentIdentity's and its tone span) centre its glyph too, so no inline
+   wrapper sits it on a baseline; the Chief's text avatar keeps its own box. */
+.cv-received__mark span:not(.cv-chief-text-avatar) {
   display: inline-flex;
   align-items: center;
 }
