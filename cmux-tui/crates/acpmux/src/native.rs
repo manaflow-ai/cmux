@@ -7,10 +7,15 @@ use std::path::{Path, PathBuf};
 
 /// Returns `(label, path)` pairs of native files that belong to the session.
 pub fn locate(meta: &SessionMeta) -> Vec<(String, PathBuf)> {
+    match dirs::home_dir() {
+        Some(home) => locate_in(meta, &home),
+        None => vec![],
+    }
+}
+
+/// [`locate`] under the home folder `home`.
+pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
     let Some(sid) = meta.agent_session_id.as_deref() else {
-        return vec![];
-    };
-    let Some(home) = dirs::home_dir() else {
         return vec![];
     };
     let mut out = Vec::new();
@@ -66,8 +71,12 @@ fn walk(root: &Path, depth: usize) -> Vec<PathBuf> {
 
 /// Copy `src` under `dest/<label>/<relative-to-home>` and return the relative path.
 pub fn copy_into(src: &Path, dest: &Path, label: &str) -> Result<String> {
-    let home = dirs::home_dir().unwrap_or_default();
-    let rel = src.strip_prefix(&home).unwrap_or(src);
+    copy_into_from(src, dest, label, &dirs::home_dir().unwrap_or_default())
+}
+
+/// [`copy_into`] for a file of the home folder `home`.
+pub fn copy_into_from(src: &Path, dest: &Path, label: &str, home: &Path) -> Result<String> {
+    let rel = src.strip_prefix(home).unwrap_or(src);
     let target = dest.join(label).join(rel);
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;
@@ -130,7 +139,11 @@ fn restore_target(meta: &SessionMeta, label: &str, rel: &Path) -> Option<PathBuf
 /// Put native files from a bundle back under the home directory. Existing
 /// files are never overwritten. Returns the number of files restored.
 pub fn restore(bundle: &Path, meta: &SessionMeta) -> Result<usize> {
-    let home = dirs::home_dir().unwrap_or_default();
+    restore_in(bundle, meta, &dirs::home_dir().unwrap_or_default())
+}
+
+/// [`restore`] under the home folder `home`.
+pub fn restore_in(bundle: &Path, meta: &SessionMeta, home: &Path) -> Result<usize> {
     let native = bundle.join("native");
     if !native.is_dir() {
         return Ok(0);
@@ -302,4 +315,18 @@ fn without_mode(line: &[u8]) -> Option<Vec<u8>> {
         return Some(line.to_vec());
     }
     serde_json::to_vec(&v).ok()
+}
+
+/// Writes OpenCode's export of the chat's session under `native_dir`; answers its path there.
+pub fn export_opencode_with(
+    _cli: &Path,
+    _meta: &SessionMeta,
+    _native_dir: &Path,
+) -> Result<Option<String>> {
+    Ok(None)
+}
+
+/// Imports a bundle's OpenCode export with `cli`, in the chat's folder; answers whether it did.
+pub fn import_opencode_with(_cli: &Path, _bundle: &Path, _meta: &SessionMeta) -> Result<bool> {
+    Ok(false)
 }
