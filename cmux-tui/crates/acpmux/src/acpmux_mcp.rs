@@ -103,8 +103,8 @@ fn base_tools() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "status": {"type": "string", "description": "Only sessions in this state: running, ready, idle, closed or waiting."},
-                    "query": {"type": "string", "description": "Only sessions whose name, title or peer contains these words (any case)."},
+                    "status": {"type": "string", "description": "Only sessions in this state: running, ready, idle, waiting, disconnected or closed."},
+                    "query": {"type": "string", "description": "Only sessions whose name, title or peer contains this text (any case)."},
                     "limit": {"type": "integer", "minimum": 1, "maximum": LS_MAX_LIMIT, "description": "Most sessions to list (default 100)."}
                 }
             }
@@ -391,7 +391,12 @@ fn send_class(args: &Value) -> Result<Option<String>, String> {
 
 /// `ls`: `acpmux ls` as one line per session.
 async fn ls(daemon: &Arc<Client>, args: &Value) -> Value {
-    match daemon.whole_list(method::MUX_SESSIONS, json!({})).await {
+    // Closed sessions are most of a fleet's list; the daemon leaves them out unless asked for.
+    let params = match arg(args, "status") {
+        Some("closed") => json!({}),
+        _ => json!({"excludeStatus": ["closed"]}),
+    };
+    match daemon.whole_list(method::MUX_SESSIONS, params).await {
         Ok(all) => ls_result(&all, args),
         Err(e) => refusal(e),
     }
