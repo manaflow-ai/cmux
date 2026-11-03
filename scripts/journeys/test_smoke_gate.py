@@ -1286,35 +1286,45 @@ class OpenP0(unittest.TestCase):
             mod.OPEN_P0 = Path(tmp) / "missing.txt"
             self.assertIn("cannot be read", mod.open_p0_blockers("J")[0][1])
 
-    def test_a_superseded_row_is_not_read(self):
-        # The P0 JOURNEY RUNNER marks each older row of a journey "superseded_by" when it appends a new one (its
-        # mark_superseded; lead 2026-11-03): a reader-misread fail whose second try passed (ledger ecf26eee,
-        # quit-reopen-restore) must not block, and a superseded pass must not count.
+    def test_only_a_fail_a_supersede_record_names_is_dropped(self):
+        # Lead 2026-11-03 (decisions on b1b8799348e): a real failure is never hidden. The P0 JOURNEY RUNNER's ledger is
+        # append-only (its ledger.py live_rows, STATUS 9567): a {"record": "supersede"} line names ONE fail row of a
+        # reader misread by id, run_at, out and status; only that row is dropped. "superseded_by" means nothing.
         mod = load_gate()
+        jid = "quit-reopen-restore"
+        ok = {"build_job": "J", "kit_dirty": False, "options": {}, "runner": "p0-journey-runner"}
+        fail = {"id": jid, "status": "fail", "run_at": "T1", "out": "/a1", "reason": 'frame_text "jq-1-400" never held', **ok}
+        misread = {"id": jid, "status": "not_run", "run_at": "T1", "out": "/a1", "reason": "not judged: reader misread", **ok}
+        passed = {"id": jid, "status": "pass", "run_at": "T2", "out": "/a2", **ok}
+
+        def record(row, **change):
+            s = dict({"run_at": row["run_at"], "out": row["out"], "status": "fail"}, **change)
+            return {"record": "supersede", "build_job": "J", "id": row["id"], "supersedes": s,
+                    "by": {"run_at": misread["run_at"], "out": misread["out"], "status": "not_run"},
+                    "reason": misread["reason"], "writer": "p0-journey-runner", "at": "T3"}
+
+        def blockers(lines):
+            (mod.P0_LEDGER / "J.jsonl").write_text("\n".join(json.dumps(r) for r in lines) + "\nnot json\n")
+            return mod.open_p0_blockers("J")
+
         with tempfile.TemporaryDirectory() as tmp:
             mod.OPEN_P0, mod.P0_LEDGER = Path(tmp) / "list.txt", Path(tmp) / "ledger"
             mod.P0_WAIVERS = Path(tmp) / "waivers.txt"
-            mod.OPEN_P0.write_text("quit-reopen-restore k o S1\n")
+            mod.OPEN_P0.write_text(jid + " k o S1\n")
             mod.P0_LEDGER.mkdir()
-            ok = {"build_job": "J", "kit_dirty": False, "options": {}}
-            rows = [{"id": "quit-reopen-restore", "status": "fail", "kit_status": "fail", "out": "/a1",
-                     "reason": 'frame_text "jq-447486-400" never held', "superseded_by": "2026-11-03T15:14:34Z", **ok},
-                    {"id": "quit-reopen-restore", "status": "not_run", "kit_status": "fail", "out": "/a1",
-                     "reason": "not judged: reader misread", "superseded_by": "2026-11-03T15:41:41Z", **ok},
-                    {"id": "quit-reopen-restore", "status": "pass", "kit_status": "pass", "out": "/a2", **ok}]
-            (mod.P0_LEDGER / "J.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
-            self.assertEqual(mod.open_p0_blockers("J"), [])
-            # A superseded pass is not a pass: the journey's current row decides.
-            rows[2]["superseded_by"] = "2026-11-03T16:00:00Z"
-            rows.append({"id": "quit-reopen-restore", "status": "not_run", "out": "/a3", "reason": "no lease", **ok})
-            (mod.P0_LEDGER / "J.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
-            self.assertIn("has not passed on J", mod.open_p0_blockers("J")[0][1])
-            # A fail that is NOT superseded still blocks, also with a later pass (a writer that does not supersede,
-            # e.g. run.py itself): only the runner's own mark retires a row.
-            rows[3] = {"id": "quit-reopen-restore", "status": "fail", "out": "/a3", "reason": "real", **ok}
-            rows.append({"id": "quit-reopen-restore", "status": "pass", "out": "/a4", **ok})
-            (mod.P0_LEDGER / "J.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
-            self.assertIn("FAILED on J", mod.open_p0_blockers("J")[0][1])
+            # The ledger of ecf26eee: the misread fail, its not_run, a pass of attempt 2, and the supersede record.
+            self.assertEqual(blockers([fail, misread, passed, record(fail)]), [])
+            # No record: the fail blocks, also with a later pass; an old "superseded_by" mark hides nothing.
+            self.assertIn("FAILED on J", blockers([dict(fail, superseded_by="T2"), misread, passed])[0][1])
+            # A record that names another attempt, another time, another journey or a non-fail hides nothing.
+            for change in ({"out": "/a9"}, {"run_at": "T9"}, {"status": "not_run"}):
+                self.assertIn("FAILED on J", blockers([fail, misread, passed, record(fail, **change)])[0][1], change)
+            self.assertIn("FAILED on J", blockers([fail, passed, dict(record(fail), id="other")])[0][1])
+            # A second, unnamed fail of the journey still blocks.
+            again = dict(fail, run_at="T4", out="/a4", reason="real")
+            self.assertIn("FAILED on J", blockers([fail, misread, passed, record(fail), again])[0][1])
+            # The record line is no result row: with no pass the journey has not passed.
+            self.assertIn("has not passed on J", blockers([fail, misread, record(fail)])[0][1])
 
     def test_run_py_appends_each_result_to_the_ledger(self):
         sys.path.insert(0, str(HERE))
