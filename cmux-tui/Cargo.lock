@@ -9,6 +9,7 @@ dependencies = [
  "acpmux-build-id",
  "anyhow",
  "base64",
+ "bytes",
  "chrono",
  "chrono-tz",
  "clap",

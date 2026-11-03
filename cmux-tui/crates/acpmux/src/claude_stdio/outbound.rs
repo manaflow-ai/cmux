@@ -236,6 +236,24 @@ impl Translator {
                                     json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "apply_flag_settings", "settings": effort_settings(effort)}}),
                                 ])
                             }
+                            super::RECAP_OPTION => {
+                                let Some(choice) =
+                                    ["default", "on", "off"].into_iter().find(|c| *c == val)
+                                else {
+                                    return Outbound::Reply(Message::err(
+                                        id.clone(),
+                                        RpcError::invalid_params(
+                                            "session-recap must be default, on or off",
+                                        ),
+                                    ));
+                                };
+                                // acpmux's own switch: answered here, Claude Code is not asked.
+                                *self.recap.lock().await = choice;
+                                Outbound::Reply(Message::ok(
+                                    id.clone(),
+                                    json!({"configOptions": self.config_options_value().await}),
+                                ))
+                            }
                             other => Outbound::Reply(Message::err(
                                 id.clone(),
                                 RpcError::invalid_params(format!("unknown config option {other}")),
@@ -351,6 +369,23 @@ impl Translator {
                             "type": "control_request",
                             "request_id": format!("side-{}", id),
                             "request": request,
+                        })])
+                    }
+                    RECAP => {
+                        // Only between turns: a recap asked while a turn runs would describe
+                        // work still under way, and the hub asks only an idle chat.
+                        if self.in_turn.load(Ordering::SeqCst) {
+                            return Outbound::Reply(Message::err(
+                                id.clone(),
+                                RpcError::invalid_params("a turn is running"),
+                            ));
+                        }
+                        // Answered like a side question (`side-` in `inbound.rs`).
+                        self.pending.lock().await.insert(id.to_string(), Pending::SideQuestion);
+                        Outbound::Lines(vec![json!({
+                            "type": "control_request",
+                            "request_id": format!("side-{}", id),
+                            "request": {"subtype": "side_question", "question": RECAP_PROMPT},
                         })])
                     }
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,

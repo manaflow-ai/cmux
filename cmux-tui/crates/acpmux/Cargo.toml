@@ -80,6 +80,8 @@ notify.workspace = true
 # Session tokens and secrets (the OS generator on every platform).
 getrandom.workspace = true
 base64 = "0.22"
+bytes.workspace = true
+tempfile = "3"
 # Model-sized copies of large PNG uploads (src/model_copies.rs).
 png.workspace = true
 unicode-width = "0.2"
@@ -127,7 +129,6 @@ windows-sys = { workspace = true, features = [
 
 [dev-dependencies]
 cmux-server-core = { path = "../cmux-server-core" }
-tempfile = "3"
 rcgen = "0.14"
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
 tokio = { version = "1.52", features = ["test-util"] }

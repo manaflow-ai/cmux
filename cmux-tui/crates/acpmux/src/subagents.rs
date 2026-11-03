@@ -86,6 +86,11 @@ struct ChildPreview {
     message_id: Option<String>,
     streaming: bool,
     tokens: Option<u64>,
+    /// The `task` its spawn (or a later progress) gave it (Claude's Agent `description`). A state
+    /// or progress update that says none carries it, as `names` carries its name, so a reader
+    /// whose page starts after the spawn still names it by its description (Leo, 2026-11-03: a
+    /// background agent's end read "Subagent finished: Subagent").
+    task: Option<String>,
 }
 
 impl SubagentTree {
@@ -222,7 +227,17 @@ impl SubagentTree {
             self.pending.entry(sender).or_default().extend(children);
         }
         for (id, preview) in log.previews {
-            self.previews.entry(id).or_insert(preview);
+            match self.previews.entry(id) {
+                std::collections::hash_map::Entry::Occupied(mut known) => {
+                    let known = known.get_mut();
+                    if known.task.is_none() {
+                        known.task = preview.task;
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(slot) => {
+                    slot.insert(preview);
+                }
+            }
         }
         for (id, name) in log.names {
             self.names.entry(id).or_insert(name);
@@ -253,11 +268,13 @@ impl SubagentTree {
             self.names.insert(id, label(name));
             return;
         }
-        if let Some(task) = text("task") {
-            // A task names one that has no name (a Codex legacy spawn says only its prompt).
-            if !self.names.contains_key(&id) {
-                self.names.insert(id, label(task));
-            }
+        // A task names one that has no name (a Codex legacy spawn says only its prompt). An event
+        // with a task but no name, for one already named, still gets that name (a progress whose
+        // task the tree repeated, ``label``).
+        if let Some(task) = text("task")
+            && !self.names.contains_key(&id)
+        {
+            self.names.insert(id, label(task));
             return;
         }
         if let (Some(name), Some(object)) = (self.names.get(&id), event.as_object_mut()) {
@@ -393,6 +410,7 @@ impl SubagentTree {
                     event.insert("background".into(), json!(true));
                 }
                 event.insert("state".into(), json!("running"));
+                self.remember_label(&id, &event);
                 vec![Value::Object(event)]
             }
             Some("subagent_state_update") => {
@@ -417,6 +435,7 @@ impl SubagentTree {
                 if let Some(tokens) = update.get("tokens").and_then(Value::as_u64) {
                     event.insert("tokens".into(), json!(tokens));
                 }
+                self.label(&id, &mut event);
                 vec![Value::Object(event)]
             }
             // A running subagent's or workflow's live numbers (claude_stdio/workflows.rs).
@@ -444,6 +463,7 @@ impl SubagentTree {
                     "reasoningEffort",
                     "lastMessage",
                     "last_message",
+                    "agentId",
                 ] {
                     if let Some(v) = update.get(key).filter(|v| !v.is_null()) {
                         let key = if key == "reasoningEffort" {
@@ -464,6 +484,8 @@ impl SubagentTree {
                         event.insert(key.into(), value);
                     }
                 }
+                self.remember_label(&id, &event);
+                self.label(&id, &mut event);
                 vec![Value::Object(event)]
             }
             Some("tool_call" | "tool_call_update") => self.codex_legacy(update, owner),
@@ -618,6 +640,24 @@ impl SubagentTree {
         event.insert("state".into(), json!(state));
         event.insert("background".into(), json!(true));
         vec![Value::Object(event)]
+    }
+
+    /// Keeps the task an event of `id` gives (at most a last message's length, so a task that is
+    /// a whole prompt is never repeated on every later event).
+    fn remember_label(&mut self, id: &str, event: &Map<String, Value>) {
+        if let Some(v) = event.get("task").and_then(Value::as_str).filter(|v| !v.is_empty()) {
+            let preview = self.previews.entry(id.to_owned()).or_default();
+            preview.task = (v.chars().count() <= LAST_MESSAGE_CHARS).then(|| v.to_owned());
+        }
+    }
+
+    /// Writes the task `id` was given into an event that says none.
+    fn label(&self, id: &str, event: &mut Map<String, Value>) {
+        if let Some(task) = self.previews.get(id).and_then(|p| p.task.as_ref())
+            && !event.contains_key("task")
+        {
+            event.insert("task".into(), json!(task));
+        }
     }
 
     /// Records `id` under `owner` the first time it appears and starts its
@@ -883,6 +923,33 @@ mod codex_tests {
                     "name": "Push relay"})
             ]
         );
+    }
+
+    /// A subagent's later progress and end repeat the name and task its spawn gave, so a reader
+    /// whose page starts after the spawn names it by its description, never "Subagent" (Leo,
+    /// 2026-11-03, on "Subagent finished: Subagent" for a background agent an hour old).
+    #[test]
+    fn later_events_repeat_the_spawns_name_and_task() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t1",
+                   "name": "Watch CI", "task": "Watch CI", "prompt": "Wait for the run"}),
+        );
+        let progress = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/t1", "agentId": "a6ab"}),
+        );
+        assert_eq!(progress[0]["name"], "Watch CI");
+        assert_eq!(progress[0]["task"], "Watch CI");
+        assert_eq!(progress[0]["agentId"], "a6ab");
+        assert!(progress[0].get("prompt").is_none());
+        let end = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t1", "state": "completed"}),
+        );
+        assert_eq!(end[0]["name"], "Watch CI");
+        assert_eq!(end[0]["task"], "Watch CI");
     }
 
     /// Codex runs a `spawnAgent` child in its own thread: it outlives the turn
