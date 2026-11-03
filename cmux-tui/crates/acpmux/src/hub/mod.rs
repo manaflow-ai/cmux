@@ -179,6 +179,7 @@ mod tailnet_controller;
 mod tap;
 mod titles;
 mod tool_paths;
+mod tool_shell;
 mod tools;
 pub(crate) mod turn_cap;
 mod watch;
@@ -2033,6 +2034,16 @@ impl Hub {
         // Answered only once the draft is in `session.json`: "the one durable shared draft".
         self.save_meta_answered(session)?;
         Ok(draft)
+    }
+
+    /// `_acpmux/session_search`: the session's messages that match `query`, newest first.
+    pub fn session_search(
+        &self,
+        id: &str,
+        query: &crate::session_search::Query,
+    ) -> Result<Value, RpcError> {
+        crate::session_search::search(self.store.as_ref(), id, query)
+            .map_err(|e| RpcError::internal(format!("the session's log could not be read: {e}")))
     }
 
     /// Turn-by-turn summary from the event log.

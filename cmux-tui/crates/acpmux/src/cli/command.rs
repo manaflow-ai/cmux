@@ -460,6 +460,8 @@ pub enum Command {
     #[command(hide = true)]
     TagCmd { session: String, assignments: Vec<String>, remove: Vec<String>, ttl: Option<u64> },
     #[command(hide = true)]
+    SessionSearch(crate::cli::session_search::SearchArgs),
+    #[command(hide = true)]
     RulesCmd { session: String, rules: Option<String>, clear: bool },
     #[command(hide = true)]
     LimitsCmd { session: String, max: Option<u32>, clear: bool },
@@ -1056,6 +1058,8 @@ pub enum SessionCmd {
         #[arg(long, short = 'n', default_value_t = 20)]
         limit: usize,
     },
+    /// Find the session's messages that hold every word of TEXT, newest first.
+    Search(crate::cli::session_search::SearchArgs),
     /// The prompts waiting for the running turn: list, remove PROMPT_ID..., clear --from-agents.
     #[command(subcommand)]
     Queue(crate::cli::session_queue::QueueCmd),
@@ -1364,6 +1368,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::RulesCmd { session, rules, clear }
             }
             SessionCmd::History { session, limit } => Command::History { session, limit },
+            SessionCmd::Search(args) => Command::SessionSearch(args),
             SessionCmd::Queue(q) => Command::QueueCmd(q),
         },
         Command::Daemon(dc) => match dc {
