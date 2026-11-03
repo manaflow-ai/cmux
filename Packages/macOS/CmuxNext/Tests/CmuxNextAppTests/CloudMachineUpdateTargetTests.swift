@@ -179,7 +179,7 @@ struct CloudMachineUpdateTargetTests {
         #expect(CloudMachineUpdateStrings.unsupported("Leo VM").contains("keep working"))
         #expect(!CloudMachineUpdateStrings.unsupported("Leo VM").contains("new Cloud machine"))
         #expect(outcome("machine_update_rolled_back") == .rolledBack(reason: "why"))
-        #expect(outcome("machine_update_pending") == .failed(reason: "why"))
+        #expect(outcome("machine_update_pending") == .busy, "installed, the old daemon still runs: asked again, no toast")
         #expect(outcome("machine_update_unresolved") == .busy, "the CLI lost the machine before the outcome: asked again")
         #expect(outcome(CloudMoveCLI.badAnswer, error: nil) == .failed(reason: CloudMoveCLI.badAnswer))
         // Not final: nothing recorded, so a later connect or launch asks again.

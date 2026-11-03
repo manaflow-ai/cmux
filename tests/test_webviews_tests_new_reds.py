@@ -469,5 +469,83 @@ class Workflow(unittest.TestCase):
             self.assertEqual(done.returncode, 1, out)
             self.assertIn(f"::error title=Webview test red on this change::{red} > received preview opens", out)
 
+    def run_verdict(self, change_breaks_it):
+        """The base job's steps on a real merge commit: a head shard red the base replay passes is re-run
+        alone on the head, and is the change's only if it fails there again."""
+        tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        repo, runner_temp, bins = tmp / "repo", tmp / "temp", tmp / "bin"
+        git = lambda *args: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
+                                            *args], check=True, capture_output=True, text=True).stdout.strip()
+        red = "test/reasoning-own-control.test.ts"
+        (repo / "webviews/test").mkdir(parents=True)
+        (repo / "webviews" / red).write_text(body([]))
+        git("init", "-q", "-b", "base")
+        git("add", "-A")
+        git("commit", "-qm", "base: the file passes")
+        git("checkout", "-qb", "change")
+        (repo / "webviews" / red).write_text(body(["mounts the gallery frame"] if change_breaks_it else []) + "// changed\n")
+        git("commit", "-qam", "the change")
+        git("checkout", "-q", "base")
+        (repo / "webviews/other.txt").write_text("base moved\n")
+        git("add", "-A")
+        git("commit", "-qm", "base moves")
+        git("merge", "-q", "--no-ff", "change", "-m", "the pull request's merge commit")
+        merge = git("rev-parse", "HEAD")
+        runner_temp.mkdir()
+        bins.mkdir()
+        (bins / "bun").write_text(FAKE_BUN)
+        (bins / "bun").chmod(0o755)
+        (runner_temp / "head-results/runner").mkdir(parents=True)
+        for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT, COMPARE, HISTORY):
+            shutil.copy(runner, runner_temp / "head-results/runner")
+        head_results = runner_temp / "head-results/webviews-head-results.json"
+        # The head shard's first run timed out on the frame and its retry budget was gone: the file is red unnamed.
+        head_results.write_text(json.dumps({red: False}))
+        output = runner_temp / "github-output"
+        output.touch()
+        env = {k: v for k, v in os.environ.items() if k not in ("CMUX_BROWSER_TESTS", "GITHUB_ACTIONS")}
+        env.update(PATH=f"{bins}:{os.environ['PATH']}", RUNNER_TEMP=str(runner_temp), TMPDIR=str(tmp),
+                   GITHUB_SHA=merge, GITHUB_OUTPUT=str(output), HEAD_RESULTS=str(head_results),
+                   BASE_RESULTS=str(runner_temp / "base-results.json"),
+                   HEAD_RERUN=str(runner_temp / "head-rerun-results.json"), CMUX_NEXT_STYLE_GUARDS="warn",
+                   CMUX_WEB_TEST_JOBS="1", CMUX_WEB_TEST_RETRIES="0", CMUX_WEB_TEST_FILE_TIMEOUT="10")
+        run = lambda name, cwd: subprocess.run(["bash", "-eu", "-c", command(name)], cwd=cwd, env=env,
+                                               capture_output=True, text=True, timeout=60)
+        self.assertEqual(run("Use the merge parent as the base", repo).returncode, 0)
+        base = run("Run base reds and compare", repo / "webviews")
+        self.assertEqual(base.returncode, 1, base.stdout + base.stderr)
+        self.assertIn("rerun=true", output.read_text())
+        self.assertEqual((runner_temp / "head-rerun-files").read_text(), f"{red}\n")
+        self.assertEqual(run("Check out the head again", repo).returncode, 0)
+        self.assertEqual(git("rev-parse", "HEAD"), merge)
+        return run("Re-run the change's reds alone on the head", repo / "webviews")
+
+    def test_a_head_red_that_passes_alone_on_the_head_ends_the_verdict_green(self):
+        done = self.run_verdict(change_breaks_it=False)
+        out = done.stdout + done.stderr
+        self.assertEqual(done.returncode, 0, out)
+        self.assertIn("passed again alone on the head::test/reasoning-own-control.test.ts", out)
+        self.assertNotIn("red on this change::", out)
+
+    def test_a_head_red_the_change_causes_stays_red_after_the_head_rerun(self):
+        done = self.run_verdict(change_breaks_it=True)
+        out = done.stdout + done.stderr
+        self.assertEqual(done.returncode, 1, out)
+        self.assertIn("::error title=Webview test red on this change::test/reasoning-own-control.test.ts", out)
+
+    def test_the_job_fails_on_the_change_reds_the_head_rerun_did_not_clear(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        base = text[text.index("  react-apps-base-check:"):text.index("  runners:")]
+        replay = base[base.index("      - name: Run base reds and compare\n"):]
+        self.assertIn("continue-on-error: true", replay[: replay.index("run: |")])
+        last = base[base.index("      - name: Fail on the change's own reds\n"):]
+        self.assertIn("steps.base.outcome == 'failure' && steps.rerun.outcome != 'success'", last)
+        for step in ("Check out the head again", "Use the head's bun", "Install head webview dependencies",
+                     "Build head web bundles", "Install head headless engines", "Re-run the change's reds alone on the head"):
+            found = base[base.index(f"      - name: {step}\n"):]
+            self.assertIn("if: ${{ steps.base.outputs.rerun == 'true' }}", found[: found.index("run:")])
+        self.assertLess(base.index("Re-run the change's reds alone on the head"), base.index("Fail on the change's own reds"))
+
+
 if __name__ == "__main__":
     unittest.main()
