@@ -29,3 +29,18 @@ import Testing
         #expect(stopped.mayUpdateAutomatically(ownInstance: "mac-a"))
     }
 }
+
+/// The handoff after an install stops the machine's agent daemon as an update restart, so a chat
+/// waiting on a provider retry resumes in the new run (a plain shutdown records
+/// `auto_resume_stopped`, and the new run does not resume it).
+@Suite struct RemoteAgentDaemonHandoffCommandTests {
+    @Test func theHandoffAsksForAnUpdateRestart() {
+        let command = RemoteAgentDaemonStatus.shutdownKeepingAgents(binary: "~/.local/bin/cmux-tui")
+        #expect(command.hasPrefix("out=$(~/.local/bin/cmux-tui acp daemon shutdown --keep-agents --restart </dev/null 2>&1)"))
+    }
+
+    @Test func anOlderCLIWithoutRestartFallsBackToKeepAgents() {
+        let command = RemoteAgentDaemonStatus.shutdownKeepingAgents(binary: "~/.local/bin/cmux-tui")
+        #expect(command.contains(#"*"unexpected argument '--restart'"*) ~/.local/bin/cmux-tui acp daemon shutdown --keep-agents </dev/null"#))
+    }
+}
