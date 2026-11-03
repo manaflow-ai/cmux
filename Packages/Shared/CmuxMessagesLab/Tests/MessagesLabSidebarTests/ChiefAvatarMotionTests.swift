@@ -235,6 +235,7 @@ struct ChiefAvatarMotionTests {
         defer { reset() }
         let f = Fixture()
         f.set("scout", .working)
+        f.set("chief", .working)
         #expect(f.ring("scout") != nil)
         f.view.avatarMotionStyle = .tilt  // no data change, no reload
         let rock = try #require(f.avatar("scout")?.animation(forKey: SidebarAvatarMotion.animationKey) as? CAKeyframeAnimation)
