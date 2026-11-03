@@ -20,7 +20,7 @@ import Foundation
 /// (``DurableTabLink``), and a closed workspace a workspace link names,
 /// reopened from Recently Closed (``DurableWorkspaceLink``). An agent link (`agent/<harness>/<session>`)
 /// reveals a tab this app already shows that session in, else opens the acpmux chat it names as a
-/// session link does (``openAgentLink(_:_:asking:notFound:)``).
+/// session link does (``openAgentLink(_:bare:_:asking:notFound:)``).
 @MainActor
 struct DeepLinkNavigator {
     let services: AppServices
@@ -147,25 +147,19 @@ struct DeepLinkNavigator {
     /// Mac's and its peers' chats, the reader's own), opened as a session link opens one. A link's
     /// `message=<id>` then scrolls that message into view (schemas/deeplinks/agent-link.json).
     /// `notFound` runs when acpmux lists no such chat (nil: the refusal shows).
-    func openAgentLink(_ link: DeepLink, _ intent: WindowActivation.Intent, asking: Bool,
+    /// `bare`: a harness session id to resolve instead (a cmux.com link with no harness).
+    func openAgentLink(_ link: DeepLink?, bare: String? = nil, _ intent: WindowActivation.Intent, asking: Bool,
                        notFound: (@MainActor () -> Void)? = nil) throws {
-        guard case .agent(let harness, let session) = link.target else { return }
         guard AgentPaneTunables.agentLinks.value else { throw ActionFailure(message: RefusalStrings.agentLinksOff) }
-        let turn = link.message.map(AgentTabStore.messageReveal)
-        if let shown = services.revealedAgentSessionTab(harness: harness, session: session, intent: intent) {
+        let turn = link?.message.map(AgentTabStore.messageReveal)
+        if case .agent(let harness, let session) = link?.target,
+           let shown = services.revealedAgentSessionTab(harness: harness, session: session, intent: intent) {
             if let turn, shown.adopted { services.agentTabs.revealTurn(turn, in: shown.tab) }
             return
         }
-        openLinked(link.url(scheme: DeepLink.chiefScheme)?.absoluteString, turn: turn, intent, asking: asking, notFound: notFound)
-    }
-
-    /// Opens the acpmux chat `query` names (an agent link, or a harness session id), as a session
-    /// link opens one; `notFound` (nil: the refusal) when acpmux lists none.
-    func openLinked(_ query: String?, turn: String? = nil, _ intent: WindowActivation.Intent, asking: Bool,
-                    notFound: (@MainActor () -> Void)? = nil) {
         let (hud, window) = (services.refusalHUD, services.windows.active?.window)
         let missing = notFound ?? { hud.show(Self.gone.message, in: window) }
-        guard let socket = AgentLaneStore.shared.socketPath, let query else { return missing() }
+        guard let socket = AgentLaneStore.shared.socketPath, let query = link?.url(scheme: DeepLink.chiefScheme)?.absoluteString ?? bare else { return missing() }
         // task-owner: one resolve, then one open.
         Task { @MainActor in
             guard let id = try? await AcpmuxSessionPage(socketPath: socket).linked(query) else { return missing() }

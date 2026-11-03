@@ -1,5 +1,4 @@
 import CmuxNextActions
-import CmuxNextAgentPane
 import CmuxNextLayout
 import CmuxNextPages
 import Foundation
@@ -35,15 +34,10 @@ enum CmuxAppLinks {
     /// web page. Nil for any other URL; false with agent links off.
     @MainActor
     static func openAgentWeb(_ url: URL, services: AppServices) -> Bool? {
+        let (link, bare) = (DeepLink.parseAgentWeb(url), DeepLink.agentWebSession(url))
+        guard link != nil || bare != nil else { return nil }
         let web = { @MainActor in LinkRouter.shared.open(url, in: LinkRouter.shared.target(for: url)) }
-        let navigator = DeepLinkNavigator(services: services)
-        if let link = DeepLink.parseAgentWeb(url) {
-            return (try? navigator.openAgentLink(link, .raise, asking: false, notFound: web)) != nil
-        }
-        guard let session = DeepLink.agentWebSession(url) else { return nil }
-        guard AgentPaneTunables.agentLinks.value else { return false }
-        navigator.openLinked(session, .raise, asking: false, notFound: web)
-        return true
+        return (try? DeepLinkNavigator(services: services).openAgentLink(link, bare: bare, .raise, asking: false, notFound: web)) != nil
     }
 
     /// A path link (`file:///…`: Home's form of a path an agent wrote): a file opens in the
