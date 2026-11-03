@@ -315,6 +315,12 @@ test("every line of the tray, and its header, does something", async () => {
   const { dead } = await deadClicks(container, calls);
   expect(dead).toEqual([]);
   for (const handler of ["onOpen", "onOpenCommand", "onOpenSession"]) expect(calls).toContain(handler);
+  // Folded, the header names what runs; open, it reads the counts (#33104), so the sweep sees it as a
+  // second control and its last round, the one that clicks what closes, folds the tray again. Open it
+  // to reach the lines' menus.
+  const head = container.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+  console.log("DIAGHEAD", head.getAttribute("aria-expanded"), container.querySelectorAll(".acpmux-agent-line").length);
+  if (head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
   console.log("DIAGTRAY", JSON.stringify([...container.querySelectorAll(".acpmux-agent-line")].map((e) => e.textContent)), container.innerHTML.slice(0, 3000));
   // A line's Stop is in its context menu (#28533), and each one there does something too.
   for (const name of ["Land piece 0", "bun run dev"]) {
