@@ -96,12 +96,23 @@ import Testing
         #expect(calls == 0)
     }
 
-    @Test func pastedSummaryUsesAPrivateFileAndItsOriginalOrigin() async throws {
-        var arguments: [String] = []
-        let provider = ImportHistoryPageProvider(muxHome: "/test/mux", personOnlyMessage: "Click Import") { args, _ in arguments = args; return [:] }
-        _ = try await provider.call("cmux.importHistory.begin", params: ["batch": "b1"], context: click(1))
-        let reply = try await provider.call("cmux.importHistory.prepareText", params: ["origin": "muse", "text": "Prefers tea."], context: passive)
-        let source = try #require(reply["source"]?.stringValue)
+    @Test(arguments: ["grok-bot", "muse", "dots", "instinct"])
+    func pastedSummaryPassesThroughTheRouterWithItsOriginalOrigin(_ summaryOrigin: String) async throws {
+        var commands: [[String]] = []
+        let provider = ImportHistoryPageProvider(muxHome: "/test/mux", personOnlyMessage: "Click Import") { args, _ in
+            commands.append(args)
+            return [:]
+        }
+        let router = PageRouter(descriptor: .importHistory, routes: [PageRoute(prefix: "cmux.importHistory.", provider: provider)])
+        defer { router.close() }
+        router.userGestureEvent = { 1 }
+        let begun = await router.handle(["t": "call", "id": 1, "op": "cmux.importHistory.begin", "params": ["batch": "b1"]])
+        try #require(begun["t"] == "ok")
+        router.userGestureEvent = nil
+        let reply = await router.handle(["t": "call", "id": 2, "op": "cmux.importHistory.prepareText",
+                                         "params": ["summaryOrigin": .string(summaryOrigin), "text": "Prefers tea."]])
+        try #require(reply["t"] == "ok")
+        let source = try #require(reply["value"]?["source"]?.stringValue)
         #expect(source.hasPrefix("text:"))
         let path = String(source.dropFirst(5))
         let (text, permissions) = try await Task.detached {
@@ -110,11 +121,19 @@ import Testing
         }.value
         #expect(text == "Prefers tea.")
         #expect(permissions == 0o600)
-        await #expect(throws: PageError.self) {
-            _ = try await provider.call("cmux.importHistory.write", params: ["source": .string(source), "origin": "instinct", "batch": "b1"], context: passive)
+        let wrongOrigin = summaryOrigin == "muse" ? "instinct" : "muse"
+        let rejected = await router.handle(["t": "call", "id": 3, "op": "cmux.importHistory.write",
+                                            "params": ["source": .string(source), "summaryOrigin": .string(wrongOrigin), "batch": "b1"]])
+        #expect(rejected["t"] == "err")
+        #expect(commands.isEmpty)
+        for (index, operation) in ["dryRun", "write"].enumerated() {
+            let imported = await router.handle(["t": "call", "id": .number(Double(index + 4)),
+                                                "op": .string("cmux.importHistory.\(operation)"),
+                                                "params": ["source": .string(source), "summaryOrigin": .string(summaryOrigin), "batch": "b1"]])
+            #expect(imported["t"] == "ok")
         }
-        _ = try await provider.call("cmux.importHistory.write", params: ["source": .string(source), "origin": "muse", "batch": "b1"], context: passive)
-        #expect(arguments.suffix(2) == ["--origin", "muse"])
+        #expect(commands.count == 2)
+        #expect(commands.allSatisfy { $0.suffix(2) == ["--origin", summaryOrigin] })
     }
 
     @Test func retryKeepsItsNativeBatchSoUndoIncludesEarlierWrites() async throws {
