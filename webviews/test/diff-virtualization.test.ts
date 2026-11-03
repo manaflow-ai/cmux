@@ -330,7 +330,10 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
             await gutter.hover();
             const utility = commentsPage.locator("[data-utility-button]");
             await utility.waitFor({ state: "visible" });
-            await utility.click();
+            // A press where the + is drawn, as a person's is: the hover redraws the row's +, so a
+            // locator click that waits for one element to hold still can chase redrawn ones to its timeout.
+            const plus = (await utility.boundingBox())!;
+            await commentsPage.mouse.click(plus.x + plus.width / 2, plus.y + plus.height / 2);
             const composer = commentsPage.locator(".comment-composer");
             await composer.waitFor();
             expect(await commentsPage.evaluate(() => (window as any).__INSTANCE.getSelectedLines())).not.toBeNull();
