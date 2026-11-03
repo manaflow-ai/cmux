@@ -43,6 +43,12 @@
      (below the surface roles' near-opaque 0.9). leo-workspace design/settings.md, "Glass". */
   --ds-glass-menu-tint: 78%;
   --ds-glass-menu-blur: blur(32px) saturate(1.6);
+  /* The fisheye lens's glass (glass.css FISHEYE, Jump to latest). Leo 2026-11-03: "this is a little
+     too transparent maybe don't we inherit off the macos glass levels?" The bend stays; the surface
+     at half and a light frost after it keep the magnified words from reading through. The composer's
+     24px blur would flatten the lens on a 32px disc, so it keeps its own (leo-workspace design/glass.md). */
+  --ds-glass-fisheye-tint: 50%;
+  --ds-glass-fisheye-frost: blur(2.5px) saturate(1.15);
   --ds-glass-edge: var(--cmux-hairline);
   /* The theme accent: the text color by default (no system blue), the theme's hue with
      appearance.accent. */

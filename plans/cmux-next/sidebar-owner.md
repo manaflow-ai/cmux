@@ -1,5 +1,9 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-03: folding a group never changes the rows' width. Leo: "why when i collapse/expand the cosmic-gray group
+  do the workspace horizontal widths differ?". The list took the clip's width, which a legacy scroller narrows by 11 pt
+  only while the rows overflow (an open long group); `SidebarListView.rowsWidth(in:)` now counts the scroller for its
+  style, never for whether it shows. Regression: `SidebarGroupFoldKeepsRowWidthTests`.
 - 2026-11-02: a remote group's machine mark is a row mark's size. Leo, verbatim: "the sizes of the icons for groups
   and workspaces aren't the same size anymore they should be". #29833 drew each workspace row's trailing marks at a
   status mark's size (`SidebarStyle.statusGlyphSize`) but left the group header's trailing machine mark (from
