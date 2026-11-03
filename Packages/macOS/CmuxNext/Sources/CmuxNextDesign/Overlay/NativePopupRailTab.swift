@@ -17,6 +17,9 @@ final class NativePopupRailTab: NSView {
     var onHover: (() -> Void)?
     /// The keyboard's highlight (Add harness reached with Left and Right).
     var isHighlighted = false { didSet { if oldValue != isHighlighted { restyle() } } }
+    /// The symbols row's accent bar under the checked mark. A column's rail and the search row's
+    /// accessory draw only the wash.
+    var showsAccentBar = true { didSet { needsDisplay = true } }
     var isEnabled: Bool { row.disabled != true }
     var isSelected: Bool { row.checked == true }
 
@@ -190,7 +193,7 @@ final class NativePopupRailTab: NSView {
             Palette.hoverFill.setFill()
             NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
             // The symbols row's accent bar under the checked mark: half the tab wide, half a grid step tall.
-            guard placement == .symbols, isSelected else { return }
+            guard placement == .symbols, showsAccentBar, isSelected else { return }
             let bar = NSRect(x: bounds.width / 4, y: bounds.maxY - Metrics.space1 / 2, width: bounds.width / 2, height: Metrics.space1 / 2)
             Palette.accentFill.setFill()
             NSBezierPath(roundedRect: bar, xRadius: 1, yRadius: 1).fill()

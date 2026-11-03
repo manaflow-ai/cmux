@@ -23,9 +23,8 @@ extension NativePopupContent {
                 return row
             }
         }
-        guard structure(next.rows) == structure(model.rows), structure(next.rail) == structure(model.rail),
-              structure(next.footer) == structure(model.footer) else { return false }
-        let rows = (next.rail ?? []) + next.rows + (next.footer ?? [])
+        guard next.mappingRows({ structure($0) ?? [] }) == model.mappingRows({ structure($0) ?? [] }) else { return false }
+        let rows = next.allRows
         for row in rows where row.kind == .slider {
             if let view = rowView(id: row.id) as? NativePopupSliderView { view.update(row: row) }
             else if let slider = editableControls[row.id] as? NativePopupTrackingSlider, !slider.isInteracting {
