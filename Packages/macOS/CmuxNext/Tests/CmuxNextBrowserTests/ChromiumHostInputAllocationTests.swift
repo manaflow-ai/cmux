@@ -23,19 +23,20 @@ struct ChromiumHostInputAllocationTests {
         let view = ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         view.sink = { [connection = wire.connection] frame in _ = connection.send(frame) }
 
-        let moves = (0..<Self.events).map { index in
-            NSEvent.mouseEvent(with: .mouseMoved, location: NSPoint(x: CGFloat(10 + index % 700), y: CGFloat(20 + index % 500)),
-                               modifierFlags: [], timestamp: 1 + Double(index) / 1_000, windowNumber: 0, context: nil,
-                               eventNumber: index, clickCount: 0, pressure: 0)!
-        }
-        let keys = (0..<Self.events).map { index in
-            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 1 + Double(index) / 1_000,
-                             windowNumber: 0, context: nil, characters: "a", charactersIgnoringModifiers: "a",
-                             isARepeat: false, keyCode: 0)!
-        }
-        let wheels = try (0..<Self.events).map { _ in
-            let event = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -3, wheel2: 1, wheel3: 0))
-            return try #require(NSEvent(cgEvent: event))
+        var moves: [NSEvent] = []
+        var keys: [NSEvent] = []
+        var wheels: [NSEvent] = []
+        for index in 0..<Self.events {
+            let time = TimeInterval(index) / 1_000 + 1
+            let point = NSPoint(x: CGFloat(index % 700) + 10, y: CGFloat(index % 500) + 20)
+            let move = NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: time,
+                                          windowNumber: 0, context: nil, eventNumber: index, clickCount: 0, pressure: 0)
+            moves.append(try #require(move))
+            let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: time, windowNumber: 0,
+                                       context: nil, characters: "a", charactersIgnoringModifiers: "a", isARepeat: false, keyCode: 0)
+            keys.append(try #require(key))
+            let scroll = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -3, wheel2: 1, wheel3: 0)
+            wheels.append(try #require(scroll.flatMap { NSEvent(cgEvent: $0) }))
         }
         // Warm-up outside the count: first-use statics, metadata and the event's lazily made fields.
         view.mouseMoved(with: moves[0])
