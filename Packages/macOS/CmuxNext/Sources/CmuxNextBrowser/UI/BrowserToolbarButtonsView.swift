@@ -105,7 +105,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// Shows `tab`'s states. A new page (another tab, or the chrome's tab
     /// swapped) gets the chosen color scheme and starts with design mode off.
     func bind(_ tab: any BrowserTab, modes tabModes: BrowserPageModes? = nil) {
-        observation?.cancel()
+        // The page's attach binds the tab a tab switch bound already (with its modes): it already observes it.
+        if tab === self.tab, tabModes == nil || tabModes === modes, observation != nil { return }
         if let tabModes, tabModes !== modes {
             // Another tab of the pane: its own modes, as it left them, and the document they were for.
             modes.pageURL = pageURL
@@ -118,14 +119,19 @@ public final class BrowserToolbarButtonsView: NSStackView {
             modes.designMode = false
             if modes.colorScheme != .system { (tab as? any BrowserColorSchemeApplying)?.applyColorScheme(modes.colorScheme) }
         }
+        observe()
+    }
+
+    private func observe() {
+        observation?.cancel()
         observation = ObservationLoop { [weak self] in self?.render() }
     }
 
     /// An App closure changed after `bind`: observe again so its reads count.
     private func rebind() {
         guard !batching else { return batchedChange = true }
-        guard let tab else { return render() }
-        bind(tab)
+        guard tab != nil else { return render() }
+        observe()
     }
 
     /// Reads the states again, WebKit's inspector visibility included
