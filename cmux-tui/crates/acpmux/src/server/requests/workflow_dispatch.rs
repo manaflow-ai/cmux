@@ -179,7 +179,7 @@ pub(super) async fn cache_remote(
     hub: &Arc<Hub>,
     id: &str,
     identity: &Identity,
-    mut row: Value,
+    row: Value,
 ) -> Result<Value, RpcError> {
     let flight = flight(hub, id);
     let _gate = flight.gate.lock().await;
@@ -206,7 +206,13 @@ pub(super) async fn cache_remote(
     // with its reservation, then import only peer-owned result fields. This
     // prevents a peer from moving the receipt to another host or caller while
     // still allowing its final outcome to be replayed locally.
-    let mut merged = previous.clone();
+    if previous.get("outcome").is_some() {
+        return hub
+            .briefs
+            .put_durable(previous)
+            .map_err(|error| RpcError::internal(error.to_string()));
+    }
+    let mut merged = previous;
     for key in ["status", "outcome", "error", "harness", "model", "dispatchCancelled"] {
         if let Some(value) = row.get(key) {
             merged.set(key, value.clone());
@@ -493,11 +499,20 @@ mod tests {
             .await
             .unwrap();
         let reserved = hub.briefs.get("local-id").unwrap();
+        let victim = json!({
+            "briefId":"other-id",
+            "durable":true,
+            "sessionId":"wfd-victim",
+            "promptId":"wfp-victim",
+            "dispatchFingerprint":"victim-fingerprint",
+            "status":"running"
+        });
+        hub.briefs.put_durable(victim.clone()).unwrap();
 
         let mut wrong_id = reserved.clone();
         wrong_id.set("briefId", json!("other-id"));
         assert!(cache_remote(&hub, "local-id", &identity, wrong_id).await.is_err());
-        assert_eq!(hub.briefs.get("other-id"), None, "peer key created a second receipt");
+        assert_eq!(hub.briefs.get("other-id"), Some(victim), "peer key overwrote another receipt");
         assert_eq!(hub.briefs.get("local-id"), Some(reserved.clone()));
 
         let mut advisory = reserved.clone();
