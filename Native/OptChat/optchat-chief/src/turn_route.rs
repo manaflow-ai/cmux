@@ -36,6 +36,9 @@ struct Signals {
     long_chars: usize,
     several_asks: usize,
     ask_separators: Vec<String>,
+    question_ends: Vec<String>,
+    bullet_prefixes: Vec<String>,
+    number_suffixes: Vec<String>,
     judgment: Vec<String>,
     triage: Vec<String>,
 }
@@ -65,7 +68,15 @@ impl Table {
         let s = &table.signals;
         if s.long_chars == 0
             || s.several_asks < 2
-            || [&s.ask_separators, &s.judgment, &s.triage]
+            || [
+                &s.ask_separators,
+                &s.question_ends,
+                &s.bullet_prefixes,
+                &s.number_suffixes,
+            ]
+            .iter()
+            .any(|list| list.is_empty() || list.iter().any(String::is_empty))
+            || [&s.judgment, &s.triage]
                 .iter()
                 .any(|list| list.is_empty() || list.iter().any(|s| s.trim().is_empty()))
         {
@@ -128,16 +139,7 @@ fn classify_with(input: &TurnSignals<'_>, table: &Table) -> (Tier, Vec<&'static 
     if texts.iter().map(|s| s.chars().count()).sum::<usize>() >= s.long_chars {
         reasons.push("long_message");
     }
-    let asks = texts
-        .iter()
-        .map(|text| {
-            1 + s
-                .ask_separators
-                .iter()
-                .map(|sep| text.matches(sep.as_str()).count())
-                .sum::<usize>()
-        })
-        .sum::<usize>();
+    let asks = texts.iter().map(|text| count_asks(text, s)).sum::<usize>();
     if asks >= s.several_asks {
         reasons.push("several_asks");
     }
@@ -162,6 +164,59 @@ fn classify_with(input: &TurnSignals<'_>, table: &Table) -> (Tier, Vec<&'static 
     } else {
         (Tier::Hard, reasons)
     }
+}
+
+fn count_asks(text: &str, signals: &Signals) -> usize {
+    // A list's introduction and wrapped lines do not add tasks. Each marked
+    // item starts a block; ordinary multiline prose stays a single block.
+    let mut items: Vec<String> = Vec::new();
+    for line in text.lines().map(str::trim) {
+        let numbered = line.trim_start_matches(|c: char| c.is_ascii_digit());
+        let marker = signals
+            .bullet_prefixes
+            .iter()
+            .any(|p| line.starts_with(p.as_str()))
+            || (numbered.len() < line.len()
+                && signals
+                    .number_suffixes
+                    .iter()
+                    .any(|s| numbered.starts_with(s.as_str())));
+        if marker {
+            items.push(line.to_owned());
+        } else if let Some(item) = items.last_mut() {
+            item.push('\n');
+            item.push_str(line);
+        }
+    }
+    let blocks: Vec<&str> = if items.is_empty() {
+        vec![text]
+    } else {
+        items.iter().map(String::as_str).collect()
+    };
+    blocks
+        .into_iter()
+        .map(|block| {
+            let mut parts = vec![block];
+            for separator in &signals.ask_separators {
+                parts = parts
+                    .into_iter()
+                    .flat_map(|part| part.split(separator.as_str()))
+                    .collect();
+            }
+            parts
+                .into_iter()
+                .filter(|part| !part.trim().is_empty())
+                .map(|part| {
+                    signals
+                        .question_ends
+                        .iter()
+                        .map(|end| part.matches(end.as_str()).count())
+                        .sum::<usize>()
+                        .max(1)
+                })
+                .sum::<usize>()
+        })
+        .sum()
 }
 
 pub fn pick(tier: Tier, family: Family, table: &Table) -> RoutePick {
@@ -228,5 +283,46 @@ mod tests {
         assert!(Table::parse("{}").is_err());
         let bad = include_str!("../routing/turn_models.json").replace("\"low\"", "\"nope\"");
         assert!(Table::parse(&bad).is_err());
+    }
+
+    #[test]
+    fn counts_asks_without_counting_wrapping_or_question_terminators_twice() {
+        for (text, tier) in [
+            ("Where is it? When is it ready?", Tier::Standard),
+            ("Could you tell me\nwhere the file is?", Tier::Standard),
+            (
+                "The file is here.\nIt has two sections.\nPlease send it.",
+                Tier::Standard,
+            ),
+            ("Please send apples and pears and oranges.", Tier::Standard),
+            ("Where is it? When is it ready? Who has it?", Tier::Hard),
+            ("Send A; send B; send C", Tier::Hard),
+            ("Send A also send B also send C", Tier::Hard),
+            ("Where is it? When is it ready?; Send it.", Tier::Hard),
+            ("Please do these:\n1. Send A\n2. Send B", Tier::Standard),
+            (
+                "Please do these:\n1. Send A\n2. Send B\n3. Send C",
+                Tier::Hard,
+            ),
+            ("1) Send A\n2) Send B\n3) Send C", Tier::Hard),
+            ("- Send A\n- Send B\n- Send C", Tier::Hard),
+            ("* Send A\n  with the attachment\n* Send B", Tier::Standard),
+        ] {
+            let (actual, reasons) = classify(&TurnSignals {
+                human_text: vec![text],
+            });
+            assert_eq!(actual, tier, "{text}");
+            assert!(!reasons.contains(&"invalid_table"));
+        }
+    }
+
+    #[test]
+    fn separator_validation_accepts_whitespace_but_not_empty_strings() {
+        let mut value: serde_json::Value =
+            serde_json::from_str(include_str!("../routing/turn_models.json")).unwrap();
+        value["signals"]["ask_separators"] = serde_json::json!(["\n"]);
+        assert!(Table::parse(&value.to_string()).is_ok());
+        value["signals"]["ask_separators"] = serde_json::json!([""]);
+        assert!(Table::parse(&value.to_string()).is_err());
     }
 }

@@ -17,7 +17,10 @@
   "signals": {
     "long_chars": 800,
     "several_asks": 3,
-    "ask_separators": ["?", ";", "\n", " and ", " also "],
+    "ask_separators": [";", " also "],
+    "question_ends": ["?"],
+    "bullet_prefixes": ["- ", "* ", "+ ", "• "],
+    "number_suffixes": [". ", ") "],
     "judgment": ["review", "decide", "plan", "design", "why", "compare", "tradeoff", "trade-off", "debug", "root cause", "security"],
     "triage": ["ok", "okay", "thanks", "thank you", "got it", "ack", "acknowledged", "status", "status update", "any update", "any updates", "ping", "checking in"]
   }

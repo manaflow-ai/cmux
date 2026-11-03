@@ -1094,12 +1094,13 @@ impl Brain {
             ));
         }
         self.turn_spawn_engine = Some(engine.clone());
-        // The native engine has its own defaults. Resolve them for this turn's
-        // request and receipts without changing what subagents inherit.
+        // Native turns historically ignore engine.json's model/effort. Keep
+        // their configured defaults unless the opt-in router makes a pick;
+        // receipts must name the same model the API actually receives.
         if let super::Engine::Native(native) = &self.settings.engine {
             let (model, effort) = native.defaults();
-            engine.model = choice.model.clone().or_else(|| Some(model.to_owned()));
-            engine.effort = choice.effort.clone().or_else(|| effort.map(str::to_owned));
+            engine.model = Some(model.to_owned());
+            engine.effort = effort.map(str::to_owned);
         }
         self.turn_engine = Some(engine.clone());
         self.route_turn(

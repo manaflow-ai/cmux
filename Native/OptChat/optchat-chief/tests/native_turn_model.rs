@@ -28,28 +28,32 @@ impl ChatModel for RecordingModel {
     }
 }
 
-#[test]
-fn native_turns_override_model_and_effort_without_changing_defaults() {
-    let dir = tempfile::tempdir().unwrap();
-    let chat = common::open_chat(&dir.path().join("chat"));
-    let trace_dir = dir.path().join("trace");
-    let model = Arc::new(RecordingModel::default());
-    let native = Native::new(
+fn native_in(dir: &std::path::Path, model: Arc<RecordingModel>) -> Native {
+    Native::new(
         NativeConfig {
             model: "configured-model".into(),
             effort: Some("medium".into()),
             max_tokens: 128,
             server_fallback: false,
             system: "Answer briefly.".into(),
-            cwd: dir.path().to_owned(),
+            cwd: dir.to_owned(),
             env: BTreeMap::new(),
             bash_timeout: Duration::from_secs(1),
-            pwd_file: dir.path().join("pwd"),
+            pwd_file: dir.join("pwd"),
         },
         model.clone(),
         Duration::ZERO,
     )
-    .with_trace(Trace::open(&trace_dir, false).unwrap());
+}
+
+#[test]
+fn native_turns_override_model_and_effort_without_changing_defaults() {
+    let dir = tempfile::tempdir().unwrap();
+    let chat = common::open_chat(&dir.path().join("chat"));
+    let trace_dir = dir.path().join("trace");
+    let model = Arc::new(RecordingModel::default());
+    let native =
+        native_in(dir.path(), model.clone()).with_trace(Trace::open(&trace_dir, false).unwrap());
     let cases = [
         (Some("claude-haiku-5-5"), Some("low")),
         (Some("claude-opus-5-5"), Some("medium")),
@@ -97,4 +101,52 @@ fn native_turns_override_model_and_effort_without_changing_defaults() {
     for (n, (model, _)) in expected.into_iter().enumerate() {
         assert_eq!(requests[&format!("turn:native-route:{n}")]["model"], model);
     }
+}
+
+#[test]
+fn native_brain_ignores_saved_model_unless_turn_routing_is_on() {
+    use common::*;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("engine.json");
+    let trace_dir = dir.path().join("traces");
+    let trace = Trace::open(&trace_dir, false).unwrap();
+    let model = Arc::new(RecordingModel::default());
+    let native = native_in(dir.path(), model.clone()).with_trace(trace.clone());
+    let mut s = settings(dir.path());
+    s.engine = optchat_chief::brain::Engine::Native(Arc::new(native));
+    s.engine_file = Some(file.clone());
+    let mut h = Harness::configured(
+        dir,
+        default_script(),
+        Arc::new(Mutex::new(Owner {
+            summary: Some(summary()),
+            ..Owner::default()
+        })),
+        s,
+        Arc::new(|_| {}),
+    );
+    h.brain.set_trace(trace);
+    h.connect();
+    for (routing, expected) in [
+        (Some("off"), "configured-model"),
+        (Some("auto"), "claude-sonnet-5-5"),
+        (Some("off"), "configured-model"),
+        (None, "configured-model"),
+    ] {
+        std::fs::write(
+            &file,
+            json!({"model": "gpt-6.1-sol", "effort": "high", "turn_routing": routing}).to_string(),
+        )
+        .unwrap();
+        h.say("user_local", "Hello there");
+        h.settle_posts();
+        let calls = model.0.lock().unwrap();
+        let body = calls.last().expect("the native request ran");
+        assert_eq!(body["model"], expected);
+        assert_eq!(body["output_config"]["effort"], "medium");
+        let events = optchat_chief::report::read(&trace_dir, 0).unwrap();
+        let end = events.iter().rev().find(|e| e["ev"] == "turn.end").unwrap();
+        assert_eq!(end["model"], expected);
+    }
+    assert_eq!(model.0.lock().unwrap().len(), 4);
 }
