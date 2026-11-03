@@ -210,7 +210,7 @@ final class CEFPaneHost {
     /// Starts `tab`'s browser: a new Chromium window, or a tab of this host's live or coming one.
     /// True when it joined the live window as Chromium's active tab (`tab_add` with activate).
     @discardableResult
-    func ensureCreated(_ tab: CEFTab) -> Bool {
+    func ensureCreated(_ tab: CEFTab) -> Bool { // perf-hot: 10ms new-tab (a new Chromium tab's browser)
         guard tab.browserID == nil, tab.isCreationPending == false, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
         switch window {
         case .none:
@@ -281,23 +281,19 @@ final class CEFPaneHost {
     }
 
     /// Adds `tab` to the live window; the shown tab becomes Chromium's active tab in the same call
-    /// (the one activation of it). True when it joined as the active tab.
+    /// (the one activation of it). It takes the spare page made ahead when one is ready, with no
+    /// `tab_add` (`CEFPaneHost+SparePage`), except inside OnAfterCreated (`windowCreated`), where moving
+    /// a tab between tab strips would re-enter Chromium's tab insertion. True when it joined as the active tab.
     @discardableResult
-    private func addToWindow(_ tab: CEFTab) -> Bool {
-        guard let shim = runtime.shim, let anchor = tabs.lazy.compactMap(\.browserID).first else {
+    private func addToWindow(_ tab: CEFTab, takesSparePage: Bool = true) -> Bool {
+        guard runtime.shim != nil, let anchor = tabs.lazy.compactMap(\.browserID).first else {
             window = .none
             return false
         }
         tab.isCreationPending = true
-        runtime.tabBeingAdded = tab
         let activates = visibleTab === tab
-        let add = { shim.tabAdd(anchor, tab.takeInitialURLString(), -1, activates ? 1 : 0) }
-        #if DEBUG || CMUX_BENCH_HOOKS
-        let browser = runtime.benchMarks.span("cef.tab_add", add)
-        #else
-        let browser = add()
-        #endif
-        runtime.tabBeingAdded = nil
+        let spare = takesSparePage ? joinSparePage(tab, anchor: anchor, activates: activates) : nil
+        let browser = spare ?? tabAdd(tab, anchor: anchor, activates: activates)
         if browser == 0 {
             tab.creationFailed()
         } else if tab.browserID == nil {
@@ -328,7 +324,7 @@ final class CEFPaneHost {
         var active = tab
         for waiting in tabs where waiting !== tab && waiting.browserID == nil && waiting.isCreationPending {
             waiting.isCreationPending = false
-            if addToWindow(waiting) { active = waiting }
+            if addToWindow(waiting, takesSparePage: false) { active = waiting }
         }
         if let visible = visibleTab, !visible.awaitsWindowMove, visible !== active, let id = visible.browserID {
             lastActivated = id
@@ -411,6 +407,8 @@ final class CEFPaneHost {
         // A taken spare whose tab closed before it joined: the spare again.
         if !isPopupHost, tabs.count == 1, placeholder != nil { CEFSpareWindow.shared.giveBack(self, runtime: runtime) }
         if tabs.isEmpty {
+            // A spare page no tab took never outlives its window's tabs (`CEFSpareWindow.page`).
+            CEFSpareWindow.shared.closePage(in: self)
             window = .none
             hostView.layerHosting.stop()
             hostView.removeFromSuperview()
