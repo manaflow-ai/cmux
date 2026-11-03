@@ -9,7 +9,7 @@ import CmuxNextWakeups
 /// `debug.new_tab {action: "frame_strip"}` (DEBUG builds): the window as the window server
 /// composited it, frame after frame, around one key sent through the real key path (`key`, default
 /// `n`, with `modifiers`, default `["command"]`: Cmd-N; `t` for Cmd-T) or a `gesture` (`plus`,
-/// `drag_new`). `repeat` (default 1) sends the key that many times, `repeat_interval_ms` (default 40)
+/// `drag_new`, or `mouse` with `mouse`: `debug.mouse`'s params, such as a click on a sidebar row). `repeat` (default 1) sends the key that many times, `repeat_interval_ms` (default 40)
 /// apart, inside one recording (a fast selection burst retargets moves in flight). Frames are read off the main actor back to back for `duration_ms` (default 700) after
 /// the key, and some before it. The report: ``NSWindow/frameStripReport(_:sentAt:sentTime:content:strip:tolerance:jump:dir:)``; motion knobs: ``MotionFrameProgress``.
 @MainActor
@@ -40,6 +40,10 @@ enum DebugFrameStrip {
         if params["gesture"]?.stringValue == "plus", let pane = controller.content?.focusedPane {
             pane.stripModel.send(.newTab(after: nil))
             sent = .string("plus")
+        } else if params["gesture"]?.stringValue == "mouse", case let .object(mouse)? = params["mouse"] {
+            // A synthesized mouse event through `debug.mouse`'s real event path (`mouse` is its params, such as
+            // `{"row": <workspace key>}` for a click on that sidebar row): the chat-open bench's click.
+            sent = DebugMouse.send(mouse.merging(["window": .string(controller.state.id)]) { own, _ in own }, services: services)
         } else if params["gesture"]?.stringValue == "drag_new", let pane = controller.content?.focusedPane {
             let dragged = await TabStripDebug.dragFirstTab(in: pane.view.stripView) {
                 _ = services.registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), origin: .cli))
