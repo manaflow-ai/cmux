@@ -1105,6 +1105,71 @@ class GoBudget(unittest.TestCase):
             self.assertNotIn("needs a finished build", done.stderr)
 
 
+class RealKeyHosts(unittest.TestCase):
+    """--real-key-hosts with --go-spec: real-key rounds and goldens only on minis with real keys, debug.key rounds
+    on any mini (lead 03:0xZ: the debug.key rounds must not wait for the two minis with real keys)."""
+
+    def run_gate(self, tmp, go_hosts, extra=(), rounds=10, goldens="skip"):
+        rounds_dir = os.path.join(tmp, "rounds")
+        os.makedirs(rounds_dir, exist_ok=True)
+        write_spec(tmp, 40, name="g")
+        ci = os.path.join(tmp, "fake-ci")
+        open(ci, "w").write("#!/bin/sh\necho '{\"state\": \"done\"}'\n")
+        os.chmod(ci, 0o755)
+        # a stand-in scheduler: a new GO on the next host of GO_HOSTS each time the gate ends the open one
+        feeder = os.path.join(tmp, "feeder.py")
+        open(feeder, "w").write(
+            "import json, os, sys, time\n"
+            "d, hosts = sys.argv[1], sys.argv[2].split(',')\n"
+            "stamp = lambda t: time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(t))\n"
+            "i, t0 = 0, time.time() - 100\n"
+            "while i < len(hosts):\n"
+            "    go = os.path.join(d, 'g.go'); done = os.path.join(d, 'g.done')\n"
+            "    if not os.path.exists(go) or os.path.exists(done):\n"
+            "        if os.path.exists(done): os.remove(done)\n"
+            "        json.dump({'host': hosts[i], 'go': stamp(t0 + i), 'until': stamp(time.time() + 600)}, open(go, 'w'))\n"
+            "        i += 1\n"
+            "    time.sleep(0.05)\n")
+        proc = subprocess.Popen([sys.executable, feeder, rounds_dir, ",".join(go_hosts)])
+        try:
+            code, summary = gate(["pass"] * rounds, tmp, rounds=rounds,
+                                 extra=("--hosts", "cmux20 cmux22 cmux23", "--whole-host", "cmux20", "--go-spec", "g",
+                                        "--real-key-hosts", "cmux20", "--goldens", goldens, "--go-wait-hours", "0.04",
+                                        *extra),
+                                 env_extra={"SMOKE_GATE_SCHED_ROUNDS": rounds_dir, "SMOKE_GATE_CMUX_CI": ci,
+                                            "SMOKE_GATE_GO_NONE_LEFT_GRACE": "0.2"})
+        finally:
+            proc.kill()
+            proc.wait()
+        return code, summary
+
+    def test_real_key_rounds_wait_for_a_real_key_mini_and_debug_rounds_take_any(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hosts = ["cmux22", "cmux23", "cmux20"] + ["cmux22"] * 4 + ["cmux20"] + ["cmux23"] * 6
+            code, summary = self.run_gate(tmp, hosts)
+            detail = summary["rounds_detail"]
+            real = [(r["slot"], r["hosts_offered"]) for r in detail if r["key_path"] == "real_hid"]
+            self.assertEqual(len(real), 2)
+            self.assertTrue(all(h == "cmux20" for _, h in real), real)  # the GO's mini (the stand-in names cmux99)
+            self.assertEqual([s_ for s_, _ in real], [3, 8])  # planned 1 and 6, moved to the next cmux20 GO
+            self.assertEqual(summary["real_key_rounds"], [s for s, _ in real])
+            for r in detail:  # every round that ran took the key path its mini allows
+                if r["go"] is None:
+                    continue
+                argv = json.load(open(os.path.join(tmp, "out", "round-%02d" % r["round"], "argv.json")))
+                self.assertEqual("key_path=real" in argv, r["key_path"] == "real_hid")
+            self.assertEqual(summary["passed"], 10)
+
+    def test_too_few_real_key_rounds_is_no_gate_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # one cmux20 GO only, at slot 2: the second real-key round finds no real-key mini before the wait ends
+            code, summary = self.run_gate(tmp, ["cmux22", "cmux20"] + ["cmux22"] * 8, rounds=10,
+                                          extra=("--go-wait-hours", "0.004"))
+            real = [r for r in summary["rounds_detail"] if r["key_path"] == "real_hid"]
+            self.assertLess(len(real), 2)
+            self.assertNotEqual(summary["verdict"], "PASS")
+            self.assertFalse(summary["gate_run"])
+
 class OpenP0(unittest.TestCase):
     """A .pass needs every open P0 journey passed, and never failed, on the exact build (cmux-ad 12:35Z)."""
 

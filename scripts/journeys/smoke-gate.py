@@ -578,7 +578,8 @@ def golden_cases(opts, out, listing, env_base):
         case_out = out / f"golden-{case}"
         go = None
         if opts.go_spec:
-            go, why = await_go(opts.go_spec, opts.hosts.split(), opts.go_used, opts.go_deadline)
+            go, why = await_go(opts.go_spec, sorted(getattr(opts, "real_hosts", None) or opts.hosts.split()),
+                               opts.go_used, opts.go_deadline)
             if not go:
                 case_out.mkdir(parents=True, exist_ok=True)
                 records.append({"case": case, "status": "not run", "reason": why, "host": None, "out": str(case_out)})
@@ -700,6 +701,11 @@ def main(argv=None):
                          "run the round on the GO's mini (one of --hosts), take its lease within the GO's window, and "
                          "end the GO with NAME.done; all rounds stay one gate run")
     ap.add_argument("--go-wait-hours", type=float, default=4.0, help="how long the run waits for all its GOs")
+    ap.add_argument("--real-key-hosts", metavar="HOSTS",
+                    help="with --go-spec: the minis (spaces between) where real HID keys work (CuaDriver granted, no "
+                         "host dialog). Real-key rounds and the golden cases take GOs only there; debug.key rounds take "
+                         "any mini of --hosts. A real-key round moves to the next GO on such a mini (default: every "
+                         "--hosts mini is one)")
     ap.add_argument("--goldens", choices=("after", "only", "skip"), default="after",
                     help="after (default): after the rounds, run each case of the golden list (video-goldens.txt) once "
                          "on --build on a whole-host lease and write its row to the golden ledger; only: run just "
@@ -722,8 +728,17 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     # Real HID keys go to the frontmost window: only on a whole-host lease (a shared slot's other apps could get them).
     real_rounds = real_key_rounds(opts.rounds, opts.real_key_rounds) if opts.whole_host else []
+    real_hosts = set((opts.real_key_hosts or "").split()) or set(opts.hosts.split())
+    opts.real_hosts = real_hosts  # the golden cases press real keys too: only these minis
+    # With --real-key-hosts and --go-spec the real-key rounds are placed where the GO lands (a mini with real keys)
+    # at or after their planned slot; the planned slots are only the earliest places (lead 03:0xZ: the 8 debug.key
+    # rounds and the goldens must not wait for the two minis with real keys).
+    flexible_real = bool(opts.real_key_hosts and opts.go_spec and real_rounds)
+    planned_real = list(real_rounds)
+    if flexible_real:
+        real_rounds = []  # filled with the slots that really took real keys
     gate_run = (opts.rounds >= GATE_ROUNDS and opts.swap_gb >= GATE_SWAP_GB and not opts.diagnostic
-                and len(real_rounds) >= GATE_REAL_KEY_ROUNDS)
+                and len(planned_real) >= GATE_REAL_KEY_ROUNDS)
     gate_sha = git("rev-parse", "HEAD").stdout.strip()
     opts.gate_sha, opts.gate_status = gate_sha, git("status", "--porcelain", "--", *GATE_PATHS).stdout
     dirty = bool(git("status", "--porcelain", "--", *GATE_PATHS).stdout.strip())
@@ -777,7 +792,14 @@ def main(argv=None):
         round_out = out / f"round-{n:02d}"
         go = None
         if opts.go_spec:
-            go, why = await_go(opts.go_spec, opts.hosts.split(), go_used, go_deadline)
+            need_real = len(planned_real) - len(real_rounds) if flexible_real else 0
+            # Only a real-key mini when every slot left is needed for the real-key rounds still owed.
+            must_real = flexible_real and ((need_real > 0 and (opts.rounds - slot + 1) <= need_real)
+                                           or slot in real_rounds)  # a replacement of a real-key round stays real
+            go, why = await_go(opts.go_spec, sorted(real_hosts) if must_real else opts.hosts.split(), go_used, go_deadline)
+            if go and flexible_real and need_real > 0 and slot not in real_rounds and go["host"] in real_hosts \
+                    and slot >= planned_real[len(real_rounds)]:
+                real_rounds.append(slot)
             if not go:
                 round_out.mkdir(parents=True, exist_ok=True)
                 rounds.append({"round": n, "steps": [], "status": "not run", "reason": why, "host": None, "seconds": 0,
@@ -873,6 +895,8 @@ def main(argv=None):
     failed = [r for r in rounds if r["status"] == "fail"]
     not_run = [r for r in rounds if r["status"] not in ("pass", "fail") and not r.get("replaced")]
     replaced_rounds = [r["round"] for r in rounds if r.get("replaced")]
+    if flexible_real and len(real_rounds) < len(planned_real):
+        gate_run = False  # fewer real-key rounds ran than asked (no GO on a real-key mini in time): a trial at most
     verdict = ("PASS" if gate_run else "TRIAL PASS") if passed == opts.rounds else ("FAIL" if failed else "NOT JUDGED")
     if opts.diagnostic:
         # Diagnostic rounds judge nothing: their findings are in the per-step report.
