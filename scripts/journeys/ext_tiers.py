@@ -10,10 +10,13 @@ Efficiency, so a frame number from a capture round is only comparable with the s
 
 proc_pidinfo(PROC_PIDTHREADCOUNTS) gives one thread's CPU time and cycles per tier (XNU recount), for a process of
 the same user, with no root and no sampling interrupt. The sampler here reads the main thread (the lowest thread id
-of the app's pid) every INTERVAL_MS (10 ms). At 1 ms it cost the turns it measures: in round hc-cost-1 (cmux23, 8 + 8
-split runs) the turns that started on Efficiency took p50 35.0 / p95 37.4 ms with it and p50 32.0 / p95 33.5 ms without,
-and 4 of 8 turns started on Super with it against 1 of 8 without; it used about 5 % of a core. The Efficiency phase
-of a turn is 25-30 ms, so 10 ms still names the start tier (STATUS 7767).
+of the app's pid) every INTERVAL_MS (10 ms): about 2.4 % of a core (1 ms: about 5 %). Cost on the turns it measures
+(cmux23, split runs, build 9c3c8695): the first journey after each launch starts on Super more often (4 of 8 against
+1 of 8), so the order of the arms in a lease decides most of the difference; round hc-cost-1 (1 ms, sampler first)
+looked like +3 ms but had that order. With the order balanced (hc-cost10-1 and hc-costb-1, 16 + 16 runs) the 10 ms
+sampler shows no cost that 16 runs can see: Efficiency-start turns p50 32.0 ms with it, 32.7 ms without. A 0.5 ms
+effect needs more runs than that. The Efficiency phase of a turn is 25-30 ms, so 10 ms still names the start tier
+(STATUS 7767).
 
 ext_video uses start() / stop() / turn_tiers() for every recording (video_start .. video_stop): each film gets
 <name>.tiers.json and, in <name>.meta.json, "tiers": the start tier of each HID action and key-down.
@@ -52,8 +55,8 @@ def host_seconds(driver_t):
     return driver_t + HOST_OFFSET
 
 
-START_TIMEOUT = 40.0
-INTERVAL_MS = 10.0  # the sampler's period (1 ms changed the turns it measured: see the module note)  # s for the sampler's first reading (its 1 + levels sysctl calls and its ps have 5 s each)
+START_TIMEOUT = 40.0  # s for the sampler's first reading (its 1 + levels sysctl calls and its ps have 5 s each)
+INTERVAL_MS = 10.0  # the sampler's period (half the CPU of 1 ms; enough to name the start tier: see the module note)
 
 SAMPLER = r'''
 import ctypes, json, os, subprocess, sys, time
