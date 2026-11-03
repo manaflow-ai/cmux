@@ -2121,5 +2121,61 @@ class Script(unittest.TestCase):
         self.assertIn("--override cannot bypass god-file, l10n or concurrency lint", text)
 
 
+
+class LostRunnerIsInfra(unittest.TestCase):
+    """A job whose runner was lost (cmux#33162's react-apps-base-check (3), job 126154996598) is infra, not a verdict:
+    refused as one that needs a re-run, never compared and never the PR's own red."""
+
+    FIXTURES = Path(__file__).resolve().parent / "fixtures/test_reds"
+
+    def lost(self):
+        github = FakeGitHub()
+        real = json.loads((self.FIXTURES / "lost-runner-job-126154996598.json").read_text())
+        github.jobs[1] = dict(real, id=1, run_id=10, head_sha=HEAD)
+        return github
+
+    def test_a_lost_runner_is_infra_from_its_steps_with_no_log_read(self):
+        github = self.lost()
+        github.log = lambda repo, job: self.fail("a lost runner's log is never read")
+        with self.assertRaisesRegex(excuse.Infra, "infra, not a verdict .*still in_progress.*needs a re-run"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_an_unstored_log_reads_the_annotations(self):
+        github = self.lost()
+        github.jobs[1]["steps"] = [dict(s, status="completed") for s in github.jobs[1]["steps"]]
+        notes = json.loads((self.FIXTURES / "lost-runner-annotations-126154996598.json").read_text())
+        blob = (self.FIXTURES / "lost-runner-log-126154996598.txt").read_text()
+        plain = github.json
+
+        def json_(route, *, paginate=False):
+            if route == f"repos/{REPO}/check-runs/1/annotations":
+                return notes
+            return plain(route, paginate=paginate)
+
+        def log(repo, job):
+            raise excuse.Refused("GitHub evidence request failed: " + blob + "gh: HTTP 404")
+        github.json, github.log = json_, log
+        with self.assertRaisesRegex(excuse.Infra, "lost communication with the server"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        notes[:] = []  # no annotation: a log GitHub never stored, with no step failed, is a lost runner too
+        with self.assertRaisesRegex(excuse.Infra, "BlobNotFound"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+        def unavailable(repo, job):
+            raise excuse.Refused("GitHub evidence request failed: gh: HTTP 502")
+        github.log = unavailable  # any other unread log stays the refusal it was
+        with self.assertRaises(excuse.Refused) as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+        self.assertIn("HTTP 502", str(caught.exception))
+
+    def test_a_real_test_failure_is_still_compared(self):
+        github = FakeGitHub()
+        github.logs[1] = log(SWIFT, TEST_STEP, ISSUE, OTHER.replace("palettePages", "somethingNew"))
+        with self.assertRaises(excuse.Refused) as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+        self.assertIn("somethingNew", str(caught.exception))
+
 if __name__ == "__main__":
     unittest.main()
