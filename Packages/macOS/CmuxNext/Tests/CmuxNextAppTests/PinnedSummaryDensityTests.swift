@@ -63,6 +63,7 @@ import Testing
         var cardTitle: CGFloat
         var cardCaption: CGFloat
         var cardWidth: CGFloat
+        var cardMinWidth: CGFloat
         var tabRowHeight: CGFloat
         var tabTitle: CGFloat
         var tabIcon: CGFloat
@@ -106,6 +107,16 @@ import Testing
             let card = WorkspaceHoverCardView()
             card.configure(.make(pinned, machine: nil, now: Date()))
             card.configureTabs(title: pinnedID.rawValue, tabs: pinned.tabs, machine: nil)
+            // The card's widest and narrowest: its fitting size pulled wide, then narrow, against its own required width
+            // limits (the panel sizes it between them). The pull outranks the labels' hugging, as the panel's 999 edges do.
+            func fittingWidth(pulledTo width: CGFloat) -> CGFloat {
+                let pull = card.widthAnchor.constraint(equalToConstant: width)
+                pull.priority = .init(999)
+                pull.isActive = true
+                defer { pull.isActive = false }
+                return card.fittingSize.width
+            }
+            let widest = fittingWidth(pulledTo: 2000), narrowest = fittingWidth(pulledTo: 0)
             card.frame.size = card.fittingSize
             card.layoutSubtreeIfNeeded()
             let tab = try #require(card.tabList.rowViews.first, "\(setting): the card drew no tab row")
@@ -116,11 +127,11 @@ import Testing
                 listRowHeight: listRow.bounds.height, listTitle: listRow.title.font.pointSize, listGlyph: listGlyph,
                 cardPadding: card.kindIconFrame.minX, cardIcon: card.kindIconFrame.width,
                 cardTitle: card.drawnTitleFont?.pointSize ?? 0, cardCaption: card.drawnCaptionFont?.pointSize ?? 0,
-                cardWidth: card.fittingSize.width, tabRowHeight: tab.frame.height, tabTitle: tab.titleFont?.pointSize ?? 0,
+                cardWidth: widest, cardMinWidth: narrowest, tabRowHeight: tab.frame.height, tabTitle: tab.titleFont?.pointSize ?? 0,
                 tabIcon: tab.iconFrame.width, disclosureHeight: card.detailsToggle.fittingSize.height)
             print("PINNEDSIZE|\(setting)|row \(measured.pinnedRowHeight) vs \(measured.listRowHeight)|title \(measured.pinnedTitle) vs \(measured.listTitle)"
                 + "|glyph \(measured.pinnedGlyph) vs \(measured.listGlyph)|card pad \(measured.cardPadding) icon \(measured.cardIcon)"
-                + " title \(measured.cardTitle) caption \(measured.cardCaption) width \(measured.cardWidth)"
+                + " title \(measured.cardTitle) caption \(measured.cardCaption) width \(measured.cardMinWidth)...\(measured.cardWidth)"
                 + "|tab \(measured.tabRowHeight) title \(measured.tabTitle) icon \(measured.tabIcon)|disclosure \(measured.disclosureHeight)")
             return measured
         }
@@ -147,8 +158,8 @@ import Testing
         #expect(m.cardIcon == card.iconSide, "\(setting): icon \(m.cardIcon), token \(card.iconSide)")
         #expect(m.cardTitle == card.titleSize, "\(setting): title \(m.cardTitle), token \(card.titleSize)")
         #expect(m.cardCaption == card.captionSize, "\(setting): caption \(m.cardCaption), token \(card.captionSize)")
-        // The long name wraps at the card's widest.
-        #expect(m.cardWidth == card.maxWidth, "\(setting): width \(m.cardWidth), token \(card.maxWidth)")
+        #expect(m.cardWidth == card.maxWidth, "\(setting): widest \(m.cardWidth), token \(card.maxWidth)")
+        #expect(m.cardMinWidth == card.minWidth, "\(setting): narrowest \(m.cardMinWidth), token \(card.minWidth)")
         #expect(m.tabRowHeight == card.tabRowHeightTwoLines, "\(setting): tab row \(m.tabRowHeight), token \(card.tabRowHeightTwoLines)")
         #expect(m.tabTitle == card.titleSize, "\(setting): tab title \(m.tabTitle), token \(card.titleSize)")
         #expect(m.tabIcon == card.iconSide, "\(setting): tab icon \(m.tabIcon), token \(card.iconSide)")
@@ -162,7 +173,9 @@ import Testing
         for (smaller, bigger) in zip(sizes, sizes.dropFirst()) {
             #expect(bigger.pinnedRowHeight > smaller.pinnedRowHeight)
             #expect(bigger.pinnedTitle > smaller.pinnedTitle)
-            #expect(bigger.pinnedGlyph > smaller.pinnedGlyph, "\(density): pinned icon \(smaller.pinnedGlyph) → \(bigger.pinnedGlyph)")
+            // The workspace row's own icon holds at comfortable from large to larger (it fills the 20 pt column);
+            // the pinned row matches it, so its icon never shrinks rather than always grows.
+            #expect(bigger.pinnedGlyph >= smaller.pinnedGlyph, "\(density): pinned icon \(smaller.pinnedGlyph) → \(bigger.pinnedGlyph)")
             #expect(bigger.cardIcon > smaller.cardIcon, "\(density): card icon \(smaller.cardIcon) → \(bigger.cardIcon)")
             #expect(bigger.cardTitle > smaller.cardTitle, "\(density): card title \(smaller.cardTitle) → \(bigger.cardTitle)")
             #expect(bigger.cardCaption > smaller.cardCaption)
