@@ -881,6 +881,13 @@ fn pull_back_steps(
         ))
     })?;
     report.moved = true;
+    // The subagents a move handed to that host come back with the Chief. The Chief is home
+    // either way; one that does not come back stays on record for the next try.
+    if crate::migrate_subagents::recorded(home).is_some() {
+        let _ = migrate::timed(&mut report.steps, "subagents", || {
+            crate::migrate_subagents::bring_back(home).map(|d| ((), d))
+        });
+    }
     Ok(())
 }
 

@@ -44,6 +44,7 @@ const LOCAL_NAMES: &[&str] = &[
     "shutdown",
     "moved.json",
     "moved-in.json",
+    "subagents-moved.json",
     // A teleport request, the last move's report and the watcher's lock belong
     // to the machine they were written on: carried along, a request would send
     // the Chief straight back.
@@ -1145,6 +1146,14 @@ pub fn move_chief(options: &MoveOptions) -> MoveReport {
             if probe["empty"] != true {
                 return Err(format!("target home {} is not empty", probe["home"]));
             }
+            // Working subagents go with the Chief: a dry run already names a host its acpmux
+            // cannot hand them to (migrate_subagents.rs).
+            if !crate::migrate_subagents::working(&home)
+                .unwrap_or_default()
+                .is_empty()
+            {
+                crate::migrate_subagents::peer_for(&home, host)?;
+            }
             let detail = format!(
                 "{} ({} {}, {bin})",
                 probe["home"], probe["os"], probe["arch"]
@@ -1177,7 +1186,40 @@ pub fn move_chief(options: &MoveOptions) -> MoveReport {
     }) {
         fail!(e);
     }
+    // Working subagents go with a Chief moving to another machine (migrate_subagents.rs);
+    // a Cloud Chief does not run this Mac's agents, so they stay and the report says so.
+    let handed = timed(&mut report.steps, "subagents", || match &options.target {
+        Target::Ssh { host, .. } => {
+            crate::migrate_subagents::hand_over(&home, host).map(|(h, d)| (h.is_some(), d))
+        }
+        Target::Cloud(_) => {
+            let n = crate::migrate_subagents::working(&home)
+                .map(|w| w.len())
+                .unwrap_or(0);
+            Ok((
+                false,
+                if n == 0 {
+                    "no subagent is working".into()
+                } else {
+                    format!(
+                        "{n} working subagents stay on this Mac: a Cloud Chief does not run them"
+                    )
+                },
+            ))
+        }
+        Target::Local(_) => Ok((false, "same Mac: subagents stay in place".into())),
+    });
+    let handed = match handed {
+        Ok(h) => h,
+        Err(e) => {
+            let _ = std::fs::remove_file(home.join(SHUTDOWN_FILE));
+            fail!(e);
+        }
+    };
     let undo_drain = |home: &Path| {
+        if handed {
+            let _ = crate::migrate_subagents::bring_back(home);
+        }
         let _ = std::fs::remove_file(home.join(SHUTDOWN_FILE));
     };
     let parent = home.parent().unwrap_or(Path::new("/tmp"));
@@ -1651,14 +1693,20 @@ pub fn rollback(
         ssh(host, &script, None)?;
     }
     std::fs::remove_file(home.join(MOVED_FILE)).map_err(|e| e.to_string())?;
+    // Subagents a move handed over come back with it; one that does not stays on record.
+    let back = crate::migrate_subagents::bring_back(home);
     let _ = std::fs::remove_file(home.join(SHUTDOWN_FILE));
     let there = if target.starts_with("cloud:") {
         "its brain is off (the hosted copy stays, with what it learned after the move)"
     } else {
         "is marked moved back (its host will not start)"
     };
+    let subagents = match back {
+        Ok(d) => d,
+        Err(e) => format!("{e} (run `optchat-chief move rollback` again to retry them)"),
+    };
     Ok(format!(
-        "rolled back: {} answers again; {target} {there}",
+        "rolled back: {} answers again; {target} {there}; {subagents}",
         home.display()
     ))
 }
