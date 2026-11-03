@@ -277,6 +277,7 @@ import {
   setSessionInfoOpen as setSessionInfoPanelOpen,
   setSessionInfoSection,
   useSessionInfoOpen,
+  sessionInfoPaneKey,
 } from "./session-info/sessionInfoState";
 import { openCommand, opensProcessTerminal } from "./processTerminal";
 import {
@@ -7438,7 +7439,13 @@ function AcpmuxPane() {
     [transcriptTasks],
   );
   const sessionInfoOn = useHeaderState().sessionInfo;
-  const sessionInfoOpened = useSessionInfoOpen(shownSessionId);
+  // A pane opened beside another chat (a subagent's pane, a chat its agent started) has Session Info
+  // of its own, closed until the person opens it there (sessionInfoState.ts `sessionInfoPaneKey`).
+  const shownEntry = shownSessionId
+    ? snapshot.sessions?.find((entry) => entry.sessionId === shownSessionId)
+    : undefined;
+  const sessionInfoSplit = ownSubagentPane || !!(shownEntry?.startedBy || shownEntry?.spawnedBy);
+  const sessionInfoOpened = useSessionInfoOpen(sessionInfoPaneKey(shownSessionId, sessionInfoSplit));
   const processRegistry = useProcessRegistry(
     processSource,
     shownSessionId,
@@ -8349,8 +8356,9 @@ function AcpmuxPane() {
   foregroundNow.current = foreground;
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
-  /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`) once the
-  /// summary card's switch is on, else in this pane (subagents/subagentPanes.ts).
+  /// Shows subagent `id`: a person's open in a pane of its own right of the chat, focused; a new
+  /// subagent's own open (`focus` false) only while the summary card's switch is on
+  /// (subagents/subagentPanes.ts).
   const showSubagent = useCallback(
     (id: string, focus = true) =>
       void showSubagentIn(callNative, id, focus, {
@@ -8661,6 +8669,7 @@ function AcpmuxPane() {
   );
   const sessionInfo = useSessionInfo({
     snapshot: sessionInfoSnapshot,
+    split: sessionInfoSplit,
     machineName,
     repository: githubRepository,
     cloudRepositoryAvailable,
