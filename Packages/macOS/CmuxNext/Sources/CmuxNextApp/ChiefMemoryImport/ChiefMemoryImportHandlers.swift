@@ -80,7 +80,7 @@ enum ChiefMemoryImportHandlers {
             guard let tool = bundledTool() else { throw PageError(code: "cmux.importHistory.no_tool", message: ChiefMemoryImportStrings.noTool) }
             let output = await run(tool, arguments, timeout: timeout)
             guard output.status == 0 else { throw PageError(code: "cmux.importHistory.failed", message: output.message) }
-            return try JSONDecoder().decode(JSONValue.self, from: Data(output.stdout.utf8))
+            return try CmuxNextSettings.JSONValue.parse(Data(output.stdout.utf8))
         }
         provider.restart = { [weak services] in _ = services?.home.brain.ensure(asked: true) }
         let native = AppPageNativeProvider(services: services, page: .importHistory)
@@ -183,7 +183,6 @@ enum ChiefMemoryImportHandlers {
         }
     }
 }
-
 
 extension PageDescriptor {
     static let importHistory = PageDescriptor(
