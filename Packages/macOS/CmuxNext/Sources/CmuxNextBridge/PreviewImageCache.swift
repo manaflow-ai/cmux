@@ -21,6 +21,17 @@ public final class PreviewImageCache {
 
     public var count: Int { images.count }
 
+    /// Replaces `key`'s image with `replacement` at `cost` only while `key` still holds `current` (the same object):
+    /// a later picture of the tab is never overwritten by an older one finished late. Keeps its recency.
+    @discardableResult
+    public func replace(_ current: CGImage, for key: String, with replacement: CGImage, cost: Int) -> Bool {
+        guard images[key] === current, cost <= capacityBytes, let old = costs[key] else { return false }
+        images[key] = replacement
+        costs[key] = cost
+        totalBytes += cost - old
+        return true
+    }
+
     public func image(for key: String) -> CGImage? {
         guard let image = images[key] else { return nil }
         touch(key)

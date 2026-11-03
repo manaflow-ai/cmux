@@ -9,6 +9,18 @@ extension PreviewImageCache {
     /// Pixels a compressed picture keeps at most: a 2560 x 1600 pt pane at 2x (16.4 M) keeps its size.
     public nonisolated static let maxCompressedPixels = 16 << 20
 
+    /// Keeps `image` for `key` now, and replaces it with its compressed copy when that is encoded, off every waiting
+    /// path at .utility: a caller that waits for this picture never waits for its compression. The replacement is
+    /// dropped when `key` holds another picture by then (a later capture is never overwritten by an older one).
+    public func insertCompressingLater(_ image: CGImage, for key: String) {
+        insert(image, for: key)
+        let encode = self.encode
+        Task.detached(priority: .utility) { [weak self] in
+            guard let kept = await encode(image) else { return }
+            await self?.replace(image, for: key, with: kept.image, cost: kept.data.count)
+        }
+    }
+
     /// `image` as a JPEG (a PNG when it has transparent pixels) at most `maxCompressedPixels` large, same aspect and
     /// color space, with the image that decodes from it; nil when ImageIO cannot encode it. Encodes here.
     public nonisolated static func compressed(_ image: CGImage, quality: Double) -> (data: Data, image: CGImage)? {
