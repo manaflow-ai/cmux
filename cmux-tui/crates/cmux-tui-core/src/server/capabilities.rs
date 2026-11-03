@@ -319,6 +319,7 @@ pub(super) fn advertised_capabilities(
         crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,
         icon_assets::ICON_ASSETS_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
+        conversations::CONVERSATION_QUESTION_DELIVERY_CAPABILITY,
         conversations::CONVERSATION_SEARCH_CAPABILITY,
         conversations::CONVERSATION_DRAFT_CAPABILITY,
         conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,

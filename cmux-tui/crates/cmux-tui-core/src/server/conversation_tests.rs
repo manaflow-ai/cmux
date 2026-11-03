@@ -86,6 +86,13 @@ fn local_conversations_capability_is_advertised() {
             .any(|value| value == LOCAL_CONVERSATIONS_CAPABILITY)
     );
     assert_eq!(LOCAL_CONVERSATIONS_CAPABILITY, "local-conversations-v1");
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "conversation-question-delivery-v1")
+    );
     let capabilities = identity["capabilities"].as_array().unwrap();
     assert!(capabilities.iter().any(|value| value == "conversation-search-v1"));
 }

@@ -215,6 +215,10 @@ public nonisolated final class DaemonHomeSource: HomeSource {
         let request = ConversationOpRequest(conversation: mapped.conversation, idempotencyKey: intent.key.rawValue,
                                             transaction: ClientTransactionID(rawValue: intent.key.rawValue), op: mapped.op)
         let connection = try requireOwner()
+        if case .answerQuestion = intent.op,
+           await connection.identity?.supports(DaemonCapability.conversationQuestionDelivery.rawValue) != true {
+            throw HomeRejection.invalid("question.delivery_unavailable")
+        }
         let result = try await Self.mapped { try await ConversationClient(connection).op(request) }
         // A daemon from before conversation-threads-v1 does not move the
         // sender's cursor: move it here, so my own sends never count as unread.
