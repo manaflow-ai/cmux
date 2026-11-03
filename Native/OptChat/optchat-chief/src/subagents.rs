@@ -179,6 +179,8 @@ pub struct SpawnPlan {
     /// Each subagent's own VM size (one VM per subagent), in `ids` order;
     /// None: a shared peer or this host.
     pub sizes: Vec<Option<String>>,
+    /// Why each id was placed here, on a paired machine or in Cloud.
+    pub placements: Vec<crate::place_route::Placement>,
 }
 
 /// The engine a spawn's subagents run on: the calling turn's harness and
@@ -345,31 +347,7 @@ fn mentions(task: &str, words: &[&str]) -> bool {
 /// a tagged build to launch, the simulator or a sign-in. Those subagents
 /// stay here; everything else may run in its own VM.
 pub fn needs_mac(task: &str) -> bool {
-    mentions(
-        task,
-        &[
-            "screenshot",
-            "screen recording",
-            "computer use",
-            "computer-use",
-            "cua ",
-            "reload.sh",
-            "--launch",
-            "tagged app",
-            "tagged build",
-            "simulator",
-            "xcode",
-            "testflight",
-            "sign in",
-            "sign-in",
-            "passkey",
-            "touch id",
-            "keychain",
-            "dogfood",
-            "click ",
-            "drive the app",
-        ],
-    )
+    crate::place_route::Need::of(task) == crate::place_route::Need::MacOnly
 }
 
 /// The VM size a task needs: `medium` for tests, type checks and installs
@@ -704,6 +682,117 @@ impl Spawner {
             .map(|(h, f)| (h.clone(), *f))
             .collect();
         crate::spawn_route::pick(task, default, &families, &allowed, &offered)
+    }
+
+    /// Read acpmux off the brain thread. A peer with unknown login/health
+    /// is kept for explicit placement, but never chosen automatically.
+    fn machine_table(&self) -> Vec<crate::place_route::Machine> {
+        use crate::place_route::{Kind, login_families, machine};
+        let status = self.agents.machine_status().unwrap_or_else(|e| {
+            (self.log)(&format!("machine placement: {e}"));
+            json!({"here": {"os": std::env::consts::OS, "pressure": {"ok": true}}})
+        });
+        let mut machines = vec![machine("here", Kind::ThisMac, &status["here"], Vec::new())];
+        // Read peers together: an old peer's bounded RPC deadline must not
+        // multiply by the number of paired machines. Join in listing order.
+        machines.extend(std::thread::scope(|scope| {
+            let reads: Vec<_> = status["peers"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|row| Some((row, row["name"].as_str()?)))
+                .map(|(row, name)| {
+                    scope.spawn(move || {
+                        let connected = row["connected"].as_bool() == Some(true);
+                        let logins = if connected
+                            && row.pointer("/health/pressure/ok").and_then(Value::as_bool)
+                                == Some(true)
+                        {
+                            match (
+                                self.agents.harness_catalog_on(Some(name)),
+                                self.agents.harness_health_on(Some(name)),
+                            ) {
+                                (Ok(catalog), Ok(health)) => login_families(&catalog, &health),
+                                _ => Vec::new(),
+                            }
+                        } else {
+                            Vec::new()
+                        };
+                        let mut m = machine(name, Kind::Paired, &row["health"], logins);
+                        m.connected = connected;
+                        m
+                    })
+                })
+                .collect();
+            reads
+                .into_iter()
+                .filter_map(|read| read.join().ok())
+                .collect::<Vec<_>>()
+        }));
+        machines
+    }
+
+    fn machine_login(
+        &self,
+        mut launch: SubagentSettings,
+        default: &str,
+        peer: Option<&str>,
+    ) -> Result<(SubagentSettings, String), String> {
+        let catalog = self.agents.harness_catalog_on(peer);
+        let health_read = self.agents.harness_health_on(peer);
+        let health = health_read.as_ref().cloned().unwrap_or_default();
+        let unavailable = match (&catalog, &health_read) {
+            (Err(_), _) => Some("could not read this machine's harnesses".into()),
+            (Ok(_), Err(_)) => Some("could not read this machine's logins".into()),
+            (Ok(c), Ok(_)) => crate::place_route::unavailable(c, &health, &launch.harness),
+        };
+        let mut note = String::new();
+        if let Some(why) = unavailable {
+            if launch.harness != default {
+                note = format!(
+                    " ({} unavailable: {why}; using default {default})",
+                    launch.harness
+                );
+                launch.harness = default.into();
+                launch.model = None;
+                if peer.is_none() {
+                    let family = self
+                        .families
+                        .get(default)
+                        .copied()
+                        .unwrap_or(crate::acpmux::Family::Claude);
+                    let base = self
+                        .families
+                        .get(&self.settings.harness)
+                        .copied()
+                        .unwrap_or(crate::acpmux::Family::Claude);
+                    launch.preset = self.settings.preset.as_ref().and_then(|p| {
+                        if family == base {
+                            Some(p.clone())
+                        } else {
+                            family_preset(p, family)
+                        }
+                    });
+                }
+            }
+            if let Ok(catalog) = &catalog
+                && let Some(why) =
+                    crate::place_route::unavailable(catalog, &health, &launch.harness)
+            {
+                return Err(format!("{} unavailable: {why}", launch.harness));
+            }
+        }
+        if self
+            .grant
+            .as_ref()
+            .is_some_and(|g| !g.grant().allows_harness(&launch.harness))
+        {
+            return Err(format!(
+                "the person has not given this Chief's subagents the {} harness",
+                launch.harness
+            ));
+        }
+        Ok((launch, note))
     }
 
     /// A spawn whose tasks the picker sent to more than one harness: one
@@ -1506,6 +1595,11 @@ impl Orchestrator for Spawner {
         let given = |v: Option<String>| v.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
         let (harness, model) = (given(harness), given(model));
         let choice = self.engine_choice();
+        let default_harness = choice
+            .subagent_harness
+            .clone()
+            .filter(|h| !h.trim().is_empty())
+            .unwrap_or_else(|| self.settings.harness.clone());
         if let Some(h) = harness.as_deref() {
             self.check_route(&choice, "harness", h)?;
         }
@@ -1589,6 +1683,7 @@ impl Orchestrator for Spawner {
             peer: self.cloud.as_ref().map(|c| c.peer.clone()),
             place,
             harness: harness.clone(),
+            machines: self.machine_table(),
             reply,
         })?;
         let plan = answer
@@ -1618,6 +1713,7 @@ impl Orchestrator for Spawner {
                 "settle_ms": began.elapsed().as_millis() as u64,
                 "view": {"bytes": view.len(), "hash": crate::trace::hash(&view)},
                 "harness": run.harness,
+                "placements": plan.ids.iter().zip(&plan.placements).map(|(id, p)| json!({"id": id, "place": match &p.target { crate::place_route::Target::Here => "here", crate::place_route::Target::CloudVm => "cloud", crate::place_route::Target::Peer(name) => name.as_str() }, "place_reason": p.reason})).collect::<Vec<_>>(),
             }),
         );
         // Subagents that run here (all of them, or with one VM per subagent
@@ -1678,10 +1774,18 @@ impl Orchestrator for Spawner {
         }
         for (k, (id, task)) in plan.ids.iter().zip(&tasks).enumerate() {
             let sub_peer = plan.peers.get(k).cloned().flatten();
-            let sub_cloud = sub_peer.as_deref().map(|p| self.placement(p));
+            let paired = matches!(
+                plan.placements[k].target,
+                crate::place_route::Target::Peer(_)
+            );
+            let sub_cloud = sub_peer
+                .as_deref()
+                .filter(|_| !paired)
+                .map(|p| self.placement(p));
+            let place_note = format!(" ({})", plan.placements[k].line());
             if let Some(e) = &refused {
                 (self.log)(&format!("subagent {id} did not start: {e}"));
-                lines.push(format!("- {id}: did not start ({e})"));
+                lines.push(format!("- {id}: did not start ({e}){place_note}"));
                 if plan.queued.contains(id) {
                     continue;
                 }
@@ -1692,6 +1796,18 @@ impl Orchestrator for Spawner {
                 continue;
             }
             if plan.queued.contains(id) {
+                let (queued_launch, login_note) =
+                    match self.machine_login(local_launch.clone(), &default_harness, None) {
+                        Ok(launch) => launch,
+                        Err(error) => {
+                            let _ = self.to_brain(Input::SubagentFailed {
+                                id: id.clone(),
+                                error: error.clone(),
+                            });
+                            lines.push(format!("- {id}: did not start ({error}){place_note}"));
+                            continue;
+                        }
+                    };
                 // Saved in its record too: a restarted host still starts it.
                 let _ = self.to_brain(Input::SubagentQueued {
                     id: id.clone(),
@@ -1700,8 +1816,8 @@ impl Orchestrator for Spawner {
                         cwd: Some(local_dir.display().to_string()),
                         effort: launch.effort.clone(),
                         floor: floor.clone(),
-                        harness: harness.clone(),
-                        model: model.clone(),
+                        harness: Some(queued_launch.harness.clone()),
+                        model: queued_launch.model.clone(),
                     },
                 });
                 self.waiting
@@ -1713,7 +1829,7 @@ impl Orchestrator for Spawner {
                             spawn: plan.spawn.clone(),
                             task: task.clone(),
                             floor: floor.clone(),
-                            launch: launch.clone(),
+                            launch: queued_launch,
                         },
                     );
                 let cap = plan.limit.map_or_else(
@@ -1727,13 +1843,13 @@ impl Orchestrator for Spawner {
                     },
                 );
                 lines.push(format!(
-                    "- {id}: queued ({cap}; it starts when one finishes; there is no cap by default, `control cap 0` removes this one)"
+                    "- {id}: queued ({cap}; it starts when one finishes; there is no cap by default, `control cap 0` removes this one){place_note}{login_note}"
                 ));
                 continue;
             }
             // A paused VM resumes first (B4); a no-op when it runs. A
             // subagent's own VM is made now (one VM per subagent).
-            let resumed = match (&sub_peer, &self.cloud_vms) {
+            let resumed = match (sub_peer.as_ref().filter(|_| !paired), &self.cloud_vms) {
                 (Some(p), Some(vms)) => {
                     let began = Instant::now();
                     let r = if is_agent_peer(p) {
@@ -1757,7 +1873,7 @@ impl Orchestrator for Spawner {
             };
             // Its own VM was not made (over the daily budget, provider
             // down): it runs here rather than not at all.
-            let mut here_note = String::new();
+            let mut here_note = place_note;
             let (sub_peer, sub_cloud, resumed) = match (&resumed, &sub_peer) {
                 (Err(e), Some(p)) if is_agent_peer(p) => {
                     let _ = self.to_brain(Input::SubagentPlacedHere {
@@ -1775,7 +1891,7 @@ impl Orchestrator for Spawner {
             };
             // On a VM that is up: its own sandbox key, named in its task.
             let key = match (&resumed, &sub_peer) {
-                (Ok(()), Some(p)) => self.agent_key(p, id),
+                (Ok(()), Some(p)) if !paired => self.agent_key(p, id),
                 _ => None,
             };
             let task = match &key {
@@ -1788,18 +1904,39 @@ impl Orchestrator for Spawner {
                 }
                 None => task,
             };
+            let mut sub_launch = if sub_peer.is_some() {
+                launch.clone()
+            } else {
+                local_launch.clone()
+            };
+            if paired && sub_peer.is_some() {
+                // Null cwd asks the paired daemon for a native scratch folder.
+                sub_launch.cwd = PathBuf::new();
+                sub_launch.harness = run.harness.clone();
+                sub_launch.preset = None;
+                sub_launch.claude_md = None;
+                sub_launch.model = run.model.clone();
+            } else if sub_peer.is_some() && harness.is_some() {
+                sub_launch.harness = run.harness.clone();
+                sub_launch.model = run.model.clone();
+            }
+            // Login status belongs to the chosen machine. A login command
+            // is not a sign-in; unknown catalogs cannot justify a switch.
+            let fallback = sub_cloud
+                .as_ref()
+                .filter(|_| !sub_peer.as_deref().is_some_and(is_agent_peer))
+                .map_or(default_harness.as_str(), |c| c.harness.as_str());
+            let login = self.machine_login(sub_launch, fallback, sub_peer.as_deref());
             let started_one = resumed.and_then(|()| {
+                let (sub_launch, login_note) = login?;
+                here_note.push_str(&login_note);
                 self.start_one(
                     &plan.spawn,
                     id,
                     &task,
                     &view,
                     floor.as_deref(),
-                    if sub_peer.is_some() {
-                        &launch
-                    } else {
-                        &local_launch
-                    },
+                    &sub_launch,
                     sub_peer.as_deref(),
                 )
             });
@@ -1815,7 +1952,7 @@ impl Orchestrator for Spawner {
                         id: id.clone(),
                         error: e.clone(),
                     });
-                    lines.push(format!("- {id}: did not start ({e})"));
+                    lines.push(format!("- {id}: did not start ({e}){here_note}"));
                 }
             }
         }
@@ -1823,6 +1960,15 @@ impl Orchestrator for Spawner {
             "No subagent started.".to_owned()
         } else if started.is_empty() {
             format!("Queued {}.", plan.queued.join(", "))
+        } else if plan
+            .placements
+            .iter()
+            .any(|p| matches!(p.target, crate::place_route::Target::Peer(_)))
+        {
+            format!(
+                "Started {}. Each machine is named below.",
+                started.join(", ")
+            )
         } else if placed.iter().any(|(_, p)| p.is_some()) {
             let mut on: Vec<&str> = placed.iter().filter_map(|(_, p)| p.as_deref()).collect();
             on.sort_unstable();

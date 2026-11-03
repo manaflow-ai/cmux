@@ -269,6 +269,23 @@ pub trait AgentPort: Send + Sync {
         Err("this acpmux port reports no harness catalog".into())
     }
 
+    /// Read-only catalogs on the selected machine; no credential transfer.
+    fn harness_catalog_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        if peer.is_some() {
+            return Err("peer harness catalog is unavailable".into());
+        }
+        self.harness_catalog()
+    }
+
+    fn harness_health_on(&self, _peer: Option<&str>) -> Result<Value, String> {
+        Ok(json!({"harnesses": []}))
+    }
+
+    /// Cached paired-machine health plus this host's current health.
+    fn machine_status(&self) -> Result<Value, String> {
+        Ok(json!({"here": {"os": std::env::consts::OS, "pressure": {"ok": true}}, "peers": []}))
+    }
+
     /// Answers a pending permission request of `session`
     /// (`_acpmux/permission_respond`) with `option` (None: cancelled).
     fn respond_permission(
@@ -1135,7 +1152,7 @@ pub fn new_session(
     let request = |meta: &Value| {
         client.request_within(
             "session/new",
-            json!({"cwd": spec.cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
+            json!({"cwd": if spec.peer.is_some() && spec.cwd.as_os_str().is_empty() { None } else { Some(&spec.cwd) }, "mcpServers": [], "_meta": {"acpmux": meta}}),
             SESSION_NEW_DEADLINE,
         )
     };
@@ -1392,6 +1409,45 @@ impl AgentPort for Acpmux {
         self.client()?
             .request("_acpmux/harnesses", json!({}))
             .map_err(|e| format!("harnesses: {e}"))
+    }
+
+    fn harness_catalog_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        let answer = self
+            .client()?
+            .request(
+                "_acpmux/harnesses",
+                peer.map_or_else(|| json!({}), |p| json!({"_meta": {"acpmux": {"peer": p}}})),
+            )
+            .map_err(|e| format!("harnesses: {e}"))?;
+        if peer.is_some_and(|name| answer["peer"] != name) {
+            return Err("daemon does not support reading the selected peer's harnesses".into());
+        }
+        Ok(answer)
+    }
+
+    fn harness_health_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        let answer = self
+            .client()?
+            .request(
+                "_acpmux/harness/health",
+                peer.map_or_else(|| json!({}), |p| json!({"_meta": {"acpmux": {"peer": p}}})),
+            )
+            .map_err(|e| format!("harness health: {e}"))?;
+        if peer.is_some_and(|name| answer["peer"] != name) {
+            return Err("daemon does not support reading the selected peer's logins".into());
+        }
+        Ok(answer)
+    }
+
+    fn machine_status(&self) -> Result<Value, String> {
+        let client = self.client()?;
+        let peers = client
+            .request("_acpmux/peers", json!({}))
+            .map_err(|e| format!("machines: {e}"))?;
+        let here = client
+            .request("_acpmux/host_health", json!({}))
+            .map_err(|e| format!("machine health: {e}"))?;
+        Ok(json!({"here": here, "peers": peers["peers"]}))
     }
 
     fn trust_folder(&self, cwd: &std::path::Path) -> Result<(), String> {

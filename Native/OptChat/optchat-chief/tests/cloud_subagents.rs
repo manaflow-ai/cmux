@@ -1027,13 +1027,30 @@ fn hello_ios_stays_here_and_hello_web_uses_cloud_with_a_reason() {
     let vms = Arc::new(PerAgentVms::default());
     let sp = per_agent(&mut h, &vms);
     let answer = run(&mut h, move || {
-        sp.spawn(vec!["build a hello iOS view".into(), "build a hello web page".into()], None)
-    }).unwrap();
+        sp.spawn(
+            vec![
+                "build a hello iOS view".into(),
+                "build a hello web page".into(),
+            ],
+            None,
+        )
+    })
+    .unwrap();
     let specs = subs(&h);
     assert_eq!(specs[0].0.peer, None, "iOS needs a Mac: {answer}");
     assert_eq!(specs[1].0.peer.as_deref(), Some("chief-sub-a2"));
-    assert!(answer.lines().any(|line| line.starts_with("- a1:") && line.contains("on this Mac:") && line.contains("needs a Mac")), "{answer}");
-    assert!(answer.lines().any(|line| line.starts_with("- a2:") && line.contains("on cloud:") && line.contains("Cloud")), "{answer}");
+    assert!(
+        answer.lines().any(|line| line.starts_with("- a1:")
+            && line.contains("on this Mac:")
+            && line.contains("needs a Mac")),
+        "{answer}"
+    );
+    assert!(
+        answer.lines().any(|line| line.starts_with("- a2:")
+            && line.contains("on cloud:")
+            && line.contains("Cloud")),
+        "{answer}"
+    );
 }
 
 #[test]
@@ -1043,13 +1060,112 @@ fn spawn_here_and_mac_are_local_aliases_and_unknown_places_list_choices() {
     let sp = spawner(&h, Some(cloud()));
     for place in ["here", "mac"] {
         let a = sp.clone();
-        let answer = run(&mut h, move || a.spawn_placed(vec!["hello web".into()], None, None, Some(place.into()))).unwrap();
+        let answer = run(&mut h, move || {
+            a.spawn_placed(vec!["hello web".into()], None, None, Some(place.into()))
+        })
+        .unwrap();
         assert_eq!(subs(&h).last().unwrap().0.peer, None, "{answer}");
     }
-    let error = run(&mut h, move || sp.spawn_placed(vec!["hello".into()], None, None, Some("moon".into()))).unwrap_err();
+    let error = run(&mut h, move || {
+        sp.spawn_placed(vec!["hello".into()], None, None, Some("moon".into()))
+    })
+    .unwrap_err();
     for choice in ["here", "local", "mac", "cloud"] {
         assert!(error.contains(choice), "{error}");
     }
+}
+
+#[test]
+fn paired_mac_takes_ios_work_from_a_busy_mac_or_a_linux_chief() {
+    for os in ["macos", "linux"] {
+        let mut h = Harness::new(default_script());
+        h.agents.hold(true);
+        {
+            let mut a = h.agents.inner.lock().unwrap();
+            a.machine_status = Some(
+                serde_json::json!({"here": {"os": os, "pressure": {"ok": false}}, "peers": [{"name": "mini", "connected": true, "health": {"os": "macos", "pressure": {"ok": true}, "liveSessions": 2}}]}),
+            );
+            a.peer_catalogs.insert("mini".into(), catalog());
+            a.harness_health.insert(
+                "mini".into(),
+                serde_json::json!({"harnesses": [{"id": "claude", "auth": "signedIn"}]}),
+            );
+        }
+        let sp = spawner(&h, None);
+        let answer = run(&mut h, move || {
+            sp.spawn(
+                vec![
+                    "build a hello iOS view".into(),
+                    "build a hello web page".into(),
+                ],
+                None,
+            )
+        })
+        .unwrap();
+        for (spec, _) in subs(&h) {
+            assert_eq!(spec.peer.as_deref(), Some("mini"), "{answer}");
+            assert!(
+                spec.cwd.as_os_str().is_empty(),
+                "paired daemon chooses native scratch: {spec:?}"
+            );
+        }
+        assert!(
+            answer
+                .lines()
+                .filter(|l| l.starts_with("- a"))
+                .all(|l| l.contains("on mini:")),
+            "{answer}"
+        );
+    }
+}
+
+#[test]
+fn chosen_peer_login_blocks_an_automatic_harness_switch() {
+    use optchat_chief::acpmux::Family;
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    {
+        let mut a = h.agents.inner.lock().unwrap();
+        a.machine_status = Some(
+            serde_json::json!({"here": {"os": "macos", "pressure": {"ok": true}}, "peers": [{"name": "mini", "connected": true, "health": {"os": "macos", "pressure": {"ok": true}, "liveSessions": 0}}]}),
+        );
+        a.peer_catalogs.insert("mini".into(), catalog());
+        a.harness_health.insert("mini".into(), serde_json::json!({"harnesses": [{"id": "claude", "auth": "signedIn"}, {"id": "codex", "auth": "signedOut"}]}));
+    }
+    let engine = h.dir.path().join("engine.json");
+    optchat_chief::engine::save(
+        &engine,
+        &optchat_chief::engine::EngineChoice {
+            subagent_routing: Some("auto".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(&h, None))
+            .ok()
+            .unwrap()
+            .with_engine_file(Some(engine))
+            .with_families(std::collections::BTreeMap::from([
+                ("claude".into(), Family::Claude),
+                ("codex".into(), Family::Codex),
+            ])),
+    );
+    let answer = run(&mut h, move || {
+        sp.spawn_placed(
+            vec!["implement a hello web page".into()],
+            None,
+            None,
+            Some("mini".into()),
+        )
+    })
+    .unwrap();
+    assert_eq!(subs(&h)[0].0.harness, "claude", "{answer}");
+    assert_eq!(subs(&h)[0].0.peer.as_deref(), Some("mini"));
+    assert!(
+        answer.contains("codex unavailable") && answer.contains("using default claude"),
+        "{answer}"
+    );
 }
 
 /// `control cloud freestyle`: each subagent gets its own VM (its peer is

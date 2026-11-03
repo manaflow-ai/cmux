@@ -56,6 +56,7 @@ pub mod pacing;
 pub mod paths;
 pub mod peer_chiefs;
 pub mod persist;
+pub mod place_route;
 pub mod prompt;
 pub mod remember;
 pub mod reply_links;
