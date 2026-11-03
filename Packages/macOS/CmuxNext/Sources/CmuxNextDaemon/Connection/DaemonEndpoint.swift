@@ -280,6 +280,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// terminals' own surfaces), yet every hidden busy terminal's events woke the event pump and asked for a
     /// main-thread frame about 15 times a second (SWITCH FRAMES SF-5). Attach streams still carry it.
     case subscribeScrollOnAttach = "subscribe-scroll-on-attach-v1"
+    /// A selection change that rides with a tree delta comes as `selection-changed` (the workspace's whole
+    /// selection), not as a `tree-changed` that makes the store read the whole tree again (#32408).
+    case treeSelectionDeltas = "tree-selection-deltas-v1"
     /// A Chief's live run (Conversations/ChiefLiveEvents.swift): `conversation-live` / `cloud-conversation-live`
     /// frames and snapshots, and the run-changed events whose end and reply key end its live text.
     case chiefLive = "chief-live-v1"
@@ -544,7 +547,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
              .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
-             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach,
+             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .treeSelectionDeltas,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,

@@ -316,12 +316,32 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
         test(`closing a comment draft with ${action} releases the gutter button`, async () => {
           const commentsPage = await browser.newPage({ viewport: VIEWPORT });
           try {
+            await installPaintedFrames(commentsPage);
             await commentsPage.goto(`${base}/test/browser/diff-virtualization.html?fixture=comments`);
+            await commentsPage.waitForFunction(
+              () => document.getElementById("files-sidebar")?.dataset.fileCount === "1",
+              null,
+              { timeout: 60_000 },
+            );
+            await quiet(commentsPage);
             const gutter = commentsPage.locator('[data-column-number="4"]').first();
-            await gutter.hover();
-            await commentsPage.locator("[data-utility-button]").click();
+            const utility = commentsPage.locator("[data-utility-button]");
             const composer = commentsPage.locator(".comment-composer");
-            await composer.waitFor();
+            // On CI the row is sometimes drawn again after the viewer settles, which drops the hover's +
+            // (never shown, or detached under the press): a press that opened no composer hovers in again
+            // and presses the + where it is drawn, as a person would, a few times before failing.
+            for (let attempt = 1; ; attempt++) {
+              await commentsPage.mouse.move(0, 0);
+              await gutter.hover();
+              const plus = await utility.boundingBox({ timeout: 2_000 }).catch(() => null);
+              if (plus != null) await commentsPage.mouse.click(plus.x + plus.width / 2, plus.y + plus.height / 2);
+              const opened = await composer.waitFor({ timeout: 2_000 }).then(
+                () => true,
+                () => false,
+              );
+              if (opened) break;
+              if (attempt === 5) throw new Error("hovering line 4 and pressing its + opened no comment composer");
+            }
             expect(await commentsPage.evaluate(() => (window as any).__INSTANCE.getSelectedLines())).not.toBeNull();
             // The pointer has left the gutter, just as when clicking the comment's footer.
             if (action === "save") await composer.locator("textarea").fill("Review this line.");

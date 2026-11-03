@@ -822,11 +822,13 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
 
 test("picking Cloud drops a saved environment picked before: the send names the folder chip's folder, not the tab's inherited one", async () => {
   const clouded: unknown[][] = [];
+  // A worktree environment: one that is only a folder is the folder menu's, not a Machines… row.
   const repoB: SavedEnvironment = {
     id: "b",
     name: "Repo B",
     kind: "local",
     folder: "/repo/B",
+    worktree: true,
     updatedAt: 1,
   };
   function Page() {
@@ -875,6 +877,59 @@ test("picking Cloud drops a saved environment picked before: the send names the 
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect(clouded.length).toBe(1);
   expect((clouded[0] as unknown[])[2]).toBe("/repo/A");
+});
+
+test("with Cloud picked, a folder that is a saved folder-only environment is the folder Cloud sends", async () => {
+  const clouded: unknown[][] = [];
+  const repoC: SavedEnvironment = { id: "c", name: "Repo C", kind: "local", folder: "/repo/C", updatedAt: 1 };
+  function Page() {
+    const [mode, setMode] = useState<RunMode>("persistent");
+    return (
+      <NewTabScreen
+        snapshot={noChat()}
+        cwd="/Users/me"
+        startCwd="/repo/A"
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        savedEnvironments={{
+          list: async () => [repoC],
+          save: async () => repoC,
+          remove: async () => {},
+        }}
+        runMode={{ mode, onMode: setMode }}
+        onCloud={(...args) => (clouded.push(args), false)}
+      />
+    );
+  }
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const computer = () =>
+    container.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button')!;
+  const choose = async (selector: string, machines = false) => {
+    if (machines) await openMachines(computer());
+    else await act(async () => computer().click());
+    await settle();
+    const row = document.querySelector<HTMLElement>(`.acpmux-env-popover ${selector}`)!;
+    await act(async () => (row.closest<HTMLElement>('[role="option"]') ?? row).click());
+    await settle();
+  };
+  await act(async () => root!.render(<Page />));
+  await settle();
+  await choose('[data-mode="cloud"]');
+  // The saved environment is only a folder: the folder menu lists it, and Cloud sends it.
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
+  const row = document.querySelector<HTMLElement>('.acpmux-location-row[title="/repo/C"]')!;
+  await act(async () => (row.closest<HTMLElement>('[role="option"]') ?? row).click());
+  await settle();
+  await typePrompt("fix the flaky test");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(clouded.length).toBe(1);
+  expect((clouded[0] as unknown[])[2]).toBe("/repo/C");
 });
 
 test.each(

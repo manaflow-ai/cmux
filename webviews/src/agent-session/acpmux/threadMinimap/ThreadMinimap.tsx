@@ -35,6 +35,8 @@ import { threadMinimapLayout } from "./layout.experiment";
 import { threadMinimapHeight, railHeightConfig } from "./height.experiment";
 import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
 import { MARK_OPACITY, threadMinimapMark } from "./mark.experiment";
+import { threadMinimapWave } from "./wave.experiment";
+import { HoverWave } from "./hoverWave";
 import { INCOMING_LOOK, threadMinimapIncoming } from "./incoming.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import { tickRanges } from "./tickWindow";
@@ -68,6 +70,7 @@ import {
   type MinimapTurn,
   type MinimapTurns,
   type RowsChange,
+  WAVE_SHAPES,
 } from "./model";
 
 /// How long a step's scroll counts as under way for the next step, so repeats keep stepping.
@@ -420,6 +423,21 @@ export function ThreadMinimap({
       loadedStart,
     };
   });
+
+  /// The hover wave (hoverWave.ts, wave.experiment.ts), read once per pane: the ticks around the
+  /// pointer grow as a smooth bump of its y. The `stepped` arm keeps the row-by-row fisheye below.
+  const [wave] = useState(() => {
+    const waveArm = experimentArm(threadMinimapWave);
+    return waveArm === "stepped"
+      ? undefined
+      : new HoverWave(
+          WAVE_SHAPES[waveArm],
+          () => rail.current,
+          () => list.current,
+          () => live.current.turns.length,
+        );
+  });
+  useEffect(() => () => wave?.leave(), [wave]);
 
   // The band follows the scroll on its own frame: a scroll that moves it renders the rail at once
   // (only the rows whose state changed draw again); one that does not renders nothing.
@@ -924,12 +942,13 @@ export function ThreadMinimap({
     const went = wasShown.current && !shown;
     wasShown.current = shown;
     if (!went) return;
+    wave?.leave();
     setFocused(undefined);
     setHovered(undefined);
     setCardRow(undefined);
     setReveal(undefined);
     dismiss();
-  }, [shown, dismiss]);
+  }, [shown, dismiss, wave]);
 
   if (full)
     return (
@@ -1030,6 +1049,7 @@ export function ThreadMinimap({
           onPointerLeave={(event) => {
             if (scrub.current?.moved) return;
             pointerY.current = undefined;
+            wave?.leave();
             setHovered(undefined);
             // Into the card keeps it; anywhere else it goes on this frame.
             if (!within(card.current, event.relatedTarget)) {
@@ -1092,9 +1112,12 @@ export function ThreadMinimap({
                 setListTop(listOffset.current);
                 followPointer(node);
               });
+              // The ticks moved under a still pointer: the wave follows them to the row now under it.
+              if (pointerY.current !== undefined) wave?.follow(pointerY.current);
             }}
             onPointerOver={(event) => {
               pointerY.current = event.clientY;
+              if (!reduce && inTickContent(event, event.currentTarget)) wave?.aim(event.clientY);
             }}
             onPointerDown={(event) => {
               if (event.button !== 0 || event.pointerType === "touch") return;
@@ -1123,12 +1146,17 @@ export function ThreadMinimap({
               const state = scrub.current;
               if (!inTickContent(event, event.currentTarget)) {
                 if (!state?.moved) {
+                  wave?.leave();
                   setHovered(undefined);
                   setCardRow(undefined);
                   if (!within(card.current, event.relatedTarget)) intend(null);
                 }
                 return;
               }
+              // The wave follows the pointer's y on every move, a scrub's too; Reduce Motion keeps the
+              // stepped fisheye, which switches at once.
+              if (reduce) wave?.leave();
+              else wave?.aim(event.clientY);
               if (!state) return;
               if (!state.moved) {
                 if (Math.abs(event.clientY - state.y) < SCRUB_SLOP) return;
