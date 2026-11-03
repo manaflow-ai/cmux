@@ -27,6 +27,17 @@ if [[ -z "${TUNNEL_PROVISIONING_PROFILE_BASE64:-}" || -z "${PROFILE_CHANNEL:-}" 
   exit 0
 fi
 
+# The app's own profile must grant the tunnel too, or signing would stop: no grant, no tunnel.
+app_profile_plist="$RUNNER_TEMP/cmux-app-profile.plist"
+if [[ ! -f "$app/Contents/embedded.provisionprofile" ]] \
+  || ! security cms -D -i "$app/Contents/embedded.provisionprofile" > "$app_profile_plist" 2>/dev/null \
+  || ! /usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.networking.networkextension" "$app_profile_plist" 2>/dev/null | grep -q packet-tunnel-provider-systemextension \
+  || [[ "$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.system-extension.install" "$app_profile_plist" 2>/dev/null)" != "true" ]]; then
+  echo "::warning::cloud tunnel: the $PROFILE_CHANNEL app profile does not grant the packet tunnel and system extension install; removing the extension"
+  rm -rf "$dir"
+  exit 0
+fi
+
 team=7WLXT3NR37
 ext_id="${CHANNEL_BUNDLE_ID:?}.tunnel"
 channel="$(tr '[:upper:]' '[:lower:]' <<<"$PROFILE_CHANNEL")"
