@@ -919,7 +919,7 @@ final class CloudService {
         await link.endLink(final: false)
         do { try await AcpmuxEnvironment.clearPeerTails(build: LaunchIdentity.current().build, work: work) } catch { logger.error("clear peer tails on sign-out: \(String(describing: error), privacy: .public)") }
         desktopRdTokens.removeAll()
-        let tunnelWasOn = systemTunnel.status != .off
+        let tunnelWasOn = ![CloudTunnelStatus.off.name, "unavailable"].contains(systemTunnel.status.name)
         if let hub {
             await hub.revoke()
         } else if tunnelWasOn, let id = try? paths.loadOrCreateDeviceID() {

@@ -117,7 +117,8 @@ public final class CloudTunnelController {
                     guard let self, !Task.isCancelled else { return }
                     if applied == nil {
                         await self.restore(enabled: enabled)
-                    } else {
+                    } else if self.target != enabled {
+                        // A request(on:) that wrote the setting already started this direction.
                         self.begin(on: enabled, reuseSaved: false)
                     }
                     applied = enabled
