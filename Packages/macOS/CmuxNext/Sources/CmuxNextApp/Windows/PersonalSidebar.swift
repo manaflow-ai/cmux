@@ -69,7 +69,7 @@ enum PersonalSidebar {
     /// Home, newest first, where the row will put them (sidebar-ordering-DESIGN.md).
     static func mixedSections(_ workspaces: [WorkspaceModel], groups: [WorkspaceGroupModel], session: String,
                               personal: PersonalStore, keepsEmptyGroups: Bool, newRowsFirst: Bool = false) -> [SidebarSection] {
-        let all = personal.workspaces.sorted { $0.index < $1.index }
+        let all = personal.workspacesInOrder // sorted once per change of the list, not on every pass
         let rows = rows(of: session, personal)
         let ordered = order(workspaces, rows: rows)
         let known = Set(groups.map(\.id))
@@ -113,7 +113,7 @@ enum PersonalSidebar {
 
     /// The personal order of every qualified workspace, as `session/key`.
     static func globalOrder(_ personal: PersonalStore) -> [String] {
-        personal.workspaces.sorted { $0.index < $1.index }.map { "\($0.sessionID)/\($0.workspaceKey.rawValue)" }
+        personal.workspacesInOrder.map { "\($0.sessionID)/\($0.workspaceKey.rawValue)" }
     }
 
     /// A workspace's key in the personal rows (its stable key, else its id).
@@ -121,9 +121,9 @@ enum PersonalSidebar {
         workspace.key?.rawValue ?? workspace.id
     }
 
+    /// The store's index of `session`'s rows (first row of a key wins), not a filter of every session's rows per pass.
     private static func rows(of session: String, _ personal: PersonalStore) -> [String: PersonalWorkspace] {
-        Dictionary(personal.workspaces.filter { $0.sessionID == session }.map { ($0.workspaceKey.rawValue, $0) },
-                   uniquingKeysWith: { first, _ in first })
+        personal.workspaces(session: session)
     }
 
     /// `workspaces` of `daemon` in personal order; unchanged without personal state. On the sidebar

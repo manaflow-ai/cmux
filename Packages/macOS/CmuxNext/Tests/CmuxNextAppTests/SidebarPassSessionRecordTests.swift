@@ -140,4 +140,15 @@ import Testing
             .flatMap(\.workspaces).map(\.title).filter { $0.hasPrefix("Workspace ") }
         #expect(listed.first == "Workspace \(Self.workspaceCount - 1)", "the reversed personal order lists the last workspace first: \(listed.prefix(3))")
     }
+
+    /// The cached order and per-session index answer as the per-pass sort and filter did.
+    @Test func cachedOrderMatchesASortOfTheRows() throws {
+        let fixture = try Fixture()
+        let personal = fixture.services.machines.local.store.personal
+        #expect(personal.workspacesInOrder == personal.workspaces.sorted { $0.index < $1.index })
+        let filtered = Dictionary(personal.workspaces.filter { $0.sessionID == "s-3" }.map { ($0.workspaceKey.rawValue, $0) },
+                                  uniquingKeysWith: { first, _ in first })
+        #expect(personal.workspaces(session: "s-3") == filtered)
+        #expect(personal.sessionIcon(Self.session)?.transport == .object(["kind": .string("local")]))
+    }
 }
