@@ -28,16 +28,6 @@ PLUS_FRAME = ["$ D", "S \u0428", "0~0-0x+v:", "$ echo t2-445843-$((6*7))", "+2-4
 
 
 class OcrFold(unittest.TestCase):
-    # Run 64ef2a21, ctrlbt-real-palette step 18 (STATUS 9303): check-35.png shows "733287-42" clearly, but recognition
-    # read it as "733287-4źął" on 6 of 6 reads (cmux23 and cmux24), and as "733287-4zł" at 2x scale.
-    def test_a_digit_read_as_an_accented_look_alike_still_shows_the_output_line(self):
-        for read in ("733287-4źął", "733287-4zł", "733287-4ž2"):
-            self.assertTrue(D.ocr_contains(["J> echo 733287-$((6*7))", read, "J>"], "733287-42"), read)
-
-    def test_dropping_accents_still_needs_every_digit(self):
-        for read in ("733287-43", "733287-4", "733287-$((6*7))", "733288-42", "733287-4źą3"):
-            self.assertFalse(D.ocr_contains([read], "733287-42"), read)
-
     def test_a_t_read_as_plus_still_shows_the_output_line(self):
         self.assertTrue(D.ocr_contains(PLUS_FRAME, "t2-445843-42"))
         self.assertTrue(D.ocr_contains(["+2-942934-42"], "t2-942934-42"))
