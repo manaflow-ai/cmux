@@ -10534,12 +10534,6 @@ class TerminalController {
         let error: V2CallResult?
     }
 
-    private enum V2DownloadFileWaitResult: Sendable {
-        case ready
-        case timeout
-        case watcherSetupFailed(errnoCode: Int32)
-    }
-
     /// Socket-worker router for browser automation methods that may wait on WebKit.
     /// See ControlCommandExecutionPolicy for why these must not hold the main actor.
     private nonisolated func v2BrowserAutomationCommandOnSocketWorker(method: String, params: [String: Any]) -> V2CallResult {
@@ -10632,34 +10626,16 @@ class TerminalController {
         }
 
         if let path {
-            switch v2WaitForDownloadFile(path: path, timeout: timeout) {
-            case .ready:
-                break
-            case .timeout:
-                return .err(
-                    code: "timeout",
-                    message: "Timed out waiting for download file",
-                    data: [
-                        "path": path,
-                        "timeout_ms": timeoutMs,
-                        "requested_timeout_ms": requestedTimeoutMs
-                    ]
-                )
-            case .watcherSetupFailed(let errnoCode):
-                return .err(
-                    code: "internal_error",
-                    message: "Failed to watch download path",
-                    data: ["path": path, "errno": Int(errnoCode)]
-                )
-            }
-            return .ok([
-                "workspace_id": snapshot.workspaceId.uuidString,
-                "workspace_ref": snapshot.workspaceRef,
-                "surface_id": snapshot.surfaceId.uuidString,
-                "surface_ref": snapshot.surfaceRef,
-                "path": path,
-                "downloaded": true
-            ])
+            return v2BrowserDownloadWaitSaving(
+                to: path,
+                snapshot: snapshot,
+                timeout: timeout,
+                timeoutData: [
+                    "path": path,
+                    "timeout_ms": timeoutMs,
+                    "requested_timeout_ms": requestedTimeoutMs
+                ]
+            )
         }
 
         if let queuedEvent = snapshot.queuedEvent {
@@ -10689,6 +10665,71 @@ class TerminalController {
             "surface_ref": snapshot.surfaceRef,
             "download": downloadEvent
         ])
+    }
+
+    /// `browser.download.wait` with a `path`: waits for the surface's next
+    /// finished download and saves a copy of it at `path`. A file already at
+    /// `path` is not a download; it is replaced once one finishes.
+    private nonisolated func v2BrowserDownloadWaitSaving(
+        to path: String,
+        snapshot: V2BrowserDownloadWaitSnapshot,
+        timeout: TimeInterval,
+        timeoutData: [String: Any]
+    ) -> V2CallResult {
+        guard path.hasPrefix("/") else {
+            return .err(code: "invalid_params", message: "Download path must be absolute", data: ["path": path])
+        }
+        let destination = URL(fileURLWithPath: path).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: destination.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            // Checked before waiting so a rejected call leaves the download for the next wait.
+            return .err(code: "invalid_params", message: "Download path is a directory", data: ["path": path])
+        }
+        guard let event = v2WaitForDownloadEvent(surfaceId: snapshot.surfaceId, timeout: timeout, finishedOnly: true) else {
+            return .err(code: "timeout", message: "Timed out waiting for download file", data: timeoutData)
+        }
+        guard (event["type"] as? String) == "saved",
+              let savedPath = (event["path"] as? String)?.nilIfEmpty else {
+            let message = (event["type"] as? String) == "cancelled"
+                ? "Download was cancelled"
+                : (event["error"] as? String) ?? "Download failed"
+            return .err(code: "download_failed", message: message, data: ["path": path, "download": event])
+        }
+        do {
+            try Self.v2CopyDownload(from: URL(fileURLWithPath: savedPath), to: destination)
+        } catch {
+            return .err(
+                code: "io_error",
+                message: "Failed to save download to path",
+                data: ["path": path, "download": event, "error": error.localizedDescription]
+            )
+        }
+        return .ok([
+            "workspace_id": snapshot.workspaceId.uuidString,
+            "workspace_ref": snapshot.workspaceRef,
+            "surface_id": snapshot.surfaceId.uuidString,
+            "surface_ref": snapshot.surfaceRef,
+            "path": path,
+            "downloaded": true,
+            "download": event
+        ])
+    }
+
+    /// Copies next to `destination` first and renames it into place, so a
+    /// failed copy never leaves a partial file or removes the old one.
+    private nonisolated static func v2CopyDownload(from source: URL, to destination: URL) throws {
+        let source = source.standardizedFileURL
+        guard source.path != destination.path else { return }
+        let fileManager = FileManager.default
+        let directory = destination.deletingLastPathComponent()
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let staging = directory.appendingPathComponent(".\(destination.lastPathComponent).cmux-download-\(UUID().uuidString)")
+        try fileManager.copyItem(at: source, to: staging)
+        guard Darwin.rename(staging.path, destination.path) == 0 else {
+            let code = errno
+            try? fileManager.removeItem(at: staging)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(code))
+        }
     }
 
     private nonisolated static func v2WorkerString(_ params: [String: Any], _ key: String) -> String? {
@@ -10770,8 +10811,18 @@ class TerminalController {
         v2BrowserDownloadEventsBySurface[surfaceId] = queue
     }
 
-    func v2PopBrowserDownloadEvent(surfaceId: UUID) -> [String: Any]? {
+    func v2PopBrowserDownloadEvent(surfaceId: UUID, finishedOnly: Bool = false) -> [String: Any]? {
         var remaining = v2BrowserDownloadEventsBySurface[surfaceId] ?? []
+        if finishedOnly {
+            // Leaves earlier progress events of other downloads for a plain wait.
+            guard let index = remaining.firstIndex(where: {
+                v2IsTerminalBrowserDownloadEvent($0) && v2ShouldStoreBrowserDownloadEvent($0, surfaceId: surfaceId)
+            }) else { return nil }
+            let event = remaining.remove(at: index)
+            v2BrowserDownloadEventsBySurface[surfaceId] = remaining
+            v2MarkBrowserDownloadEventConsumed(event, surfaceId: surfaceId)
+            return event
+        }
         while !remaining.isEmpty {
             let first = remaining.removeFirst()
             v2BrowserDownloadEventsBySurface[surfaceId] = remaining
@@ -10786,7 +10837,7 @@ class TerminalController {
         (event["download_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     }
 
-    private func v2IsTerminalBrowserDownloadEvent(_ event: [String: Any]) -> Bool {
+    private nonisolated func v2IsTerminalBrowserDownloadEvent(_ event: [String: Any]) -> Bool {
         let type = event["type"] as? String
         return type == "saved" || type == "cancelled" || type == "failed"
     }
@@ -10815,68 +10866,11 @@ class TerminalController {
         }
     }
 
-    private nonisolated func v2WaitForDownloadFile(path: String, timeout: TimeInterval) -> V2DownloadFileWaitResult {
-        let fm = FileManager.default
-        let pathIsReady = {
-            guard fm.fileExists(atPath: path),
-                  let attrs = try? fm.attributesOfItem(atPath: path),
-                  let size = attrs[.size] as? NSNumber else {
-                return false
-            }
-            return size.intValue > 0
-        }
-        if pathIsReady() {
-            return .ready
-        }
-
-        let watchedPath = URL(fileURLWithPath: path).deletingLastPathComponent().path
-        let fd = open(watchedPath, O_EVTONLY)
-        guard fd >= 0 else {
-            return .watcherSetupFailed(errnoCode: errno)
-        }
-
-        let lock = NSLock()
-        let semaphore = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var finished = false
-        nonisolated(unsafe) var ready = false
-        let finishOnce: (Bool) -> Void = { value in
-            lock.lock()
-            guard !finished else {
-                lock.unlock()
-                return
-            }
-            finished = true
-            ready = value
-            lock.unlock()
-            semaphore.signal()
-        }
-
-        let watcherQueue = DispatchQueue(label: "com.cmux.browser.download.wait.file")
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .extend, .attrib, .link, .rename],
-            queue: watcherQueue
-        )
-        source.setEventHandler {
-            if pathIsReady() {
-                finishOnce(true)
-            }
-        }
-        source.setCancelHandler {
-            close(fd)
-        }
-        source.resume()
-        if pathIsReady() {
-            finishOnce(true)
-        }
-        if semaphore.wait(timeout: .now() + timeout) == .timedOut {
-            finishOnce(pathIsReady())
-        }
-        source.cancel()
-        return ready ? .ready : .timeout
-    }
-
-    private nonisolated func v2WaitForDownloadEvent(surfaceId: UUID, timeout: TimeInterval) -> [String: Any]? {
+    private nonisolated func v2WaitForDownloadEvent(
+        surfaceId: UUID,
+        timeout: TimeInterval,
+        finishedOnly: Bool = false
+    ) -> [String: Any]? {
         let lock = NSLock()
         let semaphore = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var finished = false
@@ -10902,14 +10896,15 @@ class TerminalController {
         ) { note in
             guard let candidateSurfaceId = note.userInfo?["surfaceId"] as? UUID, candidateSurfaceId == surfaceId,
                   let event = note.userInfo?["event"] as? [String: Any],
-                  (event["type"] as? String) != "started" else {
+                  (event["type"] as? String) != "started",
+                  !finishedOnly || self.v2IsTerminalBrowserDownloadEvent(event) else {
                 return
             }
             guard self.v2MainSync({ self.v2ShouldStoreBrowserDownloadEvent(event, surfaceId: surfaceId) }) else { return }
             finishOnce(event)
         }
 
-        if let queued = v2MainSync({ v2PopBrowserDownloadEvent(surfaceId: surfaceId) }) {
+        if let queued = v2MainSync({ v2PopBrowserDownloadEvent(surfaceId: surfaceId, finishedOnly: finishedOnly) }) {
             finishOnce(queued)
         }
         if semaphore.wait(timeout: .now() + timeout) == .timedOut {
