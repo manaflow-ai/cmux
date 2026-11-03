@@ -261,19 +261,32 @@ nonisolated enum AcpmuxServerPeer {
     /// ctime): every later `AcpmuxEnvironment.resolve` of the same unchanged file costs one
     /// `stat`. Any write, replacement or rename onto the path changes the identity and checks
     /// again, and a file that changed while it was being checked keeps no verdict.
+    ///
+    /// A file's timestamps are only as fine as its volume's (1 s on HFS+, 2 s on FAT), so a
+    /// same-length write in the same tick as the check would leave every field unchanged. A
+    /// verdict is therefore kept only for a file last changed ``settledAge`` before the check
+    /// began: any later write gets a strictly newer ctime, which no user process can set back.
+    /// A freshly written file is checked on every call. Writes through a shared mapping update
+    /// the timestamps lazily; that race between check and use is the one base already had.
     static func executableSignedByAppTeam(_ executable: URL, team: String? = ownTeam) -> Bool {
         executableSignedByAppTeam(executable, team: team, validate: staticCheck)
     }
 
-    /// ``executableSignedByAppTeam(_:team:)`` with the on-disk check given (tests count its calls).
+    /// How long ago a file must have last changed for its verdict to be kept (above the
+    /// coarsest timestamp granularity of a macOS volume, FAT's 2 s).
+    static let settledAge: TimeInterval = 5
+
+    /// ``executableSignedByAppTeam(_:team:)`` with the on-disk check and the clock given (tests).
     static func executableSignedByAppTeam(_ executable: URL, team: String?,
-                                          validate: (URL, String) -> Bool) -> Bool {
+                                          validate: (URL, String) -> Bool,
+                                          now: () -> Date = { Date() }) -> Bool {
         guard let team else { return true }
         let path = executable.resolvingSymlinksInPath()
         guard let before = FileIdentity(path: path.path, team: team) else { return validate(path, team) }
         if let known = checkedExecutables.withLock({ $0[before] }) { return known }
+        let began = now().timeIntervalSince1970
         let verdict = validate(path, team)
-        if FileIdentity(path: path.path, team: team) == before {
+        if before.changedSeconds < began - settledAge, FileIdentity(path: path.path, team: team) == before {
             checkedExecutables.withLock { $0[before] = verdict }
         }
         return verdict
@@ -300,6 +313,9 @@ nonisolated enum AcpmuxServerPeer {
             modified = [info.st_mtimespec.tv_sec, info.st_mtimespec.tv_nsec]
             changed = [info.st_ctimespec.tv_sec, info.st_ctimespec.tv_nsec]
         }
+
+        /// The last status change (ctime), in seconds since 1970.
+        var changedSeconds: TimeInterval { TimeInterval(changed[0]) + TimeInterval(changed[1]) / 1e9 }
     }
 
     /// This process's verdicts (memory only: nothing on disk can vouch for a binary).

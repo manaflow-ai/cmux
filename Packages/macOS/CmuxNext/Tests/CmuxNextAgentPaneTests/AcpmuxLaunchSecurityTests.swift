@@ -165,12 +165,30 @@ struct AcpmuxLaunchSecurityTests {
         var verdict = true
         let check: (URL, String) -> Bool = { _, _ in reads += 1; return verdict }
 
+        // A file written within the last few seconds keeps no verdict: on a volume with coarse
+        // timestamps a same-length overwrite in the same tick would leave its identity unchanged.
         #expect(AcpmuxServerPeer.executableSignedByAppTeam(file, team: "TEAM123", validate: check))
         #expect(AcpmuxServerPeer.executableSignedByAppTeam(file, team: "TEAM123", validate: check))
+        #expect(reads == 2)
+        try Data("SIGNED".utf8).write(to: file) // the same length, written in place
+        verdict = false
+        #expect(!AcpmuxServerPeer.executableSignedByAppTeam(file, team: "TEAM123", validate: check))
+        #expect(reads == 3)
+        verdict = true
+        reads = 0
+
+        // Seen from a clock well past the last write, the file has settled.
+        let later: () -> Date = { Date().addingTimeInterval(60) }
+        func signed(_ url: URL, _ team: String) -> Bool {
+            AcpmuxServerPeer.executableSignedByAppTeam(url, team: team, validate: check, now: later)
+        }
+
+        #expect(signed(file, "TEAM123"))
+        #expect(signed(file, "TEAM123"))
         #expect(reads == 1)
 
         // Another team is its own check.
-        #expect(AcpmuxServerPeer.executableSignedByAppTeam(file, team: "OTHER", validate: check))
+        #expect(signed(file, "OTHER"))
         #expect(reads == 2)
 
         // A write in place (same inode) is checked again, and its refusal holds.
@@ -179,22 +197,22 @@ struct AcpmuxLaunchSecurityTests {
         try handle.seekToEnd()
         try handle.write(contentsOf: Data("+payload".utf8))
         try handle.close()
-        #expect(!AcpmuxServerPeer.executableSignedByAppTeam(file, team: "TEAM123", validate: check))
+        #expect(!signed(file, "TEAM123"))
         #expect(reads == 3)
         verdict = true
-        #expect(!AcpmuxServerPeer.executableSignedByAppTeam(file, team: "TEAM123", validate: check))
+        #expect(!signed(file, "TEAM123"))
         #expect(reads == 3)
 
         // A replacement (a new inode at the path) is checked again.
         try Data("other".utf8).write(to: file, options: .atomic)
-        #expect(AcpmuxServerPeer.executableSignedByAppTeam(file, team: "TEAM123", validate: check))
+        #expect(signed(file, "TEAM123"))
         #expect(reads == 4)
 
         // A file that cannot be read keeps no verdict and is checked each time.
         let missing = directory.appendingPathComponent("missing")
         verdict = false
-        #expect(!AcpmuxServerPeer.executableSignedByAppTeam(missing, team: "TEAM123", validate: check))
-        #expect(!AcpmuxServerPeer.executableSignedByAppTeam(missing, team: "TEAM123", validate: check))
+        #expect(!signed(missing, "TEAM123"))
+        #expect(!signed(missing, "TEAM123"))
         #expect(reads == 6)
     }
 
