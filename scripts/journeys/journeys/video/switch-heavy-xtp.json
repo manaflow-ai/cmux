@@ -1,0 +1,97 @@
+{
+ "id": "switch-heavy-xtp",
+ "priority": "P2",
+ "title": "SWITCH FRAMES: one Time Profiler recording over 6 Cmd-digit switches in the W1 HEAVY session (no film), with the main thread's core tier",
+ "why": "Lead on STATUS 8017/8093: under HEAVY the app main thread is on CPU about 53 ms of the first 60 ms after a switch key, on fast cores, against a 10 ms budget. List the items of that turn and name each over 4 ms.",
+ "source": "SWITCH FRAMES (STATUS 8021, 8107)",
+ "budget_seconds": 250,
+ "steps": [
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 90% x 90% of the screen",
+   "fraction": [
+    0.02,
+    0.04,
+    0.9,
+    0.9
+   ]
+  },
+  {
+   "do": "switch_profile",
+   "title": "set-up: 9 workspaces x 12 beacon panes (3 x 4, 4 full redraw at 120 Hz), 31 background workspaces x 3 tabs",
+   "workspaces": 9,
+   "grid": [
+    3,
+    4
+   ],
+   "fill_panes": 4,
+   "fill_hz": 120,
+   "hz": 240,
+   "background": 31,
+   "background_tabs": 3,
+   "prefix": "swh-${nonce}",
+   "beacon_timeout": 40,
+   "create_timeout": 60
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "the session settles after set-up (nothing observable to wait on)"
+  },
+  {
+   "do": "tiers_start",
+   "name": "tiers",
+   "seconds": 12,
+   "interval_ms": 1,
+   "title": "the main thread's per-tier CPU every 1 ms"
+  },
+  {
+   "do": "xtp_start",
+   "name": "xtp",
+   "seconds": 11,
+   "wait_first_sample": true,
+   "first_sample_wait": 1.0,
+   "title": "xctrace Time Profiler on the app (every thread, time-stamped stacks)"
+  },
+  {
+   "do": "switch_keys",
+   "title": "6 switches by real HID keys, 1.4 s apart",
+   "via": "hid",
+   "gap": 1.4,
+   "digits": "283746"
+  },
+  {
+   "do": "tiers_stop",
+   "name": "tiers"
+  },
+  {
+   "do": "xtp_stop",
+   "name": "xtp"
+  },
+  {
+   "do": "switch_adopt_shown"
+  },
+  {
+   "do": "expect",
+   "title": "the last switch shows a beacon workspace: its beacon runs in the daemon, the app and on screen",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_contains": "PANE"
+    },
+    {
+     "app_text_contains": "PANE"
+    },
+    {
+     "frame_text": "PANE"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
