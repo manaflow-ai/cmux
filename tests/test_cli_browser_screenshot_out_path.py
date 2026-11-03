@@ -136,6 +136,18 @@ def check_failed_copy_keeps_existing_file(cli, socket_path, state, root):
     assert existing.read_bytes() == b"old", "a failed copy deleted the existing file"
 
 
+def check_missing_app_file_uses_base64(cli, socket_path, state, root):
+    scratch = make_scratch(root, "missing-app-file")
+    new_file = scratch / "from-base64.png"
+    state.reply = {
+        "path": str(scratch / "app-file-that-is-gone.png"),
+        "png_base64": base64.b64encode(CAPTURED_BYTES).decode(),
+    }
+    result = run_screenshot(cli, socket_path, scratch, ["--out", str(new_file)])
+    assert result.returncode == 0, f"missing app file: {result.stderr}"
+    assert new_file.read_bytes() == CAPTURED_BYTES, "missing app file did not fall back to png_base64"
+
+
 def main():
     cli = resolve_cmux_cli()
     with tempfile.TemporaryDirectory(prefix="cmux-shot-out-", dir="/tmp") as temporary:
@@ -149,6 +161,7 @@ def main():
             check_rejected_targets(cli, socket_path, state, temporary)
             check_file_targets(cli, socket_path, state, temporary)
             check_failed_copy_keeps_existing_file(cli, socket_path, state, temporary)
+            check_missing_app_file_uses_base64(cli, socket_path, state, temporary)
         finally:
             server.shutdown()
             server.server_close()
