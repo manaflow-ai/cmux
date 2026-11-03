@@ -77,7 +77,10 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
           node.scrollTop = 0;
         });
         await page.waitForFunction(
-          (selector) => document.querySelector(selector)?.hasAttribute("data-fade-bottom"),
+          (selector) => {
+            const node = document.querySelector(selector);
+            return node?.scrollTop === 0 && node.hasAttribute("data-fade-bottom") && !node.hasAttribute("data-fade-top");
+          },
           selector,
           { timeout: 5_000 },
         );
