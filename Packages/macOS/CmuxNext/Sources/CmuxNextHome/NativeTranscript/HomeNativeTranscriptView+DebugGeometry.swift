@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-import AppKit
+public import AppKit
 
 extension HomeNativeTranscriptView {
     /// Read-only native approval geometry and state for capture automation.
