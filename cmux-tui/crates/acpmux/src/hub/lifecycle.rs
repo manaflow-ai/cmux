@@ -137,10 +137,24 @@ impl Hub {
         // The store an adopt reads: every Claude Code profile's is Claude's, whatever its family
         // (`claude-sr2`); the chat keeps `family` and the profile it was asked on.
         let store_family = crate::config::store_family(agent, &profile);
+        // The starter whose limits this chat takes (`start_mode.rs`, "Inherit"): a sub-session's
+        // parent, a starter in full access, or any starter under `holdAgentStartsToStarter`. Else
+        // the chat starts at the person's configured default, as a start with no starter does
+        // (user 2026-11-03: an agent in Manual left the chats it opened in Manual).
+        let held = self.config.read().await.hold_agent_starts_to_starter;
+        let limits_from = match starter.as_deref() {
+            Some(id) if !held && subsession.is_none() => {
+                let full = self.resolve(id).ok().is_some_and(|s| {
+                    self.caller_access(&s.meta()) == super::subsession_guard::Access::Full
+                });
+                full.then(|| id.to_owned())
+            }
+            _ => starter.clone(),
+        };
         // No policy asked: the defaults' when it is no wider than a starter's, else the starter's
         // own (`start_mode.rs`, "Inherit").
-        let inherits_policy = policy.is_none() && starter.is_some();
-        let policy = match (policy, starter.as_deref()) {
+        let inherits_policy = policy.is_none() && limits_from.is_some();
+        let policy = match (policy, limits_from.as_deref()) {
             (Some(asked), _) => Some(asked),
             (None, Some(id)) => {
                 let daemon = self.config.read().await.permission_policy;
@@ -441,14 +455,14 @@ impl Hub {
             // A proven agent starter's instead, never wider (`start_mode.rs`, "Inherit").
             let start_mode = if mode_eligible {
                 // Boxed, as the hold below: inline they outgrow a debug build's 2 MiB stack.
-                Box::pin(self.start_mode_for(&session, starter.as_deref())).await
+                Box::pin(self.start_mode_for(&session, limits_from.as_deref())).await
             } else {
                 None
             };
             if let Some(mode) = start_mode {
                 match self.set_mode(&session, &mode).await {
                     Ok(_) => {
-                        let starter = starter.as_deref();
+                        let starter = limits_from.as_deref();
                         self.inherited_full_access_is_cmux_only_if_theirs(&session, starter);
                     }
                     Err(err) => {
@@ -460,7 +474,7 @@ impl Hub {
             // Never asking less than the starter as it is now (it may have narrowed or left full
             // access meanwhile, or the child's family has no mode that asks): an inherited policy
             // is narrowed to the starter's, and the harness moved, else refused.
-            let starter = starter.as_deref();
+            let starter = limits_from.as_deref();
             Box::pin(self.hold_to_starter(&session, starter, inherits_policy, mode_eligible))
                 .await?;
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.

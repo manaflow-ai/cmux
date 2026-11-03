@@ -96,6 +96,11 @@ parser.add_argument("--sessions", type=int, default=1500)
 parser.add_argument("--conditions", default="idle,load,load_utility,load_nice")
 parser.add_argument("--cases", default="click,click_again,sidebar,reopen,subagent,big,bloated,restore")
 parser.add_argument("--strip-ms", type=float, default=2500, help="click cases: how long the frame strip records after the click")
+parser.add_argument("--strip-tolerance", type=float, default=0.001,
+                    help="click cases: the share of the content area's pixels that may differ for two frames to count as one "
+                         "picture; under frame_strip's 0.002, since a near-empty terminal and a blank pane differ by about 0.0017")
+parser.add_argument("--keep-frames", type=int, default=1,
+                    help="click cases: the first N opens of each case keep their before, first-content and final frames in the JSON (base64 PNG)")
 parser.add_argument("--settle-frames", type=int, default=10,
                     help="click cases: frames equal to the last that make the pane settled (the final frame starts them)")
 parser.add_argument("--settle", type=float, default=6, help="seconds a load runs before the first open under it")
@@ -589,6 +594,7 @@ def watch_layout(run, out, stop_at):
     """From the click until `stop_at` (monotonic): asks the shown chat's page for its `layout_watch` once a page
     shows one (before the click the shown workspace has none, so the ask fails at once and is asked again).
     One watch runs; the thread ends with it or at `stop_at`."""
+    started = time.monotonic()
     while time.monotonic() < stop_at:
         asked = time.monotonic()
         reply = run.rpc("debug.agent_pane", {"action": "layout_watch", "ms": max(100, opts.strip_ms - 200)}, timeout=20)
@@ -596,27 +602,67 @@ def watch_layout(run, out, stop_at):
             out["watch"], out["watch_asked"] = reply, asked
             return
         out["watch_error"] = reply
+        errors = out.setdefault("watch_errors", [])
+        text = json.dumps(reply, default=str)[:300]
+        if not errors or errors[-1]["error"] != text:  # each distinct answer once, with when it was asked and how long it took
+            errors.append({"asked_ms": round((asked - started) * 1000), "took_ms": round((time.monotonic() - asked) * 1000), "error": text})
         time.sleep(0.033)  # test script: no page shows the chat yet (a few asks a frame would load the main actor)
 
 
-def frame_click(run, key, label):
+def frame_pictures(folder, frames, record, width=640, names=None):
+    """The frame before the click, the first-content frame, the final frame and the last frame of a strip, each as
+    a PNG at most `width` px wide in base64 (sips; macOS), keyed by name: pixel evidence of what the click drew, in
+    the one file a fleet step returns. A frame that could not be read is left out."""
+    import base64
+    rows = [f for f in frames or [] if f.get("file")]
+    picks = {name: next((f for f in rows if f["ms"] == ms), None) for name, ms in names.items()} if names else {
+             "before": next((f for f in reversed(rows) if isinstance(f["ms"], (int, float)) and f["ms"] <= 0), None),
+             "first_content": next((f for f in rows if f["ms"] == record.get("first_content_ms")), None),
+             "final": next((f for f in rows if f["ms"] == record.get("final_frame_ms")), None),
+             "last": rows[-1] if rows else None}
+    out = {}
+    for name, row in picks.items():
+        source = os.path.join(folder, row["file"]) if row else None
+        if not source or not os.path.exists(source):
+            continue
+        small = os.path.join(folder, f"small-{name}.png")
+        done = subprocess.run(["sips", "-Z", str(width), source, "--out", small], capture_output=True, timeout=30)
+        path = small if done.returncode == 0 and os.path.exists(small) else source
+        with open(path, "rb") as handle:
+            out[name] = {"ms": row["ms"], "png_base64": base64.b64encode(handle.read()).decode()}
+    return out
+
+
+def frame_click(run, key, label, keep=False):
     """Clicks the sidebar row of workspace `key` inside a frame strip and judges the frames (chat_open_frames)."""
     import threading
     out = {}
-    stop_at = time.monotonic() + opts.strip_ms / 1000 + 2
+    # The page's debug hook may take up to 5 s to come (DebugAgentPane.script): the watch may ask that long past the strip.
+    stop_at = time.monotonic() + opts.strip_ms / 1000 + 6
     watcher = threading.Thread(target=watch_layout, args=(run, out, stop_at), daemon=True)
     folder = os.path.join(tempfile.gettempdir(), f"chat-open-click-{os.getpid()}", label)
     params = {"action": "frame_strip", "gesture": "mouse", "mouse": {"row": key, "action": "click"}, "above": True,
-              "duration_ms": opts.strip_ms, "dir": folder}
+              "duration_ms": opts.strip_ms, "dir": folder, "tolerance": opts.strip_tolerance}
     watcher.start()
     # frame_strip clicks 120 ms after it starts recording (DebugFrameStrip's lead): the click's monotonic time.
     clicked = time.monotonic() + 0.12
     strip = run.rpc("debug.new_tab", params, timeout=opts.strip_ms / 1000 + 60) or {}
     watcher.join(timeout=max(0.0, stop_at - time.monotonic()) + 20)
-    shutil.rmtree(folder, ignore_errors=True)  # the PNGs: the numbers per frame are the evidence kept
     if strip.get("error"):
+        shutil.rmtree(folder, ignore_errors=True)
         return {"error": f"frame_strip: {strip.get('error')}", "click": strip.get("key")}
-    record = cof.final_frame(strip.get("frames"), settle_frames=opts.settle_frames)
+    record = cof.final_frame(strip.get("frames"), settle_frames=opts.settle_frames, tolerance=opts.strip_tolerance)
+    if keep:
+        record["pictures"] = frame_pictures(folder, strip.get("frames"), record)
+        # The same moment through the screen (screencapture, this script's own capture), to check the app's frames
+        # show the chat's page pixels: a capture without them shows the pane empty.
+        screen = os.path.join(folder, "screen.png")
+        shot = subprocess.run(["screencapture", "-x", "-t", "png", screen], capture_output=True, text=True, timeout=30)
+        if shot.returncode == 0 and os.path.exists(screen):
+            record["pictures"].update(frame_pictures(folder, [{"ms": "screen", "file": "screen.png"}], {}, names={"screen": "screen"}))
+        else:
+            record["screen_error"] = f"screencapture exited {shot.returncode}: {(shot.stderr or shot.stdout).strip()[:300]}"
+    shutil.rmtree(folder, ignore_errors=True)  # the PNGs: the numbers per frame, and the kept pictures, are the evidence
     record.update({"click": strip.get("key"), "frame_count": strip.get("frame_count"),
                    "mean_interval_ms": strip.get("mean_interval_ms"), "strip_settled_ms": strip.get("settled_ms"),
                    "strip_first_change_ms": strip.get("first_change_ms"), "spans": strip.get("spans"),
@@ -624,8 +670,9 @@ def frame_click(run, key, label):
                                round(f.get("flatness") or 0, 4), bool(f.get("blank"))] for f in strip.get("frames") or []],
                    "frames_columns": ["ms", "content_vs_before", "content_vs_final", "flatness", "blank"],
                    "layout_watch": out.get("watch"), "drift": cof.row_drift(out.get("watch")),
-                   "transcript_ms": cof.transcript_ms(out.get("watch"), (out["watch_asked"] - clicked) * 1000 if out.get("watch_asked") else None,
-                                                      opts.strip_ms)})
+                   "watch_started_ms": round((out["watch_asked"] - clicked) * 1000) if out.get("watch_asked") else None})
+    record["transcript_ms"] = cof.transcript_ms(out.get("watch"), record["watch_started_ms"], opts.strip_ms)
+    record["layout_watch_errors"] = out.get("watch_errors")  # the asks before one answered too: why the watch started late
     if not out.get("watch"):
         record["layout_watch_error"] = out.get("watch_error")
     # Rows the page added after its first paint are a second view: the first frame was not the final one.
@@ -634,15 +681,12 @@ def frame_click(run, key, label):
     return record
 
 
-def measure_click(run, case, session, base, label):
+def measure_click(run, case, session, base, label, index=0):
     """One click case: the chat's workspace made in the background (`click`), or shown once and left
     (`click_again`), then a click on its row from the workspace `base`, which shows no chat."""
     key, row, error = background_row(run, session)
     if error:
         return {"error": error, "row": row}
-    # Still not selected right before the click (a late auto-select would leave the click nothing to change).
-    if next((r.get("selected") for r in sidebar_rows(run) if workspace_id(r) == key), False) and case == "click":
-        return {"error": "the chat's workspace was shown before the click: the click would measure nothing", "row": row}
     if case == "click_again":
         run.app.action("goToWorkspace", focus=True, workspace=key)
         deadline = time.monotonic() + 30
@@ -656,7 +700,11 @@ def measure_click(run, case, session, base, label):
         time.sleep(1)  # test script: the page hands its tail over as it leaves
     else:
         time.sleep(0.5)  # test script: the new row settles (its own motion is not the chat's)
-    record = frame_click(run, key, label)
+        # Still not selected right before the click, after the settle (a late auto-select would leave the click
+        # nothing to change; cmux#33845).
+        if next((r.get("selected") for r in sidebar_rows(run) if workspace_id(r) == key), False):
+            return {"error": "the chat's workspace was shown before the click: the click would measure nothing", "row": row}
+    record = frame_click(run, key, label, keep=index < opts.keep_frames)
     record["workspace"] = key
     # Back to the workspace with no chat, so the next click starts from the same picture.
     run.app.action("goToWorkspace", focus=True, workspace=base)
@@ -677,6 +725,20 @@ def measure_case(run, case, sessions, index):
         settle_open(run, session)
         return traced(run, lambda: click_subagent(run))
     raise ValueError(case)
+
+
+def write_results(results):
+    """Prints the table and writes --json and --md; the table. main calls it before teardown."""
+    table = markdown(results)
+    print("CHAT-OPEN-TABLE-BEGIN\n" + table + "\nCHAT-OPEN-TABLE-END", flush=True)
+    if opts.json:
+        os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
+        with open(opts.json, "w") as handle:
+            json.dump(results, handle, indent=1)
+    if opts.md:
+        with open(opts.md, "w") as handle:
+            handle.write(table + "\n")
+    return table
 
 
 def main():
@@ -714,7 +776,7 @@ def main():
                 records = []
                 for index in range(opts.runs):
                     if case in CLICK_CASES:
-                        record = measure_click(run, case, sessions[condition][case][index], base, f"{condition}-{case}-{index}") \
+                        record = measure_click(run, case, sessions[condition][case][index], base, f"{condition}-{case}-{index}", index) \
                             if base else {"error": "no shown workspace to click from"}
                         records.append(record)
                         say(f"chat-open: {condition} {case} {index}: first_content_frame_ms={record.get('first_content_ms')} "
@@ -759,6 +821,12 @@ def main():
             time.sleep(3)  # test script: the machine settles between conditions
     finally:
         load.stop()
+        try:
+            table = write_results(results)  # before teardown: a teardown that stalls never loses the run
+        except Exception as error:  # noqa: BLE001 - a report that fails must not hide the run's own error
+            say(f"chat-open: writing the results failed: {error!r}")
+            table = None
+        teardown = time.monotonic()
         if run:
             run.end()
         if opts.record_launch and os.path.isdir(frames_root):
@@ -767,15 +835,9 @@ def main():
             archive = shutil.make_archive(os.path.abspath(opts.launch_frames).removesuffix(".tar.gz"), "gztar", frames_root)
             say(f"chat-open: launch frames in {archive}")
         shutil.rmtree(root, ignore_errors=True)
-    table = markdown(results)
-    print("CHAT-OPEN-TABLE-BEGIN\n" + table + "\nCHAT-OPEN-TABLE-END", flush=True)
-    if opts.json:
-        os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
-        with open(opts.json, "w") as handle:
-            json.dump(results, handle, indent=1)
-    if opts.md:
-        with open(opts.md, "w") as handle:
-            handle.write(table + "\n")
+        say(f"chat-open: teardown {time.monotonic() - teardown:.1f} s")
+    if table is None:
+        raise SystemExit("chat-open: no results written")
     failed = [f"{condition} {case}" for condition, cases in results["cases"].items()
               for case, summary in cases.items() if not summary.get("complete")]
     if failed:

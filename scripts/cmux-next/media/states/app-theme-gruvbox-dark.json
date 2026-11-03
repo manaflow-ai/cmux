@@ -1,0 +1,249 @@
+{
+ "title": "App Theme Gruvbox Dark over every element (sidebar rows and dots, tab bar, titlebar, Markdown, Update card, What's New, palette, Home chat, Settings): one still per element",
+ "launch_args": [
+  "--showcase"
+ ],
+ "settings": {
+  "appearance": {
+   "theme": "Rose Pine"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "Showcase rows: workspaces, an agent chat, unread notifications",
+   "rpc": {
+    "method": "debug.showcase.seed",
+    "params": {
+     "focus": true,
+     "dense": true
+    }
+   },
+   "wait": 4,
+   "optional": "the showcase fixture is DEBUG only"
+  },
+  {
+   "title": "Workspace Themes",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Themes"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Themes",
+    "focus"
+   ],
+   "wait": 1.5
+  },
+  {
+   "title": "Write a Markdown file",
+   "cmux": [
+    "workspace",
+    "name:Themes",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "printf '# Release notes\\n\\nEvery **App Theme** colors every element.\\n\\n- [x] Sidebar and rows\\n- [ ] Popovers\\n\\n> A quote with a [link](https://cmux.com).\\n\\n| Element | Color |\\n| --- | --- |\\n| Tab bar | theme |\\n| Cards | theme |\\n\\n```swift\\nlet tokens = ThemeTokens.derive(from: input)\\n```\\n' > /tmp/cmux-all-themes.md; clear\r"
+   ],
+   "wait": 2,
+   "daemon": true
+  },
+  {
+   "title": "Open it in a tab",
+   "cmux": [
+    "open",
+    "/tmp/cmux-all-themes.md",
+    "--focus",
+    "true"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "A staged update: the Update card",
+   "rpc": {
+    "method": "debug.updater",
+    "params": {
+     "action": "stage",
+     "version": "1.0.0-nightly.3932981759301",
+     "changes": 3
+    }
+   },
+   "wait": 2,
+   "optional": "debug.updater is DEBUG only"
+  },
+  {
+   "title": "App Theme Gruvbox Dark",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.appTheme",
+    "Gruvbox Dark"
+   ],
+   "wait": 0.5
+  },
+  {
+   "title": "Gruvbox Dark: system dark",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Gruvbox Dark: the workspace",
+   "cmux": [
+    "workspace",
+    "name:Themes",
+    "focus"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Gruvbox Dark dark: workspace",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "collect": "gruvbox-dark-dark-workspace.png"
+  },
+  {
+   "title": "Settings (focus: a socket command opens it behind otherwise)",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "openSettings",
+     "args": {
+      "setting": "appearance.appTheme"
+     },
+     "focus": true
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "Gruvbox Dark dark: Settings",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "collect": "gruvbox-dark-dark-settings.png"
+  },
+  {
+   "title": "Gruvbox Dark: Home chat",
+   "rpc": {
+    "method": "debug.home_native_fixture.open",
+    "params": {}
+   },
+   "wait": 2.5,
+   "optional": "the Home fixture is DEBUG only"
+  },
+  {
+   "title": "Gruvbox Dark dark: Home chat",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "collect": "gruvbox-dark-dark-home.png"
+  },
+  {
+   "title": "Gruvbox Dark: palette",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.open",
+     "args": {
+      "query": "theme"
+     },
+     "focus": true
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Gruvbox Dark dark: palette",
+   "rpc": {
+    "method": "debug.palette.capture",
+    "params": {
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "optional": "the palette may not be open",
+   "collect": "gruvbox-dark-dark-palette.png"
+  },
+  {
+   "title": "Gruvbox Dark: close the palette",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "commandPalette",
+     "focus": true
+    }
+   },
+   "wait": 1,
+   "optional": "no palette"
+  },
+  {
+   "title": "Gruvbox Dark: the workspace again",
+   "cmux": [
+    "workspace",
+    "name:Themes",
+    "focus"
+   ],
+   "wait": 1.5
+  },
+  {
+   "title": "Gruvbox Dark: What's New popover",
+   "rpc": {
+    "method": "debug.update_surfaces",
+    "params": {
+     "action": "show-popover"
+    }
+   },
+   "wait": 1.5,
+   "optional": "debug.update_surfaces is DEBUG only"
+  },
+  {
+   "title": "Gruvbox Dark dark: What's New popover",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "collect": "gruvbox-dark-dark-whatsnew.png"
+  }
+ ]
+}
