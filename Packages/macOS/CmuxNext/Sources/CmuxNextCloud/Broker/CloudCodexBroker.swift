@@ -537,11 +537,14 @@ public actor CloudCodexBroker {
         scheduleRefresh(grant: cached ?? grant, failures: failures + 1)
     }
 
-    /// Whether a failed renewal tries again later: the local holder or a delivery failed, not a sign-out,
-    /// an account or team change, or a cancel.
+    /// Whether a failed renewal tries again later: the local holder or a delivery failed, including the
+    /// holder's `codex_auth_unavailable` (``CloudCodexBrokerError/notAuthenticated``), which is also what an
+    /// offline refresh answers (the holder maps every refresh error but an account change to it, so a
+    /// sign-out and a network failure look alike; retrying a signed-out holder only asks it again, locally).
+    /// Never an account or team change, or a cancel.
     static func retriesLater(_ error: any Error) -> Bool {
         guard let failure = error as? CloudCodexBrokerError else { return false }
-        return [CloudCodexBrokerError.brokerUnavailable, .remoteDeliveryFailed, .expiredAccess, .invalidReply].contains(failure)
+        return [CloudCodexBrokerError.brokerUnavailable, .remoteDeliveryFailed, .expiredAccess, .invalidReply, .notAuthenticated].contains(failure)
     }
 
     /// The wait before renewal try `failures` (1 or more): the base, doubled per failure, capped.

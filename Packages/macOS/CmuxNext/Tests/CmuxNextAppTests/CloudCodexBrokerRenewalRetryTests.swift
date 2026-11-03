@@ -27,8 +27,9 @@ struct CloudCodexBrokerRenewalRetryTests {
     }
 
     /// The holder fails the four tries of the first renewal (the old code's whole budget) and answers
-    /// again after: a later renewal delivers new access to the machine.
-    @Test func aRenewalThatFailsWhileOfflineTriesAgainLater() async throws {
+    /// again after: a later renewal delivers new access to the machine. `exit`: the holder dies; else it
+    /// answers `codex_auth_unavailable`, as the real holder does when Codex's refresh fails offline.
+    @Test(arguments: [true, false]) func aRenewalThatFailsWhileOfflineTriesAgainLater(exit: Bool) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("broker-retry-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -36,7 +37,7 @@ struct CloudCodexBrokerRenewalRetryTests {
         let fake = root.appendingPathComponent("broker.sh")
         // Each access request counts in a file (a failed holder is started again, its count kept). The
         // first answers with a grant that expires at once; the next four fail as an offline holder does
-        // (it exits); the sixth answers with a long grant.
+        // (it dies, or answers codex_auth_unavailable); the sixth answers with a long grant.
         try #"""
 #!/bin/sh
 counter="\#(counter.path)"
@@ -44,7 +45,10 @@ while IFS= read -r line; do
   id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
   if printf '%s' "$line" | grep -q '"method":"access"'; then
     count=$(( $(cat "$counter" 2>/dev/null || echo 0) + 1 )); echo "$count" > "$counter"
-    if [ "$count" -ge 2 ] && [ "$count" -le 5 ]; then exit 1; fi
+    if [ "$count" -ge 2 ] && [ "$count" -le 5 ]; then
+      if [ "\#(exit ? "exit" : "answer")" = exit ]; then exit 1; fi
+      echo "{\"id\":$id,\"error\":\"codex_auth_unavailable\"}"; continue
+    fi
     expiry=$(($(date +%s) + 121)); if [ "$count" -gt 1 ]; then expiry=2147483647; fi
     echo "{\"id\":$id,\"result\":{\"accessToken\":\"access-$count\",\"chatgptAccountId\":\"acct-1\",\"expiresAt\":$expiry}}"
   fi
@@ -72,6 +76,8 @@ done
         let scope = CloudCodexBrokerScope(userID: "user-1", teamID: nil)
         let broker = CloudCodexBroker(scope: scope, currentScope: { scope }, executable: URL(fileURLWithPath: "/bin/false"),
                                       codexExecutable: URL(fileURLWithPath: "/bin/false"), home: FileManager.default.temporaryDirectory)
+        #expect(CloudCodexBroker.retriesLater(CloudCodexBrokerError.notAuthenticated))
+        #expect(!CloudCodexBroker.retriesLater(CloudCodexBrokerError.accountChanged))
         #expect(await broker.renewalRetryDelay(1) == .seconds(15))
         #expect(await broker.renewalRetryDelay(2) == .seconds(30))
         #expect(await broker.renewalRetryDelay(9) == CloudCodexBroker.renewalRetryCap)
