@@ -71,7 +71,10 @@ export function AmbientWidgets({
                   data-online={machine.online || undefined}
                   data-paused={paused || undefined}
                 >
-                  <span className="nt-ambient-machine-icon" style={machine.color ? { color: machine.color } : undefined}>
+                  <span
+                    className="nt-ambient-machine-icon"
+                    style={machine.color ? { color: machine.color } : undefined}
+                  >
                     <Icon name={MACHINE_ICONS[machine.kind]} size={14} />
                   </span>
                   <span className="nt-ambient-machine-name">{machine.label}</span>
