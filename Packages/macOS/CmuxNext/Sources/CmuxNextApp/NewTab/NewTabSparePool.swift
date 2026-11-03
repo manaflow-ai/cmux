@@ -369,7 +369,7 @@ final class NewTabSparePool {
     /// Arms the quiet-input deadline; each key or click pushes it back.
     private func scheduleWarm() {
         guard !pressured else { return }
-        let web = services.agentTabs.canHostChat && (slot.shouldWarm || unparked != nil)
+        let web = services.agentTabs.canHostChat && (wantsPage || unparked != nil)
         guard target != nil, web || (wantsNative && nativeSpare == nil) else { return }
         watchMemoryPressure()
         if inputMonitor == nil {
@@ -398,6 +398,7 @@ final class NewTabSparePool {
     }
 
     /// A recycled spare not yet back in the window.
+    private var wantsPage: Bool { slot.count < (usedThisSession ? slot.capacity : 1) } // a launch loads one page
     private var unparked: AgentPaneView? { slot.all.first { $0.superview == nil } }
 
     private func warmNow() {
@@ -413,11 +414,10 @@ final class NewTabSparePool {
             BenchSpans.measure("pool.park") { parking.addSubview(view) }
             schedulePrepare()
             snapshotParked(view)
-            if slot.shouldWarm, usedThisSession { scheduleWarm() }
-            return
+            return wantsPage ? scheduleWarm() : ()
         }
         guard webKit.state == .ready else { return webKit.probe { [weak self] in self?.scheduleWarm() } }
-        guard slot.shouldWarm, !pressured, let content = target?.contentView else { return }
+        guard wantsPage, !pressured, let content = target?.contentView else { return }
         let start = ContinuousClock.now, page = NewTabPage.sparePage(services)
         let made = BenchSpans.measure("pool.makeSpare") { makeSpare?(page) ?? services.agentTabs.makeSpare(page) }
         if ContinuousClock.now - start > .seconds(1) { webKit.markSlow() } // it held the main thread
@@ -429,7 +429,7 @@ final class NewTabSparePool {
         slot.parked(view)
         snapshotParked(view)
         schedulePrepare()
-        if slot.shouldWarm, usedThisSession { scheduleWarm() } // a launch loads one page: the second's load never meets the first open
+        if wantsPage { scheduleWarm() }
     }
 
     private func watchMemoryPressure() {
