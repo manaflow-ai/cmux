@@ -100,6 +100,10 @@ pub enum Step {
     /// choice: it stops at once with how to choose, never waiting on a prompt.
     #[serde(rename = "refuse")]
     Refuse,
+    /// A Release build, before the person's first copy: show the one-time consent ("Use my Claude
+    /// login on my own Cloud machines"), keep the answer per person, and install on yes.
+    #[serde(rename = "ask-consent")]
+    AskConsent,
 }
 
 impl Step {
@@ -109,6 +113,7 @@ impl Step {
             Self::Install => "install",
             Self::ConfirmThenInstall => "confirm-then-install",
             Self::Refuse => "refuse",
+            Self::AskConsent => "ask-consent",
         }
     }
 }
@@ -151,6 +156,16 @@ pub enum Reason {
     /// No login on the machine, none cached, no choice, and no confirm may be shown.
     #[serde(rename = "needs-login-choice")]
     NeedsLoginChoice,
+    /// A Release build whose remote switch is off, or was not read: the machine shows the
+    /// one-click "Sign in to Claude" instead (Leo, 2026-11-02, condition 3).
+    #[serde(rename = "remote-switch-off")]
+    RemoteSwitchOff,
+    /// A Release build: the person has not said yes to the one-time consent yet.
+    #[serde(rename = "consent-first")]
+    ConsentFirst,
+    /// A Release build: the person said no to the consent, or took it back in Settings.
+    #[serde(rename = "consent-declined")]
+    ConsentDeclined,
 }
 
 impl Reason {
@@ -169,6 +184,9 @@ impl Reason {
             Self::MachineLoginMissing => "machine-login-missing",
             Self::InstallChosen => "install-chosen",
             Self::NeedsLoginChoice => "needs-login-choice",
+            Self::RemoteSwitchOff => "remote-switch-off",
+            Self::ConsentFirst => "consent-first",
+            Self::ConsentDeclined => "consent-declined",
         }
     }
 }
@@ -213,6 +231,15 @@ pub struct Inputs {
     /// A run that may show no confirm (`cmux cloud start-session` from a CLI or an agent): where a
     /// confirm would be shown it refuses at once instead.
     pub headless: bool,
+    /// A Release build's copy (resolved from `dogfood: false`): it needs `consent` and
+    /// `remote_switch`, and goes only to an `owner` guest, never a team one.
+    pub release: bool,
+    /// The person's answer to the one-time Release consent, kept per person on the Mac: absent
+    /// when never asked, false when declined or taken back in Settings.
+    pub consent: Option<bool>,
+    /// The backend's remote switch for the Release copy (cmux-platform
+    /// `GET /v1/cloud/harness-login-copy`): absent when not read or stale, which counts as off.
+    pub remote_switch: Option<bool>,
 }
 
 /// The decision and everything the app reads off it.
@@ -246,13 +273,23 @@ pub struct Decision {
     pub summary: String,
 }
 
-fn guest_takes_login(kind: Option<&str>) -> bool {
-    matches!(kind, Some("owner" | "team"))
+/// Whether a guest of this kind takes the caller's login. A Release copy goes only to an `owner`
+/// guest: "never on team machines, never shared" (Leo, 2026-11-02).
+fn guest_takes_login(kind: Option<&str>, release: bool) -> bool {
+    if release {
+        kind == Some("owner")
+    } else {
+        matches!(kind, Some("owner" | "team"))
+    }
 }
 
 fn step_and_reason(d: &Inputs) -> (Step, Reason) {
     // Codex logins are per machine (its refresh token is VM-bound): its broker flow stays the turn card's.
     if !d.gate {
+        // A Release build the setting did not turn off is held only by its remote switch.
+        if d.release && d.setting != Some(false) && d.remote_switch != Some(true) {
+            return (Step::Skip, Reason::RemoteSwitchOff);
+        }
         return (Step::Skip, Reason::BuildGateOff);
     }
     if d.provider != Some(Provider::Claude) {
@@ -274,7 +311,7 @@ fn step_and_reason(d: &Inputs) -> (Step, Reason) {
     };
     // The caller created the machine: an owner or team guest takes the login
     // (the transfer runs its creator allowance on a team guest).
-    if !guest_takes_login(Some(kind)) {
+    if !guest_takes_login(Some(kind), d.release) {
         return (Step::Skip, Reason::GuestNotOwner);
     }
     // A machine that already has a working login keeps it, whatever the choice.
@@ -283,6 +320,18 @@ fn step_and_reason(d: &Inputs) -> (Step, Reason) {
     }
     if choice == Some(Choice::Machine) {
         return (Step::Refuse, Reason::MachineLoginMissing);
+    }
+    // Release: nothing is copied until the person has said yes to the one-time consent. No
+    // `--login pass` or kept choice stands in for it, and a run that may show no prompt refuses.
+    if d.release {
+        match d.consent {
+            Some(true) => {}
+            Some(false) => return (Step::Skip, Reason::ConsentDeclined),
+            None if d.headless => return (Step::Refuse, Reason::ConsentFirst),
+            None => return (Step::AskConsent, Reason::ConsentFirst),
+        }
+        // The consent is the person's confirm: no second prompt before the copy.
+        return (Step::Install, if d.cached { Reason::InstallCached } else { Reason::InstallChosen });
     }
     if d.cached {
         (Step::Install, Reason::InstallCached)
@@ -336,6 +385,12 @@ fn summary(d: &Inputs, step: Step, reason: Reason) -> String {
     if d.headless {
         line.push_str(", headless");
     }
+    if d.release {
+        line.push_str(", release consent ");
+        line.push_str(word(d.consent));
+        line.push_str(", switch ");
+        line.push_str(word(d.remote_switch));
+    }
     if let Some(outcome) = &d.outcome {
         line.push_str(" -> ");
         line.push_str(outcome);
@@ -351,11 +406,24 @@ pub fn passes_harness_login(dogfood: bool, setting: Option<bool>) -> bool {
     dogfood && setting.unwrap_or(true)
 }
 
+/// Whether a Release build may copy the person's login (Leo, 2026-11-02, approving the copy in
+/// Release on three conditions): only while the backend's remote switch says on (absent, unread
+/// or stale is off), and the setting may still turn it off. The person's one-time consent is asked
+/// after this, by [`decide`], and only where a copy would happen.
+pub fn release_passes_harness_login(setting: Option<bool>, remote_switch: Option<bool>) -> bool {
+    setting != Some(false) && remote_switch == Some(true)
+}
+
 /// `d` with its raw facts resolved into the fields the rules read.
 fn resolved(d: &Inputs) -> Inputs {
     let mut d = d.clone();
     if let Some(dogfood) = d.dogfood {
-        d.gate = passes_harness_login(dogfood, d.setting);
+        d.release = !dogfood;
+        d.gate = if dogfood {
+            passes_harness_login(true, d.setting)
+        } else {
+            release_passes_harness_login(d.setting, d.remote_switch)
+        };
     }
     if let Some(harness) = d.harness.as_deref() {
         d.provider = login_provider(Some(harness));
@@ -387,7 +455,7 @@ pub fn decide(d: &Inputs) -> Decision {
             && d.signed_in
             && d.caller_owns == Some(true)
             && choice(d) != Some(Choice::None),
-        guest_takes_login: guest_takes_login(kind),
+        guest_takes_login: guest_takes_login(kind, d.release),
         skipped_team_machine: reason == Reason::GuestNotOwner && kind == Some("team"),
         summary: summary(d, step, reason),
     }
