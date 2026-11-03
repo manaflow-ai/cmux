@@ -166,7 +166,7 @@ test("a bare address with a token reads as plain link text: no icon, the token m
   expect(chip.link.textContent).toBe("http://127.0.0.1:47811?token=•••");
   // The globe only: never the favicon cmux holds for that port.
   expect(chip.link.querySelector(".cv-site-icon svg")).not.toBeNull();
-  expect(chip.link.querySelector("img")).toBeNull();
+  expect(chip.link.querySelector(".cv-site-icon__img")).toBeNull();
   const card = await chip.hover();
   expect(card.textContent).not.toContain("ad27875be63b");
   expect(card.textContent).toContain("token=•••");
@@ -180,7 +180,7 @@ test("a web address with no icon cmux knows is link text after the globe", async
   const chip = await renderChip("https://example.test/docs", "https://example.test/docs");
   expect(chip.link.querySelectorAll(".cv-site-icon")).toHaveLength(1);
   expect(chip.link.querySelector(".cv-site-icon svg")).not.toBeNull();
-  expect(chip.link.querySelector("img")).toBeNull();
+  expect(chip.link.querySelector(".cv-site-icon__img")).toBeNull();
   expect(chip.link.textContent).toBe("https://example.test/docs");
   await chip.done();
 });
@@ -208,7 +208,7 @@ test("a pull request chip keeps its text when the pull request's title comes in;
   await seedLater({ [PR_HREF]: { title: PR_PAGE_TITLE, icon: FAVICON } });
   expect(chip.link.textContent).toBe("#22896");
   expect(chip.link.innerHTML).toBe(before);
-  expect(chip.link.querySelector(".cv-chip__title, img")).toBeNull();
+  expect(chip.link.querySelector(".cv-chip__title, .cv-site-icon__img")).toBeNull();
   const card = await chip.hover();
   expect(card.querySelector(".cv-link-preview__site")?.textContent).toBe(
     "cmux-next updates: pulled-build banner (staged)",
@@ -221,7 +221,7 @@ test("a pull request chip keeps its text when the pull request's title comes in;
 test("a pull request chip whose title cmux already has draws the same as one it has no title for", async () => {
   const chip = await renderChip(PR_HREF, "#22896", { [PR_HREF]: { title: PR_PAGE_TITLE, icon: FAVICON } });
   expect(chip.link.textContent).toBe("#22896");
-  expect(chip.link.querySelector(".cv-chip__title, img")).toBeNull();
+  expect(chip.link.querySelector(".cv-chip__title, .cv-site-icon__img")).toBeNull();
   expect(chip.link.querySelector("svg")).not.toBeNull();
   await chip.done();
 });

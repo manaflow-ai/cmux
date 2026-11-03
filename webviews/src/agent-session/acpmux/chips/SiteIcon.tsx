@@ -27,7 +27,7 @@ export function SiteIcon({ href, known, size = "inline" }: { href: string; known
   return (
     <span className={`cv-chip__icon cv-site-icon cv-site-icon--${size}`} aria-hidden="true">
       {brand === "github" ? (
-        <GitHubMark size={px - 1} />
+        <GitHubMark size={px} />
       ) : brand === "arxiv" ? (
         <ArxivMark size={px} />
       ) : icon ? (
