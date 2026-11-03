@@ -58,6 +58,35 @@ const soloTab =
     await ctx.waitFor(() => scroll === 0 || scroller.hasAttribute("data-fade-top"));
   };
 
+// The tools' glass in a one-tab pane (header.css, Leo 2026-11-03, after ChatGPT iOS): one capsule behind the tools
+// that fades in once rows scroll under the row. `rest` keeps a trace of it at rest (the always-faint alternative),
+// `shape` "circles" draws a disc behind each button instead, "none" takes the glass off (the look before it).
+const TOOLS = ".acpmux-stage[data-solo-tab]>.acpmux-header[data-tab-row] .acpmux-header-tools";
+const CIRCLES = `${TOOLS}::before{content:none}
+${TOOLS} .acpmux-header-tool{position:relative;isolation:isolate}
+${TOOLS} .acpmux-header-tool::before{content:"";position:absolute;inset:-1px;z-index:-1;border-radius:50%;pointer-events:none;background:color-mix(in srgb,var(--glass-surface,Canvas) var(--ds-glass-plain-tint,60%),transparent);-webkit-backdrop-filter:var(--ds-glass-popover-blur);backdrop-filter:var(--ds-glass-popover-blur);box-shadow:inset 0 0 0 .5px var(--glass-edge),var(--elevation-1);opacity:var(--acpmux-header-glass-rest,0)}
+.acpmux-stage[data-solo-tab]:has(>.acpmux-scroll[data-fade-top])>.acpmux-header[data-tab-row] .acpmux-header-tool::before{opacity:1}`;
+const glass =
+  (scroll: number, options: { rest?: number; shape?: "pill" | "circles" | "none" } = {}): Play =>
+  async (ctx) => {
+    await soloTab(undefined, scroll)(ctx);
+    const stage = ctx.document.querySelector<HTMLElement>(".acpmux-stage")!;
+    if (options.rest !== undefined) stage.style.setProperty("--acpmux-header-glass-rest", String(options.rest));
+    if (options.shape === "circles" || options.shape === "none") {
+      const style = ctx.document.createElement("style");
+      style.textContent = options.shape === "circles" ? CIRCLES : `${TOOLS}::before{content:none}`;
+      ctx.document.head.append(style);
+    }
+    // The capsule's fade (160ms) has run.
+    const tools = ctx.document.querySelector<HTMLElement>(TOOLS)!;
+    const target = scroll > 0 ? 1 : (options.rest ?? 0);
+    if (options.shape !== "none" && options.shape !== "circles")
+      await ctx.waitFor(
+        () => Math.abs(Number(ctx.document.defaultView!.getComputedStyle(tools, "::before").opacity) - target) < 0.01,
+      );
+    else await new Promise((done) => setTimeout(done, 250));
+  };
+
 const sessionInfo =
   (placement: "overlay" | "push", open: boolean): Play =>
   async (ctx) => {
@@ -150,7 +179,7 @@ export default agentPaneEntry({
       play: soloTab(undefined, 0),
     },
     "solo-tab-blur": {
-      note: "Chosen: one tab, scrolled. Rows run up under the tools, fading out across the row under a light 6px blur; the tools stay legible.",
+      note: "Chosen: one tab, scrolled. Rows run up under the tools, fading out across the row under a light 6px blur, and the tools' glass capsule fades in.",
       snapshot: chat(longer),
       play: soloTab(undefined, 90),
     },
@@ -163,6 +192,41 @@ export default agentPaneEntry({
       note: "Alternative: a 14px blur. Smears the row into a frosted band, which brings back the band this removes.",
       snapshot: chat(longer),
       play: soloTab(14, 90),
+    },
+    "glass-pill-rest": {
+      note: "Chosen, at rest: nothing under the row, so the tools are plain glyphs with no capsule (no fill at rest).",
+      snapshot: chat(longer),
+      play: glass(0),
+    },
+    "glass-pill-over-text": {
+      note: "Chosen, over text: one glass capsule (shared tint, popover frost, card rim) fades in behind the tools once rows scroll under them; the words go soft and the glyphs stay legible.",
+      snapshot: chat(longer),
+      play: glass(90),
+    },
+    "glass-none-over-text": {
+      note: "Before: no capsule. The row's fade and light blur alone leave the words at the row's foot crisp under the tools.",
+      snapshot: chat(longer),
+      play: glass(90, { shape: "none" }),
+    },
+    "glass-faint-rest": {
+      note: "Alternative, always faint: a trace of the capsule (35%) even with nothing under it. Brings back a shape behind the tools at rest.",
+      snapshot: chat(longer),
+      play: glass(0, { rest: 0.35 }),
+    },
+    "glass-faint-over-text": {
+      note: "Alternative, always faint, over text: the same full capsule as the chosen one once rows are under it.",
+      snapshot: chat(longer),
+      play: glass(90, { rest: 0.35 }),
+    },
+    "glass-circles-rest": {
+      note: "Alternative, a disc per button, at rest: nothing shows, as with the capsule.",
+      snapshot: chat(longer),
+      play: glass(0, { shape: "circles" }),
+    },
+    "glass-circles-over-text": {
+      note: "Alternative, a disc per button, over text: four touching discs on a 26px pitch, the ⋮'s an oval; busier than one capsule.",
+      snapshot: chat(longer),
+      play: glass(90, { shape: "circles" }),
     },
     "tab-row-disconnected": {
       // A dropped socket the pane is asking for again is quiet (paneHeader `hostRecovering`), so the
