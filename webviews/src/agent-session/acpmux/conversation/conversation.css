@@ -4179,7 +4179,7 @@ a.cv-sha:focus-visible {
   place-items: center;
   width: 20px;
   height: 20px;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   color: var(--cv-text-dim);
   cursor: default;
 }
