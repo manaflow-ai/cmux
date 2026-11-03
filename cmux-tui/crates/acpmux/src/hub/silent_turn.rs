@@ -30,7 +30,7 @@ impl Hub {
                 tokio::time::sleep(after).await;
                 hub.check_resume();
                 let now = hub.resume_count();
-                if now == resumes || !session.turn().is_some_and(|t| t.turn_id == turn_id) {
+                if now == resumes || session.turn().is_none_or(|t| t.turn_id != turn_id) {
                     break;
                 }
                 resumes = now;

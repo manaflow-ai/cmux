@@ -141,12 +141,12 @@ mod tests {
 
     #[test]
     fn small_gaps_and_a_clock_set_back_are_noise() {
-        let mut w = ResumeWatch::new(1_000 * S, secs(0));
+        let mut w = ResumeWatch::new(10_000 * S, secs(0));
         // 14 s late: under the slack.
-        assert_eq!(w.observe(1_000 * S + 24 * S, secs(24)), None);
+        assert_eq!(w.observe(10_000 * S + 24 * S, secs(24)), None);
         // The wall clock set back an hour: no pause.
-        assert_eq!(w.observe(1_000 * S - 3_600 * S, secs(34)), None);
+        assert_eq!(w.observe(10_000 * S - 3_600 * S, secs(34)), None);
         // And the watch goes on from there.
-        assert_eq!(w.observe(1_000 * S - 3_590 * S, secs(44)), None);
+        assert_eq!(w.observe(10_000 * S - 3_590 * S, secs(44)), None);
     }
 }
