@@ -105,15 +105,29 @@ const notes = chat([
 /// Opens the run, then its failed call, to show the command, its exit code and its output.
 const openFailed = async (ctx: PlayContext) => {
   await openRun(ctx);
-  // The first failed step is "Count the retry fixture cases", the run's second call.
+  // The first failed step is "Count the retry fixture cases", the run's second call. Trusted input
+  // lands at its on-screen point, so wait for the opening run to stop moving before clicking it.
   const failed = { selector: ".cv-step > .cv-command:has(> .cv-command__failed)" };
+  let last = Number.NaN;
+  await ctx.waitFor(() => {
+    const row = ctx.find(failed);
+    row.scrollIntoView({ block: "nearest" });
+    const { top, left, width, height } = row.getBoundingClientRect();
+    const still = top === last;
+    last = top;
+    const hit = ctx.document.elementFromPoint(left + width / 2, top + height / 2);
+    return still && Boolean(hit && row.contains(hit));
+  });
   await ctx.click(failed);
   await ctx.waitFor(() => ctx.find(failed).getAttribute("aria-expanded") === "true");
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__exit")));
 };
 
+/// Opens the run's group, unless it already shows open (a run with a failed call may open on its own).
 const openRun = async (ctx: PlayContext) => {
-  await ctx.click({ role: "button", name: /Finished 2 background tasks/ });
+  const header = { role: "button", name: /Finished 2 background tasks/ } as const;
+  if (ctx.find(header).getAttribute("aria-expanded") !== "true") await ctx.click(header);
+  await ctx.waitFor(() => ctx.find(header).getAttribute("aria-expanded") === "true");
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-step > .cv-command").length === 5);
 };
 
@@ -132,11 +146,11 @@ export default agentPaneEntry({
   keywords: ["claude", "tool", "summary", "background", "failed", "exit code", "commands"],
   variants: {
     collapsed: {
-      note: "Chosen. Mixed background and failed calls, closed: Finished 2 background tasks, ran 5 commands (2 failed).",
+      note: "Chosen. Mixed background and failed calls as the turn first draws them, under Finished 2 background tasks, ran 5 commands (2 failed).",
       snapshot: finished(mixed()),
     },
     opened: {
-      note: "The same run opened: one row per call by its description, the failed ones tagged Failed.",
+      note: "The run opened (opened here if it is not already): one row per call by its description, the failed ones tagged Failed.",
       snapshot: finished(mixed()),
       play: openRun,
     },
