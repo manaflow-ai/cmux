@@ -775,7 +775,18 @@ async fn an_attach_page_names_the_prompt_of_the_turn_it_starts_inside() {
             .unwrap();
         let expected =
             read["events"].as_array().unwrap().iter().rev().find(|e| starts_turn(e)).cloned();
-        assert_eq!(page["turnOpener"], expected.unwrap(), "limit {limit}: {page}");
+        assert_eq!(page["turnOpener"], expected.clone().unwrap(), "limit {limit}: {page}");
+        let warmed = a
+            .request(
+                method::MUX_EVENTS,
+                json!({
+                    "sessionId": id, "beforeSeq": 9007199254740991u64, "limit": limit,
+                    "kinds": ["transcript"], "turnOpener": true,
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(warmed["turnOpener"], expected.unwrap(), "read-ahead: {warmed}");
     }
     // The page that starts with the prompt itself needs none.
     let at_prompt = a.request(method::MUX_ATTACH, attach(inside as u64 + 1)).await.unwrap();
