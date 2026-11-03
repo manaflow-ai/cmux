@@ -126,14 +126,22 @@ struct KeyboardResizeArrowDirectionTests {
     }
 
     /// The divider at the edge of the window (the right neighbor is off screen) cannot move out of it: the press is
-    /// refused as at a minimum width, and nothing moves.
+    /// refused as at a minimum width, and nothing moves. Left still moves it, into the window.
     @Test func aDividerAtTheWindowsEdgeDoesNotMoveOutOfIt() throws {
-        let rig = Rig(Self.columns([0.5, 0.5, 0.5]), focus: "p1")
+        // The strip shows its start (focus on p0), then a click focuses p1: p0 and p1 fill the window, p2 is past it.
+        let rig = Rig(Self.columns([0.5, 0.5, 0.5]), focus: "p0")
         defer { rig.window.closeAfterTest() }
+        rig.model.focus("p1", source: .pointer)
+        rig.root.syncWithModel()
         let before = try rig.shown()
+        let edge = try rig.screen.bounds.maxX
+        let p1 = try #require(before["p1"]), p2 = try #require(before["p2"])
+        try #require(abs(p2.minX - edge) <= 1 && abs(p1.maxX - edge) <= 1, "the divider between p1 and p2 is not at the window's edge: \(before)")
         #expect(!rig.press("p1", .right), "the press moved the divider out of the window, or scrolled the strip")
         #expect(try rig.shown() == before)
         #expect(rig.ended.isEmpty)
+        #expect(rig.press("p1", .left))
+        Self.expectOnlyTheDividerMoved(before, try rig.shown(), left: "p1", right: "p2", direction: .left, step: rig.step)
     }
 
     /// Every frame of the press's spring: the divider only moves toward the arrow, and the outer edges never move.
