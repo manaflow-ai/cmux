@@ -1903,8 +1903,9 @@ refused with resource error `creation.conflict`. An id that names an existing
 or deleted resource is refused with `pane_id_exists: <id>` or
 `tab_id_exists: <id>`, and a malformed id with `bad request: ...`, before
 anything is created. The results carry the new pane's `pane_id` and its tab's
-`tab_id`, and every terminal result carries `pane`, the new pane's `Id`: a
-client works on the new pane without reading `list-workspaces`. With `cols` and `rows`, these commands adopt the spare terminal host
+`tab_id`. Every result of these commands (terminal and browser panes) and of
+`new-screen` carries `pane`, the new pane's `Id`: a client works on the new
+pane without reading `list-workspaces`. With `cols` and `rows`, these commands adopt the spare terminal host
 (R81) like `new-tab`, started at that size. Uniqueness is global; a per-client
 namespace for the ids is a later step.
 

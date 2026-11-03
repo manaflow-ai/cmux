@@ -5804,6 +5804,76 @@ Result<NewRowResult> Codec<NewRowResult>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<NewScreenResult>::encode(const NewScreenResult& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.pane.is_absent()) {
+        auto encoded = encode_value(value.pane);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("pane", std::move(encoded).value());
+    }
+    if (!value.screen.is_absent()) {
+        auto encoded = encode_value(value.screen);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("screen", std::move(encoded).value());
+    }
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
+    if (!value.terminal_id.is_absent()) {
+        auto encoded = encode_value(value.terminal_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_id", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<NewScreenResult> Codec<NewScreenResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    NewScreenResult result{};
+    const Json* field_pane = value.find("pane");
+    if (field_pane) {
+        if (field_pane->is_null()) {
+            result.pane = Field<Id>::null();
+        } else {
+            auto decoded = decode_value<Id>(*field_pane);
+            if (!decoded) return std::move(decoded).error();
+            result.pane = Field<Id>(std::move(decoded).value());
+        }
+    }
+    const Json* field_screen = value.find("screen");
+    if (field_screen) {
+        if (field_screen->is_null()) {
+            result.screen = Field<Id>::null();
+        } else {
+            auto decoded = decode_value<Id>(*field_screen);
+            if (!decoded) return std::move(decoded).error();
+            result.screen = Field<Id>(std::move(decoded).value());
+        }
+    }
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        auto decoded = decode_value<Id>(*field_surface);
+        if (!decoded) return std::move(decoded).error();
+        result.surface = std::move(decoded).value();
+    }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (field_terminal_id) {
+        if (field_terminal_id->is_null()) {
+            result.terminal_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_terminal_id);
+            if (!decoded) return std::move(decoded).error();
+            result.terminal_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<NoteSizeActivityResult>::encode(const NoteSizeActivityResult& value) {
     (void)value;
     Json::Object object;
@@ -6052,6 +6122,11 @@ Result<PaneRef> Codec<PaneRef>::decode(const Json& value) {
 Result<Json> Codec<PaneSurfaceResult>::encode(const PaneSurfaceResult& value) {
     (void)value;
     Json::Object object;
+    if (!value.pane.is_absent()) {
+        auto encoded = encode_value(value.pane);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("pane", std::move(encoded).value());
+    }
     if (!value.pane_id.is_absent()) {
         auto encoded = encode_value(value.pane_id);
         if (!encoded) return std::move(encoded).error();
@@ -6087,6 +6162,16 @@ Result<PaneSurfaceResult> Codec<PaneSurfaceResult>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     PaneSurfaceResult result{};
+    const Json* field_pane = value.find("pane");
+    if (field_pane) {
+        if (field_pane->is_null()) {
+            result.pane = Field<Id>::null();
+        } else {
+            auto decoded = decode_value<Id>(*field_pane);
+            if (!decoded) return std::move(decoded).error();
+            result.pane = Field<Id>(std::move(decoded).value());
+        }
+    }
     const Json* field_pane_id = value.find("pane_id");
     if (field_pane_id) {
         if (field_pane_id->is_null()) {
@@ -45184,7 +45269,7 @@ Result<NewRowResult> Client::new_row(
     return decode_value<NewRowResult>(response.value());
 }
 
-Result<SurfaceResult> Client::new_screen(
+Result<NewScreenResult> Client::new_screen(
     const NewScreenRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -45192,7 +45277,7 @@ Result<SurfaceResult> Client::new_screen(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("new-screen", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<SurfaceResult>(response.value());
+    return decode_value<NewScreenResult>(response.value());
 }
 
 Result<SurfaceResult> Client::new_tab(

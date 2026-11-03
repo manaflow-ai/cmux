@@ -887,9 +887,9 @@ public abstract class GeneratedCmuxClient {
         return NewRowResult.fromWire(result);
     }
 
-    public final SurfaceResult newScreen(NewScreenRequest request) throws CmuxException {
+    public final NewScreenResult newScreen(NewScreenRequest request) throws CmuxException {
         Object result = execute(Commands.NEW_SCREEN, request.toWire());
-        return SurfaceResult.fromWire(result);
+        return NewScreenResult.fromWire(result);
     }
 
     public final SurfaceResult newTab(NewTabRequest request) throws CmuxException {

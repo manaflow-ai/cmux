@@ -56,7 +56,7 @@ struct BlueprintBuildTreeReadsTests {
                                  terminalEnvironment: nil))
         try await connection.start()
         let leaf = WorkspaceBlueprint.Node.pane([.terminal(cwd: "/tmp")])
-        // Two columns; the first holds three splits: five panes made after the first.
+        // Two columns; the first holds three splits: four panes made after the first (three splits, one column).
         let first = WorkspaceBlueprint.Node.split(direction: .right, ratio: 0.5,
                                                   a: .split(direction: .down, ratio: 0.3, a: leaf, b: leaf),
                                                   b: .split(direction: .down, ratio: 0.6, a: leaf, b: leaf))
@@ -72,7 +72,7 @@ struct BlueprintBuildTreeReadsTests {
         let recorded = try await connection.request(Recorded())
         await connection.close()
 
-        #expect(recorded["panes"]?.doubleValue == 5, "the build made its four panes and one column")
+        #expect(recorded["panes"]?.doubleValue == 5, "the build made three splits and one column: five panes")
         #expect(recorded["reads"]?.doubleValue == 2,
                 "the build read the whole tree \(recorded["reads"]?.doubleValue ?? -1) times; 2 (its start and the split ids) is the floor")
     }

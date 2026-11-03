@@ -3511,6 +3511,46 @@
    },
    "additional_properties": false
   },
+  "NewScreenResult": {
+   "kind": "object",
+   "fields": {
+    "surface": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "screen": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "pane": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12
+    },
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 9
+    }
+   },
+   "additional_properties": false
+  },
   "PaneSurfaceResult": {
    "kind": "object",
    "fields": {
@@ -3521,6 +3561,15 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "pane": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12
     },
     "terminal_id": {
      "type": {
@@ -12369,7 +12418,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "SurfaceResult"
+    "name": "NewScreenResult"
    },
    "stream": null,
    "constraints": [

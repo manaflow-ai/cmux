@@ -11,6 +11,7 @@ import java.util.Objects;
 
 
 public final class PaneSurfaceResult implements WireValue {
+    private final Field<UInt64> pane;
     private final Field<String> paneId;
     private final Field<Boolean> replayed;
     private final UInt64 surface;
@@ -19,6 +20,7 @@ public final class PaneSurfaceResult implements WireValue {
     private final Field<String> terminalIncarnation;
 
     private PaneSurfaceResult(Builder builder) {
+        this.pane = builder.pane;
         this.paneId = builder.paneId;
         this.replayed = builder.replayed;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
@@ -30,6 +32,7 @@ public final class PaneSurfaceResult implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<UInt64> pane() { return pane; }
     public Field<String> paneId() { return paneId; }
     public Field<Boolean> replayed() { return replayed; }
     public UInt64 surface() { return surface; }
@@ -40,6 +43,10 @@ public final class PaneSurfaceResult implements WireValue {
     public static PaneSurfaceResult fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "PaneSurfaceResult");
         Builder builder = builder();
+        Object rawPane = Wire.optional(object, "pane");
+        if (!Wire.isMissing(rawPane)) {
+            builder.pane(rawPane == null ? null : Wire.uint64(rawPane, "PaneSurfaceResult.pane"));
+        }
         Object rawPaneId = Wire.optional(object, "pane_id");
         if (!Wire.isMissing(rawPaneId)) {
             builder.paneId(rawPaneId == null ? null : Wire.string(rawPaneId, "PaneSurfaceResult.pane_id"));
@@ -68,6 +75,7 @@ public final class PaneSurfaceResult implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "pane", pane);
         Wire.put(object, "pane_id", paneId);
         Wire.put(object, "replayed", replayed);
         Wire.put(object, "surface", surface);
@@ -80,16 +88,17 @@ public final class PaneSurfaceResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof PaneSurfaceResult that)) return false;
-        return Objects.equals(paneId, that.paneId) && Objects.equals(replayed, that.replayed) && Objects.equals(surface, that.surface) && Objects.equals(tabId, that.tabId) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation);
+        return Objects.equals(pane, that.pane) && Objects.equals(paneId, that.paneId) && Objects.equals(replayed, that.replayed) && Objects.equals(surface, that.surface) && Objects.equals(tabId, that.tabId) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(paneId, replayed, surface, tabId, terminalId, terminalIncarnation); }
+    public int hashCode() { return Objects.hash(pane, paneId, replayed, surface, tabId, terminalId, terminalIncarnation); }
 
     @Override
     public String toString() { return "PaneSurfaceResult" + toWire(); }
 
     public static final class Builder {
+        private Field<UInt64> pane = Field.omitted();
         private Field<String> paneId = Field.omitted();
         private Field<Boolean> replayed = Field.omitted();
         private UInt64 surface;
@@ -98,6 +107,10 @@ public final class PaneSurfaceResult implements WireValue {
         private Field<String> terminalId = Field.omitted();
         private Field<String> terminalIncarnation = Field.omitted();
 
+        public Builder pane(UInt64 value) {
+            this.pane = Field.ofNullable(value);
+            return this;
+        }
         public Builder paneId(String value) {
             this.paneId = Field.ofNullable(value);
             return this;

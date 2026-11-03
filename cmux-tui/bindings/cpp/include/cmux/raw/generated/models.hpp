@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976";
+inline constexpr std::string_view kProtocolIrSha256 = "ef240d107b99c34bf160fbc2aca37a7e60ddc4ea405dc1e9075d6bc325d94a85";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -119,6 +119,7 @@ struct MintTerminalRendererResult;
 struct MoveTerminalResult;
 enum class NameSource;
 struct NewRowResult;
+struct NewScreenResult;
 struct NoteSizeActivityResult;
 enum class NotificationLevel;
 struct NotificationMarker;
@@ -4078,6 +4079,14 @@ struct NewScreenRequest {
     friend bool operator==(const NewScreenRequest&, const NewScreenRequest&) = default;
 };
 
+struct NewScreenResult {
+    Field<Id> pane{};
+    Field<Id> screen{};
+    Id surface{};
+    Field<std::string> terminal_id{};
+    friend bool operator==(const NewScreenResult&, const NewScreenResult&) = default;
+};
+
 struct NewTabRequest {
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
@@ -4222,6 +4231,7 @@ struct PaneNeighborResult {
 };
 
 struct PaneSurfaceResult {
+    Field<Id> pane{};
     Field<std::string> pane_id{};
     Field<bool> replayed{};
     Id surface{};
@@ -6733,6 +6743,12 @@ template <>
 struct Codec<NewRowResult> {
     static Result<Json> encode(const NewRowResult& value);
     static Result<NewRowResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<NewScreenResult> {
+    static Result<Json> encode(const NewScreenResult& value);
+    static Result<NewScreenResult> decode(const Json& value);
 };
 
 template <>
