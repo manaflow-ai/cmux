@@ -8,6 +8,7 @@
 import type { ComposerAttachment } from "../attachments";
 import type { SelectionPart } from "./inlineNode";
 import { postNative } from "../native";
+import { stageComposerCopy } from "./composerCopyStage";
 
 /// One attachment as the host writes it to the pasteboard: its bytes (base64), its text, or the
 /// file it links.
@@ -21,17 +22,11 @@ export type ComposerCopy = {
   parts: ({ text: string } | { item: number; id: string })[];
 };
 
-/// The base64 of the largest file the host writes for a copy (32 MiB).
-const MAX_DATA_BASE64 = Math.ceil((32 << 20) / 3) * 4;
-
 /// The pasteboard item of `attachment`; none for one with nothing to hand over (a shell run not yet run).
 export function copyItem(attachment: ComposerAttachment): CopyItem | undefined {
   const { name, mimeType } = attachment;
   if (attachment.path) return { name, mimeType, path: attachment.path };
-  // Past what the host takes in one item (AgentPaneImageCopies.maximumBytes): left out, never
-  // refusing the copy's other attachments with it.
-  if (attachment.data)
-    return attachment.data.length <= MAX_DATA_BASE64 ? { name, mimeType, data: attachment.data } : undefined;
+  if (attachment.data) return { name, mimeType, data: attachment.data };
   if (attachment.text !== undefined && attachment.text !== "")
     return { name, mimeType: mimeType || "text/plain", text: attachment.text };
   return undefined;
@@ -67,6 +62,7 @@ export function composerCopy(
 }
 
 const STORE_KEY = "cmux.composer.copy.v1";
+let pendingCopy: AbortController | undefined;
 
 /// What a copy left on the pasteboard, as the host answered: each attachment item's file name, by
 /// item, or null for one it left out (refused, unreadable). Undefined until it answers.
@@ -114,6 +110,8 @@ export function rememberCopy(
 
 /// A copy of text alone (the field's own): the last attachment copy is no longer on the pasteboard.
 export function forgetCopy(storage: Storage | undefined = globalStorage()) {
+  pendingCopy?.abort();
+  pendingCopy = undefined;
   try {
     storage?.removeItem(STORE_KEY);
   } catch {
@@ -149,6 +147,55 @@ function remembered(storage: Storage | undefined): Remembered | undefined {
   }
 }
 
+/// Large copies keep their compact order on the clipboard itself: browser storage quotas cannot
+/// discard the prompt text when WebKit supplies file URLs without text/plain.
+function clipboardCopy(rawHTML: string, copyID: string): Remembered | undefined {
+  try {
+    const html = document.createElement("template");
+    html.innerHTML = rawHTML;
+    const selection = html.content.querySelector("[data-cmux-composer-copy]");
+    if (selection?.getAttribute("data-cmux-composer-copy") !== copyID) return undefined;
+    const text = selection.textContent ?? "";
+    const metadata = html.content.querySelector("[data-cmux-composer-order]");
+    const order: unknown = JSON.parse(metadata?.getAttribute("data-cmux-composer-order") ?? "null");
+    const files: unknown = JSON.parse(metadata?.getAttribute("data-cmux-composer-files") ?? "null");
+    if (
+      !Array.isArray(order) ||
+      !Array.isArray(files) ||
+      !files.every((name) => name === null || typeof name === "string")
+    )
+      return undefined;
+    const parts: ComposerCopy["parts"] = [];
+    for (const part of order) {
+      if (!part || typeof part !== "object") return undefined;
+      if (Array.isArray(part.range)) {
+        const [start, end] = part.range as unknown[];
+        if (
+          !Number.isSafeInteger(start) ||
+          !Number.isSafeInteger(end) ||
+          Number(start) < 0 ||
+          Number(end) < Number(start) ||
+          Number(end) > text.length
+        )
+          return undefined;
+        parts.push({ text: text.slice(Number(start), Number(end)) });
+      } else {
+        if (
+          !Number.isSafeInteger(part.item) ||
+          part.item < 0 ||
+          part.item >= files.length ||
+          typeof part.id !== "string"
+        )
+          return undefined;
+        parts.push({ item: part.item, id: part.id });
+      }
+    }
+    return { revision: copyID, copyID, text, parts, files };
+  } catch {
+    return undefined;
+  }
+}
+
 /// A piece of a paste put back in order: text, an attachment this composer still has (by the id it
 /// was copied from), or a file from the pasteboard.
 export type PastePart = { text: string } | { id: string } | { file: File };
@@ -166,13 +213,15 @@ export function pastePlan(
   storage: Storage | undefined = globalStorage(),
 ): PastePart[] | undefined {
   if (!data) return undefined;
-  const copy = remembered(storage);
-  if (!copy?.copyID) return undefined;
+  let copy = remembered(storage);
   // The host's marker precedes the text. Bound the inert parse even for a very large HTML paste.
   const html = document.createElement("template");
-  html.innerHTML = data.getData("text/html").slice(0, 4096);
-  if (html.content.querySelector("[data-cmux-composer-copy]")?.getAttribute("data-cmux-composer-copy") !== copy.copyID)
-    return undefined;
+  const rawHTML = data.getData("text/html");
+  html.innerHTML = rawHTML.slice(0, 4096);
+  const copyID = html.content.querySelector("[data-cmux-composer-copy]")?.getAttribute("data-cmux-composer-copy");
+  if (!copyID) return undefined;
+  if (copy?.copyID !== copyID) copy = clipboardCopy(rawHTML, copyID);
+  if (!copy) return undefined;
   const files = [...data.files];
   const text = lines(data.getData("text/plain"));
   /// Each item's file in the paste, by item.
@@ -199,17 +248,41 @@ export function pastePlan(
 /// Pastes a composer put in itself (`pastePlan`): the intake's own paste listener leaves them.
 export const pastesPlaced = new WeakSet<Event>();
 
+export type ComposerCopyStatus =
+  | { phase: "copying"; written: number; total: number; cancel: () => void }
+  | { phase: "failed"; retry: () => void }
+  | undefined;
+
 /// Puts `copy` on the pasteboard: its order kept for a paste here, the text and each attachment
 /// written by the host as their own items. The field already put the text there, so a host that
 /// refuses (no gesture, a page outside the app) leaves the text copied.
-export function writeComposerCopy(copy: ComposerCopy) {
+export function writeComposerCopy(
+  copy: ComposerCopy,
+  status?: (state: ComposerCopyStatus) => void,
+  complete?: () => void,
+) {
+  pendingCopy?.abort();
+  const controller = new AbortController();
+  pendingCopy = controller;
+  const current = () => pendingCopy === controller;
+  const aborted = () => {
+    if (current()) status?.(undefined);
+  };
+  controller.signal.addEventListener("abort", aborted, { once: true });
   const storage = globalStorage();
   const revision = rememberCopy(copy, undefined, storage);
-  void postNative<{ copyID?: string; files?: { item?: unknown; name?: unknown }[] }>("composer.copy", {
-    text: copy.text,
-    items: copy.items,
+  const cancel = () => controller.abort();
+  let staged = false;
+  void stageComposerCopy(copy, postNative, {
+    signal: controller.signal,
+    progress(written, total) {
+      staged = true;
+      if (!controller.signal.aborted) status?.({ phase: "copying", written, total, cancel });
+    },
   })
     .then((reply) => {
+      if (staged && current()) status?.(undefined);
+      if (current() && !controller.signal.aborted) complete?.();
       if (remembered(storage)?.revision !== revision) return;
       const files: (string | null)[] = copy.items.map(() => null);
       for (const each of reply?.files ?? [])
@@ -218,6 +291,18 @@ export function writeComposerCopy(copy: ComposerCopy) {
       rememberCopy(copy, files, storage, reply?.copyID);
     })
     .catch(() => {
-      if (remembered(storage)?.revision === revision) forgetCopy(storage);
+      if (remembered(storage)?.revision === revision) {
+        try {
+          storage?.removeItem(STORE_KEY);
+        } catch {
+          /* Storage is unavailable. */
+        }
+      }
+      if (staged && !controller.signal.aborted)
+        status?.({ phase: "failed", retry: () => writeComposerCopy(copy, status, complete) });
+    })
+    .finally(() => {
+      if (pendingCopy === controller) pendingCopy = undefined;
+      controller.signal.removeEventListener("abort", aborted);
     });
 }

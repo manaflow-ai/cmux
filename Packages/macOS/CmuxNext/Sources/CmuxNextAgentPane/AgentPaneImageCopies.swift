@@ -126,6 +126,39 @@ extension AgentPaneImageCopies {
             return await withCopy(src, name: name, in: model) { model.replyLinks.quickLookFile($0) }
         case .copyComposer(let text, let items):
             return await copyComposer(text: text, items: items, in: model)
+        case .stageComposer(let request):
+            return await model.replyLinks.composerStaging.respond(request, in: model)
+        case .copyStagedComposer(let textReference, let items, let orderReference):
+            let tokens = [textReference] + [orderReference].compactMap { $0 } + items.compactMap { item -> String? in
+                if case .reference(let token) = item.payload { return token }
+                return nil
+            }
+            let generation = model.droppedPaths.generation
+            let revision = model.replyLinks.composerCopyRevision
+            guard let work = model.replyLinks.copyWork,
+                  let files = model.replyLinks.composerStaging.take(tokens, owner: generation, revision: revision, work: work) else {
+                return AgentPaneModel.replyFailure(.openFailed)
+            }
+            var keeping: Set<String> = []
+            let answer: [String: Any]
+            if let textFile = files[textReference], let text = await stagedText(textFile),
+               model.droppedPaths.generation == generation, model.replyLinks.composerCopyRevision == revision {
+                let order = if let orderReference, let file = files[orderReference] { await stagedText(file) } else { nil as String? }
+                if (orderReference == nil || order != nil), model.droppedPaths.generation == generation,
+                   model.replyLinks.composerCopyRevision == revision {
+                    for item in items {
+                        guard case .reference(let token) = item.payload else { continue }
+                        // SVGs publish a sanitized copy elsewhere; discard their original stage.
+                        let ext = composerExtension(item.name, mimeType: item.mimeType, fallback: "bin")
+                        if ext.lowercased() != "svg", item.mimeType.lowercased() != "image/svg+xml" { keeping.insert(token) }
+                    }
+                    answer = await copyComposer(text: text, items: items, in: model, references: files, order: order) {
+                        model.replyLinks.composerStaging.published(keeping)
+                    }
+                } else { answer = AgentPaneModel.replyFailure(.openFailed) }
+            } else { answer = AgentPaneModel.replyFailure(.openFailed) }
+            await model.replyLinks.composerStaging.settle(tokens, work: work)
+            return answer
         default: return AgentPaneModel.replyFailure(.openFailed)
         }
     }

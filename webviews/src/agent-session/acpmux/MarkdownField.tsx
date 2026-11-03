@@ -168,7 +168,13 @@ export type MarkdownFieldProps = {
   /// A copy or cut of the selection (Cmd-C, Cmd-X, the menu's): its runs of text and its placed
   /// attachments in order, its text as the field copies it, and whether it holds the whole draft.
   /// True when the surface wrote the pasteboard itself; the field then takes a cut's selection out.
-  onCopy?(copy: { parts: SelectionPart[]; text: string; whole: boolean }, cut: boolean): boolean;
+  /// `commitCut` deletes the captured selection after an asynchronous copy commits.
+  /// Returning `"pending"` leaves the draft untouched until that callback succeeds.
+  onCopy?(
+    copy: { parts: SelectionPart[]; text: string; whole: boolean },
+    cut: boolean,
+    commitCut: () => boolean,
+  ): boolean | "pending";
   /// Whether the selection holds the whole draft (Select All), as it changes: the surface marks what
   /// it shows besides the text (the strip's attachments) as selected too.
   onWholeSelection?(whole: boolean): void;
@@ -665,11 +671,38 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       whole: wholeSelected(state),
     };
     if (!copy.parts.length && copy.text) copy.parts.push({ text: copy.text });
-    if (!surface(copy, cut)) return false;
+    let committed = false;
+    const originalDoc = state.doc;
+    const originalSelection = state.selection;
+    const originalOwner = owner.current;
+    const commitCut = () => {
+      if (committed) return false;
+      committed = true;
+      // Selection-only moves keep this immutable document. Any edit or chat switch preserves the
+      // newer draft instead of applying an old Cut to it after the clipboard finishes staging.
+      if (
+        !cut ||
+        view.current !== editorView ||
+        editorView.isDestroyed ||
+        owner.current !== originalOwner ||
+        editorView.state.doc !== originalDoc
+      )
+        return false;
+      editorView.dispatch(
+        editorView.state.tr
+          .setSelection(originalSelection)
+          .deleteSelection()
+          .scrollIntoView()
+          .setMeta("uiEvent", "cut"),
+      );
+      return true;
+    };
+    const result = surface(copy, cut, commitCut);
+    if (result === false) return false;
     event.preventDefault();
     // The text at once; the surface's own write (the host's, a moment later) replaces it whole.
     event.clipboardData?.setData("text/plain", copy.text);
-    if (cut) editorView.dispatch(editorView.state.tr.deleteSelection().scrollIntoView().setMeta("uiEvent", "cut"));
+    if (cut && result !== "pending") commitCut();
     return true;
   };
 

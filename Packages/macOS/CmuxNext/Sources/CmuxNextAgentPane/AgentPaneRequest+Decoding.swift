@@ -5,7 +5,7 @@ import Foundation
 extension AgentPaneRequest {
     private static let maximumUploadStageChunk = 512 * 1024
 
-    private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
+    static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
         case "chat.upload.begin":

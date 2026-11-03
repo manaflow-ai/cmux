@@ -1,6 +1,7 @@
 import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
 import { type ComposerAttachment, inlineCopyId, inlineTokenIds } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
+import { stagesComposerCopy } from "./composer/composerCopyStage";
 import { useInlineAttachments } from "./composer/inlineAttachments";
 import {
   AttachmentStrip,
@@ -17,6 +18,7 @@ import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
+import { ComposerCopyStatusLine, useComposerCopyStatus } from "./composer/ComposerCopyStatus";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -204,14 +206,17 @@ export function ComposerBox({
   // the text are in its selection (composer/inlineNode.ts); the strip's show as selected while the
   // whole draft is, and go with its copy, cut and delete.
   const [whole, setWhole] = useState(false);
+  const [copyStatus, setCopyStatus] = useComposerCopyStatus(field.selectionKey);
   const staged = () => (attachmentsRef ?? ownAttachments).current;
   /// The strip's own attachments, those not placed in the text, go with a whole draft cut or deleted.
-  const dropStrip = () => {
-    for (const chip of staged().filter((each) => !placed.has(each.id))) {
+  const dropStrip = (selected?: ReadonlySet<string>) => {
+    for (const chip of staged().filter((each) => !placed.has(each.id) && (!selected || selected.has(each.id)))) {
       inline.remove(chip.id);
       onRemoveAttachment(chip.id);
     }
-    if (onCancelAttachment) for (const chip of pending ?? []) if (!placed.has(chip.id)) inline.cancel(chip.id);
+    if (onCancelAttachment)
+      for (const chip of pending ?? [])
+        if (!placed.has(chip.id) && (!selected || selected.has(chip.id))) inline.cancel(chip.id);
   };
   // A press on the card around the text (the field's padding, the gap around the button row, the
   // card's edge) focuses the prompt where its caret was, as in Codex and Claude Code, whose whole
@@ -255,6 +260,7 @@ export function ComposerBox({
   );
   return (
     <>
+      <ComposerCopyStatusLine status={copyStatus} />
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
       <div
         ref={attachBox}
@@ -301,14 +307,26 @@ export function ComposerBox({
             onInlineViews={inline.onInlineViews}
             isInlineAttachment={inline.known}
             onWholeSelection={setWhole}
-            onCopy={(copy, cut) => {
+            onCopy={(copy, cut, commitCut) => {
               const made = composerCopy(copy.parts, copy.whole, staged());
               // Text alone is the field's own copy: the last copy with attachments is gone from the pasteboard.
               if (!made) {
                 forgetCopy();
+                setCopyStatus(undefined);
                 return false;
               }
-              writeComposerCopy(made);
+              setCopyStatus(undefined);
+              if (cut && stagesComposerCopy(made)) {
+                const selected = new Set([
+                  ...staged().map((chip) => chip.id),
+                  ...(pending ?? []).map((chip) => chip.id),
+                ]);
+                writeComposerCopy(made, setCopyStatus, () => {
+                  if (commitCut() && copy.whole) dropStrip(selected);
+                });
+                return "pending";
+              }
+              writeComposerCopy(made, setCopyStatus);
               if (cut && copy.whole) dropStrip();
               return true;
             }}
