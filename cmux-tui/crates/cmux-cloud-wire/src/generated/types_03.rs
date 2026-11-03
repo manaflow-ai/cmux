@@ -4,6 +4,15 @@
 #[allow(unused_imports)]
 use super::*;
 
+/// ES256 (P-256) public key of an install.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PublicJwk {
+    pub kty: LitEc,
+    pub crv: LitP256,
+    pub x: String,
+    pub y: String,
+}
+
 /// One device's APNs registration.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PushTarget {
@@ -895,11 +904,3 @@ pub struct TeamVmViewLeasesItem {
 
 /// RFC 3339 UTC with milliseconds.
 pub type Timestamp = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Trigger {
-    pub id: TriggerId,
-    pub status: TriggerStatus,
-    pub spec: TriggerInput,
-    pub next_at: Option<i64>,
-}
