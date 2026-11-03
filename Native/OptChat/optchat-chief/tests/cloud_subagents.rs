@@ -1367,6 +1367,7 @@ fn known_peer_catalog_refusals_prevent_session_creation() {
                 "two": {"kind": "claude-stdio", "family": "claude"}
             }),
         ),
+        ("claude", serde_json::json!({"claude": {"kind": "acp"}})),
         (
             "chief",
             serde_json::json!({"chief": {"kind": "acp", "family": "chief"}}),
