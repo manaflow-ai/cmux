@@ -600,15 +600,37 @@ fn writes_protected(tool: &str, input: Option<&Value>, protected: &[PathBuf]) ->
     else {
         return false;
     };
-    // An unnormalizable path is refused by every pattern anyway.
+    // A relative path or one with `..` is never written through a grant:
+    // a bare `Write` grant matches any input, so refuse it here.
     let Some(path) = normalize(path) else {
-        return false;
+        return true;
     };
     let resolved = resolve(&path);
     protected.iter().any(|p| {
         let real = resolve(p);
         path.starts_with(p) || resolved.starts_with(&real) || resolved.starts_with(p)
     })
+}
+
+/// Words of a chat command, a parenthesized pattern kept whole:
+/// `/grant @Ben Bash(git status*) Read` is `/grant`, `@Ben`,
+/// `Bash(git status*)`, `Read`.
+pub fn command_words(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut open = 0i32;
+    for word in text.split_whitespace() {
+        if open > 0
+            && let Some(last) = out.last_mut()
+        {
+            last.push(' ');
+            last.push_str(word);
+        } else {
+            out.push(word.to_owned());
+        }
+        open += word.matches('(').count() as i32 - word.matches(')').count() as i32;
+        open = open.max(0);
+    }
+    out
 }
 
 /// `mcp__optchat__send` as `send`, `Bash` as `Bash`.
@@ -885,6 +907,19 @@ mod tests {
     }
 
     #[test]
+    fn no_grant_writes_through_dot_dot_or_a_relative_path() {
+        let mut r = table();
+        r.grant("user_ben", &["Write".into(), "Edit".into()]).unwrap();
+        let protected = vec![PathBuf::from("/srv/chief/optchat")];
+        let ben = authors(&["user_ben"]);
+        for path in ["/srv/chief/optchat/session/../rights.json", "/srv/x/../chief/optchat/audit/audit.jsonl", "rights.json"] {
+            assert!(!r.decide(OWNER, &ben, "Write", Some(&json!({"file_path": path})), &protected).allowed(), "{path}");
+            assert!(!r.decide(OWNER, &ben, "Edit", Some(&json!({"file_path": path})), &protected).allowed(), "{path}");
+        }
+        assert!(r.decide(OWNER, &ben, "Write", Some(&json!({"file_path": "/srv/chief/ws/a"})), &protected).allowed());
+    }
+
+    #[test]
     fn no_grant_writes_the_hosts_own_files() {
         let mut r = table();
         r.grant("user_ben", &["Write(/srv/chief/*)".into()]).unwrap();
@@ -924,6 +959,15 @@ mod tests {
         assert_eq!(AuthKind::detect(&env(&[("CLAUDE_CODE_USE_VERTEX", "0")])), None);
         assert_eq!(AuthKind::parse("api-key"), Some(AuthKind::ApiKey));
         assert_eq!(AuthKind::parse("max"), None);
+    }
+
+    #[test]
+    fn command_words_keep_a_pattern_with_spaces_whole() {
+        assert_eq!(
+            command_words("/grant @Ben Bash(git status*)  Read(/a b/*) WebFetch"),
+            ["/grant", "@Ben", "Bash(git status*)", "Read(/a b/*)", "WebFetch"]
+        );
+        assert_eq!(command_words("/revoke Ben"), ["/revoke", "Ben"]);
     }
 
     #[test]

@@ -268,7 +268,8 @@ impl Brain {
     /// A chat command, answered by the host; None: not a command (the text
     /// goes to the Chief as written).
     fn command(&mut self, rights: &Rights, summary: &Summary, person: &str, owner_msg: bool, text: &str) -> Option<String> {
-        let words: Vec<&str> = text.split_whitespace().collect();
+        let owned = crate::rights::command_words(text);
+        let words: Vec<&str> = owned.iter().map(String::as_str).collect();
         let verb = words.first()?.trim_start_matches('/');
         let args = &words[1..];
         let root = self.rights.as_ref()?.root.clone();
@@ -443,6 +444,26 @@ impl Brain {
                 decision: "result".into(),
                 output_sha256: output.as_ref().map(|o| audit::sha256(o.as_bytes())),
                 output_bytes: output.as_ref().map(|o| o.len() as u64),
+                ..Entry::default()
+            });
+            return json!({});
+        }
+        // The memory tools and the Chief's own tools keep their own rules:
+        // the turn's settings allow them and `turn_gate` checks their
+        // arguments (README "Remote-origin messages"). The hook audits them
+        // and gives no decision.
+        if crate::approval::MEMORY_TOOLS.contains(&tool.as_str())
+            || crate::approval::CHIEF_TOOLS.contains(&tool.as_str())
+        {
+            self.audit(Entry {
+                who: people,
+                via: ctx.turn_key.clone(),
+                cwd,
+                tool,
+                what,
+                input_sha256: input_sha,
+                decision: "allow".into(),
+                by: Some("chief tool (its arguments checked when it runs)".into()),
                 ..Entry::default()
             });
             return json!({});

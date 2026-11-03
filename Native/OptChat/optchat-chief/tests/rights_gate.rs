@@ -302,7 +302,11 @@ fn another_persons_chief_is_held_to_its_grants_and_may_be_answered() {
     assert!(prompt.contains("the Chief of Ben"), "stamped with its owner: {prompt}");
     assert_eq!(decision(&pre(&mut h, "WebFetch", json!({"url": "https://x"}))).as_deref(), Some("allow"));
     assert_eq!(decision(&pre(&mut h, "Bash", json!({"command": "ls"}))).as_deref(), Some("deny"));
-    // The reply goes back to the Chief that asked, and to no other.
+    // The reply goes back to the Chief that asked, and to no other: the hook
+    // leaves the Chief's own tools to turn_gate, which checks the target.
+    let tell = json!({"id": "chief:ben-chief", "message": "green"});
+    assert_eq!(decision(&pre(&mut h, "mcp__optchat__tell", tell)), None);
+    assert_eq!(decision(&pre(&mut h, "mcp__optchat__reply", json!({"id": 1, "text": "hi"}))), None);
     assert!(h.brain.turn_gate("mcp__optchat__tell", &json!({"id": "chief:ben-chief", "message": "green"})).is_ok());
     assert!(h.brain.turn_gate("mcp__optchat__tell", &json!({"id": "chief:other", "message": "x"})).is_err());
     finish(&mut h);
