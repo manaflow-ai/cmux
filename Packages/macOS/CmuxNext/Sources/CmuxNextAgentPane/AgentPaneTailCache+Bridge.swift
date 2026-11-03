@@ -13,7 +13,12 @@ extension AgentPaneTailCache {
 
     /// The same memory read, with a disk-copy miss forwarded to the pane's host. The daemon
     /// owns persistence and the web page interprets its envelope; neither policy lives here.
-    static func reply(to method: String, params: [String: Any]?, host: (any AgentPaneHostProviding)?) async -> [String: Any] {
+    static func reply(to method: String, params: [String: Any]?, host: (any AgentPaneHostProviding)?, pageGeneration: UInt64? = nil) async -> [String: Any] {
+        // A surviving page can still hold the previous account's JS tail after resume().
+        // Its immutable provider generation fences writes; fresh reads still use this lifecycle.
+        if method == "chat.tail", let pageGeneration, pageGeneration != shared.generation {
+            return AgentPaneReply.success()
+        }
         let generation = shared.generation
         guard shared.acceptsTails else { return reply(to: method, params: params) }
         guard method == "chat.tail.get", let session = params?["sessionId"] as? String, !session.isEmpty,

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e1376b26094dcc4058ebfae8b8708916c1f9f204117cba1fee8a626ff0266943. */
+/* cmux-tui mux protocol 12, IR dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976. */
 
 
 import type * as T from "./types.js";
@@ -1620,6 +1620,7 @@ export interface MoveTabToColumnRequest extends CmuxRequestBase {
   "dock"?: (T.ColumnPin) | null;
   "keep_focus"?: boolean;
   "pane"?: (T.Id) | null;
+  "pane_id"?: (string) | null;
   "respawn"?: (T.SplitRespawn) | null;
   "screen"?: (T.Id) | null;
   "surface": T.Id;

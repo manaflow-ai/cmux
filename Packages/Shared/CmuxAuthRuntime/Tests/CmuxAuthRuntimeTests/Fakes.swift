@@ -31,6 +31,8 @@ actor FakeAuthClient: AuthClient {
     private(set) var lastSelectedTeamID: String?
     var serverSelectedTeamID: String?
     var nextCreatedTeamID = "team-created"
+    /// Invitations addressed to the user, by id, each naming the team it joins.
+    var receivedInvitations: [String: CMUXAuthTeam] = [:]
     private(set) var teamSelectionCount = 0
     private(set) var teamCreateCount = 0
     private var nextTeamSelectionGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
@@ -72,6 +74,7 @@ actor FakeAuthClient: AuthClient {
     func setThrowOnCurrentUser(_ error: (any Error)?) { throwOnCurrentUser = error }
     func setTeams(_ teams: [CMUXAuthTeam]) { self.teams = teams }
     func setServerSelectedTeamID(_ id: String?) { serverSelectedTeamID = id }
+    func setReceivedInvitations(_ invitations: [String: CMUXAuthTeam]) { receivedInvitations = invitations }
     func setThrowOnListTeams(_ error: (any Error)?) { throwOnListTeams = error }
     func setNonce(_ nonce: String) { self.nonce = nonce }
     func holdNextTeamSelection(started: TestPhaseSignal, release: TestContinuationBlocker) {

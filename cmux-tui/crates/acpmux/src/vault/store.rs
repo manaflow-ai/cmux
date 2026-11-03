@@ -245,49 +245,56 @@ pub fn decode(item: &str) -> Option<Zeroizing<String>> {
     Some(Zeroizing::new(text.to_owned()))
 }
 
-/// A store in memory, for tests.
 #[cfg(test)]
-#[derive(Default)]
-pub struct MemoryStore {
-    pub items: std::sync::Mutex<std::collections::BTreeMap<String, Zeroizing<String>>>,
-    pub unavailable: bool,
-    /// Deletes fail (a locked keychain).
-    pub fail_delete: std::sync::atomic::AtomicBool,
-    /// Reads fail.
-    pub fail_get: std::sync::atomic::AtomicBool,
-    /// Writes of this name fail.
-    pub fail_put: Option<String>,
-}
+pub use memory::MemoryStore;
 
+/// A store in memory, for tests: a test module, so its lock unwraps are test code.
 #[cfg(test)]
-impl SecretStore for MemoryStore {
-    fn kind(&self) -> &'static str {
-        if self.unavailable { "unavailable" } else { "memory" }
+pub mod memory {
+    use super::{SecretStore, UNAVAILABLE};
+    use zeroize::Zeroizing;
+
+    #[derive(Default)]
+    pub struct MemoryStore {
+        pub items: std::sync::Mutex<std::collections::BTreeMap<String, Zeroizing<String>>>,
+        pub unavailable: bool,
+        /// Deletes fail (a locked keychain).
+        pub fail_delete: std::sync::atomic::AtomicBool,
+        /// Reads fail.
+        pub fail_get: std::sync::atomic::AtomicBool,
+        /// Writes of this name fail.
+        pub fail_put: Option<String>,
     }
-    fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
-        if self.unavailable {
-            return Err(UNAVAILABLE);
+
+    impl SecretStore for MemoryStore {
+        fn kind(&self) -> &'static str {
+            if self.unavailable { "unavailable" } else { "memory" }
         }
-        if self.fail_put.as_deref() == Some(name) {
-            return Err("vault.secret_store_write_failed");
+        fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
+            if self.unavailable {
+                return Err(UNAVAILABLE);
+            }
+            if self.fail_put.as_deref() == Some(name) {
+                return Err("vault.secret_store_write_failed");
+            }
+            self.items.lock().unwrap().insert(name.to_owned(), Zeroizing::new(value.to_owned()));
+            Ok(())
         }
-        self.items.lock().unwrap().insert(name.to_owned(), Zeroizing::new(value.to_owned()));
-        Ok(())
-    }
-    fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, &'static str> {
-        if self.fail_get.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err("vault.secret_store_read_failed");
+        fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, &'static str> {
+            if self.fail_get.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err("vault.secret_store_read_failed");
+            }
+            Ok(self.items.lock().unwrap().get(name).cloned())
         }
-        Ok(self.items.lock().unwrap().get(name).cloned())
-    }
-    fn delete(&self, name: &str) -> Result<(), &'static str> {
-        if self.unavailable {
-            return Err(UNAVAILABLE);
+        fn delete(&self, name: &str) -> Result<(), &'static str> {
+            if self.unavailable {
+                return Err(UNAVAILABLE);
+            }
+            if self.fail_delete.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err("vault.secret_store_delete_failed");
+            }
+            self.items.lock().unwrap().remove(name);
+            Ok(())
         }
-        if self.fail_delete.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err("vault.secret_store_delete_failed");
-        }
-        self.items.lock().unwrap().remove(name);
-        Ok(())
     }
 }
