@@ -44,9 +44,28 @@ impl InputRouter {
         key: &KeyRecord,
         focus: &FocusState,
     ) -> Option<Sink> {
-        // Today: a bound chord runs its action at once.
-        let _ = (binding, key, focus);
-        None
+        let Resolved::BrowserPage { tab, .. } = &focus.derived.resolved else { return None };
+        if focus.derived.browser_focus_mode_active || binding.ghostty {
+            return None;
+        }
+        let action: &str = &binding.action;
+        // DevTools runs its own actions: never offered to a page.
+        if DEV_TOOLS_ACTIONS.contains(&action) {
+            return None;
+        }
+        let owns = match binding.tier {
+            Tier::Content => true,
+            Tier::Navigation => {
+                PAGE_OWNABLE_ACTIONS.contains(&action)
+                    || (!OPENS_BROWSER_ACTIONS.contains(&action) && key.page_editing_chord)
+            }
+            Tier::System => false,
+        };
+        let page = Sink::Content(Arc::from(tab.as_str()));
+        let takes_now = key.reaches.as_ref() == Some(&page)
+            && !self.lanes.contains_key(&page)
+            && self.deliverable(&page, key.reaches.as_ref(), false) == Ok(Via::Responder);
+        (owns && takes_now).then_some(page)
     }
 
     /// Offers key `id` to `page`, holding `binding` for its report.

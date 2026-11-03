@@ -26,17 +26,43 @@ impl InputRouter {
     /// The dialog a key typed now in `window` and aimed at `sink` goes to, the
     /// oldest one that blocks it.
     pub(super) fn dialog_for(&self, window: &Arc<str>, sink: Option<&Sink>) -> Option<u64> {
-        // Today: a dialog gets a key only through AppKit's dispatch.
-        let _ = (window, sink);
-        None
+        if self.dialogs.is_empty() {
+            return None;
+        }
+        let chrome = match sink {
+            None | Some(Sink::Field { field: FieldKind::Sidebar, .. }) => true,
+            Some(_) => false,
+        };
+        self.dialogs.iter().find_map(|(id, scope)| {
+            let blocks = match scope {
+                DialogScope::Window(blocked) => {
+                    blocked == window && !matches!(sink, Some(Sink::Overlay { .. }))
+                }
+                DialogScope::Tab { window: blocked, tab } => {
+                    blocked == window
+                        && (sink.is_some_and(|sink| self.tab_owns(blocked, tab, sink))
+                            || (chrome && self.focused_tab(blocked) == Some(tab.as_ref())))
+                }
+            };
+            blocks.then_some(*id)
+        })
     }
 
     /// Whether a dialog blocks `sink` now: its keys typed before the dialog
     /// wait for the answer.
     pub(super) fn is_blocked(&self, sink: &Sink) -> bool {
-        // Today: keys typed before a dialog do not wait for its answer.
-        let _ = sink;
-        false
+        if self.dialogs.is_empty() || matches!(sink, Sink::Dialog(_) | Sink::Overlay { .. }) {
+            return false;
+        }
+        self.dialogs.iter().any(|(_, scope)| match scope {
+            DialogScope::Window(window) => match sink.window() {
+                Some(own) => own == window,
+                None => self.windows.get(window).is_some_and(|input| {
+                    input.tabs.iter().any(|(tab, _)| self.tab_owns(window, tab, sink))
+                }),
+            },
+            DialogScope::Tab { window, tab } => self.tab_owns(window, tab, sink),
+        })
     }
 
     /// Whether `sink` is tab `tab`'s content or developer tools in `window`.

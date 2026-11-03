@@ -576,9 +576,23 @@ impl InputRouter {
         key: &KeyRecord,
         sink: Option<&Sink>,
     ) -> Option<String> {
-        // Today: Escape in a field stays in the field (#33049).
-        let _ = (window, key, sink);
-        None
+        let m = key.modifiers;
+        if key.code != ESCAPE
+            || m.command
+            || m.control
+            || m.option
+            || m.shift
+            || key.field_uses_escape
+        {
+            return None;
+        }
+        let Some(Sink::Field { field: FieldKind::SidebarField | FieldKind::TextField, .. }) = sink
+        else {
+            return None;
+        };
+        let input = self.windows.get(window)?;
+        let pane = input.return_to.as_ref()?;
+        input.focus.topology.contains_pane(pane).then(|| pane.clone())
     }
 
     fn enqueue(&mut self, sink: Sink, entry: LaneEntry, reason: WaitReason) {

@@ -111,17 +111,52 @@ impl InputRouter {
     /// False when no session runs, or when the key ended the session (it then
     /// routes as usual).
     pub(super) fn session_takes(&mut self, id: InputId, key: &KeyRecord) -> bool {
-        // Today: the router has no key sessions (the link-hint controller holds
-        // its keys itself), so a session's key routes as usual.
-        let _ = (id, key);
-        false
+        let Some(session) = &self.session else { return false };
+        if key.role != WindowRole::Main || key.window != session.window {
+            self.end_session(SessionEnd::OtherWindow);
+            return false;
+        }
+        let step = match session.kind {
+            SessionKind::Recorder => Some(SessionKey::Any),
+            SessionKind::LinkHints { .. } | SessionKind::WindowHints => hint_key(key),
+        };
+        match step {
+            Some(SessionKey::Escape) => {
+                self.push(InputEffect::SessionKey { id, key: SessionKey::Escape });
+                self.end_session(SessionEnd::Escape);
+                true
+            }
+            Some(step) => {
+                self.push(InputEffect::SessionKey { id, key: step });
+                true
+            }
+            None => {
+                self.end_session(SessionEnd::OtherKey);
+                false
+            }
+        }
     }
 
     /// After `event` changed `window`'s focus: link hints end when the
     /// window's keys no longer go to their page, and window hints end on the
     /// person's own focus move (a click, a drag) in their window.
     pub(super) fn session_after_focus(&mut self, window: &Arc<str>, event: &FocusEvent) {
-        let _ = (window, event);
+        let Some(session) = &self.session else { return };
+        if session.window != *window {
+            return;
+        }
+        let left = match &session.kind {
+            SessionKind::LinkHints { tab } => {
+                self.aim(window).as_ref() != Some(&Sink::Content(tab.clone()))
+            }
+            SessionKind::WindowHints => {
+                is_user_move(event) || matches!(event, FocusEvent::DragBegan { .. })
+            }
+            SessionKind::Recorder => false,
+        };
+        if left {
+            self.end_session(SessionEnd::FocusLeft);
+        }
     }
 }
 
