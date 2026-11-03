@@ -543,7 +543,7 @@ test("a saved local environment that is only a folder is in the folder menu, not
 });
 
 test("a saved local environment starts in its folder even when the tab already sits there", async () => {
-  const calls = await mount({ tabCwd: API });
+  const calls = await mount({ tabCwd: APP });
   await pickFolderRow(APP);
   await ask("run the tests");
   expect(calls.find((call) => call.method === "workspace.useFolder")?.params).toEqual({ cwd: APP });
