@@ -154,7 +154,7 @@ public final class ChiefTeleportChip: NSView {
         var parts: [CGFloat] = []
         if style == .dot { parts.append(Self.dotSize) }
         if style.showsGlyph { parts.append(glyph.image?.size.width ?? 0) }
-        if style.showsText { parts.append(ceil(label.intrinsicContentSize.width)) }
+        if style.showsText { parts.append(ceil(label.naturalSize.width)) }
         if style.showsChevron { parts.append(chevron.image?.size.width ?? 0) }
         width += parts.reduce(0, +) + Self.gap * CGFloat(max(parts.count - 1, 0))
         return NSSize(width: ceil(width), height: Self.height)
@@ -171,7 +171,7 @@ public final class ChiefTeleportChip: NSView {
         if style == .dot { place(dot, width: Self.dotSize, height: Self.dotSize) }
         if style.showsGlyph, let size = glyph.image?.size { place(glyph, width: size.width, height: size.height) }
         if style.showsText {
-            let size = label.intrinsicContentSize
+            let size = label.naturalSize  // the frame the text needs, its 2 pt side padding included
             let chevronWidth = style.showsChevron ? (chevron.image?.size.width ?? 0) + Self.gap : 0
             place(label, width: max(0, min(ceil(size.width), bounds.width - x - padding - chevronWidth)), height: ceil(size.height))
         }

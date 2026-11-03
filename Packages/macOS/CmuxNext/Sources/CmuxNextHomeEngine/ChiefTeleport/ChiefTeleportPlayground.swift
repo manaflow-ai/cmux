@@ -4,8 +4,8 @@ import CmuxNextDesign
 
 /// DEBUG ONLY: Debug > Chief Teleport Playground. Every location chip variant
 /// (``ChiefTeleportChipStyle``) in every state (on This Mac, in cmux Cloud, on a Mac mini, moving,
-/// verifying, failed, rolled back), in light and in dark, each a live chip whose click opens its real
-/// Teleport menu (picks only print here). Beside each grid, the menu of the state picked above, as
+/// verifying, failed, rolled back), in the app's appearance (light or dark), each a live chip whose click opens its real
+/// Teleport menu (picks do nothing here). Beside the grid, the menu of the state picked above, as
 /// text, so a still capture shows it too. The labels are DEV-only English; the chips' own words are
 /// the product's localized strings.
 @MainActor
@@ -41,7 +41,7 @@ public final class ChiefTeleportPlayground: NSObject, NSWindowDelegate {
 
     private let window: NSWindow
     private let statePicker = NSPopUpButton(frame: .zero, pullsDown: false)
-    private var menuPreviews: [NSStackView] = []
+    private let menuPreview = NSStackView()
     private var chips: [ChiefTeleportChip] = []
 
     /// Shows the playground (one window: a second call brings it front), its menu preview on the
@@ -75,14 +75,12 @@ public final class ChiefTeleportPlayground: NSObject, NSWindowDelegate {
         statePicker.target = self
         statePicker.action = #selector(stateChanged)
         let caption = ThemedLabel(wrappingLabelWithString:
-            "Columns: chip variants (Plain ships). Rows: states. Click any chip for its real menu. Light above, dark below.")
+            "Columns: chip variants (Plain ships). Rows: states. Click any chip for its real menu. Switch the app to light or dark to see both.")
         caption.font = Typography.caption
         caption.ink = .secondary
         let bar = NSStackView(views: [statePicker, caption])
         bar.spacing = 12
-        let light = pane(.aqua)
-        let dark = pane(.darkAqua)
-        let column = NSStackView(views: [bar, light, dark])
+        let column = NSStackView(views: [bar, grid()])
         column.orientation = .vertical
         column.alignment = .leading
         column.spacing = 8
@@ -94,15 +92,12 @@ public final class ChiefTeleportPlayground: NSObject, NSWindowDelegate {
             column.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             column.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             column.bottomAnchor.constraint(lessThanOrEqualTo: content.bottomAnchor),
-            light.trailingAnchor.constraint(equalTo: column.trailingAnchor, constant: -14),
-            dark.trailingAnchor.constraint(equalTo: column.trailingAnchor, constant: -14),
         ])
     }
 
-    /// One appearance: the grid of variants and states, and the picked state's menu.
-    private func pane(_ appearance: NSAppearance.Name) -> NSView {
-        let pane = ChiefTeleportPlaygroundPane(appearance: appearance)
-        var rows: [[NSView]] = [[label(appearance == .aqua ? "Light" : "Dark", ink: .primary)]
+    /// The grid of variants and states, and the picked state's menu.
+    private func grid() -> NSView {
+        var rows: [[NSView]] = [[label("State", ink: .primary)]
             + ChiefTeleportChipStyle.allCases.map { label($0.title, ink: .secondary) }]
         for sample in Self.samples {
             var row: [NSView] = [label(sample.title, ink: .secondary)]
@@ -120,24 +115,14 @@ public final class ChiefTeleportPlayground: NSObject, NSWindowDelegate {
         grid.rowSpacing = 10
         grid.columnSpacing = 18
         grid.yPlacement = .center
-        let preview = NSStackView()
-        preview.orientation = .vertical
-        preview.alignment = .leading
-        preview.spacing = 3
-        menuPreviews.append(preview)
-        let split = NSStackView(views: [grid, preview])
+        menuPreview.orientation = .vertical
+        menuPreview.alignment = .leading
+        menuPreview.spacing = 3
+        let split = NSStackView(views: [grid, menuPreview])
         split.alignment = .top
         split.spacing = 28
-        split.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
-        split.translatesAutoresizingMaskIntoConstraints = false
-        pane.addSubview(split)
-        NSLayoutConstraint.activate([
-            split.topAnchor.constraint(equalTo: pane.topAnchor),
-            split.leadingAnchor.constraint(equalTo: pane.leadingAnchor),
-            split.bottomAnchor.constraint(equalTo: pane.bottomAnchor),
-            split.trailingAnchor.constraint(lessThanOrEqualTo: pane.trailingAnchor),
-        ])
-        return pane
+        split.edgeInsets = NSEdgeInsets(top: 12, left: 0, bottom: 12, right: 0)
+        return split
     }
 
     private func label(_ text: String, ink: ThemeInk) -> ThemedLabel {
@@ -153,13 +138,11 @@ public final class ChiefTeleportPlayground: NSObject, NSWindowDelegate {
         let sample = Self.samples[min(index, Self.samples.count - 1)]
         let model = ChiefTeleportModel(showing: sample.location, phase: sample.phase, destinations: Self.destinations)
         let menu = ChiefTeleportMenuBuilder(model: model).makeMenu()
-        for preview in menuPreviews {
-            for view in preview.arrangedSubviews { view.removeFromSuperview() }
-            for item in menu.items {
-                let text = item.isSeparatorItem ? "――――――――" : (item.state == .on ? "✓ " : "   ") + item.title
-                let enabled = item.isEnabled && item.action != nil
-                preview.addArrangedSubview(label(text, ink: enabled || item.state == .on ? .primary : .tertiary))
-            }
+        for view in menuPreview.arrangedSubviews { view.removeFromSuperview() }
+        for item in menu.items {
+            let text = item.isSeparatorItem ? "――――――――" : (item.state == .on ? "✓ " : "   ") + item.title
+            let enabled = item.isEnabled && item.action != nil
+            menuPreview.addArrangedSubview(label(text, ink: enabled || item.state == .on ? .primary : .tertiary))
         }
     }
 
