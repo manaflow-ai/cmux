@@ -60,25 +60,15 @@ struct NotificationPopoverRow: View, Equatable {
             clearButton
                 .padding(.trailing, 10)
                 .opacity(showsClearButton ? 1 : 0)
+                // No fade: hit testing flips the moment the modifier changes, so the button
+                // must be visible exactly while it takes clicks.
+                .animation(nil, value: showsClearButton)
                 .allowsHitTesting(showsClearButton)
                 // Dismissal is exposed through the row Button's accessibility action and the
                 // context menu, so hide this hover-only affordance from keyboard focus /
                 // VoiceOver when not visible — otherwise Full Keyboard Access can tab to an
                 // invisible button.
                 .accessibilityHidden(!showsClearButton)
-
-            // The hint takes the clear button's spot, so it never covers the time.
-            if let shortcutHint {
-                ShortcutHintPill(text: shortcutHint, fontSize: 10, emphasis: 1.05)
-                    .anchorPreference(key: NotificationPopoverRowFrames.self, value: .bounds) {
-                        [NotificationPopoverRowFrames.shortcutHint: $0]
-                    }
-                    .padding(.trailing, 10)
-                    .shortcutHintTransition()
-                    // Decorative: a click on the hint must reach the row's Button underneath.
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
         }
         .shortcutHintVisibilityAnimation(value: shortcutHint != nil)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -145,8 +135,22 @@ struct NotificationPopoverRow: View, Equatable {
                         .anchorPreference(key: NotificationPopoverRowFrames.self, value: .bounds) {
                             [NotificationPopoverRowFrames.timestamp: $0]
                         }
-                        .padding(.trailing, 34)
+                        // Room for the hover clear button, which the hint replaces.
+                        .padding(.trailing, shortcutHint == nil ? 34 : 0)
                         .layoutPriority(2)
+                    // In the header, after the time, so it can never cover it.
+                    if let shortcutHint {
+                        ShortcutHintPill(text: shortcutHint, fontSize: 10, emphasis: 1.05)
+                            .anchorPreference(key: NotificationPopoverRowFrames.self, value: .bounds) {
+                                [NotificationPopoverRowFrames.shortcutHint: $0]
+                            }
+                            .padding(.trailing, 10)
+                            .shortcutHintTransition()
+                            // Decorative: a click on the hint must reach the row's Button underneath.
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                            .layoutPriority(3)
+                    }
                 }
 
                 if let workspaceTitle, !workspaceTitle.isEmpty {
