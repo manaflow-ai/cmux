@@ -606,7 +606,7 @@ export function AllChatsList({
               });
             }}
           >
-            <svg className="nt-all-group-chevron" viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
+            <svg className="nt-all-group-chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
               <path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
             <span className="nt-all-group-name">{label}</span>
@@ -730,7 +730,7 @@ export function AllChatsList({
           }}
         />
         <label className="nt-all-search">
-          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
             <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
             <path d="m10.5 10.5 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>

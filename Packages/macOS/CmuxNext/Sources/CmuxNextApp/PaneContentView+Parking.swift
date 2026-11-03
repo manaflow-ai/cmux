@@ -47,7 +47,7 @@ extension PaneContentView {
     /// `leaving`, retired right after, does not count as content above it.
     func install(_ view: NSView, replacing leaving: NSView? = nil) {
         guard view.superview === contentHost else {
-            view.frame = contentHost.bounds
+            view.frame = contentHost.contentBounds(for: view)
             view.autoresizingMask = [.width, .height]
             contentHost.addSubview(view)
             refreshNativeToolOwner()
@@ -64,7 +64,7 @@ extension PaneContentView {
             view.autoresizingMask = []
             needsLayout = true
         } else {
-            if view.frame != contentHost.bounds { view.frame = contentHost.bounds }
+            if view.frame != contentHost.contentBounds(for: view) { view.frame = contentHost.contentBounds(for: view) }
             view.autoresizingMask = [.width, .height]
         }
         // Above what still shows (a backdrop or a held page); hidden parked

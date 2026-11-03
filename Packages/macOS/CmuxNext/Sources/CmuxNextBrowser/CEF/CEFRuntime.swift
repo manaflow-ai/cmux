@@ -34,8 +34,8 @@ final class CEFRuntime {
     // Routing tables (main thread).
     var tabsByBrowser: [Int32: CEFTab] = [:]
     var hosts: [CEFPaneKey: CEFPaneHost] = [:]
-    /// Profiles Chromium opened in this process (their files stay open
-    /// until shutdown, so a deleted one's directory waits for the next launch).
+    let extensionActionReads = CEFExtensionActionReads()
+    /// Profiles Chromium opened in this process (their files stay open until shutdown, so a deleted one's directory waits for the next launch).
     var usedProfiles: Set<BrowserProfileID> = []
     /// Each proxied browser profile's proxy (#24432); a profile not here is direct.
     var profileProxies: [BrowserProfileID: BrowserProfileProxy] = [:]

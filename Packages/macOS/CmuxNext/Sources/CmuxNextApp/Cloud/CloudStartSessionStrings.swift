@@ -113,6 +113,26 @@ enum CloudStartSessionStrings {
         String(format: String(localized: "cloud.startSession.stillStarting", defaultValue: "%2$@ is still starting on %1$@. Run `%3$@` again to get its machine_id and session_id.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
     }
 
+    // MARK: The ask as a dialog (``CloudAskDialogs``)
+
+    /// An agent's run once its card asks: it answers at once, naming the dialog and how to answer it.
+    static func askPending(_ asked: Asked, dialog: String) -> String {
+        String(format: String(localized: "cloud.startSession.askPending", defaultValue: "Asked the person in this chat to start %2$@ on %1$@ (Start or Not now, for 2 minutes). Run `%3$@` again to wait for their answer and get machine_id and session_id. They can also answer from their own terminal: `cmux agents dialog answer %4$@ --selection start`.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command, dialog)
+    }
+
+    /// An agent's Start on an ask the person did not delegate.
+    static func personRequired(_ dialog: String) -> String {
+        String(format: String(localized: "cloud.startSession.personRequired", defaultValue: "Only the person can choose Start: on the card in the chat, or with `cmux agents dialog answer %1$@ --selection start` in their own terminal. To let agents start Cloud sessions without asking, they can turn on Let Agents Start Cloud Sessions Without Asking in Settings > Machines. `--selection notNow` declines.", table: "CloudSessions", bundle: .module), dialog)
+    }
+
+    static func unknownChoice(_ dialog: String) -> String {
+        String(format: String(localized: "cloud.startSession.unknownChoice", defaultValue: "Answer %1$@ with `--selection start` or `--selection notNow`.", table: "CloudSessions", bundle: .module), dialog)
+    }
+
+    static func dialogGone(_ dialog: String) -> String {
+        String(format: String(localized: "cloud.startSession.dialogGone", defaultValue: "No Cloud start %1$@ waits for an answer: it was answered, timed out or ended. `cmux agents dialog list` shows what still waits.", table: "CloudSessions", bundle: .module), dialog)
+    }
+
     static func notInChat(_ asked: Asked) -> String {
         String(format: String(localized: "cloud.startSession.notInChat", defaultValue: "Couldn't find the chat this agent runs in, so nobody can be asked to start %2$@ on Cloud machine %1$@. Run `%3$@` from an agent's shell in a cmux chat, or ask the person to run it.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
     }

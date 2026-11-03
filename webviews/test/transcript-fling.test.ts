@@ -7,6 +7,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { webkit, type Browser } from "playwright";
+import { startScrollCoverage } from "../bench/scrollCoverage";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -88,6 +89,57 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
     return { frames, blank, blanks };
   };
 
+  test("mounted row heights read after sibling writes and settle before the first paint", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
+    try {
+      await installPaintedFrames(page);
+      await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
+      await page.waitForFunction(() => "__batchMeasure" in window);
+      // This synthetic renderer owns its exact height; remove the article's generic minimum
+      // and trailing padding so its geometry directly exposes a stale placement estimate.
+      await page.addStyleTag({ content: ".acpmux-row.acpmux-batch-measure{min-height:0;padding-bottom:0}" });
+      for (const version of [1, 2]) {
+        const result = await page.evaluate(async (revision) => {
+          const w = window as unknown as { __batchMeasure: (version: number) => string[] };
+          let trace: string[] = [];
+          await window.cmuxPaintFrame(() => {
+            trace = w.__batchMeasure(revision);
+          });
+          const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-row")].map((row) => {
+            const rect = row.getBoundingClientRect();
+            const content = row.querySelector<HTMLElement>("[data-batch-height]")!;
+            return {
+              id: row.dataset.rowId,
+              top: rect.top,
+              bottom: rect.bottom,
+              height: rect.height,
+              expected: Number(content.dataset.batchHeight),
+            };
+          });
+          return { trace, rows };
+        }, version);
+        const writes = result.trace.filter((entry) => entry.startsWith("write:"));
+        expect(writes.length).toBe(version === 1 ? 12 : 11);
+        const firstRead = result.trace.findIndex((entry) => entry.startsWith("read:"));
+        expect(firstRead).toBeGreaterThanOrEqual(writes.length);
+        expect(result.trace.slice(0, firstRead).filter((entry) => entry.startsWith("write:"))).toEqual(writes);
+        expect(result.trace.some((entry) => entry.startsWith("stale:"))).toBe(false);
+        expect(result.rows.length).toBe(writes.length);
+        for (const [index, row] of result.rows.entries()) {
+          expect(row.height).toBeCloseTo(row.expected, 1);
+          if (index > 0) expect(row.top).toBeGreaterThanOrEqual(result.rows[index - 1]!.bottom - 0.5);
+        }
+        if (version === 2) {
+          expect(result.rows.some((row) => row.id === "batch-0")).toBe(false);
+          expect(result.trace).not.toContain("read:batch-0");
+        }
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
   test("fast flings and uneven drags keep the view covered", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
@@ -133,4 +185,82 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
     expect(settledMounted).toBeLessThan(movingMounted);
     await page.close();
   });
+  for (const input of ["motion", "wheel"] as const) {
+    test(`${input}: first movement from rest keeps every painted viewport covered`, async () => {
+      const { port } = vite!.httpServer!.address() as { port: number };
+      const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      page.on("console", (message) => {
+        if (message.type() === "error") errors.push(message.text());
+      });
+      try {
+        await installPaintedFrames(page);
+        await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
+        await page.waitForFunction(() => "__debug" in window);
+        await page.evaluate(`window.__debug.seedRows(3000)`);
+        await page.locator(".acpmux-scroll").hover();
+        // Real reader input releases follow before positioning the test in history.
+        await page.mouse.wheel(0, -100);
+        await page.evaluate(() => window.cmuxPaintFrame());
+        const start = await page.evaluate(async () => {
+          const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          node.scrollTop = (node.scrollHeight - node.clientHeight) / 2;
+          const started = performance.now();
+          return await new Promise<{ top: number; viewport: number }>((resolve, reject) => {
+            let previous = "";
+            let stable = 0;
+            window.cmuxAfterPaint(() => {
+              const extent = node.scrollHeight - node.clientHeight;
+              const snapshot = `${node.scrollTop}/${extent}/${node.querySelectorAll(".acpmux-row").length}`;
+              stable = snapshot === previous ? stable + 1 : 0;
+              previous = snapshot;
+              // The directional lead expires after 120 ms; begin with no warmed fling range.
+              if (
+                performance.now() - started >= 180 &&
+                stable >= 3 &&
+                node.scrollTop > extent * 0.4 &&
+                node.scrollTop < extent * 0.6
+              ) {
+                resolve({ top: node.scrollTop, viewport: node.clientHeight });
+                return false;
+              }
+              if (performance.now() - started > 5_000) {
+                reject(new Error("first-motion fixture did not settle in history"));
+                return false;
+              }
+            });
+          });
+        });
+        await page.evaluate(startScrollCoverage, { timeoutMs: 10_000 });
+        if (input === "motion") {
+          // Exercise the product clock: a short large glide exceeds the idle warm range on
+          // its first step. No synthetic scroll event and no first-frame exclusion.
+          await page.evaluate(`(async () => {
+            const { animateScrollBy } = await import("/src/agent-session/acpmux/threadMinimap/scrollMotion.ts");
+            const node = document.querySelector(".acpmux-scroll");
+            await new Promise(resolve => animateScrollBy(node, -24 * node.clientHeight, 160, [0, 0, 1, 1], false, resolve));
+            await window.cmuxPaintFrame();
+          })()`);
+        } else {
+          // Playwright sends real pixel wheel input through the browser's default scrolling.
+          for (const viewports of [6, 6, 5, 4, 3, 2, 1, 0.5]) {
+            await page.mouse.wheel(0, -viewports * start.viewport);
+            await page.evaluate(() => window.cmuxPaintFrame());
+          }
+        }
+        await page.evaluate(() => window.cmuxPaintFrame());
+        const result = await page.evaluate(() => window.__stopScrollCoverage!());
+        console.log(`transcript-first-${input}: ${JSON.stringify({ start, ...result })}`);
+        expect(result.timed_out).toBe(false);
+        expect(result.frames).toBeGreaterThan(0);
+        expect(result.distance_px).toBeGreaterThan(start.viewport * 6);
+        expect(result.blank_frames).toBe(0);
+        expect(result.max_uncovered_px).toBeLessThanOrEqual(0.5);
+        expect(errors).toEqual([]);
+      } finally {
+        await page.close();
+      }
+    });
+  }
 });
