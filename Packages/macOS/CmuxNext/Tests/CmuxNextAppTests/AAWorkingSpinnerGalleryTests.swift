@@ -36,18 +36,18 @@ import Testing
 
     /// The square around the spinner view under `row`, in `crop`'s point space (the crop pads `rowRect` by 6).
     static func spinnerBox(in row: NSView, root: NSView, rowRect: NSRect) throws -> CGRect {
-        var found: NSView?
-        func visit(_ view: NSView) {
-            if found == nil, view is StatusIndicatorView, !view.isHidden { found = view; return }
-            view.subviews.forEach(visit)
-        }
-        visit(row)
-        let spinner = try #require(found, "no spinner in \(row)")
+        let spinner = try #require(spinners(in: row).first { !$0.isHiddenOrHasHiddenAncestor && !$0.bounds.isEmpty },
+                                   "no spinner in \(row)")
         var r = root.convert(spinner.bounds, from: spinner).insetBy(dx: -2, dy: -2)
         let padded = rowRect.insetBy(dx: -6, dy: -6).intersection(root.bounds)
         r.origin.x -= padded.minX
         r.origin.y = root.isFlipped ? r.minY - padded.minY : padded.maxY - r.maxY
         return r
+    }
+
+    /// Every status indicator view under `view`.
+    static func spinners(in view: NSView) -> [StatusIndicatorView] {
+        (view as? StatusIndicatorView).map { [$0] } ?? view.subviews.flatMap { spinners(in: $0) }
     }
 
     /// A working workspace row and a collapsed loading group header, in that order.
@@ -56,11 +56,17 @@ import Testing
         defer { harness.window.close() }
         let root = try #require(harness.window.contentView)
         try AAPinnedNoCloseGalleryTests.theme(root, harness.window, dark: dark)
+        // A test window's occlusion is not known yet: draw the rows as on a shown window, so the spinner
+        // is the turning mark and not the still one a hidden window draws.
+        harness.list.setWindowVisible(true)
         harness.sidebar.layoutSubtreeIfNeeded()
         var crops: [CGImage] = []
         for key in [SidebarRowKey.workspace(T.busy), .group(T.folded)] {
             let row = try harness.row(key)
             row.layoutSubtreeIfNeeded()
+            for spinner in spinners(in: row) where !spinner.isHiddenOrHasHiddenAncestor {
+                #expect(spinner.indicator.plan.animation == .spin, "\(key): \(spinner.indicator.plan)")
+            }
             let rect = root.convert(row.bounds, from: row)
             let image = try AAPinnedNoCloseGalleryTests.crop(root, rect)
             let scale = CGFloat(image.width) / rect.insetBy(dx: -6, dy: -6).intersection(root.bounds).width
@@ -89,10 +95,12 @@ import Testing
         try AAPinnedNoCloseGalleryTests.theme(root, window, dark: dark)
         strip.layoutSubtreeIfNeeded()
         let cell = try #require(strip.cells[id])
+        cell.isWindowVisible = true
         cell.layoutLayers()
         let frame = root.convert(strip.convert(cell.frame, from: strip.tabsClip), from: strip)
         let image = try AAPinnedNoCloseGalleryTests.crop(root, frame)
         let spinner = try #require(cell.spinnerLayer)
+        #expect(spinner.plan.animation == .spin, "tab: \(spinner.plan)")
         let padded = frame.insetBy(dx: -6, dy: -6).intersection(root.bounds)
         let scale = CGFloat(image.width) / padded.width
         let rootLayer = try #require(root.layer)
@@ -106,7 +114,9 @@ import Testing
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderGallery() throws {
         Motion.reduceMotionOverride = false
-        defer { Motion.reduceMotionOverride = nil }
+        defer { Motion.reduceMotionOverride = nil; StatusIndicatorAppearance.shared.refresh() }
+        // The shared config caches whether loops run; read it again with Reduce Motion off.
+        StatusIndicatorAppearance.shared.refresh()
         let root = AANestedGroupsGalleryTests.packageRoot
         let out = root.appending(path: "working-spinner-gallery")
         try? FileManager.default.removeItem(at: out)
