@@ -25,7 +25,7 @@ impl Backend for Fake {
             ));
         }
         if method == METHOD {
-            return Ok(json!({"running":true}));
+            return Ok(json!({"running":true,"allowedTools":null}));
         }
         assert_eq!(method, ACTIVITY_METHOD);
         if params["action"] == "start" {

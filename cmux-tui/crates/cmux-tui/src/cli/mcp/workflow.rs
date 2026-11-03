@@ -68,14 +68,7 @@ pub(super) fn run(global: GlobalArgs, run_id: String, generation: u64) -> i32 {
         let directory = claim["journalDir"].as_str().ok_or("workflow claim omitted journal")?;
         // The daemon computes the intersection of the pinned ceiling and the
         // owner's current trusted tool profile. No script option widens it.
-        server.allowed = match claim.get("allowedTools") {
-            Some(Value::Null) => None,
-            Some(value) => Some(
-                serde_json::from_value::<BTreeSet<String>>(value.clone())
-                    .map_err(|_| "workflow claim has an invalid tool ceiling")?,
-            ),
-            None => return Err("workflow claim omitted tool ceiling".into()),
-        };
+        refresh_tools(&mut server, &claim)?;
         server.upstreams = upstream::specs(std::env::var_os(upstream::ENV))
             .into_iter()
             .map(|spec| upstream::Proxied::new(upstream::Upstream::new(spec)))
@@ -148,6 +141,18 @@ pub(super) fn run(global: GlobalArgs, run_id: String, generation: u64) -> i32 {
     }
 }
 
+fn refresh_tools<B: Backend>(server: &mut Server<B>, check: &Value) -> Result<(), String> {
+    server.allowed = match check.get("allowedTools") {
+        Some(Value::Null) => None,
+        Some(value) => Some(
+            serde_json::from_value::<BTreeSet<String>>(value.clone())
+                .map_err(|_| "workflow check has an invalid tool ceiling")?,
+        ),
+        None => return Err("workflow check omitted tool ceiling".into()),
+    };
+    Ok(())
+}
+
 type Pending = BTreeMap<String, Option<Result<Value, Value>>>;
 
 fn handle<B: Backend>(
@@ -161,7 +166,8 @@ fn handle<B: Backend>(
 ) -> Result<Value, String> {
     // Even replay and raw cmux.call are fenced before they can advance the
     // interpreter. A paused/replaced runner cannot dispatch another mutation.
-    proof.request(&server.backend, "check")?;
+    let check = proof.request(&server.backend, "check")?;
+    refresh_tools(server, &check)?;
     match request {
         code_mode::Request::ActivityStart { kind, prompt, options } => {
             let required = match kind.as_str() {
