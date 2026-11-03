@@ -12,6 +12,8 @@ extension AgentPaneView {
         const bodyText = (document.body?.innerText || '').trim();
         const composer = document.querySelector('.acpmux-composer');
         const composerRect = composer?.getBoundingClientRect();
+        const bodyRect = document.body?.getBoundingClientRect();
+        const adoptionPaint = window.__cmuxSessionAdoptionPaint;
         const debug = window.cmuxAcpmuxDebug;
         const state = debug && typeof debug.chatState === 'function' ? debug.chatState() : {};
         const transcriptRows = Number(state.rows || 0) || document.querySelectorAll('.cv-worked, .cv-message, .cv-tool, .cv-turn-actions').length;
@@ -30,7 +32,14 @@ extension AgentPaneView {
           composer_visible: !!composer && !!composerRect && composerRect.width > 0 && composerRect.height > 0,
           composer_text_length: (composer?.innerText || '').trim().length,
           document_ready: document.readyState === 'complete',
-          animations_pending: animationsPending
+          animations_pending: animationsPending,
+          visibility_state: document.visibilityState,
+          document_hidden: document.hidden,
+          inner_width: window.innerWidth,
+          inner_height: window.innerHeight,
+          body_width: bodyRect?.width ?? 0,
+          body_height: bodyRect?.height ?? 0,
+          adoption_paint: adoptionPaint ?? null
         });
         """
         do {
@@ -43,6 +52,23 @@ extension AgentPaneView {
                 return .object(["pane": .string(pane), "error": .string("the page returned no readiness JSON")])
             }
             members["pane"] = .string(pane)
+            members["native"] = .object([
+                "holds_page_away": .bool(holdsPageAway),
+                "model_has_painted": .bool(model.hasPainted),
+                "page_reported_paint": .bool(model.pageReportedPaint),
+                "loading_present": .bool(loadingView.superview != nil),
+                "loading_hidden": .bool(loadingView.isHidden),
+                "page_alpha": .number(Double(pageContent.alphaValue)),
+                "page_frame_x": .number(Double(pageContent.frame.origin.x)),
+                "page_frame_y": .number(Double(pageContent.frame.origin.y)),
+                "page_frame_width": .number(Double(pageContent.frame.width)),
+                "page_frame_height": .number(Double(pageContent.frame.height)),
+                "pane_hidden": .bool(isHiddenOrHasHiddenAncestor),
+                "window_visible": .bool(window?.isVisible == true),
+                "window_occlusion_visible": .bool(window?.occlusionState.contains(.visible) == true),
+                "engine": .string(engineName),
+                "chromium_page_shown": .bool(debugChromiumPageShown)
+            ])
             return .object(members)
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])
