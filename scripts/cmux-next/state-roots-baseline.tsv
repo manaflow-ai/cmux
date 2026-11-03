@@ -51,3 +51,4 @@ cmux-tui/crates/cmux-tui/src/remote_cli/acpmux_peer.rs	1	keep	~/.acpmux on a rem
 cmux-tui/crates/cmux-git/src/worktree_root.rs	1	keep	resolver: worktree_root, the person's worktrees (~/.cmux/worktrees.noindex on macOS), not per-build state; acpmux sub-sessions and git.worktree.create both ask it
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/JoinConsent+App.swift	1	keep	watches acpmux's machine-wide per-OS-user consent folder (cli/machine_consent.rs), shared across app tags by design; never read or written
 cmux-tui/crates/acpmux/src/cli/machine_consent.rs	1	keep	machine-wide per-OS-user consent authority, shared across app tags by design
+cmux-tui/crates/cmux-tui/src/cli/workflow.rs	1	keep	project-owned workflow source directory specified by native workflows; never a per-build daemon state root

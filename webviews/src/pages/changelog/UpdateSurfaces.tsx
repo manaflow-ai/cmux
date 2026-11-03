@@ -1,7 +1,7 @@
 // The update surfaces of the What's New system (cx-urd.61, Lawrence picked card A and popover A,
 // 2026-10-11), in the same tokens and type steps as the changelog page:
-//  - UpdatedCard (after an update, the sidebar's bottom card slot): the composer's surface, as every
-//    sidebar card (Leo 2026-10-13). Short (Lawrence 2026-10-31, msg 19218: "it looks like too much
+//  - UpdatedCard (after an update, the sidebar's bottom card slot): the theme's surface (Leo
+//    2026-11-02: "why is the update thing unthemed"; the sidebar's CardSurfaceView.takesThemeTint). Short (Lawrence 2026-10-31, msg 19218: "it looks like too much
 //    text"; picked from cmux-shots/whatsnew-variations): "Updated to Nightly", the update's one top
 //    change ("Sidebar: …", the first area's first change, updateSummary.ts) and a What's New button.
 //    No date, build line, change list or "+N more" (they were 2026-10-20 to 10-26): the full build

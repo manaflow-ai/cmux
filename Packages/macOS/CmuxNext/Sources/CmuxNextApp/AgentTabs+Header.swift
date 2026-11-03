@@ -63,13 +63,15 @@ extension AgentTabStore {
             guard let self else { return false }
             return AgentPaneMoveTarget.tabStillShows(self.session(of: self.resolve(provisional)), requested: session)
         }) // an opened session's tab (on the chat's acpmux host, a Chief chat's `chief:<id>`) is shown only beside the chat (its pane or right column), never in another workspace; a chat opens only its family (startedBy)
-        // Changes with the chat's turn (D1, D2): the diff beside the chat offers it as Last turn.
-        model.header?.diffTurn = { [weak self] cwd, turn, toggle in
+        // Changes with the chat's turn (D1, D2), or the turn's own patch where no git source holds it:
+        // the diff beside the chat offers the turn as Last turn, or shows only the patch.
+        model.header?.diffOpen = { [weak self] cwd, extra, toggle in
             let chat = self?.resolve(provisional) ?? provisional
-            let store = self?.lookup(chat)?.store, id = AgentChatSplitToggles.changes, extra = DiffTurnArgument.arguments(turn)
+            let store = self?.lookup(chat)?.store, id = AgentChatSplitToggles.changes
             if toggle { toggles.toggle(id, cwd: cwd, extra: extra, chat: chat, store: store, actions: actions) }
             else { toggles.open(id, cwd: cwd, extra: extra, chat: chat, store: store, actions: actions) }
         }
+        model.header?.shown = { watch.current } // the palette's switches: the page's last state, no watch armed
         model.chatMenuItems = actions.menuItems
         model.onSearchWeb = actions.searchWeb
     }

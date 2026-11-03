@@ -38,12 +38,16 @@ public struct BrowserSourceProfile: Sendable, Identifiable, Hashable, Codable {
     /// The file the bookmarks reader opens, when it is not the format's
     /// file inside `path` (Arc: the shared `StorableSidebar.json`).
     public var bookmarksFile: URL?
+    /// The cookie store of a WebKit app (`Library/HTTPStorages/<bundle id>.binarycookies`);
+    /// nil for the browsers whose cookie file sits in `path` or a registry path.
+    public var cookiesFile: URL?
 
     /// `<browser>/<directory>`: stable key for mappings and stored data.
     public var id: String { "\(browser.rawValue)/\(directoryName)" }
 
     public init(browser: ImportBrowser, directoryName: String, displayName: String, path: URL,
-                availability: [ImportDataKind: DataAvailability], avatar: URL? = nil, color: UInt32? = nil, bookmarksFile: URL? = nil) {
+                availability: [ImportDataKind: DataAvailability], avatar: URL? = nil, color: UInt32? = nil, bookmarksFile: URL? = nil,
+                cookiesFile: URL? = nil) {
         self.browser = browser
         self.directoryName = directoryName
         self.displayName = displayName
@@ -52,6 +56,7 @@ public struct BrowserSourceProfile: Sendable, Identifiable, Hashable, Codable {
         self.avatar = avatar
         self.color = color
         self.bookmarksFile = bookmarksFile
+        self.cookiesFile = cookiesFile
     }
 
     public func availability(of kind: ImportDataKind) -> DataAvailability {

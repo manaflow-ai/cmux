@@ -9,9 +9,9 @@ import CmuxNextWakeups
 /// `debug.new_tab {action: "frame_strip"}` (DEBUG builds): the window as the window server
 /// composited it, frame after frame, around one key sent through the real key path (`key`, default
 /// `n`, with `modifiers`, default `["command"]`: Cmd-N; `t` for Cmd-T) or a `gesture` (`plus`,
-/// `drag_new`). `repeat` (default 1) sends the key that many times, `repeat_interval_ms` (default 40)
+/// `drag_new`, or `mouse` with `mouse`: `debug.mouse`'s params, such as a click on a sidebar row, sent on its event path). `repeat` (default 1) sends the key that many times, `repeat_interval_ms` (default 40)
 /// apart, inside one recording (a fast selection burst retargets moves in flight). Frames are read off the main actor back to back for `duration_ms` (default 700) after
-/// the key, and some before it. The report: ``NSWindow/frameStripReport(_:sentAt:sentTime:content:strip:tolerance:jump:dir:)``; motion knobs: ``MotionFrameProgress``.
+/// the key, and some before it (`above`: ``FrameStripRecording``, ScreenCaptureKit without the Screen Recording grant; `capture` in the report). The report: ``NSWindow/frameStripReport(_:sentAt:sentTime:content:strip:tolerance:jump:dir:)``; motion knobs: ``MotionFrameProgress``.
 @MainActor
 enum DebugFrameStrip {
     static func run(_ params: [String: JSONValue], _ controller: WindowController, _ services: AppServices) async -> JSONValue {
@@ -26,20 +26,17 @@ enum DebugFrameStrip {
         let start = ContinuousClock.now
         // `crop: "strip"`: only the focused pane's tab strip is kept (full scale stays cheap); the report
         // then measures the strip alone.
-        let cropsStrip = params["crop"]?.stringValue == "strip"
-        let crop = cropsStrip ? controller.content?.focusedPane.flatMap { window.unitRect(of: $0.view.stripView) } : nil
-        let recording = Task.detached { await WindowFrame.record(number, scale: scale, crop: crop, from: start, until: 120 + duration) }
-        // The key goes in once the recorder has frames from before it.
-        let lead = DemandTimer(owner: "debug.frame_strip.lead")
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            lead.schedule(after: .milliseconds(120)) { @MainActor in done.resume() }
-        }
+        let crop = params["crop"]?.stringValue == "strip" ? controller.content?.focusedPane.flatMap { window.unitRect(of: $0.view.stripView) } : nil
+        let above = params["above"]?.boolValue == true && crop == nil ? window.frameStripBounds : nil
+        let recording = FrameStripRecording(number, above: above, crop: crop, scale: scale, from: start, lead: 120, duration: duration, capture: params["capture"]?.stringValue)
+        await recording.waitForLead() // The key goes in once the recorder has frames from before it.
         let sent: JSONValue
-        // When the first key went in (a burst's later keys come after it).
-        var firstSent: (ms: Double, time: CFTimeInterval)?
+        var firstSent: (ms: Double, time: CFTimeInterval)? // When the first key went in (a burst's later keys come after it).
         if params["gesture"]?.stringValue == "plus", let pane = controller.content?.focusedPane {
             pane.stripModel.send(.newTab(after: nil))
             sent = .string("plus")
+        } else if params["gesture"]?.stringValue == "mouse", case let .object(mouse)? = params["mouse"] {
+            sent = DebugMouse.send(mouse.merging(["window": .string(controller.state.id)]) { own, _ in own }, services: services)
         } else if params["gesture"]?.stringValue == "drag_new", let pane = controller.content?.focusedPane {
             let dragged = await TabStripDebug.dragFirstTab(in: pane.view.stripView) {
                 _ = services.registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), origin: .cli))
@@ -63,7 +60,7 @@ enum DebugFrameStrip {
             }
         }
         let (sentAt, sentTime) = firstSent ?? (BenchSpans.ms(.now - start), CACurrentMediaTime())
-        let frames = await recording.value
+        let (frames, recorded) = await recording.result(sentAt: sentAt)
         let spans = BenchSpans.end()
         let pane = controller.content?.focusedPane
         guard let report = await window.frameStripReport(frames, sentAt: sentAt, sentTime: sentTime,
@@ -72,6 +69,7 @@ enum DebugFrameStrip {
               case .object(var fields)? = JSONValue(foundation: report)
         else { return .object(["error": .string("no frames"), "key": sent]) }
         fields["key"] = sent
+        if case let .object(extra)? = JSONValue(foundation: recorded) { fields.merge(extra) { own, _ in own } }
         fields["spans"] = .array(spans.map { .object(["name": .string($0.name), "ms": .number(($0.start - sentAt).rounded()), "duration_ms": .number($0.milliseconds)]) })
         return .object(fields)
     }

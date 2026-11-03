@@ -88,12 +88,12 @@ public final class ChromiumHostPageView: NSView {
     // MARK: Focus
 
     public override func becomeFirstResponder() -> Bool {
-        sink?(ChromiumHostFrame(.focus, v: [1]))
+        sink?(ChromiumHostFrame(.focus, v: .init(1)))
         return true
     }
 
     public override func resignFirstResponder() -> Bool {
-        sink?(ChromiumHostFrame(.focus, v: [0]))
+        sink?(ChromiumHostFrame(.focus, v: .init(0)))
         return true
     }
 
@@ -125,20 +125,22 @@ public final class ChromiumHostPageView: NSView {
     public override func rightMouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 2) }
     public override func mouseExited(with event: NSEvent) { mouse(event, phase: 3, button: 0) }
 
-    public override func scrollWheel(with event: NSEvent) {
+    public override func scrollWheel(with event: NSEvent) { // perf-hot: 5us cef-host-input (every scroll event)
         let point = pagePoint(event)
-        // Pixel deltas, as cefclient's off-screen view reads them.
-        let dy = event.cgEvent.map { Int32($0.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)) } ?? 0
-        let dx = event.cgEvent.map { Int32($0.getIntegerValueField(.scrollWheelEventPointDeltaAxis2)) } ?? 0
-        sink?(ChromiumHostFrame(.wheel, v: [point.x, point.y, dx, dy], flags: UInt64(event.modifierFlags.rawValue),
+        // Pixel deltas, as cefclient's off-screen view reads them. `cgEvent` is read once per event, as
+        // Chromium's own Mac wheel path (`WebMouseWheelEventBuilder`) reads it.
+        let cgEvent = event.cgEvent
+        let dy = cgEvent.map { Int32($0.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)) } ?? 0
+        let dx = cgEvent.map { Int32($0.getIntegerValueField(.scrollWheelEventPointDeltaAxis2)) } ?? 0
+        sink?(ChromiumHostFrame(.wheel, v: .init(point.x, point.y, dx, dy), flags: UInt64(event.modifierFlags.rawValue),
                                 t0: Self.nanoseconds(event.timestamp)))
     }
 
-    private func mouse(_ event: NSEvent, phase: Int32, button: Int32) {
+    private func mouse(_ event: NSEvent, phase: Int32, button: Int32) { // perf-hot: 5us cef-host-input (every mouse event)
         let point = pagePoint(event)
         // Pressed buttons as bits: 1 left, 2 right, 4 middle (NSEvent's order, the wire's too).
         let buttons = Int32(truncatingIfNeeded: NSEvent.pressedMouseButtons & 0x7)
-        sink?(ChromiumHostFrame(.mouse, v: [point.x, point.y, phase, button, Int32(phase == 0 || phase == 3 ? 0 : event.clickCount), buttons],
+        sink?(ChromiumHostFrame(.mouse, v: .init(point.x, point.y, phase, button, Int32(phase == 0 || phase == 3 ? 0 : event.clickCount), buttons),
                                 flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp)))
     }
 
@@ -154,8 +156,8 @@ public final class ChromiumHostPageView: NSView {
     public override func keyUp(with event: NSEvent) { key(event, phase: 1) }
     public override func flagsChanged(with event: NSEvent) { key(event, phase: 2) }
 
-    private func key(_ event: NSEvent, phase: Int32) {
-        var frame = ChromiumHostFrame(.key, v: [phase, Int32(event.keyCode), event.type == .flagsChanged ? 0 : (event.isARepeat ? 1 : 0)],
+    private func key(_ event: NSEvent, phase: Int32) { // perf-hot: 5us cef-host-input (every key event)
+        var frame = ChromiumHostFrame(.key, v: .init(phase, Int32(event.keyCode), event.type == .flagsChanged ? 0 : (event.isARepeat ? 1 : 0)),
                                       flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp))
         if event.type != .flagsChanged {
             frame.ch = event.characters?.utf16.first ?? 0
@@ -174,7 +176,7 @@ public final class ChromiumHostPageView: NSView {
     @objc public func redo(_ sender: Any?) { edit(5) }
 
     private func edit(_ command: Int32) {
-        sink?(ChromiumHostFrame(.edit, v: [command]))
+        sink?(ChromiumHostFrame(.edit, v: .init(command)))
     }
 
     /// An event time (seconds since boot) as CLOCK_UPTIME_RAW nanoseconds, the host's clock too.
@@ -205,6 +207,6 @@ nonisolated struct ChromiumHostGeometry: Equatable, Sendable {
     }
 
     var frame: ChromiumHostFrame {
-        ChromiumHostFrame(.geometry, v: [width, height, screenX, screenY, scaleMilli])
+        ChromiumHostFrame(.geometry, v: .init(width, height, screenX, screenY, scaleMilli))
     }
 }

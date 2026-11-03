@@ -90,7 +90,7 @@ extension BrowserChromeView {
 
     /// Closes the open extension menu, else the Extensions bubble.
     public func dismissExtensionsMenu() {
-        if let menu = extensionToolbar.presentedMenu { menu.cancelTracking() } else { extensionToolbar.menuController.dismiss() }
+        if let menu = extensionToolbar.presentedMenu { menu.cancelTracking() } else { extensionToolbar.menuControllerIfMade?.dismiss() }
     }
 
     /// What the toolbar shows now (`debug.extensions.toolbar`).
@@ -157,6 +157,8 @@ extension BrowserChromeView {
     /// back into the window (R55). The pane re-pins its header band itself.
     public override func viewDidUnhide() {
         super.viewDidUnhide()
+        // Shown during its pane's key hold (a tab switch): it follows the pane from this frame (FRAME OWNER S3).
+        (superview as? PaneContentAreaView)?.followerDidShow()
         guard window != nil else { return }
         updateColors()
         renderPrompt()
@@ -167,7 +169,7 @@ extension BrowserChromeView {
     public func region(of view: NSView) -> Region? {
         guard view.isDescendant(of: self) else { return nil }
         if view.isDescendant(of: addressBar) { return .addressBar }
-        if view.isDescendant(of: findBar) { return .findBar }
+        if let findBar = pageBars.findBarIfMade, view.isDescendant(of: findBar) { return .findBar }
         if view.isDescendant(of: tab.contentView) { return .page }
         return .chrome
     }

@@ -105,6 +105,8 @@ Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 # (#21946). Committed copies collided in every pull request that touched a catalog.
 /webviews/src/**/generated/strings.json
 /webviews/src/ui/featureTips/tips.generated.json
+/webviews/src/ui/theme.generated.css
+/webviews/src/ui/designTokens.generated.ts
 /webviews/src/pages/home-channels/generated/pane-strings.json
 /webviews/src/pages/changelog/generated/pane-strings.json
 /webviews/src/pages/diff/generated/locales/
@@ -116,6 +118,10 @@ Packages/macOS/CmuxNext/nested-groups-gallery/
 Packages/macOS/CmuxNext/nested-groups-gallery.tar
 Packages/macOS/CmuxNext/group-line-gallery/
 Packages/macOS/CmuxNext/group-line-gallery.tar
+Packages/macOS/CmuxNext/left-bar-gallery/
+Packages/macOS/CmuxNext/left-bar-gallery.tar
+Packages/macOS/CmuxNext/leading-column-gallery/
+Packages/macOS/CmuxNext/leading-column-gallery.tar
 Packages/macOS/CmuxNext/ws-no-color-gallery/
 Packages/macOS/CmuxNext/ws-no-color-gallery.tar
 Packages/macOS/CmuxNext/group-header-gallery/

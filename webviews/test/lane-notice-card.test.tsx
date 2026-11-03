@@ -154,9 +154,9 @@ test("five ended reports collapse to one count and preserve all five independent
 test("a single report shows its verdict; its full P2 remains readable and metadata is under Details", async () => {
   const { opened } = await mount([report("single-block", "BLOCK")]);
   expect(host.querySelector(".cv-lane-batch")).toBeNull();
-  expect(host.querySelector(".cv-received__preview")?.textContent).toContain("BLOCK");
-  expect(host.querySelector(".cv-received__preview")?.textContent).not.toContain("lane report: turn");
-  expect(host.querySelector(".cv-received__preview")?.textContent).not.toContain("\n");
+  expect(host.querySelector(".cv-disclosure__below")?.textContent).toContain("BLOCK");
+  expect(host.querySelector(".cv-disclosure__below")?.textContent).not.toContain("lane report: turn");
+  expect(host.querySelector(".cv-disclosure__below")?.textContent).not.toContain("\n");
   expect(host.querySelector(".cv-received__text")).toBeNull();
   await click(".cv-received__from--open");
   expect(opened).toEqual(["session-single-block"]);
@@ -238,8 +238,9 @@ test("three inbox notices share one line and expose each notice when opened", as
   });
   await mount(rows);
   const toggle = host.querySelector(".cv-lane-batch__toggle")!;
-  expect(toggle.textContent).toContain("3 inbox threads");
-  for (const sender of senders) expect(toggle.textContent).toContain(sender);
+  // "Received N messages", no session names at rest: they are its hover (Leo, 2026-11-02).
+  expect(toggle.textContent).toBe("Received 3 messages");
+  for (const sender of senders) expect(toggle.getAttribute("title")).toContain(sender);
   expect(toggle.textContent).not.toContain("\n");
   expect(host.querySelector(".cv-received")).toBeNull();
   await click(".cv-lane-batch__toggle");

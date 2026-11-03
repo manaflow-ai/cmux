@@ -78,6 +78,10 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
             const composer = rect(".acpmux-composer-box");
             // A received message's line leads with its sender (IncomingMessageCard.tsx `leading`).
             const headerIcon = rect('[data-row-id="grid-header"] .cv-disclosure__line > :first-child');
+            // Stacked (messageLineLook.ts), the received message's first line sits on its own line
+            // right under its line: the run gap is from there.
+            const firstLine = document.querySelector('[data-row-id="grid-header"] .cv-msgline__preview');
+            const headerEnd = firstLine ? firstLine.getBoundingClientRect().bottom : header.bottom;
             const toolIcon = rect(".acpmux-activity .cv-tool__icon");
             const chevron = rect(".acpmux-activity .cv-tool__chevron");
             // A reply's own action row, when it draws one: a turn's copy now lives in its footer
@@ -120,7 +124,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               toolIcon,
               chevron,
               copy,
-              gaps: [message.top - header.bottom, group.top - message.bottom],
+              gaps: [message.top - headerEnd, group.top - message.bottom],
               // The live line is one more line of the tool run over it: flush (#29965).
               liveUnderRun: live.top - group.bottom,
               inner: paragraphs[1]!.top - paragraphs[0]!.bottom,
@@ -282,12 +286,11 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
             Math.abs(gap - footer - (floating ? restBand(false) + REST_GAP : TRANSCRIPT_BLOCK_GAP)),
             "composer gap after a reply and its footer row",
           ).toBeLessThanOrEqual(0.5);
-          // Its 20 glyph is centred in the 32 button: 8 + 6 under the reply's line box.
-          const glyphTop =
-            TRANSCRIPT_FOOTER_GAP + (TRANSCRIPT_FOOTER_CONTROL - gridLength("transcript-footer-icon")) / 2;
+          // Its 16 glyph is centred in the 32 line: 8 + 8 under the reply's line box.
+          const glyphTop = TRANSCRIPT_FOOTER_GAP + (TRANSCRIPT_FOOTER_CONTROL - gridLength("transcript-icon-box")) / 2;
           expect(
             Math.abs(glyph.top - message.bottom - glyphTop),
-            "footer glyph top 14 under the message",
+            "footer glyph top 16 under the message",
           ).toBeLessThanOrEqual(0.5);
           expect(composer.top - glyph.bottom, "room under the action row").toBeGreaterThanOrEqual(3.5);
           expect(after, "showing the action row moves nothing").toEqual(message);

@@ -108,6 +108,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
           persist-credentials: false
 
       - name: Setup Bun
@@ -183,7 +187,7 @@ jobs:
 
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           bun install --frozen-lockfile
-          ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+          "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
           # Each stage renders its own states: a state the PR adds has no base
           # variant to render (the base reports it not ready), and one it removes
           # has no head variant.

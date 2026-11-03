@@ -197,6 +197,10 @@ jobs:
           # Full commit history without blobs, for the merge base below.
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
 
       - name: Require exact checkout
         env:
@@ -1397,7 +1401,7 @@ jobs:
       - name: Install pinned Playwright Chromium (Linux)
         if: runner.os == 'Linux'
         working-directory: web
-        run: bunx playwright install --with-deps chromium
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
       - name: Resolve Playwright Chromium executable
         id: chromium

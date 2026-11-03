@@ -6,15 +6,20 @@ use super::*;
 
 /// The wire name of every catalog op.
 pub mod op_names {
+    pub const AUTOMATION_AUDIT_LIST: &str = "automation.audit.list";
     pub const AUTOMATION_CREATE: &str = "automation.create";
     pub const AUTOMATION_DELETE: &str = "automation.delete";
     pub const AUTOMATION_DEPLOY: &str = "automation.deploy";
     pub const AUTOMATION_GET: &str = "automation.get";
+    pub const AUTOMATION_IMPORT: &str = "automation.import";
     pub const AUTOMATION_LIST: &str = "automation.list";
     pub const AUTOMATION_RUN: &str = "automation.run";
     pub const AUTOMATION_RUNS_LIST: &str = "automation.runs.list";
     pub const AUTOMATION_SETTINGS_GET: &str = "automation.settings.get";
     pub const AUTOMATION_SETTINGS_SET: &str = "automation.settings.set";
+    pub const AUTOMATION_TELEPORT_ABORT: &str = "automation.teleport.abort";
+    pub const AUTOMATION_TELEPORT_BEGIN: &str = "automation.teleport.begin";
+    pub const AUTOMATION_TELEPORT_COMPLETE: &str = "automation.teleport.complete";
     pub const AUTOMATION_UPDATE: &str = "automation.update";
     pub const AUTOMATION_WEBHOOK_GET: &str = "automation.webhook.get";
     pub const CALENDAR_CALENDARS_LIST: &str = "calendar.calendars.list";
@@ -225,15 +230,20 @@ pub mod op_names {
 
     /// Every catalog op name, sorted.
     pub const ALL: &[&str] = &[
+        AUTOMATION_AUDIT_LIST,
         AUTOMATION_CREATE,
         AUTOMATION_DELETE,
         AUTOMATION_DEPLOY,
         AUTOMATION_GET,
+        AUTOMATION_IMPORT,
         AUTOMATION_LIST,
         AUTOMATION_RUN,
         AUTOMATION_RUNS_LIST,
         AUTOMATION_SETTINGS_GET,
         AUTOMATION_SETTINGS_SET,
+        AUTOMATION_TELEPORT_ABORT,
+        AUTOMATION_TELEPORT_BEGIN,
+        AUTOMATION_TELEPORT_COMPLETE,
         AUTOMATION_UPDATE,
         AUTOMATION_WEBHOOK_GET,
         CALENDAR_CALENDARS_LIST,
@@ -447,15 +457,20 @@ pub mod op_names {
 /// Runs `visitor` with the op named `name`; `None` when the catalog has no such op.
 pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output> {
     Some(match name {
+        "automation.audit.list" => visitor.visit::<AutomationAuditListOp>(),
         "automation.create" => visitor.visit::<AutomationCreateOp>(),
         "automation.delete" => visitor.visit::<AutomationDeleteOp>(),
         "automation.deploy" => visitor.visit::<AutomationDeployOp>(),
         "automation.get" => visitor.visit::<AutomationGetOp>(),
+        "automation.import" => visitor.visit::<AutomationImportOp>(),
         "automation.list" => visitor.visit::<AutomationListOp>(),
         "automation.run" => visitor.visit::<AutomationRunOp>(),
         "automation.runs.list" => visitor.visit::<AutomationRunsListOp>(),
         "automation.settings.get" => visitor.visit::<AutomationSettingsGetOp>(),
         "automation.settings.set" => visitor.visit::<AutomationSettingsSetOp>(),
+        "automation.teleport.abort" => visitor.visit::<AutomationTeleportAbortOp>(),
+        "automation.teleport.begin" => visitor.visit::<AutomationTeleportBeginOp>(),
+        "automation.teleport.complete" => visitor.visit::<AutomationTeleportCompleteOp>(),
         "automation.update" => visitor.visit::<AutomationUpdateOp>(),
         "automation.webhook.get" => visitor.visit::<AutomationWebhookGetOp>(),
         "calendar.calendars.list" => visitor.visit::<CalendarCalendarsListOp>(),
