@@ -73,6 +73,8 @@ pub(crate) fn harness_command(
     // A bound route's provider variables the inherited env must not keep
     // (routes.rs): an earlier route's key never reaches this process.
     let route_unset = env.remove(crate::routes::UNSET_KEY);
+    // The bound route's name, for `/status` only (`session_status.rs`).
+    let route_name = env.remove(crate::routes::NAME_KEY);
     // Your own endpoint (byo_endpoint.rs): the marker is acpmux's own.
     let own_endpoint = crate::byo_endpoint::Kind::of_env(&env);
     env.remove(crate::byo_endpoint::OWN_ENDPOINT_KEY);
@@ -242,12 +244,15 @@ pub(crate) fn harness_command(
         let format = preview_format(profile).claude_value();
         cmd.env(crate::hub::questions::PREVIEW_FORMAT_ENV, format);
     }
-    // A Claude agent's sign-in inputs, for a clear message if it has none.
-    match (family == Some("claude"), session) {
+    // A Claude agent's sign-in inputs, for a clear message if it has none (plain Claude Code)
+    // and for `/status` (every Claude family, a launcher's too: `session_status.rs`).
+    match (claude_code, session) {
         (true, Some((id, _))) => crate::claude_auth::remember(
             id,
             &command_env_with(&cmd, !remote_environment),
-            route_unset.is_some(),
+            route_unset.is_some() || route_name.is_some(),
+            route_name,
+            family == Some("claude"),
         ),
         (false, Some((id, _))) => crate::claude_auth::forget(id),
         _ => {}

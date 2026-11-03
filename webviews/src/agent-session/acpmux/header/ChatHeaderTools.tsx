@@ -717,7 +717,7 @@ export function ChatMenu({
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
       <MenuButton
-        className={triggerClassName ?? "acpmux-header-tool"}
+        className={triggerClassName ?? "acpmux-header-tool acpmux-header-more"}
         label={buttonLabel}
         title={triggerTitle}
         disabled={disabled}

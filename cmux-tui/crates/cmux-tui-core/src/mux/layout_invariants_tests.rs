@@ -849,6 +849,45 @@ fn check_step(mux: &Mux, before: &State, outcome: &Outcome, rejections: usize) {
     assert_durable_matches_memory(mux);
 }
 
+/// The case `layout_ops_conserve_tabs` shrank to on the base (6f1ef70f,
+/// 1 of 5 runs): a tab move rewrote the positions of the tabs after it but
+/// restated only the moved tab, so the journal kept their old index. After
+/// each step, every stored tab's position must be the index the journal
+/// states (checked directly, so release builds catch it too; debug builds
+/// also run the scoped-vs-full projection cross-check).
+#[test]
+fn a_tab_move_restates_the_indexes_of_the_tabs_it_shifted() {
+    let mux = test_mux("layout-invariants-shrunk-index");
+    build(&mux, &[vec![1], vec![1], vec![1, 3, 1, 1]]);
+    let mut groups = 0;
+    for op in [
+        Op::MoveTab { tab: 24, pane: 0, index: 0, undoable: false },
+        Op::MoveTab { tab: 0, pane: 15, index: 0, undoable: false },
+        Op::Close { tab: 0 },
+        Op::MoveTab { tab: 15, pane: 0, index: 0, undoable: false },
+        Op::Close { tab: 0 },
+        Op::Close { tab: 2 },
+    ] {
+        let mut before = mux.with_state(Clone::clone);
+        let mut rejections = rejections_on_this_thread();
+        let outcome = run(&mux, &op, &mut groups, &mut before, &mut rejections);
+        check_step(&mux, &before, &outcome, rejections);
+        let mut registry = mux.workspace_registry.lock().unwrap();
+        let snapshot = registry.resource_topology_snapshot().unwrap();
+        for tab in &snapshot.tabs {
+            let stated = registry.stated_topology_value_for_test("tab", tab.public_id.as_str());
+            let index = stated.flatten().and_then(|value| value["index"].as_u64());
+            assert_eq!(
+                index,
+                Some(tab.position as u64),
+                "after {op:?} the journal states tab {} at {index:?}, stored at {}",
+                tab.public_id,
+                tab.position
+            );
+        }
+    }
+}
+
 fn proptest_cases() -> u32 {
     std::env::var("PROPTEST_CASES").ok().and_then(|cases| cases.parse().ok()).unwrap_or(64)
 }

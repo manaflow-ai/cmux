@@ -80,7 +80,7 @@ enum MainMenu {
     /// remains available through the command palette. The allowlist is intentionally explicit so
     /// a new catalog placement cannot silently reintroduce menu overload.
     static let compactActionIDs: [ActionMainMenu: [ActionID]] = [
-        .app: ["about", "openSettings", "palette.checkForUpdates", "keepMacAwake", "quit"],
+        .app: ["about", "openSettings", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit"],
         .file: [
             "newTab", "newBrowserWorkspace", "newTab.default", "palette.newAgentChat", "palette.quickAgentChat",
             "openFolder", "file.open", "remote.connect", "device.add", "closeTab", "closeWorkspace", "closeWindow",

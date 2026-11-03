@@ -191,6 +191,23 @@ pub(in crate::mux) fn structural_tab_move_plan(
     }
     let mut deltas = focus_change_deltas(state, &before, &after, &restated, &[&target_pane_id])?;
     deltas.push(upsert(0, "tab", tab_id.as_str(), tab_value(&moved_tab, &after)?));
+    // The insert shifted the target pane's tabs after it, and its old
+    // active tab lost the focus: restate them, so the journal states their
+    // new index and focus (a scoped projection later trusts it).
+    let old_active = topology_pane(&before, &target_pane_id)?.active_tab.clone();
+    for tab in after.tabs.iter().filter(|tab| tab.pane_id == target_pane_id) {
+        if tab.public_id == tab_id {
+            continue;
+        }
+        let shifted = before
+            .tabs
+            .iter()
+            .find(|candidate| candidate.public_id == tab.public_id)
+            .is_none_or(|candidate| candidate.position != tab.position);
+        if shifted || old_active.as_ref() == Some(&tab.public_id) {
+            deltas.push(upsert(0, "tab", tab.public_id.as_str(), tab_value(tab, &after)?));
+        }
+    }
     let pane = pane_value(state, &target_record, &after)?;
     deltas.push(upsert(0, "pane", target_pane_id.as_str(), pane));
     for (sequence, delta) in deltas.iter_mut().enumerate() {

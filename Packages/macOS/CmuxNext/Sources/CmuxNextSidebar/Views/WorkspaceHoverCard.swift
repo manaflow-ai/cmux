@@ -165,6 +165,12 @@ final class WorkspaceHoverCardController: HoverCardSource {
             }
             self.coordinator.dismiss(.action)
         }
+        // A row's ✕ closes its tab and the card stays: the workspace's next tabs reach it through
+        // `contentChanged` (Leo 2026-11-02: "YOU SHOULD BE ABLE TO CLOSE THESE TABS FROM THE HOVER PREVIEW").
+        body.tabList.onClose = { [weak list] tabID in
+            guard let list, list.hoverCardRow(ws)?.tabs.contains(where: { $0.id == tabID }) == true else { return }
+            list.model.send(.closeTab(workspace: ws, tab: tabID))
+        }
         body.setResources(resources.report)
         bodyID = id
         if openedByRequest { startSampling(id) }
@@ -226,6 +232,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         resources.close()
         body?.resetResourceHistory()
         body?.tabList.onSelect = nil
+        body?.tabList.onClose = nil
         body?.onDetailsChanged = nil
         bodyID = nil
         releaseCustom()
@@ -333,8 +340,14 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     }
 
     private let titleLabel = ChromeLabel(labelWithString: "")
-    /// The kind or host icon, leading the name on the card's icon column.
+    /// The kind icon, leading the name on the card's icon column; a Cloud or remote card has none
+    /// (its machine reads once, in `hostLabel`).
     private let kindIcon = HoverCardIconView()
+    /// Where a Cloud or remote workspace runs ("Cloud", the host's name), once, in the secondary ink
+    /// after the name, its reachability dot beside it; local has none (Leo 2026-11-02, on a card that
+    /// said Cloud four times: "the tiny cloud icon the repeated cloud cloud cloud").
+    let hostLabel = ChromeLabel(labelWithString: "")
+    private let hostDot = HoverCardAccessoryView()
     /// The workspace's status in the shared indicator, on its own row under the name with its
     /// word beside it (Leo 2026-10-13: an unlabeled mark under the name read as a smudge).
     private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
@@ -342,7 +355,6 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private let activityRow = NSStackView()
     private let ageLabel = ChromeLabel(labelWithString: "")
     private let factsStack = NSStackView()
-    private let hostRow = HoverCardRowView()
     /// CPU and memory with the last seconds of CPU as bars (`WorkspaceHoverCardContent.resourceRow`).
     private let resourceRow = HoverCardRowView()
     /// "Prompts: 4 · Worked 12m", under the status (u3320).
@@ -381,6 +393,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private var builtIn: [NSView] = []
     /// The shown content, for the live elapsed times (`tick`).
     private var content: WorkspaceHoverCardContent?
+    /// The machine `hostLabel` names, whose color pick (`appearance.machineColors`) it draws in.
+    private var hostMachine: String?
     /// The shown status word, before its elapsed time.
     private var activityWord: String?
 
@@ -396,7 +410,17 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         titleLabel.lineBreakMode = .byWordWrapping
         titleLabel.maximumNumberOfLines = 6
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        // The name hugs its text so the machine and its dot read right after it, not at the far edge.
+        titleLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        hostLabel.font = Typography.body
+        hostLabel.lineBreakMode = .byTruncatingTail
+        hostLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        hostLabel.setContentHuggingPriority(.required, for: .horizontal)
+        hostLabel.isHidden = true
+        hostDot.line = titleLabel
+        hostDot.setContentHuggingPriority(.required, for: .horizontal)
+        hostDot.setContentCompressionResistancePriority(.required, for: .horizontal)
+        hostDot.isHidden = true
         ageLabel.font = Typography.caption
         ageLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         ageLabel.setContentHuggingPriority(.required, for: .horizontal)
@@ -415,11 +439,12 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
         // Every icon sits on one column at the leading inset, its text beside it (the fact rows'
         // grid), so the kind icon leads the name instead of floating after it.
-        let titleRow = NSStackView(views: [kindIcon, titleLabel, ageLabel])
+        let titleRow = NSStackView()
+        titleRow.setViews([kindIcon, titleLabel, hostDot, hostLabel], in: .leading)
+        titleRow.setViews([ageLabel], in: .trailing)
         titleRow.orientation = .horizontal
         titleRow.alignment = .firstBaseline
         titleRow.spacing = Metrics.space2
-        titleRow.setCustomSpacing(Metrics.space4, after: titleLabel)
         // The indicator's slot is a box that never hides, so a style that draws no glyph keeps the
         // word on the text column.
         let activitySlot = HoverCardIconSlot(side: Self.iconSize, line: activityLabel)
@@ -456,7 +481,6 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         let tabIndex = tabPlacement == .afterTitle ? 3 : (tabPlacement == .afterStatus ? 5 : 9)
         rows.insert(tabList, at: tabIndex)
         rows.insert(detailsToggle, at: tabIndex + 1)
-        rows.insert(hostRow, at: 2)
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -481,7 +505,6 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             titleRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             factsStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            hostRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             resourceRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             kindIcon.widthAnchor.constraint(equalToConstant: Self.iconSize),
             kindIcon.heightAnchor.constraint(equalToConstant: Self.iconSize),
@@ -499,10 +522,9 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
     /// The text the card shows, one entry per row (tests, accessibility).
     var lines: [String] {
-        if !customSlot.isHidden { return ["custom card"] + (hostRow.isHidden ? [] : [hostRow.shownText]) + Self.texts(in: customSlot) + tabList.reportedLines }
-        var lines = [[titleLabel.stringValue, ageLabel.isHidden ? "" : ageLabel.stringValue]
+        if !customSlot.isHidden { return ["custom card"] + (hostLabel.isHidden ? [] : [hostLabel.stringValue]) + Self.texts(in: customSlot) + tabList.reportedLines }
+        var lines = [[titleLabel.stringValue, hostLabel.isHidden ? "" : hostLabel.stringValue, ageLabel.isHidden ? "" : ageLabel.stringValue]
             .filter { !$0.isEmpty }.joined(separator: " ")]
-        if !hostRow.isHidden { lines.append(hostRow.shownText) }
         if !activityRow.isHidden { lines.append(activityLabel.stringValue) }
         if !statsRow.isHidden { lines.append(statsLabel.stringValue) }
         if !factsStack.isHidden { lines += factViews.filter { !$0.isHidden }.map(\.shownText) }
@@ -541,10 +563,12 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     func configure(_ content: WorkspaceHoverCardContent, now: Date = Date()) {
         self.content = content
         let host = content.host ?? content.facts.first { $0.kind == "machine" }
-        hostRow.isHidden = host == nil
-        if let host {
-            hostRow.configure(host.row, image: Self.ownImage(host) ?? NSImage.icon(host.icon, size: Self.iconSize))
-        }
+        hostLabel.stringValue = host?.text ?? ""
+        hostMachine = host?.machine
+        hostLabel.isHidden = host == nil
+        hostDot.accessory = host?.accessory
+        hostDot.isHidden = host?.accessory == nil
+        kindIcon.isHidden = host != nil
         width = content.options.layout == .log ? Self.logCardWidth : widthCap
         widthLimit?.constant = width
         statsLabel.stringValue = content.stats ?? ""
@@ -560,8 +584,11 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         activityRow.isHidden = word == nil
         // The width the title wraps at (the panel sizes the card in one
         // pass): the row less its icon and the age.
-        let age = ageLabel.isHidden ? 0 : ageLabel.intrinsicContentSize.width + Metrics.space4
-        titleLabel.preferredMaxLayoutWidth = width - 2 * Self.padding - Self.iconSize - Metrics.space2 - age
+        let age = ageLabel.isHidden ? 0 : ageLabel.intrinsicContentSize.width + Metrics.space2
+        let icon = kindIcon.isHidden ? 0 : Self.iconSize + Metrics.space2
+        let hostWidth = hostLabel.isHidden ? 0 : hostLabel.intrinsicContentSize.width + Metrics.space2
+        let dot = hostDot.isHidden ? 0 : hostDot.intrinsicContentSize.width + Metrics.space2
+        titleLabel.preferredMaxLayoutWidth = width - 2 * Self.padding - icon - age - hostWidth - dot
         while factViews.count < content.facts.count { addFactRow() }
         let wrap = width - 2 * Self.padding - Self.iconSize - Metrics.space2
         for (index, row) in factViews.enumerated() {
@@ -763,6 +790,7 @@ extension WorkspaceHoverCardView {
             ageLabel.textColor = Palette.textSecondary
             activityLabel.textColor = Palette.textPrimary
             kindIcon.contentTintColor = Palette.textSecondary
+            hostLabel.textColor = hostColor
             statsLabel.textColor = Palette.textSecondary
             timeline.applyColors()
             customError.textColor = Palette.textSecondary
@@ -773,6 +801,17 @@ extension WorkspaceHoverCardView {
         // the shared overlay glass shows.
         for row in factViews { row.applyColors() }
         resourceRow.applyColors()
-        hostRow.applyColors()
+        hostDot.applyColors()
+    }
+
+    /// The machine's name in its color pick, else the secondary ink like the rest of the header (read in the
+    /// card's theme scope).
+    private var hostColor: NSColor { hostMachine.flatMap { MachineColor(name: $0).pickedColor } ?? Palette.textSecondary }
+
+    /// A machine color picked while the card shows reaches the header only through this hook (a store
+    /// repaint carries no new theme).
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        performWithTheme { hostLabel.textColor = hostColor }
     }
 }

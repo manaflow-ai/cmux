@@ -6,6 +6,7 @@
 #     --arg=dmg=URL [--arg=dmg=URL ...] [--arg=rounds=20] [--arg=workspaces=6] \
 #     --artifact .build/nightly-ws-switch/report.tgz --timeout 3600
 #   dmg=URL  an https nightly DMG (repeatable; run in the order given)
+#   heavy=1  each workspace also gets two splits (one printing), a second terminal tab and a browser tab
 # Prints NWS lines per build (the summary) and keeps report.json, app output and sample files in report.tgz.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
@@ -18,6 +19,8 @@ for arg in "$@"; do
     rounds=*) extra+=(--rounds "${arg#rounds=}") ;;
     workspaces=*) extra+=(--workspaces "${arg#workspaces=}") ;;
     typing=*) extra+=(--typing "${arg#typing=}") ;;
+    heavy=1) extra+=(--heavy) ;;
+    heavy=0) ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done

@@ -94,6 +94,11 @@ enum AgentShareStrings {
         String(localized: "agentShare.consent.allow", defaultValue: "Make Link", table: "AgentShare", bundle: .module)
     }
 
+    /// The share consent's Feed request (Needs you): its button that brings the Mac's sheet forward.
+    static var consentShowOnMac: String {
+        String(localized: "agentShare.consent.showOnMac", defaultValue: "Show on Mac", table: "AgentShare", bundle: .module)
+    }
+
     static var consentDecline: String {
         String(localized: "agentShare.consent.decline", defaultValue: "Don’t Share", table: "AgentShare", bundle: .module)
     }

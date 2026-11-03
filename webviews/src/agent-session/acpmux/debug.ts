@@ -388,7 +388,7 @@ export function createAcpmuxDebug(
   };
 }
 
-/// The prompts as drawn, top first: who it is from (the "From the Chief" label, or a person's author
+/// The prompts as drawn, top first: who it is from (the "Sent from <Chief>" label, or a person's author
 /// chip, "Sam (guest)"), the collapsed view line and the bubble.
 function userBubblesState() {
   return [...document.querySelectorAll<HTMLElement>(".cv-user")].slice(0, 8).map((row) => ({

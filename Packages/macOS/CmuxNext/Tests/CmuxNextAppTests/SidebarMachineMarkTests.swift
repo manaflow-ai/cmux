@@ -5,9 +5,10 @@ import Foundation
 import Testing
 
 /// Machine identity: while the sidebar lists more than one machine, a workspace row on another
-/// machine marks it (its glyph, one neutral colour, in the trailing column), so rows on different machines tell apart. This Mac's
-/// rows are marked only with `sidebar.showLocalMachine` (Leo 2026-10-20: another machine is the
-/// news). One machine: no mark.
+/// machine carries it (`WorkspaceRowContent.machine`), which its accessibility label names; the row
+/// draws no glyph for it (Leo 2026-11-02: "the tiny cloud icon the repeated cloud cloud cloud"). This
+/// Mac's rows carry it only with `sidebar.showLocalMachine` (Leo 2026-10-20: another machine is the
+/// news). One machine: none.
 @MainActor @Suite(.serialized) struct SidebarMachineMarkTests {
     private let mac = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     private let vm = SidebarMachine(id: MachineID("vm"), name: "gpu-box", kind: .ssh, icon: .symbol("server.rack"))
@@ -179,46 +180,21 @@ import Testing
         return rows
     }
 
-    /// Leo 2026-11-01, on a small tinted cloud before each Cloud row's name: "I HATE HOW SMALL THEY ARE I HATE THAT THEY'RE
-    /// ON THE LEFT I HATE THAT THEY'RE ON THE BOTTOM". The mark sits in the trailing column, right of the title's text, in a
-    /// status mark's box (the spinner's and the warning triangle's), centered on the row's middle.
-    @Test func theMarkSitsInTheTrailingColumnAtAStatusMarksSizeOnTheRowsMiddle() throws {
+    /// Leo 2026-11-02, on a Cloud row and its hover card: "isn't this extremely stupid looking?" / "the tiny cloud
+    /// icon the repeated cloud cloud cloud". The row draws no machine glyph (the hover card names the machine once,
+    /// in its header): a row on another machine draws exactly the views this Mac's row draws, and its label still
+    /// names the machine for VoiceOver.
+    @Test func aRowOnAnotherMachineDrawsNoMachineGlyph() throws {
         let rows = try Self.machineRows()
+        func shown(_ row: WorkspaceRowView) -> [String] {
+            row.subviews.filter { !$0.isHidden && $0.alphaValue > 0 && !$0.frame.isEmpty }.map { String(describing: type(of: $0)) }.sorted()
+        }
+        let local = try #require(rows["This Mac"])
         for name in ["cloud-a", "gpu-box"] {
             let row = try #require(rows[name])
-            try #require(!row.machineMark.isHidden, "\(name): the row on another machine shows its mark")
-            let mark = row.machineMark.frame
-            let side = SidebarStyle.statusGlyphSize
-            #expect(mark.size == NSSize(width: side, height: side), "\(name): mark box \(mark.size), status mark box \(side)")
-            #expect(mark.width >= SidebarStyle.indicatorSize, "\(name): mark \(mark.width) smaller than the row's marks")
-            #expect(mark.minX >= row.title.frame.maxX - 0.5, "\(name): mark at \(mark.minX) is not right of the title (ends \(row.title.frame.maxX))")
-            #expect(row.title.frame.minX < mark.minX, "\(name): title still starts after the mark")
-            #expect(abs(mark.midY - row.bounds.midY) < 0.5, "\(name): mark center y \(mark.midY), row middle \(row.bounds.midY)")
-            // With no status, the mark takes the column the spinner and triangle center on.
-            let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)
-            #expect(abs(mark.midX - column) < 0.5, "\(name): mark center x \(mark.midX), trailing column \(column)")
+            #expect(shown(row) == shown(local), "\(name) draws more than this Mac's row: \(shown(row)) vs \(shown(local))")
+            let label = row.accessibilityLabel() ?? ""
+            #expect(label.contains(name), "\(name): the row's label lost its machine: \(label)")
         }
-        #expect(rows["This Mac"]?.machineMark.isHidden == true, "this Mac's row stays unmarked by default")
-    }
-
-    /// One colour for every machine: a neutral label colour, never the machine's own (MachineColor) tint.
-    @Test func everyMachinesMarkHasTheSameNeutralColour() throws {
-        let rows = try Self.machineRows()
-        let cloud = try #require(rows["cloud-a"]?.machineMark.contentTintColor)
-        let ssh = try #require(rows["gpu-box"]?.machineMark.contentTintColor)
-        #expect(cloud == ssh, "two machines drew two colours: \(cloud) and \(ssh)")
-        #expect(cloud != MachineColor(name: "cloud-a").color, "the mark still takes its machine's tint")
-    }
-
-    /// Hovering the row shows its controls over the trailing column; the mark gives way to them as the spinner does.
-    @Test func theMarkGivesWayToTheHoverControls() throws {
-        let row = try #require(try Self.machineRows()["cloud-a"])
-        row.isHovered = true
-        row.layoutSubtreeIfNeeded()
-        let controls: [NSView] = [row.closeButton, row.moreButton].filter { !$0.isHidden && $0.alphaValue > 0 }
-        try #require(!controls.isEmpty, "the hover controls show")
-        let mark = row.machineMark
-        let overlaps = controls.contains { $0.frame.intersects(mark.frame) }
-        #expect(!overlaps || mark.alphaValue == 0, "the mark \(mark.frame) draws under a hover control (alpha \(mark.alphaValue))")
     }
 }

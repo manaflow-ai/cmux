@@ -28,12 +28,13 @@
   line-height: 1.3;
   letter-spacing: var(--text-body--letter-spacing);
 }
-/* Plain glass keeps the card's look from before the lens, the composer's surface as every sidebar
-   card's (CardSurfaceView in Swift, Leo 2026-10-13): the text at 13% over the wallpaper (this page
-   is transparent) and no blur, under the plain rim. Reduce Transparency still makes it opaque
-   (glass.css's surface): the same selector again, later, so it outranks the plain fill. */
+/* Plain glass: the theme's surface at the card veil's share and no blur, under the plain rim, as the
+   sidebar draws it natively (CardSurfaceView.takesThemeTint: the theme's glass tint at the card
+   veil's 42%). It was the text at 13%, a gray over any theme (Leo 2026-11-02: "why is the update
+   thing unthemed"). Reduce Transparency still makes it opaque (glass.css's surface): the same
+   selector again, later, so it outranks the plain fill. */
 :root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card {
-  --glass-tint: color-mix(in srgb, var(--page-text) 13%, transparent);
+  --glass-tint: color-mix(in srgb, var(--glass-surface) 42%, transparent);
   --glass-backdrop: none;
 }
 @media (prefers-reduced-transparency: reduce) {

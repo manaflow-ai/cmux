@@ -9,6 +9,7 @@ dependencies = [
  "acpmux-build-id",
  "anyhow",
  "base64",
+ "bytes",
  "chrono",
  "chrono-tz",
  "clap",
@@ -37,6 +38,8 @@ dependencies = [
  "futures",
  "futures-util",
  "getrandom 0.3.4",
+ "inotify",
+ "jsonschema",
  "libc",
  "memchr",
  "notify",
@@ -563,6 +566,9 @@ name = "bitflags"
 version = "2.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
+dependencies = [
+ "serde_core",
+]
 
 [[package]]
 name = "blake2"
@@ -1265,6 +1271,15 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "cmux-imessage"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2233,6 +2248,7 @@ dependencies = [
  "mio",
  "parking_lot",
  "rustix",
+ "serde",
  "signal-hook",
  "signal-hook-mio",
  "winapi",

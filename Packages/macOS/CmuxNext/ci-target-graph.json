@@ -98,8 +98,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentCursorVisibility",
       "targets": [
-        "CmuxNextAgentCursor",
-        "CmuxNextFocus"
+        "CCmuxAppFFI",
+        "CmuxNextAgentCursor"
       ],
       "packages": []
     },
@@ -152,6 +152,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextApps",
         "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextControl",
@@ -160,6 +161,7 @@
         "CmuxNextDesignTokens",
         "CmuxNextDictation",
         "CmuxNextErrorJournal",
+        "CmuxNextIcons",
         "CmuxNextPages",
         "CmuxNextPalette",
         "CmuxNextRemoteFetch",
@@ -392,6 +394,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextAgentCursor",
         "CmuxNextAgentCursorVisibility",
@@ -793,7 +796,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCloudTests",
       "targets": [
-        "CmuxNextCloud"
+        "CmuxNextCloud",
+        "CmuxNextDaemon"
       ],
       "packages": [],
       "reads": []
@@ -1221,6 +1225,7 @@
         "CmuxNextWakeups"
       ],
       "packages": [
+        "CmuxAgentQuestion",
         "CmuxHomeCore",
         "CmuxHomeRender",
         "CmuxMessagesLab"
@@ -1242,7 +1247,8 @@
       ],
       "packages": [
         "CmuxAgentQuestion",
-        "CmuxHomeCore"
+        "CmuxHomeCore",
+        "CmuxHomeRender"
       ]
     },
     "CmuxNextHomeEngineTests": {
@@ -1491,6 +1497,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPages",
       "targets": [
+        "CmuxNextBrowserCore",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextErrorJournal",
@@ -1855,6 +1862,15 @@
         "CmuxNextSidebar"
       ],
       "packages": []
+    },
+    "CmuxNextSidebarTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests",
+      "targets": [
+        "CmuxNextSidebar"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextSignposts": {
       "kind": "regular",

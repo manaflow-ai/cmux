@@ -16,7 +16,7 @@ export function LookSwitch({ onDone }: { onDone(): void }) {
   const t = useT();
   const look = useComposerLook();
   const slot = useRef<HTMLSpanElement>(null);
-  const crowded = useCrowded(slot);
+  const crowded = useCrowded(slot, look);
   return (
     <span ref={slot} className="acpmux-look-slot" data-crowded={crowded ? "" : undefined}>
       <DotSwitch
@@ -35,8 +35,9 @@ export function LookSwitch({ onDone }: { onDone(): void }) {
 
 /// Whether the dots in `slot` lie over one of the quiet row's controls. Event-driven: a
 /// ResizeObserver on the row, its controls and the dots, and a MutationObserver for controls that
-/// come and go; both end on unmount.
-function useCrowded(slot: RefObject<HTMLElement | null>): boolean {
+/// come and go; both end on unmount. Codex's look moves the quiet row into the box (ComposerBox.tsx),
+/// a new element, so a look change (`look`) watches the row it now sits over.
+function useCrowded(slot: RefObject<HTMLElement | null>, look: string): boolean {
   const [crowded, setCrowded] = useState(false);
   useLayoutEffect(() => {
     const dots = slot.current?.querySelector<HTMLElement>(".nt-style-options");
@@ -76,6 +77,6 @@ function useCrowded(slot: RefObject<HTMLElement | null>): boolean {
       sizes.disconnect();
       children.disconnect();
     };
-  }, [slot]);
+  }, [slot, look]);
   return crowded;
 }

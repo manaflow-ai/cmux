@@ -1,5 +1,6 @@
 // l10n-allow-file: transcript geometry fixtures.
 import { expect, test } from "bun:test";
+import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { layoutConversation, placeRows, type AcpmuxRow, type RowHeights } from "./model";
 import {
   TRANSCRIPT_BLOCK_GAP,
@@ -179,7 +180,27 @@ test("a run and the reply's prose sit the run gap apart, either way", () => {
   expect(transcriptGap(MARK_STATUS, MARK_MESSAGE)).toBe(TRANSCRIPT_RUN_GAP);
   expect(transcriptGap(MARK_MESSAGE, MARK_STATUS)).toBe(TRANSCRIPT_RUN_GAP);
   expect(transcriptGap(MARK_STEP, MARK_STEP)).toBe(0);
-  expect(transcriptGap(MARK_STATUS, MARK_STEP)).toBe(TRANSCRIPT_BLOCK_GAP);
   expect(transcriptGap(MARK_STEP, MARK_PROMPT)).toBe(TRANSCRIPT_TURN_GAP);
   expect(transcriptGap(MARK_PROMPT, MARK_STEP)).toBe(TRANSCRIPT_TURN_GAP);
+});
+
+// Status lines ("Scheduled check", "Compacting the conversation…", a background task's end) and
+// tool runs in a row sit flush on the 22 pitch, never a block apart (design/transcript-spacing.md
+// rule 3; Leo, 2026-11-02, on a Claude chat where they did: "these are all so stupid looking").
+test("status rows and step rows in a row sit flush", () => {
+  expect(transcriptGap(MARK_STATUS, MARK_STEP)).toBe(0);
+  expect(transcriptGap(MARK_STEP, MARK_STATUS)).toBe(0);
+  expect(transcriptGap(MARK_STATUS, MARK_STATUS)).toBe(0);
+  const lines = [
+    row("bg", BACKGROUND_TURN, {
+      background: { id: "bg", trigger: "scheduled", running: false, quiet: true },
+    }),
+    row("run", "activity", {
+      items: [{ kind: "tool", text: "ls", tool: { id: "t", title: "ls", kind: "execute", status: "completed" } }],
+    }),
+    row("compact", "compaction", { compaction: { state: "running" } }),
+  ];
+  const layout = layoutConversation(lines, 720);
+  expect(layout.tops[1]! - layout.tops[0]!).toBe(22);
+  expect(layout.tops[2]! - layout.tops[1]!).toBe(22);
 });
