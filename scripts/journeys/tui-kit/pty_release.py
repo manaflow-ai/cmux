@@ -94,7 +94,9 @@ def pids_fds(pids):
         return None
     done = subprocess.run(["lsof", "-a", "-n", "-P", "-p", ",".join(str(p) for p in sorted(pids)), "-F", "f",
                            "/dev/ptmx"], capture_output=True, text=True, timeout=30)
-    if done.stderr.strip() or not done.stdout.strip():  # a failed scan is no count (0 would read as all released)
+    # lsof exits 1 with no output when none of PIDS holds /dev/ptmx (a true 0); an error message on stderr is a
+    # failed scan: no count (0 would read as all released).
+    if done.stderr.strip():
         return None
     return sum(1 for line in done.stdout.splitlines() if line.startswith("f"))
 
