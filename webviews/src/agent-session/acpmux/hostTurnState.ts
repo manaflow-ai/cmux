@@ -1,20 +1,33 @@
-// Whether acpmux runs a turn, read from its session status (acpmux store.rs `SessionStatus`):
-// `running` runs a prompt turn and `waiting` is that turn asking the person. `ready`, `idle`,
-// `disconnected` and `closed` run none.
+// Whether acpmux runs a turn of a chat, read from its session summary: `turn`, the turn acpmux
+// holds open (protocol/session.rs `TurnSummary`, null between turns), and `status`.
 //
 // The pane folds a turn open from its records (`user_message`, `turn_started`) and closed from its
-// end (`turn_end`, `turn_result`). Some ends write no end record: a daemon that hands a running
-// turn to the next one on restart (hub/shutdown.rs), a wait a restart cut (hub/log_load.rs), a host
-// that could not be adopted (hub/hosts.rs). Each still writes its status, in the log's order, so
-// the status is what says the turn is over (https://github.com/manaflow-ai/cmux/issues/32727).
+// end (`turn_end`, `turn_result`). That fold alone kept Stop and the typing dots on when a turn's
+// end never reached the pane, and kept them off for a turn acpmux runs on without a new start
+// record (a restart that adopts its running host, hub/hosts.rs). acpmux clears `turn` before it
+// logs a turn's end and sets it before its start, and builds each `session_changed` summary when it
+// sends it, after the record it follows: the summary is never older than the records the pane has
+// folded, so it settles the fold (https://github.com/manaflow-ai/cmux/issues/32727).
 
-const TURN_STATUSES: ReadonlySet<string> = new Set(["running", "waiting"]);
+type Summary = Record<string, any> | undefined;
 
-/// Whether a session status says acpmux runs a turn.
-export const runsTurn = (status: unknown): boolean => typeof status === "string" && TURN_STATUSES.has(status);
+/// The turn acpmux holds open, as its summary says: a turn object, null between turns, undefined
+/// when the summary does not say (an older acpmux or peer, a summary not read yet).
+export function hostTurn(summary: Summary): { turnId?: string } | null | undefined {
+  if (!summary || !("turn" in summary)) return undefined;
+  const turn = summary.turn;
+  if (turn === null) return null;
+  if (typeof turn !== "object") return undefined;
+  return { turnId: typeof turn.turnId === "string" && turn.turnId ? turn.turnId : undefined };
+}
 
-/// Whether a logged status change ends the turn the pane holds open: the status left a turn
-/// (`running` or `waiting`) for one with none. A status that starts an agent (`idle` or
-/// `disconnected` to `ready`) while a prompt waits for it to run ends nothing.
-export const statusEndsTurn = (previous: unknown, next: unknown): boolean =>
-  runsTurn(previous) && typeof next === "string" && next !== "" && !runsTurn(next);
+/// What the summary says of the pane's open turn: `ended` when acpmux runs none, `runs` when it
+/// runs one, `unknown` when the summary cannot tell. A watched chat's turns are the other app's,
+/// shown from its transcript (hub/watch.rs): acpmux holds none of them, so its summary never tells.
+export function hostTurnState(summary: Summary): "runs" | "ended" | "unknown" {
+  if (!summary || summary.watching) return "unknown";
+  const turn = hostTurn(summary);
+  if (turn === undefined) return "unknown";
+  if (turn !== null || summary.status === "running") return "runs";
+  return "ended";
+}
