@@ -21,7 +21,7 @@ import Observation
 /// terminal read as one sheet with no panel edges or seams. In a
 /// translucent window that sheet is one material with one theme tint
 /// (`backdropView`, the bottom subview) and everything above it is clear.
-final class WindowRootView: NSView, WindowSurfacePainting {
+final class WindowRootView: FamilyKeyStateView, WindowSurfacePainting {
     let titlebar = TitlebarView()
     /// The window's one material and tint (`WindowBackdrop`); its glass keeps the key look through `activeLook`.
     let backdropView: WindowMaterialView

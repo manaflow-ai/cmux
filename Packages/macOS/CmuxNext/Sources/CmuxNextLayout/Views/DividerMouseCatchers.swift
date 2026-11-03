@@ -93,9 +93,15 @@ public final class DividerMouseCatchers {
             }
             if panel.parent !== window { window.addChildWindow(panel, ordered: .above) }
         }
-        // No divider wants the spares now (no page window, or fewer dividers): only the newest stay parked.
-        if wanted.isEmpty, !active || !window.isVisible { for panel in spares { remove(panel) }; spares.removeAll() }
+        // No page window shows (Cmd-W closed the New Tab page): the panels stay parked, so the next page (the next
+        // Cmd-T) moves one and makes no window in its key turn. A hidden window keeps none.
+        if !window.isVisible { removeSpares() }
         while spares.count > Self.maxSpares { remove(spares.removeFirst()) }
+    }
+
+    private func removeSpares() {
+        for panel in spares { remove(panel) }
+        spares.removeAll()
     }
 
     /// A panel whose divider left: no size and no mouse, still a child of the window, ready for the next divider.
@@ -116,6 +122,7 @@ public final class DividerMouseCatchers {
 
     public func teardown() {
         update([], active: false)
+        removeSpares()
     }
 
     private func makePanel(id: String) -> DividerMousePanel {
