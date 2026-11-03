@@ -34,8 +34,8 @@ struct DividerDrag {
             drag.pressAt = drag.axis == .horizontal ? raw.x : raw.y
             drag.lastRaw = drag.pressAt
             screen.activeDrag = drag
+            screen.columnWidths.drop() // a person's drag sets widths on purpose (R3b)
             model.setGestureActive(true)
-            screen.context.requestFrames()
         case let .moved(windowPoint, flags):
             guard screen.activeDrag != nil else { return }
             screen.activeDrag?.modifiers = DividerDragModifiers(flags)
@@ -43,7 +43,6 @@ struct DividerDrag {
             screen.activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: CACurrentMediaTime())
             screen.resizeGestureMoved()
             apply(at: windowPoint, phase: .changed)
-            screen.context.requestFrames()
         case let .modifiersChanged(flags):
             let modifiers = DividerDragModifiers(flags)
             guard let drag = screen.activeDrag, modifiers != drag.modifiers else { return }
@@ -51,7 +50,6 @@ struct DividerDrag {
             // A press that has not moved yet stays a click: nothing to re-apply.
             guard drag.pointer != nil else { return }
             apply(at: drag.lastWindowPoint, phase: .changed)
-            screen.context.requestFrames()
         case .cancelled:
             cancel(redraw: true)
         case let .ended(windowPoint, flags):
@@ -103,7 +101,8 @@ struct DividerDrag {
     }
 
     /// Writes this frame's values. A split or column the drag set before and does not set now goes
-    /// back to its start first.
+    /// back to its start first. The model's observation lays each value out (one sync per turn: events that arrive
+    /// together show once); a still pointer asks for no frames.
     func apply(at windowPoint: NSPoint, phase: LayoutGesturePhase) {
         guard var drag = screen.activeDrag else { return }
         let point = drag.effective(contentPoint(fromWindow: windowPoint, kind: drag.kind))

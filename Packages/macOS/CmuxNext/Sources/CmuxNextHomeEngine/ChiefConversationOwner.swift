@@ -18,8 +18,11 @@ import os
 ///
 /// The owner process is detached and outlives the app; the next launch
 /// ensures it and attaches. It is never handed off to the connecting
-/// binary (an older build that still shares NIGHTLY's home would restart it
-/// in turn). Only `local-conversations-v1` is required of it.
+/// binary only for being another build (an older build that still shares
+/// NIGHTLY's home would restart it in turn). One whose executable an update
+/// deleted is no live build's own: it is handed off to this build once it is
+/// idle (`restartIfReplaced`, ChiefConversationOwner+Update.swift). Only
+/// `local-conversations-v1` is required of it.
 @Observable @MainActor
 public final class ChiefConversationOwner {
     public let home: ChiefHome
@@ -123,8 +126,16 @@ public final class ChiefConversationOwner {
             self.noteHandshakeAccepted()
             // Before anything uses the connection: an owner without this home's key (DEV only) restarts once while
             // idle; a busy one (a Chief turn, an open `cmux chief` chat, another app or page) on a later owner event.
-            let restart = await Self.restartIfUnverified(home: self.home, launcher: launcher, connection: connection,
+            // An owner an update replaced hands off to this build first (its successor starts with the
+            // install key too, so no second restart is needed).
+            let restart: IdleOwnerRestart?
+            if let replaced = await Self.restartIfReplaced(launcher: launcher, connection: connection,
+                                                           identity: identity, logger: logger) {
+                restart = replaced
+            } else {
+                restart = await Self.restartIfUnverified(home: self.home, launcher: launcher, connection: connection,
                                                          identity: identity, logger: logger)
+            }
             if let prepare = self.prepare { await prepare(connection) }
             self.attach(connection, identity: identity)
             // The waiting restart probes off this loop, so Home's events never wait for it; the newest

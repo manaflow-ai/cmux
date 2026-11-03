@@ -185,7 +185,7 @@ webviews/test/access-chip-pending-warning.test.tsx	sleep-then-assert	feat-cmux-n
 webviews/test/agent-pane-needs-you.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in a8ee82acea31); determinize, then remove
 webviews/test/agent-pane-subsession-limits.test.ts	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 462745eb50ba); determinize, then remove
 webviews/test/changes-status.test.ts	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 05630e86ad22); determinize, then remove
-webviews/test/chat-inspector.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 0c49074e12f8); determinize, then remove
+webviews/test/session-info.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 0c49074e12f8); determinize, then remove
 webviews/test/chat-minimap.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 92342fcfa6f7); determinize, then remove
 webviews/test/chief-views-page.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 8a0646149538); determinize, then remove
 webviews/test/composer-paste-instant.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 721ff16dde0c); determinize, then remove
@@ -199,3 +199,27 @@ webviews/test/sandbox-run.test.tsx	sleep-then-assert	feat-cmux-next debt while t
 webviews/test/transcript-fold-motion.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 8ae8fd5f2bd4); determinize, then remove
 webviews/test/transport-errors-trust-refusal.test.ts	sleep-then-assert	feat-cmux-next debt while the gate was red (added in b25639259740); determinize, then remove
 webviews/test/turn-error-card.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 9e8f6d9b59a0); determinize, then remove
+Packages/Shared/CmuxHomeCore/Tests/CmuxHomeCoreTests/HomeAgentMessagesTests.swift	sleep-then-assert	fixed sleep before assert; needs a Mac/webview run to determinize safely (follow-up); test added in #27051
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentVideoFramesTests.swift	assert-on-duration	compares animation/media duration constants, not wall time (gate false positive); test added in #30921
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudGitHubSetupTests.swift	sleep-then-assert	fixed sleep before assert; needs a Mac/webview run to determinize safely (follow-up); test added in #23707
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OnboardingAutomaticDetectionTests.swift	sleep-then-assert	fixed sleep before assert; needs a Mac/webview run to determinize safely (follow-up); test added in #24836
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OutOfSightFramesTests.swift	assert-on-duration	compares animation/media duration constants, not wall time (gate false positive); test added in #29429
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/OutOfSightFramesTests.swift	sleep-then-assert	fixed sleep before assert; needs a Mac/webview run to determinize safely (follow-up); test added in #29429
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PeerStatePushTests.swift	yield-count-poll	yield-count poll needs a Mac run to convert to a deadline poll (follow-up); test added in #26786
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/RemoteSessionGoneLinkTests.swift	sleep-then-assert	fixed sleep before assert; needs a Mac/webview run to determinize safely (follow-up); test added in #30721
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SSHMachineSecretsTests.swift	sleep-then-assert	fixed sleep before assert; needs a Mac/webview run to determinize safely (follow-up); test added in #26771
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarRowsMoveOnRenderServerTests.swift	assert-on-duration	compares animation/media duration constants, not wall time (gate false positive); test added in #24187
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarStraySwitchTests.swift	sleep-then-assert	fixed sleep before assert; needs a Mac/webview run to determinize safely (follow-up); test added in PR unknown
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/StandInReadRefusalTests.swift	sleep-then-assert	fixed sleep before assert; needs a Mac/webview run to determinize safely (follow-up); test added in #30347
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/UpdateClickInstallsNewestTests.swift	sleep-then-assert	fixed sleep before assert; needs a Mac/webview run to determinize safely (follow-up); test added in PR unknown
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/WorkspaceCloseSlowDaemonTests.swift	sleep-then-assert	fixed sleep before assert; needs a Mac/webview run to determinize safely (follow-up); test added in #30915
+Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/BrowserExitRecoveryTests.swift	sleep-then-assert	fixed sleep before assert; needs a Mac/webview run to determinize safely (follow-up); test added in PR unknown
+Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/AgentSessionAttachClientConcurrencyTests.swift	sleep-then-assert	fixed sleep before assert; needs a Mac/webview run to determinize safely (follow-up); test added in #29295
+Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/AgentSessionAttachClientPresenceTests.swift	sleep-then-assert	fixed sleep before assert; needs a Mac/webview run to determinize safely (follow-up); test added in #25375
+tests/tool-evals/run.mjs	live-network-host	opt-in manual eval harness calling OpenRouter, not a unit test; added in #28085
+webviews/test/bare-pr-refs.test.tsx	sleep-then-assert	fixed sleep before assert; needs a webview-suite run to determinize safely (follow-up); test added in #22893
+webviews/test/cloud-chat-resume.test.tsx	sleep-then-assert	fixed sleep before assert; needs a webview-suite run to determinize safely (follow-up); test added in #27031
+webviews/test/composer-upload-first-send.test.tsx	sleep-then-assert	fixed sleep before assert; needs a webview-suite run to determinize safely (follow-up); test added in #30572
+webviews/test/reply-image-shared-load.test.tsx	sleep-then-assert	fixed sleep before assert; needs a webview-suite run to determinize safely (follow-up); test added in #27677
+webviews/test/session-info-changes.test.tsx	sleep-then-assert	fixed sleep before assert; needs a webview-suite run to determinize safely (follow-up); test added in #29921
+webviews/test/transcript-older-history-at-top.test.tsx	sleep-then-assert	fixed sleep before assert; needs a webview-suite run to determinize safely (follow-up); test added in PR unknown

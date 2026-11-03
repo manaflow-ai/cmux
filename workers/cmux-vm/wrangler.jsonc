@@ -17,7 +17,8 @@
     "STACK_API_URL": "https://api.stack-auth.com",
     "UPSTREAM_API_URL": "https://api.freestyle.sh",
     "CMUX_VM_MESH_EXPERIMENT": "0",
-    "CMUX_VM_MESH_TENANT_IDS": ""
+    "CMUX_VM_MESH_TENANT_IDS": "",
+    "CMUX_VM_MESH_SERVICE_IDS": ""
   },
   "hyperdrive": [
     {
@@ -55,7 +56,8 @@
         "UPSTREAM_API_URL": "https://api.freestyle.sh",
         // Mesh experiment (cx-0op): off. "1" plus listed team ids turns it on for those teams only.
         "CMUX_VM_MESH_EXPERIMENT": "0",
-        "CMUX_VM_MESH_TENANT_IDS": ""
+        "CMUX_VM_MESH_TENANT_IDS": "",
+        "CMUX_VM_MESH_SERVICE_IDS": ""
       }
     },
     // Workers custom domain in the cmux.dev zone (CMUX-VM-API amendment 2).
@@ -72,15 +74,21 @@
         "ENVIRONMENT": "staging",
         "STACK_API_URL": "https://api.stack-auth.com",
         "UPSTREAM_API_URL": "https://api.freestyle.sh",
-        // Immutable development image approved for the Cloud backend service.
-        "VM_BOOT_IMAGES": "[{\"id\":\"cloud-standard\",\"revision\":\"ci-41026036265-1\",\"displayName\":\"Cloud development\",\"snapshotId\":\"sh-0afbb63e9a6046b4a58068dfe30a5bc7\",\"services\":[\"cloud-driver\"]}]",
+        // Immutable development images approved for the Cloud backend services (cloud-native: the root Native receiver, bake run 41315172830;
+        // cloud-platform-dev is cmux-platform development's key, cloud-platform-staging cmux-platform staging's).
+        "VM_BOOT_IMAGES": "[{\"id\":\"cloud-standard\",\"revision\":\"ci-41026036265-1\",\"displayName\":\"Cloud development\",\"snapshotId\":\"sh-0afbb63e9a6046b4a58068dfe30a5bc7\",\"services\":[\"cloud-driver\"]},{\"id\":\"cloud-native\",\"revision\":\"ci-41315172830-1\",\"displayName\":\"Cloud Native\",\"snapshotId\":\"sh-b601e8b3084a4876911688c8b464fb5e\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]}]",
         // The Cloud guest's coderouter.cmux.internal proxy targets this exact origin.
         "VM_HTTPS_PROXY_ORIGINS": "[\"https://cmux-staging.vercel.app\"]",
         // Mesh experiment (cx-0op): on for internal manaflow dogfood teams only (coordinator, 2026-10-07),
         // ids checked against the staging Stack project: "cmux-agent-dev@manaflow.ai's Team" and
         // "Lawrence Chen's Team". No customer team. Production stays off.
         "CMUX_VM_MESH_EXPERIMENT": "1",
-        "CMUX_VM_MESH_TENANT_IDS": "d8284bb7-c83e-4314-9c2c-8e702ac96ea9,b8f12e8e-7893-4a52-89a5-f1fdf0145b07"
+        "CMUX_VM_MESH_TENANT_IDS": "d8284bb7-c83e-4314-9c2c-8e702ac96ea9,b8f12e8e-7893-4a52-89a5-f1fdf0145b07",
+        // Service key ids (CMUX_VM_SERVICE_KEYS ids, never key material) that have the experiment for every team
+        // they act for: cmux Cloud's dev and staging platforms make each team's mesh in that team's personal tenant, which
+        // no hand-kept tenant list would know in advance. Only those services' own requests pass; the
+        // tenant's other callers still get 404.
+        "CMUX_VM_MESH_SERVICE_IDS": "cloud-platform-dev,cloud-platform-staging"
       }
     },
     // Workers custom domain in the cmux.dev zone; attached by the first
@@ -109,7 +117,8 @@
         "UPSTREAM_API_URL": "https://api.freestyle.sh",
         // Mesh experiment (cx-0op): off. "1" plus listed team ids turns it on for those teams only.
         "CMUX_VM_MESH_EXPERIMENT": "0",
-        "CMUX_VM_MESH_TENANT_IDS": ""
+        "CMUX_VM_MESH_TENANT_IDS": "",
+        "CMUX_VM_MESH_SERVICE_IDS": ""
       }
     }
   }

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb'
+IR_SHA256 = 'e1376b26094dcc4058ebfae8b8708916c1f9f204117cba1fee8a626ff0266943'
 
 
 @dataclass(frozen=True)
@@ -673,6 +673,20 @@ COMMANDS = {
         None,
         {
             'conversation': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-environment': CommandMetadata(
+        'cloud-environment',
+        'local-admin',
+        12,
+        'cloud-environments-v1',
+        ('local-admin',),
+        None,
+        {
+            'access_token': CommandFieldMetadata(None, None),
+            'action': CommandFieldMetadata(None, None),
+            'params': CommandFieldMetadata(None, None),
+            'platform_origin': CommandFieldMetadata(None, None),
         },
     ),
     'cloud-host-replica-clear': CommandMetadata(
@@ -2269,6 +2283,7 @@ COMMANDS = {
             'pane': CommandFieldMetadata(None, None),
             'profile_id': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'split': CommandFieldMetadata(None, 'frontend-browser-tab-split-v1'),
             'title': CommandFieldMetadata(None, None),
             'url': CommandFieldMetadata(None, None),
         },
@@ -3007,6 +3022,18 @@ COMMANDS = {
         None,
         {
             'include': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-attach-visibility': CommandMetadata(
+        'set-attach-visibility',
+        'frontend',
+        12,
+        'attach-visibility-v1',
+        ('frontend',),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'visible': CommandFieldMetadata(None, None),
         },
     ),
     'set-cell-pixels': CommandMetadata(
@@ -3938,6 +3965,7 @@ EVENTS = {
     'screen-closed': EventMetadata('screen-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'selection-changed': EventMetadata('selection-changed', 12, 'tree-selection-deltas-v1', ('subscribe-deltas',), 'emitted'),
     'settings-changed': EventMetadata('settings-changed', 12, 'settings-v1', ('subscribe',), 'emitted'),
     'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
     'status': EventMetadata('status', 5, None, ('subscribe',), 'emitted'),
@@ -3963,6 +3991,7 @@ EVENTS = {
     'workspace-changed': EventMetadata('workspace-changed', 12, 'workspace-metadata-v1', ('subscribe-deltas',), 'emitted'),
     'workspace-closed': EventMetadata('workspace-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'workspace-moved': EventMetadata('workspace-moved', 7, None, ('subscribe-deltas',), 'emitted'),
+    'workspace-presentation-changed': EventMetadata('workspace-presentation-changed', 12, 'tree-selection-deltas-v1', ('subscribe-deltas',), 'emitted'),
     'workspace-renamed': EventMetadata('workspace-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
 }
 

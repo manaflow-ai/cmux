@@ -528,9 +528,11 @@ async fn a_sub_session_retry_is_busy_while_its_parents_run_slots_are_full() {
 /// A queue entry as `enqueue` makes it, with `provenance`, that no task waits on.
 fn queued_prompt(prompt_id: &str, provenance: Option<Value>) -> crate::hub::queue::QueuedPrompt {
     let run = crate::hub::queue::PromptRun {
+        size: Default::default(),
         blocks: vec![json!({"type": "text", "text": "waits"})],
         display_parts: None,
         control: crate::hub::Control::Local,
+        cloud_mobile: false,
         trust_gate: false,
         provenance,
         agent: None,
@@ -552,6 +554,9 @@ fn queued_prompt(prompt_id: &str, provenance: Option<Value>) -> crate::hub::queu
         resume: false,
         steer: false,
         held: false,
+        awaiting_owner: false,
+        revision: 0,
+        declined: Default::default(),
         sent_now: false,
         joined: Arc::new(std::sync::Mutex::new(None)),
         requeued: false,

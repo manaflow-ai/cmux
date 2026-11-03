@@ -8,12 +8,10 @@ use crate::prompt::{
     CLOUD_WORKSPACE_DESCRIPTION, CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION,
     PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION, REACT_DESCRIPTION, REMEMBER_DESCRIPTION,
     REPLY_DESCRIPTION, SEND_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION,
-    SPAWN_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION,
-    VERSION_DESCRIPTION, WATCH_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
+    SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION, STOP_DESCRIPTION,
+    TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION, VERSION_DESCRIPTION, WATCH_DESCRIPTION,
+    ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
-
-/// Most attachments one `send` takes.
-pub const MAX_SEND_ATTACHMENTS: usize = 10;
 
 /// Shortest `sleep` (a turn costs more than a shorter wait saves).
 pub const SLEEP_MIN_SECONDS: u64 = 30;
@@ -49,7 +47,7 @@ pub const PLACES: [&str; 5] = [
 ];
 
 /// The `control` tool's actions.
-pub const CONTROL_ACTIONS: [&str; 10] = [
+pub const CONTROL_ACTIONS: [&str; 12] = [
     "status",
     "interrupt",
     "answer",
@@ -58,6 +56,8 @@ pub const CONTROL_ACTIONS: [&str; 10] = [
     "cancel",
     "restart",
     "priority",
+    "show",
+    "hide",
     "cap",
     "cloud",
 ];
@@ -140,7 +140,7 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
     }
     if !subagent && allows("spawn") {
         list.push(json!({"name": "spawn", "description": SPAWN_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "enum": PLACES, "description": "cloud: in the cloud (with `control cloud freestyle` its own Freestyle VM; cloud:small for design/docs/edits, cloud:medium for bun/node/go tests, cloud:large only when asked; Swift/Rust/app builds go to the Mac-mini fleet); local: on this Mac (its app, UI, screenshots, computer use, sign-ins). By default: the `control cloud` setting, and a task that needs the Mac stays here."}}, "required": ["tasks"], "additionalProperties": false}}));
+         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "enum": PLACES, "description": "cloud: in the cloud (with `control cloud freestyle` its own Freestyle VM; cloud:small for design/docs/edits, cloud:medium for bun/node/go tests, cloud:large only when asked; Swift/Rust/app builds go to the Mac-mini fleet); local: on this Mac (its app, UI, screenshots, computer use, sign-ins). By default: the `control cloud` setting, and a task that needs the Mac stays here."}, "harness": {"type": "string", "minLength": 1, "description": SPAWN_HARNESS_DESCRIPTION}, "model": {"type": "string", "minLength": 1, "description": SPAWN_MODEL_DESCRIPTION}}, "required": ["tasks"], "additionalProperties": false}}));
     }
     if !subagent && allows("tell") {
         list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,
@@ -188,7 +188,7 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
         list.push(json!({"name": "send", "description": SEND_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {
             "text": {"type": "string", "description": "The message, in Markdown."},
-            "attachments": {"type": "array", "items": text, "maxItems": MAX_SEND_ATTACHMENTS, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file, up to 50 MB each) or http(s) URLs (a link card)."},
+            "attachments": {"type": "array", "items": text, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file) or http(s) URLs (a link card)."},
             "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."}},
           "additionalProperties": false}}));
         list.push(json!({"name": "transcript", "description": TRANSCRIPT_DESCRIPTION,

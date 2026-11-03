@@ -249,8 +249,9 @@ async fn adoption_recovers_a_main_compaction_in_progress() {
 fn work_fields(w: &OpenWork) -> String {
     let permissions: std::collections::BTreeMap<_, _> = w.permissions.iter().collect();
     format!(
-        "{:?} {} {:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?} {:?} {:?} {:?} {:?} {:?}",
+        "{:?} {:?} {} {:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?} {:?} {:?} {:?} {:?} {:?}",
         w.turn.as_ref().map(|t| (t.0, &t.1, &t.2, &t.3, &t.4, t.5)),
+        w.turn_line,
         w.turn_carried,
         w.carry_next,
         w.turn_at,
@@ -308,7 +309,7 @@ async fn adoption_finds_a_carried_turn_whose_prompt_had_not_gone_out() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 
-    let started = json!({"turnId": "t2", "promptId": "p-late", "prompt": "late", "client": "cli", "carried": {"fromTurnId": "t1", "promptIds": ["p-late"]}});
+    let started = json!({"turnId": "t2", "promptId": "p-late", "prompt": "[coord] late", "promptLine": "coord: late", "client": "cli", "carried": {"fromTurnId": "t1", "promptIds": ["p-late"]}});
     log.push("mux", "turn_started", started, false);
     let steer = json!({"jsonrpc": "2.0", "id": 3, "method": "session/prompt", "params": {"sessionId": "own", "_meta": {"steer": true}}});
     log.push("out", "session/prompt", steer, true);
@@ -318,6 +319,8 @@ async fn adoption_finds_a_carried_turn_whose_prompt_had_not_gone_out() {
     assert_eq!(work.turn.as_ref().map(|t| t.1.as_str()), Some("t2"));
     assert_eq!(work.turn.as_ref().map(|t| t.5), Some(Control::Web), "raised before its start");
     assert!(work.turn_carried && work.carry_next.is_none());
+    // The line the turn showed (`prompt_line.rs`), which its record keeps for a restart.
+    assert_eq!(work.turn_line.as_deref(), Some("coord: late"));
     assert_eq!(work.prompt_request, None, "a steer is not a carried turn's prompt");
     assert_eq!(work.steers, vec![(json!(3), None)]);
     hub.shutdown_all().await;

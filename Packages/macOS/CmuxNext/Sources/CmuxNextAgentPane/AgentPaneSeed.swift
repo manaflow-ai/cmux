@@ -100,6 +100,9 @@ public final class AgentPaneSeedSource {
     public var workspaceContext = false
     /// A Sandboxed send that already ended, shown by this new page (``AgentPaneSeed/sandboxResult``).
     public var sandboxResult: AgentPaneSeed.SandboxResult?
+    /// Runs once, when ``take()`` hands the page the seed's draft (not when the source is made: a host
+    /// that fails before its handshake never takes it).
+    public var onDraftTaken: (() -> Void)?
 
     public init(limit: Duration = .seconds(1), _ read: @escaping @MainActor @Sendable () async -> AgentPaneSeed?) {
         self.read = read
@@ -150,6 +153,10 @@ public final class AgentPaneSeedSource {
             surface = value?.surface
         }
         let seed = value
+        if seed?.draft != nil, let taken = onDraftTaken {
+            onDraftTaken = nil
+            taken()
+        }
         value?.draft = nil
         value?.prompt = nil
         value?.showsHarnesses = false

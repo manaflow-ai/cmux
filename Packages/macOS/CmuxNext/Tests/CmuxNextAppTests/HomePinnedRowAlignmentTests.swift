@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-28 ("home and pinned are not aligned", screenshot): Home's house glyph and label
@@ -8,7 +9,7 @@ import Testing
 /// workspace rows below. Every row's leading glyph (Home's, a pin) sits in the one icon slot that starts
 /// where a text-only row's title does, and a title after a leading glyph (Home's, a pinned row's, a workspace row with
 /// an icon) starts at one text column: `SidebarStyle.leadingTextX`, the rule workspace rows already used.
-@MainActor @Suite(.serialized) struct HomePinnedRowAlignmentTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomePinnedRowAlignmentTests {
     nonisolated struct Case: CustomTestStringConvertible, Sendable {
         var density: SidebarDensity
         var minimal: SidebarMinimalMode

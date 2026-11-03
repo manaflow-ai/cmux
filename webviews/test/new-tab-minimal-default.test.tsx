@@ -13,6 +13,8 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
 import { newTabHost } from "../src/agent-session/acpmux/NewTabPage";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import {
   DEFAULT_NEW_TAB_TEMPLATE,
   PAGE_STYLES,
@@ -35,6 +37,8 @@ const keys = [
   "IS_REACT_ACT_ENVIRONMENT",
   "Node",
   "Element",
+  "MutationObserver",
+  "getSelection",
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
@@ -58,11 +62,11 @@ beforeAll(() => {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
-    Node: window.Node,
     Element: window.Element,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   host = window.document.getElementById("root")!;
 });
@@ -85,7 +89,7 @@ type RenderOptions = {
 };
 
 async function render(
-  template: ScreenTemplate,
+  template: ScreenTemplate | undefined,
   widgets: readonly PageWidget[] | undefined,
   startCwd?: string,
   options: RenderOptions = {},
@@ -96,8 +100,7 @@ async function render(
   await act(async () =>
     root.render(
       <NewTabScreen
-        template={template}
-        pageWidgets={shownPageWidgets(template, widgets)}
+        {...(template ? { template, pageWidgets: shownPageWidgets(template, widgets) } : {})}
         now={MORNING}
         snapshot={noChat(manySessions(12))}
         lastAgent="claude"
@@ -152,6 +155,23 @@ test("by default Minimal is the composer alone", async () => {
     // No time-of-day greeting.
     expect(host.querySelector(".nt-greeting")).toBeNull();
     expect(host.textContent).not.toMatch(/Good (morning|afternoon|evening)/);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("an unset NewTabScreen template uses Minimal instead of the old Default stage", async () => {
+  const root = await render(undefined, undefined);
+  try {
+    expect(parts()).toEqual({
+      minimal: true,
+      headline: null,
+      stage: 0,
+      projects: 0,
+      actions: 0,
+      chats: 0,
+      strip: 1,
+    });
   } finally {
     await act(async () => root.unmount());
   }
@@ -222,11 +242,10 @@ test("a project picked in the headline is the folder the composer starts its cha
     expect(strip()).toContain("manaflow");
     expect(strip()).not.toContain("atlas");
     // And the prompt is asked there.
-    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    const handle = host.querySelector<MarkdownFieldElement>(".nt-field")!.acpmuxMarkdownField!;
     await act(async () => {
-      setValue.call(field, "what changed?");
-      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+      handle.focus();
+      handle.type("what changed?");
     });
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
     expect(asked.length).toBe(1);

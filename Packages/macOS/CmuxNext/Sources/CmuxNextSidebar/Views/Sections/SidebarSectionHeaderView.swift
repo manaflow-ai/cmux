@@ -87,7 +87,7 @@ final class SidebarSectionHeaderView: NSView {
         chevron.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: b.midY, side: chevronSide)
         // The label cell draws inside its frame: the text starts at the inset, with workspace titles.
         let nameX = inset - SidebarStyle.labelCellPadding
-        name.frame = NSRect(x: nameX, y: (b.height - th) / 2, width: max(0, chevron.frame.minX - Metrics.space2 - nameX), height: th)
+        name.frame = NSRect(x: nameX, y: SidebarStyle.textY(name, centerY: b.midY), width: max(0, chevron.frame.minX - Metrics.space2 - nameX), height: th)
     }
 
     override func viewDidChangeEffectiveAppearance() {

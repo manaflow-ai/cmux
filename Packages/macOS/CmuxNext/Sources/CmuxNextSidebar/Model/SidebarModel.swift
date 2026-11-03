@@ -11,9 +11,6 @@ public import Observation
 /// the mock runs standalone.
 @Observable @MainActor
 public final class SidebarModel {
-    /// Effective New Workspace keycaps supplied by the app action registry; nil when unbound.
-    public var newWorkspaceShortcut: String?
-
     /// Pinned area first (optional), then one section per machine. A set is
     /// a structural change (`sectionsRevision` moves, the list reloads); a row
     /// content change goes through `patchWorkspaces` and reloads nothing.
@@ -230,13 +227,13 @@ public final class SidebarModel {
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
     public var showsTimestamps = false
-    /// `sidebar.showColors`: off, rows and group headers draw no workspace or group color.
+    /// `sidebar.showColors` (off: no workspace or group color) and `workspaceColors.indicatorStyle`.
     public var showsColors = true
+    public var colorIndicator: WorkspaceColorIndicatorStyle = .dot
     /// This Mac's rows carry its machine mark too (`sidebar.showLocalMachine`, off by default).
     public var showsLocalMachine = false
-    /// What a collapsed group header shows beside its loading spinner
-    /// (`sidebar.groupHeader.*`, all off by default; `sidebar.detailedStatusIcons`
-    /// adds its members' other states).
+    /// What a collapsed group header shows beside its loading spinner (`sidebar.groupHeader.*`,
+    /// all off by default; `sidebar.detailedStatusIcons` adds its members' other states).
     public var groupHeaderDetails = GroupHeaderDetails()
     /// `sidebar.groupBy` and Group by Status's folds and held row (`SidebarModel+Grouping`).
     public var grouping = SidebarGrouping()
@@ -332,8 +329,9 @@ public final class SidebarModel {
     /// The sidebar document's drag half (sidebar-v2 S5), set by the App
     /// while the document is active.
     @ObservationIgnored public var docDrag: SidebarDocDrag?
-    /// The favicon at a page icon address, when the App has it (it fetches a missing one); link rows draw it.
-    public static var itemFavicon: ((String) -> SidebarFavicon?)?
+    /// The favicon at a page icon address, when the App has it (it fetches a missing one); link rows draw it. Set by
+    /// the App's bridge from its own favicon store.
+    @ObservationIgnored public var itemFavicon: ((String) -> SidebarFavicon?)?
     /// Posted when favicons arrived: every list draws its link rows again.
     public static let itemFaviconsChanged = Notification.Name("cmux.sidebar.itemFaviconsChanged")
 
@@ -377,7 +375,10 @@ public final class SidebarModel {
 
     /// Emits an intent to `onIntent`, or applies it locally when unset.
     public func send(_ intent: SidebarIntent) {
-        if let onIntent { onIntent(intent) } else { apply(intent) }
+        guard let onIntent else { return apply(intent) }
+        // A remote group (`SidebarSection.wrappedAsHostGroup`) is no document group: its daemon takes the machine's.
+        let end = { [sections] (machine: MachineID) in sections.first { $0.id == .machine(machine) }?.documentNodeCount ?? 0 }
+        if let resolved = intent.resolvingHostGroup(end: end) { onIntent(resolved) }
     }
 
     /// Applies an intent to local state. Call from `onIntent` for optimistic
@@ -387,7 +388,7 @@ public final class SidebarModel {
         case let .select(id):
             activeWorkspaceID = id
             selection = [id]
-        case .selectTab:
+        case .selectTab, .closeTab:
             break
         case let .closeGroup(id):
             let ids = group(id)?.workspaces.map(\.id) ?? []
@@ -432,7 +433,7 @@ public final class SidebarModel {
     public func setSections(_ new: [SidebarSection]) {
         SidebarPerfCounters.add(.sectionSets) // each set arranges and compares every row
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
-        let shown = docDrag.flatMap { drag in SidebarDocStore.current?.shown.map { $0.arrange(new, drag: drag) } } ?? new
+        let shown = docDrag.flatMap { drag in drag.document?.shown.map { $0.arrange(new, drag: drag) } } ?? new
         sections = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections) // the setter skips an unchanged list
     }
 
@@ -563,7 +564,7 @@ public final class SidebarModel {
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         detailedStatus = preferences.detailedStatusIcons
         showsTimestamps = preferences.showTimestamps
-        showsColors = preferences.showColors
+        (showsColors, colorIndicator) = (preferences.showColors, preferences.workspaceColorIndicator)
         showsLocalMachine = preferences.showLocalMachine
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
                                                 unreadCount: preferences.groupHeaderUnreadCount)
@@ -577,7 +578,7 @@ public final class SidebarModel {
     func listOptions() -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
-        (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabs.value, SidebarTunables.doneFold.value, SidebarTunables.rowLimit)
+        (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabsOn, SidebarTunables.doneFold.value, SidebarTunables.rowLimit)
         o.activeWorkspaceID = activeWorkspaceID
         // A group opened by a structural set (another client) forgets its revealed members.
         revealedMembers = revealedMembers.filter { group($0.key)?.isCollapsed == true }
@@ -586,11 +587,11 @@ public final class SidebarModel {
         (o.minimal, o.expanded) = (minimal, expanded)
         o.detailedStatus = detailedStatus
         o.showsTimestamps = showsTimestamps
-        o.showsColors = showsColors
+        (o.showsColors, o.colorIndicator) = (showsColors, colorIndicator)
         o.flattensMachines = !groupsByComputer
         if o.flattensMachines {
             for section in sections {
-                guard let machine = section.machine, machine.kind != .local,
+                guard let machine = section.machine, machine.kind != .local, !machine.holdsStatusLabel,
                       let status = Strings.attentionStatus(machine.status) else { continue }
                 o.machineStatusLabels[machine.id] = status
             }

@@ -106,7 +106,10 @@ final class TabDragSession: NSObject {
         self.drag = drag
         focusDragBegan(item, from: pane)
         ghost.show()
-        drag.link = ghost.makeFrameClient(owner: "TabDrag.ghost") { [weak self, weak drag] tick in
+        drag.link = ghost.makeFrameClient(owner: "TabDrag.ghost", settle: { [weak self, weak drag] in
+            guard let self, let drag else { return }
+            self.settleGhost(drag)
+        }) { [weak self, weak drag] tick in
             guard let self, let drag else { return false }
             return self.tick(drag, elapsed: tick.elapsed)
         }

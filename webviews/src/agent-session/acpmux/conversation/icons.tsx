@@ -2,6 +2,8 @@
 // (src/conversation/icons.tsx). All draw in currentColor in a 16px box
 // unless noted, matching the stroke weight of src/shell/icons.tsx.
 import type { CSSProperties, ReactNode } from "react";
+// Spinner's own default (the dot hidden, the ring turning), wherever it draws (spinner.css).
+import "./spinner.css";
 
 export type CvIconProps = {
   size?: number;
@@ -140,11 +142,14 @@ export const Undo = (p: CvIconProps) => (
   </Svg>
 );
 
-/// A counterclockwise arrow: send the prompt again.
+/// A counterclockwise arrow: send the prompt again. The arc runs on into the arrowhead's corner
+/// (2.5, 5.56), so the head joins the line instead of floating off its end, and it spans Copy's
+/// 11px (2.5-13.5) beside it (Leo, 2026-10-27: "Looks like a, like a mangled little corpse on that
+/// arrow bit").
 export const Retry = (p: CvIconProps) => (
   <Svg {...p}>
-    <path d="M3.25 8a4.75 4.75 0 1 0 1.4-3.36" />
-    <path d="M3.25 2.75v2.5h2.5" />
+    <path d="M2.5 8a5.5 5.5 0 1 0 5.5-5.5 6 6 0 0 0-4.12 1.67L2.5 5.56" />
+    <path d="M2.5 2.5v3.06h3.06" />
   </Svg>
 );
 
@@ -262,9 +267,11 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
 );
 
 /** The running mark of a transcript row. Agent work (the default) draws the working look the
- * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning ring,
+ * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning arc,
  * or a still dot while the row's words shimmer. `loading` (a check or a page loading, not agent
- * work) always draws the turning ring. `cv-spinner` turns the ring on the shared clock. */
+ * work) always draws the turning arc. Agent work's spinner is the settled thin arc, never the macOS
+ * activity indicator's segmented spokes (#29903 swapped them in; Leo 2026-11-01: "why the f*** did
+ * you make the spinner into this????"). `cv-spinner` turns it on the shared clock. */
 export const Spinner = ({
   size = 16,
   className,
@@ -390,8 +397,9 @@ export const ArxivMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** ⌘ glyph of computer-use / app tool rows ("Inspect the Atlas Fixtures window"). */
-export const CommandKey = (p: CvIconProps) => (
+/** Four small rings joined by one diagonal: a collapsed run that did more than one kind of work
+ *  ("Edited 2 files, read 2 files, ran 2 commands"). */
+export const MultiTool = (p: CvIconProps) => (
   <Svg strokeWidth={1.1} {...p}>
     <circle cx="4.5" cy="4.5" r="2.05" />
     <circle cx="11.5" cy="4.5" r="2.05" />

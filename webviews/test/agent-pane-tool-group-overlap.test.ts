@@ -22,6 +22,10 @@ await requireBrowserLane("agent-pane-tool-group-overlap.test.ts", async () => {
     await vite.listen();
     browser = await chromium.launch({ headless: true });
     await warmGalleryFrame(vite, entry, { browser, params: { variant: "mixed" } });
+    // The copy test opens its own entry. Unwarmed, the dev server's dependency optimizer bundles
+    // what that entry's first load discovered and reloads the page about a second in: after the
+    // test has opened the tool row, so the box it hovers detaches and the row comes back closed.
+    await warmGalleryFrame(vite, "agent-pane.copy-controls", { browser, params: { variant: "output" } });
   });
   afterAll(async () => {
     await browser?.close();

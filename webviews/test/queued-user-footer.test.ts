@@ -3,6 +3,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { agentPaneTheme } from "../src/gallery/theme/web";
 import { deriveTokens, GHOSTTY_DEFAULT, rgbHex } from "../src/gallery/theme/tokens";
+import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -232,7 +233,10 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
             console.log("QUEUE_FOOTER_GEOMETRY", JSON.stringify({ width, length, themeName, before, after }));
             expect(before.footerGap).toBeGreaterThanOrEqual(0);
             expect(Math.abs(before.bubbleRight - before.rowRight)).toBeLessThanOrEqual(1);
-            expect(Math.abs(before.footerRight - before.bubbleRight)).toBeLessThanOrEqual(1);
+            // The row's 28 controls overhang the bubble's edge by their glyph inset, so their glyphs
+            // end on it (design/grid.md 5.5).
+            const overhang = (gridLength("transcript-action-control") - gridLength("transcript-icon-box")) / 2;
+            expect(Math.abs(before.footerRight - overhang - before.bubbleRight)).toBeLessThanOrEqual(1);
             for (const key of [
               "bubbleLeft",
               "bubbleRight",

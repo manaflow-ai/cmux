@@ -29,6 +29,10 @@ public final class RegistryPaletteProvider: PaletteProvider {
     /// Opens the shortcut recorder for an action (the Actions menu's Edit
     /// Keyboard Shortcut…); nil hides that command.
     public var editShortcut: (@MainActor (ActionID) -> Void)?
+    /// Rows this provider built (a `PaletteItem` made for an action), for the reopen tests.
+    private(set) var builtRows = 0
+    /// The rows kept across opens: the palette's own (`PaletteController.makeRegistryProvider`), else this provider's.
+    var rows = RegistryPaletteRows()
 
     public init(registry: ActionRegistry, includeUnbound: Bool = RegistryPaletteProvider.defaultIncludeUnbound) {
         self.registry = registry
@@ -52,93 +56,144 @@ public final class RegistryPaletteProvider: PaletteProvider {
 
     public func items() async -> [PaletteItem] { makeItems() }
 
+    /// The command rows, listed in the palette's order. Each action's shown state is read now; a row whose state is
+    /// the one `rows` kept is not built again, and when no listed row changed the last arrangement is listed as it
+    /// was (`RegistryPaletteRows`).
     public func makeItems() -> [PaletteItem] {
+        let kept = rows
+        kept.context.update(from: self)
         var items: [PaletteItem] = []
-        var tiers: [String: PaletteTier] = [:]
+        var tiers: [PaletteTier] = []
+        var listed: [RegistryPaletteRows.Listed] = []
+        var eligible = Set<ActionID>()
         // Localized once per open, not once per action (hundreds of rows).
         let unbound = PaletteStrings.unbound
-        let copyActionID = PaletteStrings.copyActionID
-        let open = PaletteStrings.open
-        let runCommand = PaletteStrings.runCommand
-        let editTitle = PaletteStrings.editShortcut
-        let editShortcut = editShortcut
+        var labels: RowLabels?
         var sections: [ActionCategory: PaletteSection] = [:]
-        func section(_ category: ActionCategory) -> PaletteSection {
-            if let cached = sections[category] { return cached }
-            let made = Self.section(for: category)
-            sections[category] = made
-            return made
-        }
         for entry in registry.entries {
             let descriptor = entry.descriptor
-            guard descriptor.isPaletteVisible, !hiddenIDs.contains(descriptor.id), registry.isAvailable(descriptor.id) else { continue }
+            let actionID = descriptor.id
+            guard descriptor.isPaletteVisible, !hiddenIDs.contains(actionID), registry.isAvailable(actionID) else { continue }
             // An override is decided when its row runs (`PaletteEffect.deferred`), never on open:
             // Rename Tab and Rename Workspace read every tab and workspace, an action page builds
             // its page. Declining there (nothing to rename) falls back to the action itself.
-            let override = effectOverrides[descriptor.id]
-            guard entry.isBound || override != nil || includeUnbound else { continue }
-            // A row whose run would refuse for the focused object (a chat control that chat lacks) says so here.
-            let paletteReason = override == nil ? registry.action(for: descriptor.id)?.paletteUnavailableReason?() : nil
-            let isEnabled = override != nil || (registry.canPerform(descriptor.id) && paletteReason == nil)
-            let fallback = defaultEffect(for: descriptor)
-            let effect = override.map { decide in PaletteEffect.deferred { decide() ?? fallback } } ?? fallback
-            let actionID = descriptor.id
-            var item = PaletteItem(
-                id: "action:\(actionID.rawValue)",
-                // A toggle that opts in (`ActionTargetTitles.setPaletteTitle`) reads as the change it makes.
-                title: registry.action(for: actionID)?.paletteTitle?() ?? descriptor.title,
-                // A disabled row says why (Chromium without a CEF runtime).
-                subtitle: isEnabled ? nil : registry.unavailableReason(for: actionID) ?? paletteReason,
-                accessory: entry.isBound || override != nil ? nil : unbound,
-                // A toggle that opts in (`ActionTargetTitles.setPaletteState`) shows a check while it is on.
-                symbol: registry.action(for: actionID)?.paletteState?() == true ? "checkmark.circle.fill" : descriptor.symbol,
-                keycaps: registry.shortcutKeycaps(for: actionID),
-                section: section(descriptor.category),
-                keywords: descriptor.keywords,
-                isEnabled: isEnabled,
-                primary: PaletteCommand(
-                    id: "run",
-                    title: descriptor.arguments.contains(where: \.isRequired) ? open : runCommand,
-                    symbol: "return",
-                    effect: effect
-                ),
-                secondary: (editShortcut.map { edit in
-                    [PaletteCommand(id: "editShortcut", title: editTitle, symbol: "keyboard", effect: .performKeepingOpen { edit(actionID) })]
-                } ?? []) + [
-                    PaletteCommand(
-                        id: "copyID",
-                        title: copyActionID,
-                        symbol: "doc.on.doc",
-                        effect: .perform { PaletteClipboard.copy(actionID.rawValue) }
-                    ),
-                ],
-                frecencyKey: "action:\(actionID.rawValue)",
-                actionID: actionID
-            )
-            item.actionRefs = [PaletteActionRef(actionID, isDestructive: descriptor.isDestructive)]
-            item.ball = PaletteGroupColor.ball(forAction: actionID)
-            item.suggestedRank = descriptor.paletteSuggestionRank
-            item.keywords += ActionDescriptor.paletteAliases[actionID] ?? []
-            item.rankBias = Self.rankBias(for: descriptor.paletteTier)
-            tiers[item.id] = descriptor.paletteTier
+            let overridden = effectOverrides[actionID] != nil
+            guard entry.isBound || overridden || includeUnbound else { continue }
+            let face = face(of: entry, overridden: overridden, unbound: unbound)
+            if !descriptor.isDebugOnly && (entry.isBound || overridden) { eligible.insert(actionID) }
+            listed.append(RegistryPaletteRows.Listed(id: actionID, face: face))
+            tiers.append(descriptor.paletteTier)
+            if let row = kept.rows[actionID], row.face == face {
+                items.append(row.item)
+                continue
+            }
+            if labels == nil { labels = RowLabels() }
+            let section = sections[descriptor.category] ?? Self.section(for: descriptor.category)
+            sections[descriptor.category] = section
+            let item = makeRow(descriptor, face: face, section: section, labels: labels ?? RowLabels(), context: kept.context)
+            kept.rows[actionID] = (face, item)
+            builtRows += 1
             items.append(item)
         }
-        let arranged = Self.arranged(items, tiers: tiers)
-        return curatesEmptyRoot ? curatedRootItems(arranged) : arranged
+        if let last = kept.arranged[curatesEmptyRoot], last.listed == listed { return last.items }
+        let arranged = Self.arranged(items, tierList: tiers)
+        let result = curatesEmptyRoot ? curatedRootItems(arranged, eligible: eligible) : arranged
+        kept.arranged[curatesEmptyRoot] = (listed, result)
+        return result
+    }
+
+    /// What `entry`'s row shows now: its title, why it cannot run, its shortcut.
+    private func face(of entry: ActionEntry, overridden: Bool, unbound: String) -> RegistryPaletteRows.Face {
+        let descriptor = entry.descriptor
+        let action = registry.action(for: descriptor.id)
+        // A row whose run would refuse for the focused object (a chat control that chat lacks) says so here.
+        let paletteReason = overridden ? nil : action?.paletteUnavailableReason?()
+        let runs = overridden || (registry.canPerform(descriptor.id) && paletteReason == nil)
+        // A row a person can run past its reason (Sign In, then the action: ``ActionRecovery``) stays enabled.
+        let recovery = runs || paletteReason != nil ? nil : registry.personRecovery(for: descriptor.id)
+        let isEnabled = runs || recovery != nil
+        return RegistryPaletteRows.Face(
+            // A toggle that opts in (`ActionTargetTitles.setPaletteTitle`) reads as the change it makes.
+            title: action?.paletteTitle?() ?? descriptor.title,
+            // A disabled row says why (Chromium without a CEF runtime).
+            subtitle: recovery?.note ?? (isEnabled ? nil : registry.unavailableReason(for: descriptor.id) ?? paletteReason),
+            accessory: entry.isBound || overridden ? nil : unbound,
+            // A toggle that opts in (`ActionTargetTitles.setPaletteState`) shows a check while it is on.
+            symbol: action?.paletteState?() == true ? "checkmark.circle.fill" : descriptor.symbol,
+            keycaps: registry.shortcutKeycaps(for: descriptor.id),
+            keywords: descriptor.keywords,
+            isEnabled: isEnabled,
+            isBound: entry.isBound,
+            overridden: overridden,
+            editsShortcut: editShortcut != nil
+        )
+    }
+
+    /// The localized command titles a built row uses, read once per open that builds any row.
+    private struct RowLabels {
+        let copyActionID = PaletteStrings.copyActionID
+        let open = PaletteStrings.open
+        let runCommand = PaletteStrings.runCommand
+        let editShortcut = PaletteStrings.editShortcut
+    }
+
+    /// `descriptor`'s row showing `face`. Its commands read the palette's state when they run (`context`), so the row
+    /// can be kept for later opens.
+    private func makeRow(_ descriptor: ActionDescriptor, face: RegistryPaletteRows.Face, section: PaletteSection, labels: RowLabels,
+                         context: RegistryPaletteRows.RunContext) -> PaletteItem {
+        let actionID = descriptor.id
+        let fallback = Self.defaultEffect(for: descriptor, registry: registry, context: context)
+        let effect = face.overridden ? PaletteEffect.deferred { context.effectOverrides[actionID]?() ?? fallback } : fallback
+        var item = PaletteItem(
+            id: "action:\(actionID.rawValue)",
+            title: face.title,
+            subtitle: face.subtitle,
+            accessory: face.accessory,
+            symbol: face.symbol,
+            keycaps: face.keycaps,
+            section: section,
+            keywords: face.keywords,
+            isEnabled: face.isEnabled,
+            primary: PaletteCommand(
+                id: "run",
+                title: descriptor.arguments.contains(where: \.isRequired) ? labels.open : labels.runCommand,
+                symbol: "return",
+                effect: effect
+            ),
+            secondary: (face.editsShortcut ? [
+                PaletteCommand(id: "editShortcut", title: labels.editShortcut, symbol: "keyboard",
+                               effect: .performKeepingOpen { context.editShortcut?(actionID) }),
+            ] : []) + [
+                PaletteCommand(
+                    id: "copyID",
+                    title: labels.copyActionID,
+                    symbol: "doc.on.doc",
+                    effect: .perform { PaletteClipboard.copy(actionID.rawValue) }
+                ),
+            ],
+            frecencyKey: "action:\(actionID.rawValue)",
+            actionID: actionID
+        )
+        item.actionRefs = [PaletteActionRef(actionID, isDestructive: descriptor.isDestructive)]
+        item.ball = PaletteGroupColor.ball(forAction: actionID)
+        item.suggestedRank = descriptor.paletteSuggestionRank
+        item.keywords += ActionDescriptor.paletteAliases[actionID] ?? []
+        item.rankBias = Self.rankBias(for: descriptor.paletteTier)
+        return item
     }
 
     /// Decided when the row runs (`PaletteEffect.deferred`): an action
     /// with arguments builds its argument page, target list included, only
-    /// then, never for every row on open.
-    private func defaultEffect(for descriptor: ActionDescriptor) -> PaletteEffect {
-        let registry = registry
+    /// then, never for every row on open, with the targets of the open it runs from.
+    private static func defaultEffect(for descriptor: ActionDescriptor, registry: ActionRegistry,
+                                      context: RegistryPaletteRows.RunContext) -> PaletteEffect {
         let id = descriptor.id
         guard descriptor.arguments.contains(where: \.isRequired) else {
             return .perform { registry.perform(id, invocation: ActionInvocation()) }
         }
-        return .deferred { [targets, capturedTargets, argumentPreview, argumentSwatches] in
-            PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: targets, captured: capturedTargets,
-                                preview: argumentPreview, swatches: argumentSwatches)
+        return .deferred {
+            PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: context.targets, captured: context.capturedTargets,
+                                preview: context.argumentPreview, swatches: context.argumentSwatches)
                 .effect(collected: ActionInvocation())
         }
     }

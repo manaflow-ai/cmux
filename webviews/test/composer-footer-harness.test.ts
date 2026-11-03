@@ -88,7 +88,8 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
       }));
       await page.close();
       expect(structure.footer).toBe(true);
-      expect(structure.inner).toBe(structure.look !== "codex");
+      // Both looks draw Claude's grid (composerLook.ts).
+      expect(structure.inner).toBe(true);
     });
 
     test(`${variant}: the quiet row has no harness label`, async () => {

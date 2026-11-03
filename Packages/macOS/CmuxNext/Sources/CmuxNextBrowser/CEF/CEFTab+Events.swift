@@ -30,9 +30,9 @@ extension CEFTab {
             }
             if !loading {
                 clearTitleBeforeCommit()
-                // A load that ends without OnLoadEnd (stopped, aborted) also
-                // leaves the page area to its document.
-                documentDidSettle()
+                // A load that ends without OnLoadEnd (stopped, aborted) also leaves the page area to its document,
+                // through its background read like a load end (`documentDidPaint`; bounded wait).
+                documentDidPaint()
             }
         case .loadStart(_, let url, let fromPost):
             if navigation == nil || !state.isLoading {
@@ -56,14 +56,13 @@ extension CEFTab {
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
-            documentDidSettle()
-            samplePageBackdrop()
+            // Read-then-settle, as at the first paint (one read per document), and a fresh read after it.
+            documentDidFinishLoad()
             restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.
             syncSecurityFromChromium()
-            // Extensions finish loading after the first window exists and
-            // badges are per page; refresh cheaply on each document load.
-            refreshExtensionActions()
+            // Extensions load after the first window and badges are per page: read on each load, at once only on screen.
+            runtime.extensionActionReads.refresh(self)
         case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
             guard let navigation else { return }
@@ -104,7 +103,7 @@ extension CEFTab {
             emit(.close)
         case .navigationReroute(_, let url, _): if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
-        case .externalURL(_, let url, true): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, ask: enqueuePrompt) }
+        case .externalURL(_, let url, let userGesture): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, userGesture: userGesture, ask: enqueuePrompt) }
         case .keyUnhandled(_, let keyCode, let shift):
             if keyCode == 0x1B {
                 emit(.unhandledEscape)
@@ -189,7 +188,7 @@ extension CEFTab {
                                                     userGesture: gesture == .agent)
             return try await result.value()
         }
-        var params: [String: Any] = ["expression": script, "returnByValue": true, "awaitPromise": true]
+        var params: [String: any Sendable] = ["expression": script, "returnByValue": true, "awaitPromise": true]
         // An agent's script runs as a user gesture: its `cmux browser click` on a target=_blank
         // link or a window.open button opens the tab instead of hitting the popup blocker
         // (browser use thread, 2026-10-19). cmux's own scripts never do (`BrowserScriptGesture`).
@@ -205,8 +204,9 @@ extension CEFTab {
             }
             params["contextId"] = context
         }
-        let json = try await runtime.devTools(browserID, method: "Runtime.evaluate", params: params)
-        return try CEFDevToolsResult.evaluation(json)
+        // An agent's script and its value can be megabytes: encoded and parsed off the main actor.
+        let json = try await runtime.devTools(browserID, method: "Runtime.evaluate", payload: params)
+        return try await CEFDevToolsResult.parsedEvaluation(json)
     }
 
     /// Applies a page title now, or keeps the latest for the end of the
@@ -226,11 +226,12 @@ extension CEFTab {
         }
     }
 
-    /// Runs a DevTools protocol method on this tab in process (diagnostics
-    /// and trusted-input tests). Returns the method's JSON result.
+    /// Runs a DevTools protocol method on this tab in process (an app page's script batches and replies,
+    /// diagnostics, trusted-input tests). Returns the method's JSON result. Large parameters are encoded off the
+    /// main actor, in this tab's call order.
     public func devTools(method: String, params: [String: any Sendable]) async throws -> String {
         guard let browserID, !isClosed else { throw BrowserTabError.closed }
-        return try await runtime.devTools(browserID, method: method, params: params)
+        return try await runtime.devTools(browserID, method: method, payload: params)
     }
 
     // MARK: Find
@@ -252,17 +253,18 @@ extension CEFTab {
 
     func refreshExtensionActions() {
         guard let browserID, let shim = runtime.shim, runtime.forkAPIVersion >= 1 else { return }
-        let json = shim.takeString(shim.extActions(browserID, CEFExtensionAction.iconPixels)) ?? "[]"
-        let actions = CEFExtensionAction.decodeList(json)
+        let actions = CEFExtensionAction.decodeList(shim.takeString(shim.extActions(browserID, CEFExtensionAction.iconPixels)) ?? "[]")
         if actions != extensionActions { extensionActions = actions }
     }
+
+    /// An extension command names this tab (the CLI, the palette): its store refreshes, and actions that changed while it was hidden are read now.
+    public func readExtensionsForCommand() { extensionStore.refresh(); runtime.extensionActionReads.readIfStale(self) }
 
     public var extensionStore: BrowserExtensionStore { runtime.extensionStores.readyStore(for: profileID) }
 
     public func runExtensionAction(_ id: String, anchor: CGRect) {
         guard let browserID else {
-            // The click came before the page's browser exists (right after
-            // launch): run it from `attach(browser:)`.
+            // A click before the page's browser exists (right after launch) runs from `attach(browser:)`.
             pendingExtensionAction = (id, anchor)
             return
         }

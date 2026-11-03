@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 775,
-    "mcp": 691
+    "verbs": 794,
+    "mcp": 709
   },
   "nouns": [
     {
@@ -12,6 +12,13 @@
           "command": "cmux accounts connect",
           "title": "Connect Account to CodeRouter…",
           "id": "accounts.connect",
+          "mcp": false,
+          "mcpTool": null
+        },
+        {
+          "command": "cmux accounts github-connect",
+          "title": "Connect GitHub",
+          "id": "accounts.githubConnect",
           "mcp": false,
           "mcpTool": null
         },
@@ -131,6 +138,27 @@
           "id": "palette.forkAgentConversationLeft",
           "mcp": true,
           "mcpTool": "app_agent_fork_conversation_to_left"
+        },
+        {
+          "command": "cmux agent fork-conversation-to-new-column-left",
+          "title": "Fork Conversation to New Column Left",
+          "id": "palette.forkAgentConversationNewColumnLeft",
+          "mcp": true,
+          "mcpTool": "app_agent_fork_conversation_to_new_column_left"
+        },
+        {
+          "command": "cmux agent fork-conversation-to-new-column-right",
+          "title": "Fork Conversation to New Column Right",
+          "id": "palette.forkAgentConversationNewColumnRight",
+          "mcp": true,
+          "mcpTool": "app_agent_fork_conversation_to_new_column_right"
+        },
+        {
+          "command": "cmux agent fork-conversation-to-new-row",
+          "title": "Fork Conversation to New Row",
+          "id": "palette.forkAgentConversationNewRow",
+          "mcp": true,
+          "mcpTool": "app_agent_fork_conversation_to_new_row"
         },
         {
           "command": "cmux agent fork-conversation-to-new-tab",
@@ -259,6 +287,13 @@
           "mcpTool": "app_agent_reveal_cwd_in_finder"
         },
         {
+          "command": "cmux agent run-in-background",
+          "title": "Run in Background",
+          "id": "agentPane.runInBackground",
+          "mcp": true,
+          "mcpTool": "app_agent_run_in_background"
+        },
+        {
           "command": "cmux agent set-effort",
           "title": "Set Agent Chat Effort…",
           "id": "agentPane.setEffort",
@@ -278,6 +313,20 @@
           "id": "agentPane.setModel",
           "mcp": true,
           "mcpTool": "app_agent_set_model"
+        },
+        {
+          "command": "cmux agent show-background-tasks",
+          "title": "Show Background Tasks in Session Info",
+          "id": "agentPane.showBackgroundTasks",
+          "mcp": true,
+          "mcpTool": "app_agent_show_background_tasks"
+        },
+        {
+          "command": "cmux agent show-subagents",
+          "title": "Show Subagents in Session Info",
+          "id": "agentPane.showSubagents",
+          "mcp": true,
+          "mcpTool": "app_agent_show_subagents"
         },
         {
           "command": "cmux agent stop-computer-use",
@@ -334,6 +383,13 @@
           "id": "agentPane.togglePreview",
           "mcp": true,
           "mcpTool": "app_agent_toggle_preview"
+        },
+        {
+          "command": "cmux agent toggle-queueing",
+          "title": "Toggle Prompt Queueing",
+          "id": "agentPane.toggleQueueing",
+          "mcp": true,
+          "mcpTool": "app_agent_toggle_queueing"
         },
         {
           "command": "cmux agent toggle-session-info",
@@ -411,6 +467,13 @@
           "mcpTool": null
         },
         {
+          "command": "cmux app merge-all-windows",
+          "title": "Merge All Windows",
+          "id": "window.mergeAll",
+          "mcp": true,
+          "mcpTool": "app_merge_all_windows"
+        },
+        {
           "command": "cmux app new-incognito-window",
           "title": "New Incognito Window",
           "id": "newIncognitoWindow",
@@ -465,6 +528,13 @@
           "id": "app.command.run",
           "mcp": true,
           "mcpTool": "app_run_command"
+        },
+        {
+          "command": "cmux app settings",
+          "title": "Settings…",
+          "id": "openSettings",
+          "mcp": true,
+          "mcpTool": "app_settings"
         },
         {
           "command": "cmux app show-pane",
@@ -1492,6 +1562,13 @@
           "mcpTool": "app_cloud_setup_github"
         },
         {
+          "command": "cmux cloud share-machine",
+          "title": "Share Machine…",
+          "id": "cloudShareMachine",
+          "mcp": true,
+          "mcpTool": "app_cloud_share_machine"
+        },
+        {
           "command": "cmux cloud sign-in",
           "title": "Sign In",
           "id": "palette.auth.signIn",
@@ -1898,6 +1975,13 @@
           "mcpTool": "app_home_enable_channels"
         },
         {
+          "command": "cmux home hide",
+          "title": "Delete Conversation from List",
+          "id": "home.hideConversation",
+          "mcp": true,
+          "mcpTool": "app_home_hide"
+        },
+        {
           "command": "cmux home invite",
           "title": "Invite to cmux-next…",
           "id": "home.invite",
@@ -1966,6 +2050,13 @@
           "id": "home.sendMessage",
           "mcp": true,
           "mcpTool": "app_home_send"
+        },
+        {
+          "command": "cmux home show-hidden",
+          "title": "Show Hidden Conversations",
+          "id": "home.showHiddenConversations",
+          "mcp": true,
+          "mcpTool": "app_home_show_hidden"
         },
         {
           "command": "cmux home switch-view",
@@ -2494,6 +2585,13 @@
           "id": "pane.toggleTabBar",
           "mcp": true,
           "mcpTool": "app_pane_toggle_tab_bar"
+        },
+        {
+          "command": "cmux pane toggle-vertical-tabs",
+          "title": "Turn On Vertical Tabs",
+          "id": "tabs.verticalTabs.toggle",
+          "mcp": true,
+          "mcpTool": "app_pane_toggle_vertical_tabs"
         }
       ]
     },
@@ -3096,6 +3194,13 @@
           "id": "palette.installCLI",
           "mcp": false,
           "mcpTool": null
+        },
+        {
+          "command": "cmux settings install-earlier-nightly",
+          "title": "Install an Earlier Nightly…",
+          "id": "updates.installEarlierBuild",
+          "mcp": true,
+          "mcpTool": "app_settings_install_earlier_nightly"
         },
         {
           "command": "cmux settings keep-1-neighbor-tab-awake",
@@ -3918,6 +4023,13 @@
       "noun": "space",
       "verbs": [
         {
+          "command": "cmux space bring-here",
+          "title": "Move Space to This Window",
+          "id": "space.bringHere",
+          "mcp": true,
+          "mcpTool": "app_space_bring_here"
+        },
+        {
           "command": "cmux space clear-color",
           "title": "Remove Space Color",
           "id": "space.clearColor",
@@ -4318,6 +4430,13 @@
           "id": "moveSurfaceToPreviousPane",
           "mcp": true,
           "mcpTool": "app_tab_move_to_previous_pane"
+        },
+        {
+          "command": "cmux tab move-to-space",
+          "title": "Move Tab to Space…",
+          "id": "tab.moveToSpace",
+          "mcp": true,
+          "mcpTool": "app_tab_move_to_space"
         },
         {
           "command": "cmux tab move-to-workspace",
@@ -5066,6 +5185,20 @@
           "mcpTool": "app_workspace_merge_into"
         },
         {
+          "command": "cmux workspace move-above",
+          "title": "Move Workspace Above…",
+          "id": "workspace.moveAbove",
+          "mcp": true,
+          "mcpTool": "app_workspace_move_above"
+        },
+        {
+          "command": "cmux workspace move-below",
+          "title": "Move Workspace Below…",
+          "id": "workspace.moveBelow",
+          "mcp": true,
+          "mcpTool": "app_workspace_move_below"
+        },
+        {
           "command": "cmux workspace move-down",
           "title": "Move Workspace Down",
           "id": "moveWorkspaceDown",
@@ -5662,7 +5795,7 @@
     }
   ],
   "mcpExempt": {
-    "credentials": 6,
+    "credentials": 7,
     "endsApp": 4,
     "systemChange": 74
   }

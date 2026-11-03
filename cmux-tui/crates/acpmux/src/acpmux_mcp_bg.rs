@@ -47,7 +47,7 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
         "bg_list" => method::MUX_BG_LIST,
         "bg_output" => method::MUX_BG_OUTPUT,
         "bg_stop" => method::MUX_BG_STOP,
-        other => return error_result(format!("unknown tool: {other}")),
+        other => return error_result(crate::mcp_hint::unknown_tool(other, TOOLS)),
     };
     match daemon.request(m, params).await {
         Ok(r) => ok(summary(name, &r), r),

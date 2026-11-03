@@ -50,11 +50,21 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
     /// A short tag after the name (the engine a Home Chief runs on, "UniiChat"); nil shows none.
     /// The vendored row draws only the name, so the tag is part of the name it is given.
     public var badge: String?
+    /// How the conversation's own `avatar` moves: nil stands still (``SidebarAvatarMotion``).
+    public var avatarMotion: AvatarMotion?
+
+    /// A moving avatar: a Chief's slow idle loop, livelier while it works.
+    public enum AvatarMotion: Hashable, Sendable {
+        case idle
+        case working
+    }
 
     public init(id: String, title: String, people: [Person], preview: String, previewSender: String?, lastAt: Date,
                 unreadCount: Int, pinned: Bool, muted: Bool = false, typing: Bool = false,
-                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil, badge: String? = nil) {
+                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil, badge: String? = nil,
+                avatarMotion: AvatarMotion? = nil) {
         self.avatar = avatar
+        self.avatarMotion = avatarMotion
         self.badge = badge
         self.knownSender = knownSender
         self.spam = spam
@@ -95,6 +105,7 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
         s.knownSender = knownSender
         s.spam = spam
         s.deletedAt = deletedAt
+        s.avatarMotion = own == nil ? nil : avatarMotion.map { $0 == .working ? .working : .idle }
         return s
     }
 }
@@ -120,6 +131,9 @@ public final class CmuxSidebarView: NSView {
     /// Host items for a conversation's context menu after Pin and Read (MessagesLab v1.1
     /// `menuItemsFor`; Hide Alerts and Delete are left out until cmux can do them).
     public var menuItems: (String) -> [NSMenuItem] = { _ in [] }
+    /// Delete Conversation… (the row's menu, after the host's items) and a left swipe's Delete;
+    /// nil: neither is offered. The host asks first and decides what a delete does.
+    public var onDelete: ((String) -> Void)?
     /// An extra search section under the conversations for a query (nil: none), asked once
     /// per keystroke; a later keystroke cancels the answer.
     public var searchSection: (String) -> CmuxSidebarSearchSection? = { _ in nil }
@@ -380,8 +394,10 @@ private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurre
     // controller picks the title from the entry's unread count; the host keeps the mark). Hide
     // Alerts and Delete need owner support first: no item that does nothing.
     func sidebar(_ sidebar: SidebarController, actionsFor id: ConversationID) -> SidebarActions {
-        owner?.entries.contains { $0.id == id } == true ? [.pin, .markRead] : [.pin]
+        guard let owner, owner.entries.contains(where: { $0.id == id }) else { return [.pin] }
+        return owner.onDelete == nil ? [.pin, .markRead] : [.pin, .markRead, .delete]
     }
+    func sidebar(_ sidebar: SidebarController, delete id: ConversationID) { owner?.onDelete?(id) }
     func sidebar(_ sidebar: SidebarController, menuItemsFor id: ConversationID) -> [NSMenuItem] { owner?.menuItems(id) ?? [] }
 
     func sidebar(_ sidebar: SidebarController, search request: SidebarSearchRequest) {

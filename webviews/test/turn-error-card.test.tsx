@@ -456,6 +456,11 @@ test("CodeRouter is offered on key, sign-in and capacity failures, never to a ch
   for (const kind of ["no-team-account", "proxy-auth", "unreachable", "disk-full", "agent-exited", "other"] as const)
     expect([kind, offersOwnRoute(kind, claude)]).toEqual([kind, false]);
   expect(offersOwnRoute("invalid-key", { name: "Claude (CodeRouter)", harness: "claude-cr" })).toBe(false);
+  // A Cloud machine's chat signs in from the Mac: no CodeRouter offer on it.
+  expect(offersOwnRoute("subscription-login", { name: "Claude Code", harness: "claude", hostKind: "cloud" })).toBe(
+    false,
+  );
+  expect(offersOwnRoute("auth", { name: "Claude Code", harness: "claude", hostKind: "cloud" })).toBe(false);
 });
 
 test("the chat's routes say what CodeRouter offers: a route, on it already, or nothing", () => {
@@ -674,7 +679,16 @@ test("Cloud recovery reserves its prompt before login and retries once with that
   };
   const isCurrent = () => current;
   const getClient = () => client;
-  const recover = cloudCredentialRecovery(true, "provider-vm-1", "chat-1", "claude", call, isCurrent, getClient)!;
+  const recover = cloudCredentialRecovery(
+    true,
+    "provider-vm-1",
+    "chat-1",
+    "claude",
+    call,
+    isCurrent,
+    getClient,
+    new Set(),
+  )!;
   const pending = recover("row-1", "retry text");
   // Duplicate clicks while native confirmation is open cannot reserve another prompt.
   await recover("row-1", "retry text");
@@ -697,9 +711,15 @@ test("Cloud recovery reserves its prompt before login and retries once with that
   const count = calls.length;
   await recover("row-1", "retry text");
   expect(calls).toHaveLength(count);
-  expect(cloudCredentialRecovery(true, undefined, "chat-1", "claude", call, isCurrent, getClient)).toBeUndefined();
-  expect(cloudCredentialRecovery(false, "vm", "chat-1", "claude", call, isCurrent, getClient)).toBeUndefined();
-  expect(cloudCredentialRecovery(true, "vm", "chat-1", "opencode", call, isCurrent, getClient)).toBeUndefined();
+  expect(
+    cloudCredentialRecovery(true, undefined, "chat-1", "claude", call, isCurrent, getClient, new Set()),
+  ).toBeUndefined();
+  expect(
+    cloudCredentialRecovery(false, "vm", "chat-1", "claude", call, isCurrent, getClient, new Set()),
+  ).toBeUndefined();
+  expect(
+    cloudCredentialRecovery(true, "vm", "chat-1", "opencode", call, isCurrent, getClient, new Set()),
+  ).toBeUndefined();
 });
 
 test("Cloud recovery maps named harness profiles to the provider sent to native", async () => {
@@ -731,6 +751,7 @@ test("Cloud recovery maps named harness profiles to the provider sent to native"
       call,
       () => true,
       () => client,
+      new Set(),
     );
     expect(recover).toBeDefined();
     await recover!("row-1", "retry");
@@ -746,6 +767,7 @@ test("Cloud recovery maps named harness profiles to the provider sent to native"
         call,
         () => true,
         () => client,
+        new Set(),
       ),
     ).toBeUndefined();
   }

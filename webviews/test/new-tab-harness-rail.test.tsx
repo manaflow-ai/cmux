@@ -8,6 +8,8 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -42,6 +44,7 @@ beforeAll(() => {
     },
   });
   Object.assign(scope, {
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
     window,
     document: window.document,
     navigator: window.navigator,
@@ -129,12 +132,10 @@ async function railTabs(page: "newTab" | "chat", snapshot: Snap, typed?: string)
       ),
     );
     if (typed) {
-      const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-      const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
-      await act(async () => {
-        setValue.call(field, typed);
-        field.dispatchEvent(new window.Event("input", { bubbles: true }));
-      });
+      const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+      for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      field.acpmuxMarkdownField!.writeText(typed, typed.length, typed.length);
     }
     const trigger = window.document.querySelector<HTMLElement>("[data-menu=Model]");
     expect(trigger).not.toBeNull();

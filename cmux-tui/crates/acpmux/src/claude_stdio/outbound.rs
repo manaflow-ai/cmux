@@ -16,7 +16,7 @@ impl Translator {
                         let mut lines = vec![json!({
                             "type": "control_request",
                             "request_id": format!("init-{}", id),
-                            "request": {"subtype": "initialize", "hooks": {}, "supportedDialogKinds": ["ask_user_question", "exit_plan_mode", "permission"]}
+                            "request": initialize_request()
                         })];
                         // Ultracode and fast mode survive a respawn on the live channel
                         // (no CLI flag); the answer ("boot-*") needs no reply.
@@ -125,6 +125,7 @@ impl Translator {
                         self.turn_output.store(false, Ordering::SeqCst);
                         *self.prompt_echo.lock().await = Some(uuid);
                         self.cancelled.store(false, Ordering::SeqCst);
+                        self.step_stopped.store(false, Ordering::SeqCst);
                         let mut pending = self.pending.lock().await;
                         *self.abandoned.lock().await = pending
                             .iter()
@@ -269,10 +270,12 @@ impl Translator {
                         let tool = p.get("toolCallId").and_then(Value::as_str);
                         let tool = tool.filter(|t| !t.is_empty());
                         // The foreground shells it may move are the person's once they
-                        // move (`inbound.rs` `origin`).
+                        // move (`inbound.rs` `origin`), unless acpmux moves them on its own
+                        // (`auto`, `hub/auto_background.rs`): those stay `auto_backgrounded`.
+                        let auto = p.get("auto") == Some(&Value::Bool(true));
                         let mut asked = Vec::new();
                         for (call, shell) in self.background_shells.lock().await.iter_mut() {
-                            if !shell.background && tool.is_none_or(|t| t == call) {
+                            if !auto && !shell.background && tool.is_none_or(|t| t == call) {
                                 shell.asked = true;
                                 asked.push(call.clone());
                             }
@@ -473,9 +476,11 @@ impl Translator {
     }
 
     /// The interrupt that stops Claude Code's current step for a steer sent now: unlike a Stop
-    /// it leaves `cancelled` unset, so the steer Claude Code reads after the step runs on in the
-    /// same turn. Its ack answers `answer` (`MUX_STEP_NOW`), when one waits for it.
+    /// it leaves `cancelled` unset, and the stopped step's result ends the turn and carries the
+    /// steer, which runs as a turn of its own (`carry.rs`). Its ack answers `answer`
+    /// (`MUX_STEP_NOW`), when one waits for it.
     pub(super) fn step_interrupt(&self, answer: Option<&Id>) -> Value {
+        self.step_stopped.store(true, Ordering::SeqCst);
         let request_id = match answer {
             Some(id) => format!("now-{id}"),
             None => format!("int-{}", self.next_control.fetch_add(1, Ordering::SeqCst)),
@@ -501,4 +506,22 @@ fn resource_text(b: &Value) -> String {
         Some(text) => format!("<resource uri=\"{uri}\"{path}>\n{text}\n</resource>"),
         None => format!("<resource uri=\"{uri}\"{path} />"),
     }
+}
+
+/// Claude Code's `initialize` control request.
+///
+/// `perTaskStopAffordance` says this client stops background tasks one by one (a background
+/// process's kill, `_acpmux/process/kill`, and a subagent's stop, `_acpmux/subagent_stop`, both
+/// Claude Code's `stop_task`). Without it Claude Code's headless `interrupt` (what Stop sends)
+/// also kills every running background shell and background subagent, and marks each subagent
+/// stopped by the user so it is never resumed. With it the interrupt stops only the turn, as Esc
+/// does in the CLI, and background work runs on and reports when it ends (Leo, 2026-10-31:
+/// "WELL THAT STOP BUTTON STOPPED LITERALLY EVERYTHING").
+pub(super) fn initialize_request() -> Value {
+    json!({
+        "subtype": "initialize",
+        "hooks": {},
+        "supportedDialogKinds": ["ask_user_question", "exit_plan_mode", "permission"],
+        "perTaskStopAffordance": true,
+    })
 }

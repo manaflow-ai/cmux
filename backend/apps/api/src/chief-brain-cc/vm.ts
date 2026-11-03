@@ -3,6 +3,7 @@ import { cloudEnvTag } from "../cloud-driver.ts"
 import { meteredOwner } from "../model-gateway/routes.ts"
 import { personalTeamIdFor } from "../domains/user.ts"
 import { freestyleCustomer } from "../providers/freestyle/customer.ts"
+import { freestyleIdleSeconds } from "../auto-pause.ts"
 
 /**
  * The machine side of the Claude Code route (turn.ts, backend/chief-cc/bake.sh): one Freestyle VM per
@@ -10,7 +11,7 @@ import { freestyleCustomer } from "../providers/freestyle/customer.ts"
  * and the model forward), joined to the tailnet with a one-use, pre-authorized, ephemeral key tagged
  * CHIEF_CC_TS_TAG (default tag:agent-cloud; minted per VM with the Tailscale OAuth client CHIEF_CC_TS_OAUTH,
  * scope auth_keys, that tag only), so its model calls reach the sr2 gateway, which admits it by its tailnet identity. Deleted by
- * exact id after the turn; Freestyle's own timers (idle pause 300 s, run cap RUN_MS + 5 min, ttl 10 min after that) are the
+ * exact id after the turn; Freestyle's own timers (run cap RUN_MS + 5 min, ttl 10 min after that; idle pause 300 s only with CLOUD_IDLE_PAUSE on) are the
  * backstop for a turn whose object never came back. Keys, tokens and the VM's output are never logged:
  * errors carry only the step and the HTTP status.
  *
@@ -56,7 +57,7 @@ export const createVm = async (env: Env, name: string, meta: { agent: string; ow
   const res = await freestyle(env, "POST", "/v5/vms", {
     slug: name,
     snapshotId: env.CHIEF_CC_SNAPSHOT,
-    idleTimeoutSeconds: 300,
+    idleTimeoutSeconds: freestyleIdleSeconds(env, 300),
     maxRunSeconds: RUN_MS / 1000 + 300,
     ttlSeconds: RUN_MS / 1000 + 900,
     automaticRestart: false,

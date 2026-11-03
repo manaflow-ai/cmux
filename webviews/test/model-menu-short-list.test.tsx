@@ -229,6 +229,43 @@ async function open() {
   await settle();
 }
 
+for (const state of ["expired", "signedOut"] as const) {
+  test(`full picker offers Sign in again for ${state} auth before send`, async () => {
+    const { createRoot } = await import("react-dom/client");
+    const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+    let logins = 0;
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ModelPicker
+          catalog={[{ id: "claude", name: "Claude Code", models: CLAUDE_CODE_MODELS }]}
+          harness="claude"
+          model="claude-opus-5-5"
+          label="Opus 5.5"
+          efforts={[]}
+          recents={[]}
+          onLand={() => undefined}
+          onEffort={() => undefined}
+          sessionAuth={{
+            state,
+            source: "turn",
+            evidenceAt: 1,
+            harness: "claude",
+            host: null,
+            login: { kind: "terminal", command: "claude auth login" },
+          }}
+          onSessionLogin={() => logins++}
+        />,
+      ),
+    );
+    await open();
+    const login = doc().querySelector<HTMLButtonElement>(".acpmux-mp-auth-action");
+    expect(login?.textContent).toBe("Sign in again");
+    await act(async () => login!.click());
+    expect(logins).toBe(1);
+  });
+}
+
 for (const [title, harness, family] of [
   ["the catalog's Claude Code", "claude", "claude"],
   ["a Claude profile the catalog does not map", "claude-sr2", "claude-sr2"],
@@ -267,7 +304,8 @@ for (const [title, harness, family] of [
       await mount({ harness, family });
       await open();
       const rows = modelRows();
-      const keysShown = rows.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent ?? "✓");
+      // The symbols row's menu names its keys ⌘1 to ⌘9 (a bare digit picks the same row).
+      const keysShown = rows.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent?.replace("⌘", "") ?? "✓");
       expect(keysShown).toEqual(
         rows.map((row, index) => (row.getAttribute("aria-checked") === "true" ? "✓" : String(index + 1))),
       );
@@ -306,7 +344,9 @@ for (const harnessFixed of [false, true]) {
     );
     await open();
     expect(modelRows().map(label)).toEqual(choices.slice(0, 6).map((choice) => choice.name));
-    expect(menu()!.textContent).toContain("More models");
+    // A rail's other models are Legacy models in the default symbols layout; a started chat's More
+    // models opens the full picker.
+    expect(menu()!.textContent).toContain(harnessFixed ? "More models" : "Legacy models");
     expect(modelRows().map(label)).not.toContain("Choice 6");
     expect(modelRows().map(label)).not.toContain("Choice 7");
   });

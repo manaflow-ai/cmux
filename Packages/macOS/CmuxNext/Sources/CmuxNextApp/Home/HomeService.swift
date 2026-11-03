@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHome
@@ -32,8 +33,8 @@ final class HomeService {
     /// While a Chief turn waits for the compactor (ChiefSettleWatch).
     var settleNotice: String?
     @ObservationIgnored var settleWatch: ChiefSettleWatch?
-    /// While the person's last message to this Mac's Chief has had no reply for two minutes
-    /// (ChiefReplyWatchdog).
+    /// While the person's last message to this Mac's Chief has waited two minutes with the
+    /// Chief's brain not running (ChiefReplyWatchdog).
     var replyNotice: String?
     @ObservationIgnored private var replyWatch: Task<Void, Never>?
     @ObservationIgnored private let replyTimer = DemandTimer(owner: "HomeService.replyWatchdog")
@@ -113,6 +114,8 @@ final class HomeService {
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
     /// Re-runs the Chief tab check when Settings > Chief's Engine changes (HomeService+ChiefDefault).
     @ObservationIgnored var chiefEngineObservation: Task<Void, Never>?
+    /// Shows the Feed's notices in the default Chief's transcript (HomeService+ChiefRoster).
+    @ObservationIgnored var feedRowsObservation: Task<Void, Never>?
     /// The latest brain start or death's tab check (HomeService+ChiefRoster); a newer one wins.
     @ObservationIgnored var chiefHostChange: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
@@ -240,6 +243,7 @@ final class HomeService {
             }
         }
         observeChiefEngine()
+        observeFeedRows()
         // The active team behind the list's teammate rows and New Message's To:, read again once
         // the launch restore signs in, on another account, on another active team, and when the
         // account's teams change.
@@ -453,8 +457,8 @@ final class HomeService {
 
 extension HomeService {
     /// Follows the local Chief conversation's head: when the person's last message has had no
-    /// reply for `ChiefReplyWatchdog.limit`, the notice row says so, and it counts the minutes
-    /// until a reply lands. One timer at a time, armed for the next change; no polling.
+    /// reply for `ChiefReplyWatchdog.limit` and the Chief's brain is not running, the notice row
+    /// says so until a reply lands. One timer at a time, armed for the next change; no polling.
     fileprivate func watchReplies() {
         // task-owner: lives as long as the service; event-driven (Observation)
         replyWatch = Task { [weak self] in
@@ -468,7 +472,7 @@ extension HomeService {
     private func armReplyTimer(_ head: CmuxNextDaemon.ConversationSummary?) {
         replyTimer.cancel()
         let now = Date()
-        let notice = head.flatMap { ChiefReplyWatchdog.notice($0, now: now) }
+        let notice = head.flatMap { ChiefReplyWatchdog.notice($0, now: now, brainRunning: brain.isRunning) }
         if replyNotice != notice { replyNotice = notice }
         guard let head, let next = ChiefReplyWatchdog.nextCheck(head, now: now) else { return }
         // One deadline: when the notice appears or its minute count changes; the next head resets it.

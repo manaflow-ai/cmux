@@ -146,10 +146,10 @@ struct AgentPaneUnsentPromptTests {
     }
 
     /// The daemon closes the connection before it acknowledged a prompt (an acpmux restart, a reset
-    /// socket). With Debug Settings agentPane.debug.lostPromptReplay on, the pane's next connection
-    /// sends it again, once, as a resend of the same prompt id ("The agent connection was
-    /// interrupted", 2026-10-20). Off (the default), it never goes again: the page says "Not sent"
-    /// with Retry, so the prompt runs at most once whichever way.
+    /// socket). With Debug Settings agentPane.debug.lostPromptReplay on (the default), the pane's next
+    /// connection sends it again, once, as a resend of the same prompt id ("The agent connection was
+    /// interrupted", 2026-10-20). Off, it never goes again: the page says "Not sent" and gives it
+    /// back, so the prompt runs at most once whichever way.
     @Test(arguments: [true, false])
     func aPromptTheDaemonDroppedWithItsConnectionGoesAgainOnTheNextOne(replay: Bool) async throws {
         TunableStore.shared.activate(file: nil)

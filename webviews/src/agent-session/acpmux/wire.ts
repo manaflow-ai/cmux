@@ -72,6 +72,24 @@ export function redactEndpoint(endpoint: string): string {
 }
 
 const SECRET_SUBMIT = "_acpmux/secret_submit";
+/// A Cloud sign-in's steps: the code, the key and the device code never reach the log.
+const AGENT_LOGIN_SECRETS: Record<string, readonly string[]> = {
+  "_acpmux/agent_login/finish": ["code"],
+  "_acpmux/agent_login/api_key": ["key"],
+};
+const AGENT_LOGIN_START = "_acpmux/agent_login/start";
+
+/// `text` with `fields` of its `params` (or `result`) replaced, for the log.
+function withoutFields(text: string, part: "params" | "result", fields: readonly string[]): string {
+  try {
+    const message = JSON.parse(text);
+    const body = message?.[part];
+    if (body && typeof body === "object") for (const field of fields) if (field in body) body[field] = "(secret)";
+    return JSON.stringify(message);
+  } catch {
+    return "(secret answer)"; // l10n-allow: wire log text, never rendered
+  }
+}
 
 /// A secret card's answer with its `value` replaced (cx-ncc.42): the log can be exported.
 function withoutSecret(text: string): string {
@@ -110,7 +128,12 @@ export class AcpWireLog {
       this.counters.requests += 1;
       this.pending.set(id, { method, startedAt: this.clock() });
     }
-    const logged = method === SECRET_SUBMIT ? withoutSecret(text) : text;
+    const logged =
+      method === SECRET_SUBMIT
+        ? withoutSecret(text)
+        : AGENT_LOGIN_SECRETS[method]
+          ? withoutFields(text, "params", AGENT_LOGIN_SECRETS[method]!)
+          : text;
     this.push({ dir: "out", kind: id === undefined ? "notification" : "request", method, id, ...this.body(logged) });
   }
 
@@ -139,7 +162,7 @@ export class AcpWireLog {
         method: request?.method,
         id: message.id,
         latencyMs,
-        ...this.body(text),
+        ...this.body(request?.method === AGENT_LOGIN_START ? withoutFields(text, "result", ["userCode"]) : text),
       });
       return;
     }

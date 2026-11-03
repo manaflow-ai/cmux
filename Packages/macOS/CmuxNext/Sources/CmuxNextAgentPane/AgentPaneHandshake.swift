@@ -25,7 +25,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, model, peer, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, localMachineName, githubRepository, harnesses, wake,
-             workspaceContext, sandboxState, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable
+             workspaceContext, sandboxState, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable, cloudTeamMachine, cloudHandoffs, cloudRepositoryAvailable
     }
 
     public var protocolVersion: Int
@@ -114,11 +114,20 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     public var cloudAccount: [String?]?
     /// True only when this Cloud backend supports credential delivery.
     public var cloudCredentialRecoveryAvailable: Bool?
+    /// True when this chat's Cloud start passed no personal login because the machine is a team
+    /// machine (``CloudHarnessLoginDecision`` `guest-not-owner`, guest `team`): its sign-in card says so
+    /// and offers no transfer. Pages that predate it show the provider's rejection card.
+    public var cloudTeamMachine: Bool?
+    /// True when this app opens the chat's hand-off turns (`cloud.handoffTurn`).
+    public var cloudHandoffs: Bool?
+    /// True when this pane has an authenticated cmux-tui route for Cloud repository actions.
+    public var cloudRepositoryAvailable: Bool?
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?
-    /// This Mac's name, always, even when ``machineName`` names the machine a seeded chat runs on
-    /// (a peer or a Cloud machine): the environment picker's This Mac row. Pages that predate it ignore it.
+    /// The name of the machine whose acpmux the page talks to, where the environment picker's local row
+    /// starts a chat: this Mac, even when ``machineName`` names the machine a seeded chat runs on (a peer
+    /// or a Cloud machine), or the machine a remote route attaches the page to. Pages that predate it ignore it.
     public var localMachineName: String?
     /// The local workspace's GitHub `origin`, used to link bare issue references in prose.
     public var githubRepository: String?

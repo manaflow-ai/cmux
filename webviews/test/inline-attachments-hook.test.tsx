@@ -317,7 +317,7 @@ test("a PDF's open in the text opens the strip's PDF viewer", async () => {
   expect(document.querySelector(".acpmux-pdf-viewer")?.textContent).toContain(PDF.name);
 });
 
-test("a video's play in the text plays it in Quick Look, as the strip's does", async () => {
+test("a video's play in the text plays it as the strip's does (Quick Look when the host grants no stream)", async () => {
   const calls: [string, unknown][] = [];
   setChipHost(async (method, params) => {
     calls.push([method, params]);
@@ -330,6 +330,8 @@ test("a video's play in the text plays it in Quick Look, as the strip's does", a
   );
   expect(play).not.toBeNull();
   await act(async () => play!.click());
+  await until(() => calls.some(([method]) => method === "video.quickLook"));
+  expect(calls.filter(([method]) => method === "media.load")).toEqual([["media.load", { src: VIDEO.path }]]);
   expect(calls.filter(([method]) => method === "video.quickLook")).toEqual([["video.quickLook", { src: VIDEO.path }]]);
 });
 
@@ -362,9 +364,10 @@ test("an image in the text that cannot be drawn says so, with Retry and Remove t
   expect(fallback()?.querySelector(".acpmux-attachment-failed-text")?.textContent).toBe(translate("image.failed"));
   expect(inlineChip(IMAGE.id)!.querySelector("img")).toBeNull();
   // Retry draws it again.
-  const retry = [...fallback()!.querySelectorAll<HTMLButtonElement>("button")].find(
-    (button) => button.textContent === translate("composer.retryAttachment"),
-  );
+  // One small retry glyph button, named Retry, never a text link.
+  const retry = fallback()!.querySelector<HTMLButtonElement>(".acpmux-attachment-retry") ?? undefined;
+  expect(retry?.getAttribute("aria-label")).toBe(translate("composer.retryAttachment"));
+  expect(retry?.textContent).toBe("");
   expect(retry).toBeDefined();
   await act(async () => retry!.click());
   await until(() => !!inlineChip(IMAGE.id)?.querySelector("img"));

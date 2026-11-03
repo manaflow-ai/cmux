@@ -37,9 +37,14 @@ extension SidebarListViewComponents {
             return
         }
         var press = Press(key: row.key, point: point)
+        // A click anywhere but a group header or a disclosure takes keyboard focus off them (and off its ring),
+        // so a later Return, Space or arrow cannot act on the header or disclosure focused before.
+        switch row.key {
+        case .group, .doneFold, .showMore: break
+        default: SidebarGroupKeys(list: self).setFocus(nil)
+        }
         switch row.key {
         case let .workspace(id):
-            SidebarGroupKeys(list: self).setFocus(nil)
             // A control-click is a right-click: its menu (`menu(for:)`) neither selects nor switches.
             guard !model.isPlaceholder(id), !flags.contains(.control) else {
                 self.press = nil
@@ -57,7 +62,7 @@ extension SidebarListViewComponents {
                 // Keep the multi-selection so it can be dragged; collapse it
                 // on mouse-up if no drag happens.
                 press.deferredClick = id
-            } else if SidebarTunables.multiView.value {
+            } else if SidebarTunables.multiViewOn {
                 // The multi-view prototype (#23437): a press selects nothing; the release on this row navigates.
                 press.clickOnRelease = id
             } else {
@@ -74,7 +79,6 @@ extension SidebarListViewComponents {
             SidebarGroupKeys(list: self).setFocus(group, ring: false)
             // Every click toggles, also fast ones (cx-q5jw): the bar collapses or expands.
         case let .item(item):
-            SidebarGroupKeys(list: self).setFocus(nil)
             // An item opens at once, as a workspace row does (`LayoutItemRef.activatesOnPress`); the press can
             // still drag the row. A new-tab launcher runs on mouse-up, so a press meant as a move makes no tab.
             let id = LayoutItemID(item)
@@ -82,7 +86,11 @@ extension SidebarListViewComponents {
                 press.activatedOnPress = true
                 model.send(.activateItem(id, opensWorkspace: event.modifierFlags.contains(.option)))
             }
-        case .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status:
+        case .doneFold, .showMore:
+            // Keyboard focus moves to the clicked disclosure (no ring), so a ring left on another one cannot take
+            // the next Space or Return; the release toggles it.
+            SidebarGroupKeys(list: self).focusFold(row.key, ring: false)
+        case .section, .emptySection, .emptyGroup, .folder, .block, .status:
             break
         }
         self.press = press
@@ -197,7 +205,9 @@ extension SidebarListViewComponents {
             if flags == [.command, .option] {
                 model.moveSelection(up ? .up : .down)
             } else if flags.isEmpty || flags == .shift {
-                model.moveActive(by: up ? -1 : 1, extending: flags == .shift, visibleOrder: selectionOrder)
+                let order = selectionOrder
+                model.moveActive(by: up ? -1 : 1, extending: flags == .shift, visibleOrder: order)
+                if flags.isEmpty { forwardStepAhead(up ? -1 : 1, in: order) }
             } else {
                 return super.keyDown(with: event)
             }

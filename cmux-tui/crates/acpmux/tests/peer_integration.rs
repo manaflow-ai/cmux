@@ -1141,6 +1141,154 @@ async fn recording_relay(port: u16) -> (u16, Arc<std::sync::Mutex<Vec<u8>>>) {
     (relay_port, seen)
 }
 
+/// A relay which drops its first peer connection after it has been up for a
+/// short while, then forwards later connections normally. This models the
+/// listener/daemon restart while keeping the owning hub and harness alive.
+async fn one_flap_relay(port: u16, after: Duration) -> (u16, tokio::sync::oneshot::Sender<()>) {
+    use tokio::io::copy_bidirectional;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_port = listener.local_addr().unwrap().port();
+    let first = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (trigger, trigger_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let mut trigger_rx = Some(trigger_rx);
+        while let Ok((mut client, _)) = listener.accept().await {
+            let Ok(mut server) = tokio::net::TcpStream::connect(("127.0.0.1", port)).await else {
+                continue;
+            };
+            let drop_this = first.swap(false, std::sync::atomic::Ordering::SeqCst);
+            let trigger = drop_this.then(|| trigger_rx.take().expect("first peer connection"));
+            tokio::spawn(async move {
+                if drop_this {
+                    let gate = async {
+                        if let Some(trigger) = trigger {
+                            let _ = trigger.await;
+                        }
+                        tokio::time::sleep(after).await;
+                    };
+                    tokio::select! { _ = copy_bidirectional(&mut client, &mut server) => {}, _ = gate => {} }
+                } else {
+                    let _ = copy_bidirectional(&mut client, &mut server).await;
+                }
+            });
+        }
+    });
+    (relay_port, trigger)
+}
+
+/// Send a prompt while retaining the peer event notifications which arrive on
+/// the same client connection. The ordinary `C::call` helper intentionally
+/// discards those notifications while waiting for the response.
+async fn prompt_with_events(
+    c: &mut C,
+    session: &str,
+    text: &str,
+    mut flap: Option<tokio::sync::oneshot::Sender<()>>,
+) -> (Value, Vec<Value>) {
+    c.next += 1;
+    let id = c.next;
+    c.tx.send(
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": text}],
+                    "_meta": {"acpmux": {"promptId": "resume-flap"}}}),
+        )
+        .to_line(),
+    )
+    .await
+    .unwrap();
+    let mut events = Vec::new();
+    let mut answer = None;
+    let mut ended = false;
+    loop {
+        let line = tokio::time::timeout(Duration::from_secs(45), c.rx.recv())
+            .await
+            .expect("prompt timed out")
+            .expect("client closed");
+        match Message::parse(&line).unwrap() {
+            Message::Notification { method: m, params: Some(p) }
+                if m == method::MUX_PROMPT_ACCEPTED
+                    && p.get("promptId").and_then(Value::as_str) == Some("resume-flap") =>
+            {
+                if let Some(flap) = flap.take() {
+                    let _ = flap.send(());
+                }
+            }
+            Message::Notification { method: m, params: Some(p) }
+                if m == method::MUX_EVENT
+                    && p.get("sessionId").and_then(Value::as_str) == Some(session) =>
+            {
+                ended |= matches!(p["kind"].as_str(), Some("turn_end" | "turn_result"));
+                events.push(p);
+            }
+            Message::Response { id: rid, result, error } if rid == id => {
+                answer = Some(match error {
+                    Some(e) => panic!("forwarded prompt failed: {}", e.message),
+                    None => result.unwrap_or(Value::Null),
+                });
+                if ended {
+                    return (answer.take().unwrap(), events);
+                }
+            }
+            _ => {}
+        }
+        if answer.is_some() && ended {
+            return (answer.take().unwrap(), events);
+        }
+    }
+}
+
+/// A forwarded prompt keeps running while the peer link is interrupted. On
+/// reconnect, the peer re-attaches from A's mirrored sequence, so the client
+/// receives chunks produced during the gap and the real turn result.
+#[tokio::test]
+async fn forwarded_prompt_replays_events_after_peer_connection_flap() {
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "resume").await;
+    let mut cb = client(b.clone()).await;
+    let session = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                "_meta": {"acpmux": {"name": "resume"}}}),
+        )
+        .await
+        .unwrap();
+    let remote_id = session["sessionId"].as_str().unwrap().to_owned();
+
+    // Once the peer reports acceptance, the first connection is dropped five
+    // seconds later; the fake agent keeps the turn alive for roughly twenty
+    // seconds.
+    let (relay, flap) = one_flap_relay(port, Duration::from_secs(5)).await;
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    ca.call(method::MUX_ATTACH, json!({"session": "b/resume", "limit": 0, "eventStream": true}))
+        .await
+        .unwrap();
+
+    let (answer, events) =
+        prompt_with_events(&mut ca, &remote_id, "ticking:40:500", Some(flap)).await;
+    assert_eq!(answer["stopReason"], "end_turn", "{answer}");
+    let chunks: Vec<&Value> =
+        events.iter().filter(|e| e["kind"] == "agent_message_chunk").collect();
+    let texts: Vec<&str> = chunks
+        .iter()
+        .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
+        .collect();
+    let expected: Vec<String> = (0..40).map(|i| format!("tick{i} ")).collect();
+    assert_eq!(texts.len(), expected.len(), "reconnect lost or duplicated turn chunks: {texts:?}");
+    assert_eq!(
+        texts,
+        expected.iter().map(String::as_str).collect::<Vec<_>>(),
+        "chunks were not replayed in order"
+    );
+    assert!(events.iter().any(|e| e["kind"] == "turn_end"), "turn_end was lost: {events:?}");
+}
+
 /// The pane's Trust for a chat on a peer (Leo, 2026-10-21: only `cmux setup
 /// trust` on the peer cleared it). The folder is the peer's, so A's app sends
 /// `acp.trust.set` for it and A forwards it without looking for the folder on
@@ -2150,10 +2298,10 @@ async fn opening_a_long_peer_chat_stays_within_its_payload_budget_on_the_link() 
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// No message on a peer link is larger than one frame every acpmux reads (16 MiB). At
+/// No message on a peer link is larger than one frame every acpmux reads (31 MiB). At
 /// 2026-10-21 06:23Z a 32.8 MB reply from huge-blue reset cosmic-gray's link with its 29 chats:
 /// a history read with no `maxBytes`, 5000 records of a chat with long tool outputs. Here a
-/// 33 MB prompt pushed over the link fails alone, with an error; a 60 MB history comes in a page
+/// 33 MB prompt pushed over the link fails alone, with an error; a 72 MB history comes in a page
 /// that fits, and a record too large for any message comes as a stub; the link never drops.
 #[tokio::test]
 async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
@@ -2163,7 +2311,7 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     cfg.store.mode = StoreMode::Local;
     cfg.store.segment_bytes = 64 * 1024 * 1024;
 
-    // B owns a chat of 40 tool outputs of 1 MB, then one of 20 MB, written straight to its store:
+    // B owns a chat of 40 tool outputs of 1 MB, then one of 32 MB, written straight to its store:
     // no hub runs the chat before B, so no other record lands after them.
     let store = acpmux::store::open(&cfg.store, &dir).unwrap();
     let id = uuid::Uuid::now_v7().to_string();
@@ -2193,7 +2341,7 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     for _ in 0..40 {
         output(1024 * 1024);
     }
-    output(20 * 1024 * 1024);
+    output(32 * 1024 * 1024);
     let last = seq;
     let b = Hub::new(cfg.clone(), store);
     let _ = b.person.install_spawn_key(PERSON_KEY);
@@ -2219,12 +2367,12 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     let att =
         ca.call(method::MUX_ATTACH, json!({"session": "b/big", "limit": 5000})).await.unwrap();
     let wire = serde_json::to_string(&att).unwrap().len();
-    assert!(wire < 16 * 1024 * 1024, "the history page was {} MiB", wire >> 20);
+    assert!(wire <= acpmux::rpc::MAX_MESSAGE_BYTES, "the history page was {} MiB", wire >> 20);
     assert_eq!(att["peer"], "b");
     assert_eq!(att["hasMore"], true, "60 MB of history came in one page");
     let events = att["events"].as_array().unwrap();
     assert_eq!(events.last().unwrap()["seq"], last, "the page ends on the latest record");
-    // The 20 MB record, too large for any message, is a stub that says what it left out.
+    // The 32 MB record, too large for one JSON-RPC message, is a stub that says what it left out.
     let omitted = &events.last().unwrap()["msg"]["_meta"]["acpmux"]["omitted"];
     assert!(omitted["bytes"].as_u64().unwrap() > 20 * 1024 * 1024, "{omitted}");
 
@@ -2236,7 +2384,7 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     ca.call(method::MUX_ATTACH, json!({"session": "b/live", "limit": 1})).await.unwrap();
     cb.call(
         method::SESSION_PROMPT,
-        json!({"sessionId": live, "prompt": [{"type": "text", "text": "big-output:16"}]}),
+        json!({"sessionId": live, "prompt": [{"type": "text", "text": "big-output:32"}]}),
     )
     .await
     .unwrap();
@@ -3276,4 +3424,113 @@ async fn a_peers_display_line_never_reaches_a_client() {
     for reply in [info, events] {
         assert!(reply.to_string().contains("the tool's own input"), "{reply}");
     }
+}
+
+/// A first explicit no-history attach is a live subscription, not a request
+/// to replay the entire existing journal after its first connection drop.
+#[tokio::test]
+async fn first_no_history_attach_keeps_its_baseline_across_peer_reconnect() {
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    let (port, token) = listen_with_peer_token(b.clone(), "no-history-reconnect").await;
+    let mut cb = client(b.clone()).await;
+    let session = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+        "_meta": {"acpmux": {"name": "baseline"}}}),
+        )
+        .await
+        .unwrap();
+    let sid = session["sessionId"].as_str().unwrap();
+    cb.call(
+        method::SESSION_PROMPT,
+        json!({"sessionId": sid,
+        "prompt": [{"type": "text", "text": "old history before subscription"}]}),
+    )
+    .await
+    .unwrap();
+    let (relay, flap) = one_flap_relay(port, Duration::ZERO).await;
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let attached = ca
+        .call(method::MUX_ATTACH, json!({"session": "b/baseline", "limit": 0, "eventStream": true}))
+        .await
+        .unwrap();
+    assert_eq!(attached["events"], json!([]));
+    let baseline = attached["pageThrough"].as_u64().unwrap();
+    assert!(baseline > 0, "the peer already has a journal");
+    let peer = a.peer_by_name("b").unwrap();
+    let epoch = peer.link_epoch();
+    let mut settled = peer.settled();
+    flap.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while peer.link_epoch() == epoch
+            || !peer.connected.load(std::sync::atomic::Ordering::SeqCst)
+        {
+            settled.changed().await.unwrap();
+        }
+    })
+    .await
+    .expect("peer reconnects and replays");
+    // Nothing ran between attach and reconnect. Retain all notifications still
+    // queued on A's client while sending the first new turn after the reconnect.
+    let (answer, events) = prompt_with_events(&mut ca, sid, "new turn after reconnect", None).await;
+    assert_eq!(answer["stopReason"], "end_turn");
+    assert!(!events.is_empty(), "new turn must still stream");
+    assert!(
+        events.iter().all(|event| event["seq"].as_u64().unwrap() > baseline),
+        "no-history attachment received old journal records: {events:?}"
+    );
+    assert!(
+        !events.iter().any(|event| event.to_string().contains("old history before subscription"))
+    );
+    peer.stop();
+}
+
+/// A tool's notice to a chat on a peer goes on as it came: B records it as a notice. One beside
+/// a caller's own provenance is refused by A before the forward (which drops that provenance).
+#[tokio::test]
+async fn a_notice_through_a_peer_is_recorded_as_one_and_a_conflicting_one_is_refused_first() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "notice").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "coordinator"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let notice =
+        json!({"sender": "base-red-watch", "severity": "fire", "title": "fast tier failed"});
+    let sent = |id: &str| {
+        json!({"sessionId": "b/coordinator", "prompt": [{"type": "text", "text": "body"}],
+        "_meta": {"acpmux": {"promptId": id, "fromAgent": "base-red-watch", "notice": notice.clone()}}})
+    };
+    ca.call(method::SESSION_PROMPT, sent("n-peer")).await.unwrap();
+
+    let mut both = sent("n-both");
+    both["_meta"]["acpmux"]["provenance"] = json!({"kind": "agent_message", "from": "acp:x",
+        "to": format!("acp:{remote_id}"), "msgId": "m", "threadId": "t"});
+    let refused = ca.call(method::SESSION_PROMPT, both).await.unwrap_err();
+    assert!(format!("{refused:?}").contains("provenance"), "{refused:?}");
+
+    let page = cb
+        .call("_acpmux/events", json!({"sessionId": remote_id, "kinds": ["user_message"]}))
+        .await
+        .unwrap();
+    let messages: Vec<&Value> =
+        page["events"].as_array().unwrap().iter().map(|e| &e["msg"]).collect();
+    let got = messages.iter().find(|m| m["promptId"] == "n-peer").expect("the notice ran on B");
+    let provenance = &got["_meta"]["provenance"];
+    assert_eq!(provenance["kind"], "notice", "{got}");
+    assert_eq!(provenance["fromName"], "base-red-watch", "{got}");
+    assert_eq!(provenance["notice"], notice, "{got}");
+    assert!(
+        messages.iter().all(|m| m["promptId"] != "n-both"),
+        "a refused notice ran: {messages:?}"
+    );
 }

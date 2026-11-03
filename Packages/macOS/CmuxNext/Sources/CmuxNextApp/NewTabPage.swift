@@ -207,8 +207,8 @@ enum NewTabPage {
             .withWeather(services)
     }
 
-    /// What a prewarmed spare page loads with before Cmd-T adopts it
-    /// (NewTabSparePool): the design and remembered choices; no tab context.
+    /// What a prewarmed spare page loads with (NewTabSparePool): the design and remembered choices; no tab
+    /// context (its handshake folder is no tab's). The pool then gives it the context a Cmd-T would.
     static func sparePage(_ services: AppServices) -> AgentPaneNewTab {
         AgentPaneNewTab(
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },

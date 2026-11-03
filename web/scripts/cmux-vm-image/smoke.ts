@@ -4,7 +4,7 @@
  * Usage (from web/):
  *   bun ../images/cmux-vm/smoke.ts --snapshot <sh-id> --tag <tag> [--clones 5] [--browser-probe]
  *       [--idle-seconds 120] [--out-dir <dir>] [--lock <path>]
- *       [--expect-capabilities <json>] [--team-vm]
+ *       [--expect-capabilities <json>] [--team-vm] [--native-receiver]
  *
  * Creates N clones (cmuxnp-dev-vmimg-<tag>-smoke-<i>) and measures create ->
  * first exec and create -> daemon listening. On two of them it checks: the
@@ -43,7 +43,7 @@ import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, 
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
 import { browserRoleProbe } from "./browser-probe";
 import { GH_SHIM } from "./github-auth";
-import { HOST_CLI } from "./host-agent";
+import { HOST_CLI, NATIVE_RECEIVER_SMOKE } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
 
@@ -85,14 +85,25 @@ export function secretScanCommand(skip: readonly string[] = []): string {
   return `{ ${[...lines, files, keys].join("; ")}; } | grep -vE ${sq(SCAN_EXCLUDES.map((p) => ` ${p.replace(/[.]/g, "\\.")}`).join("|"))} || true`;
 }
 
+/**
+ * Sets `p` to the path lookup for `command` (type -P: not an alias or function the login shell
+ * defines). A user-local alias that resolves to the very file the current profile's entry resolves
+ * to reports as that entry: the canonical acpmux user unit needs ~/.local/bin/acpmux, and Ubuntu's
+ * ~/.profile puts ~/.local/bin first, yet the alias runs the store's binary. An alias to any other
+ * file (say a separately downloaded acpmux) still fails the check, as it should.
+ */
+export function storeCommandPathSnippet(command: string, currentBin = CURRENT_BIN): string {
+  const entry = `${currentBin}/${command}`;
+  return `p=$(type -P ${command}); if [ -n "$p" ] && [ "$p" != ${sq(entry)} ] && [ -e ${sq(entry)} ] && real=$(readlink -f "$p") && [ -n "$real" ] && [ "$real" = "$(readlink -f ${sq(entry)})" ]; then p=${sq(entry)}; fi`;
+}
+
 /** One login-shell run per command name as the work user; prints `name exit path :: output`. */
 export function programChecksCommand(lock: InputsLock): string {
   const rows: string[] = [];
   for (const p of bakedPrograms(lock)) {
     for (const command of Object.keys(p.bin)) {
       const invoke = p.versionArgs.length > 0 ? `${command} ${p.versionArgs.join(" ")} 2>&1` : `test -x "$(type -P ${command})" && echo executable`;
-      // type -P: the path lookup, not an alias or function the login shell defines.
-      const script = `cd; p=$(type -P ${command}); out=$(${invoke}); rc=$?; echo "${command} $rc $p :: $(printf '%s' "$out" | head -2 | tr '\\n' ' ')"`;
+      const script = `cd; ${storeCommandPathSnippet(command)}; out=$(${invoke}); rc=$?; echo "${command} $rc $p :: $(printf '%s' "$out" | head -2 | tr '\\n' ' ')"`;
       rows.push(`sudo -n -u ${DEVBOX_WORK_USER} -H bash -lc ${sq(script)} </dev/null`);
     }
   }
@@ -106,7 +117,8 @@ export function programChecksCommand(lock: InputsLock): string {
  * its sessions; the daemon is stopped again. Automation agent steps run `acpmux run` this way.
  */
 export function acpmuxListCommand(): string {
-  const script = "export ACPMUX_AGENT_LAUNCH=deny; acpmux ls --json; rc=$?; acpmux daemon shutdown >/dev/null 2>&1; exit $rc";
+  // `acpmux ls` never starts a daemon since #28046; start one explicitly (it returns once it accepts clients).
+  const script = "export ACPMUX_AGENT_LAUNCH=deny; acpmux daemon start >/dev/null || exit $?; acpmux ls --json; rc=$?; acpmux daemon shutdown >/dev/null 2>&1; exit $rc";
   return `sudo -n -u ${DEVBOX_WORK_USER} -H bash -lc ${sq(script)} </dev/null`;
 }
 
@@ -317,7 +329,7 @@ function summarize(rows: Array<Record<string, number | string>>): Record<string,
   return { createApi: stat("createApiMs"), createToFirstExec: stat("createToFirstExecMs"), createToListening: stat("createToListeningMs"), createToReady: stat("createToReadyMs"), guestWait: stat("guestWaitMs") };
 }
 
-export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean; expectCapabilities?: readonly string[]; teamVm?: boolean }): Promise<Report> {
+export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean; expectCapabilities?: readonly string[]; teamVm?: boolean; nativeReceiver?: boolean }): Promise<Report> {
   mkdirSync(options.outDir, { recursive: true });
   const lock = readInputsLock(options.lockPath);
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
@@ -330,9 +342,17 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
       const name = `cmuxnp-dev-vmimg-${options.tag}-smoke-${i}`;
       const { clone, row } = await measureClone(fs, ledger, name, options.snapshotId);
       rows.push(row);
+      // Track the clone before the extra probe so a refused/failed exec still cleans it up.
+      kept.push(clone);
+      if (options.nativeReceiver) {
+        const receiver = await run(clone.vm, NATIVE_RECEIVER_SMOKE);
+        check(report, `native-receiver-root-${i}`, receiver.code === 0, receiver.stdout.trim() || receiver.stderr.slice(-200));
+      }
       console.log(`clone ${i} ${clone.vmId}: ${JSON.stringify(row)}`);
-      if (kept.length < 2) kept.push(clone);
-      else await deleteVm(clone.vm, clone.vmId, clone.name, ledger);
+      if (kept.length > 2) {
+        await deleteVm(clone.vm, clone.vmId, clone.name, ledger);
+        kept.pop();
+      }
     }
     report.clones = rows;
     report.latency = summarize(rows);
@@ -409,6 +429,7 @@ export async function main(argv = process.argv): Promise<number> {
     browserProbe: argv.includes("--browser-probe"),
     expectCapabilities: expectedCapabilities(argValue("--expect-capabilities", argv)),
     teamVm: argv.includes("--team-vm"),
+    nativeReceiver: argv.includes("--native-receiver"),
   });
   return report.passed ? 0 : 1;
 }

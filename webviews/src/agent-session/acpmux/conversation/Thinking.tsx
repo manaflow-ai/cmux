@@ -3,19 +3,24 @@
 // (Leo, 2026-10-20: "wtf have we removed this yet"); the word itself carries the motion, as the Codex
 // and ChatGPT apps draw it: a light band in the theme accent sweeps across it (`is-shimmer`,
 // conversation.css), still under Reduce Motion and the static status look. Before the turn, while
-// the prompt waits for its agent to start, the same line reads the start status ("Starting Claude
-// Code…") with Cancel, no time and no sweep, so the line keeps one place from send to the first
-// output (cx-ncc.58). Only the status is the live region. While the chat waits on the person (an
+// the prompt waits for its agent to start, the same line already reads "Thinking", with no start
+// status and no Cancel (Leo, 2026-11-01), so the line keeps one place and one look from send to
+// the first output (cx-ncc.58). Only the status is the live region. While the chat waits on the person (an
 // ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
 // never "Thinking" while the agent is blocked on them.
 import { useContext, useLayoutEffect, useState } from "react";
-import { useT } from "../i18n";
+import { experimentArm } from "../../../experiments/experiment";
+import { usePaneLanguage, useT } from "../i18n";
+import { agentStartLook } from "./agentStart.experiment";
+import { liveLineTokens } from "./liveLineTokens.experiment";
+import { Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
 import { formatDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
-import { TurnTokens } from "./TurnTokens";
+import { compactTokens, hasTokens, tokenDetail, TurnTokens } from "./TurnTokens";
+import { verbLeads } from "./ToolVerb";
 import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
 
 /// How long streaming text must hold still before the live line comes back under it.
@@ -39,16 +44,31 @@ function useQuiet(key: string | undefined, ms = QUIET_MS): boolean {
   return quiet;
 }
 
+/// The live line's words split as Claude Code draws them: the action in full ink ("Using repo",
+/// "Running", "Sending"), the rest muted (": repo grep", " bun test"). An MCP call's action runs to
+/// its server's colon (`call`: the line names a call, not a command or a send); any other line's is
+/// its first word. Undefined when the line is one word, or in a language whose verb does not lead.
+export function liveLead(label: string, leads: boolean, call: boolean): { lead: string; rest: string } | undefined {
+  if (!leads) return undefined;
+  const server = call ? /^(\p{L}+ [^\s:]+)(: \S[\s\S]*)$/u.exec(label) : null;
+  if (server) return { lead: server[1]!, rest: server[2]! };
+  const word = /^(\p{L}+)( \S[\s\S]*)$/u.exec(label);
+  return word ? { lead: word[1]!, rest: word[2]! } : undefined;
+}
+
 /// `doing`, `doingAt`, `doingShell`, `draft`, `untimed`, `quietKey`: the Codex-style live line at the
 /// bottom of a running turn (conversation/turns.ts `codexLiveTurn`), the turn's one live block, which
 /// each step replaces in place: "Thinking 18s" (the turn's time, and its tokens when the harness
-/// reports them), or the call in flight ("Running bun test 13s", or what it says it does, "Run the
-/// web tests 13s"), its time from the call's start, or "Writing a command 9s" while the agent still
-/// writes the command (`draft`). All shimmer. While text streams (`quietKey` moves) the line keeps
+/// reports them), the call in flight ("Running bun test 13s", or what it says it does, "Run the
+/// web tests 13s"), the latest finished step until the next starts (`done`, "Ran grep … 15s"), or
+/// "Writing a command 9s" while the agent still writes the command (`draft`). One clock and one
+/// token count for all of them, the turn's, so the line just keeps going: "Using repo: repo grep 3m 2s ·
+/// 47.4K tokens", as Claude Code desktop's live line reads, with no mark before it: the shimmer is
+/// its only working sign (Leo, 2026-11-03: "we don't want the claude symbol ellipsis thing btw we
+/// just keep the shimmer ONLY"). All shimmer. While text streams (`quietKey` moves) the line keeps
 /// its height but draws nothing.
 export function Thinking({
-  status,
-  onCancel,
+  starting = false,
   since,
   now = Date.now,
   doing,
@@ -57,13 +77,14 @@ export function Thinking({
   sendTo,
   sendSession,
   draft = false,
+  done = false,
   untimed = false,
   quietKey,
   below = false,
   command = false,
 }: {
-  status?: string;
-  onCancel?: () => void;
+  /// The prompt waits for its agent to start (harnessSwitch.ts): the start look's arm draws it.
+  starting?: boolean;
   since?: number;
   now?: () => number;
   doing?: string;
@@ -74,6 +95,8 @@ export function Thinking({
   sendTo?: string;
   sendSession?: string;
   draft?: boolean;
+  /// `doing` is the latest step, finished ("Ran grep …"): the line holds it until the next one.
+  done?: boolean;
   untimed?: boolean;
   quietKey?: string;
   /// The turn's last row (conversation/turns.ts): as tall as the footer that replaces it.
@@ -83,50 +106,98 @@ export function Thinking({
   command?: boolean;
 } = {}) {
   const t = useT();
+  const language = usePaneLanguage();
   const waiting = useContext(WaitingOnContext);
-  const from = doing !== undefined ? doingAt : untimed ? undefined : since;
-  const timed = !status && !waiting && from !== undefined;
+  const startLook = starting && !waiting ? experimentArm(agentStartLook) : "thinking";
+  // The turn's time, from the prompt, whatever the line names: it keeps counting across steps and
+  // never starts again at a call (Leo, 2026-11-01: "it should just keep going").
+  const from = untimed ? undefined : since;
+  const timed = !waiting && from !== undefined;
   const time = useTicking(timed, now);
-  const quiet = useQuiet(status || waiting || doing !== undefined ? undefined : quietKey);
+  const quiet = useQuiet(waiting || doing !== undefined ? undefined : quietKey);
   const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
   const label =
-    status ??
-    (doing === undefined
+    doing === undefined
       ? t("thinking")
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell
           ? doing
-            ? t("tools.runningCommand", { command: doing })
+            ? t(done ? "tools.ranCommand" : "tools.runningCommand", { command: doing })
             : draft
               ? t("tools.writingCommand")
-              : t("tools.runningUnnamed")
-          : doing);
+              : t(done ? "tools.ranUnnamed" : "tools.runningUnnamed")
+          : doing;
+  const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
+  const elapsed = timed ? formatDuration(Math.max(0, time - from)) : undefined;
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).
   const counts = useContext(WorkingCountsContext);
   const tokens = counts?.tokens;
-  const showTokens = Boolean(tokens) && timed && doing === undefined;
-  const parts = counts && !status && !waiting ? workingParts(t, counts) : [];
+  const showTokens = Boolean(tokens) && timed;
+  // One count, as Claude Code's live line says it ("47.4K tokens"): the turn's output, with the
+  // split on hover (liveLineTokens.experiment.ts).
+  const oneCount = experimentArm(liveLineTokens) === "total";
+  const parts = counts && !waiting ? workingParts(t, counts) : [];
+  // The `silent` and `spinner` start looks keep the line's box (`.cv-worked`'s height) with no words.
+  if (startLook !== "thinking")
+    return (
+      <div
+        className={`cv-worked${below ? " is-below" : ""}${startLook === "silent" ? " is-quiet" : ""}`}
+        data-find-skip
+      >
+        {startLook === "spinner" && <Spinner size={14} loading />}
+      </div>
+    );
   return (
-    <div className={`cv-worked${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
+    // `cv-worked--live`: its words start on the icon rows' text column (conversation.css).
+    <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}
         </output>
       ) : (
-        <output className={status ? "cv-thinking" : "cv-thinking is-shimmer"}>
-          {status ? label : <ShimmerText text={label} />}
-        </output>
+        <span className="cv-shimmer__row">
+          <output className="cv-thinking is-shimmer">
+            <ShimmerText
+              text={label}
+              baseText={
+                lead ? (
+                  <>
+                    <span className="cv-worked__lead">{lead.lead}</span>
+                    {lead.rest}
+                  </>
+                ) : (
+                  label
+                )
+              }
+              lit={
+                <>
+                  <span className="cv-shimmer__lit-label" data-text={label} />
+                  {elapsed && <span className="cv-shimmer__lit-time" data-text={elapsed} />}
+                </>
+              }
+            />
+          </output>
+          {elapsed && <span className="cv-worked__time">{elapsed}</span>}
+        </span>
       )}
-      {timed && <span className="cv-worked__time">{formatDuration(Math.max(0, time - from))}</span>}
       {showTokens && (
         <span className="cv-worked__count">
           <span className="cv-worked__sep" aria-hidden="true">
             ·
           </span>
-          <TurnTokens total={tokens} split={counts?.split} />
+          {oneCount && tokens ? (
+            <span
+              className="cv-worked__tokens"
+              title={hasTokens(counts?.split) ? tokenDetail(t, language, counts.split) : undefined}
+            >
+              {t("turn.working.tokens", { n: tokens, tokens: compactTokens(language, tokens) })}
+            </span>
+          ) : (
+            <TurnTokens total={tokens} split={counts?.split} />
+          )}
         </span>
       )}
       {parts.map((part) => (
@@ -140,12 +211,7 @@ export function Thinking({
         </span>
       ))}
       {/* Keyed by the call, so each command's hint waits its moment again. */}
-      {command && !waiting && doing !== undefined && <BackgroundHint key={doingAt} />}
-      {status && onCancel && (
-        <button type="button" className="cv-thinking__cancel" onClick={onCancel}>
-          {t("switch.cancelPrompt")}
-        </button>
-      )}
+      {command && !done && !waiting && doing !== undefined && <BackgroundHint key={doingAt} />}
     </div>
   );
 }

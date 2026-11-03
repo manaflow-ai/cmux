@@ -131,6 +131,8 @@ impl Hub {
         meta.agent_session_family = None;
         meta.parent_id = None;
         meta.fork_seq = None;
+        meta.fork_before = None;
+        meta.fork_requests.clear();
         meta.fork_parent_verified = Some(false);
         // A store comes from this machine's chat index, never from a bundle.
         meta.chat_store = None;
@@ -254,6 +256,7 @@ impl Hub {
         // The source's subagent retries stayed there (`subagent_retry.rs`).
         self.settle_subagent_retries(&session);
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
+        self.update_live_session_index(&session);
         // Indexed again once published: a lookup before that found no session and dropped it.
         self.child_tags.note(&session);
         self.offers.forget(&meta.id);
@@ -418,6 +421,7 @@ impl Hub {
             self.store.close_log(&meta.id);
             tracing::warn!(session = %meta.id, "a failed import's staged durable state waits for the next start to roll it back");
         } else {
+            self.remove_cached_closed_summary(&meta.id);
             let _ = self.store.delete(&meta.id);
         }
     }
@@ -772,13 +776,16 @@ impl Hub {
         files.sort();
         let mut last = 0;
         for f in files {
-            let text = std::fs::read_to_string(&f)
+            use std::io::BufRead as _;
+            let file = std::fs::File::open(&f)
                 .map_err(|e| anyhow::anyhow!("read {}: {e}", f.display()))?;
-            for (n, line) in text.lines().enumerate() {
+            // Bound memory to one record, including for multi-gigabyte event logs.
+            for (n, line) in std::io::BufReader::new(file).lines().enumerate() {
+                let line = line.map_err(|e| anyhow::anyhow!("read {}: {e}", f.display()))?;
                 if line.trim().is_empty() {
                     continue;
                 }
-                let mut rec: EventRecord = serde_json::from_str(line)
+                let mut rec: EventRecord = serde_json::from_str(&line)
                     .map_err(|e| anyhow::anyhow!("{} line {}: {e}", f.display(), n + 1))?;
                 if let Some(control) = control {
                     super::transfer_guard::guarded_record(&mut rec, control);

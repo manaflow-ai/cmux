@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore, type CSSProperties } from "react";
+import { setPopupInsetTop } from "../../../ui/popupInset";
 
 /// The pane's tab row the chat header's tools may sit in (CmuxNextAgentPane AgentPaneTabRow, the
 /// `chrome.tabs.rowTools` Debug setting; Leo 2026-10-14, "why is there even a top bar"). The App
@@ -10,6 +11,11 @@ export interface TabRow {
   readonly trailingInset: number;
   /// Debug chrome.tabs.nativeRowTools; absent/false keeps the existing web buttons.
   readonly nativeRowTools?: boolean;
+  /// The pane holds this one tab (PaneContentView): the row has no band of its own. The transcript runs up
+  /// to the pane's top under it, its tab and tools floating over the chat (Leo, 2026-11-03: "what if we could
+  /// ... have even more of that area be not some row blocking it? cuz isn't it kinda arbitrary anyway if you
+  /// literally only have one tab there?"). Absent/false: two or more tabs, the row as before.
+  readonly soloTab?: boolean;
 }
 
 /// Space between the last tab and the tools, in the width the page reports: the tools' own pitch, not a gutter.
@@ -25,12 +31,24 @@ const pixels = (value: unknown) => (typeof value === "number" && Number.isFinite
 /// offered row is a new one, even when it equals the last: the App offers it again after it forgot
 /// the tools' width (the page said ready again), and the page reports the width again for it.
 export function setTabRow(value: unknown): void {
-  const raw = (value ?? {}) as { height?: unknown; trailingInset?: unknown; nativeRowTools?: unknown };
+  const raw = (value ?? {}) as {
+    height?: unknown;
+    trailingInset?: unknown;
+    nativeRowTools?: unknown;
+    soloTab?: unknown;
+  };
   const height = pixels(raw.height);
   current =
     height > 0
-      ? { height, trailingInset: pixels(raw.trailingInset), nativeRowTools: raw.nativeRowTools === true }
+      ? {
+          height,
+          trailingInset: pixels(raw.trailingInset),
+          nativeRowTools: raw.nativeRowTools === true,
+          soloTab: raw.soloTab === true,
+        }
       : NONE;
+  // The native row draws over the page's top, so menus and popovers open below it (ui/popupInset.ts).
+  setPopupInsetTop(current.height);
   for (const listener of listeners) listener();
 }
 

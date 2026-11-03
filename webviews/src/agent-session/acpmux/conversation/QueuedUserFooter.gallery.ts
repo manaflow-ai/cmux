@@ -2,6 +2,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, user } from "../../../gallery/fixtures/acpmux";
+import { gridLength } from "../transcriptGrid";
 
 const TEXT = "Use the cache directory for the next run";
 const snapshot = (steer: "waiting" | "landed" = "waiting") => {
@@ -30,7 +31,10 @@ const preview = (gap?: string) => async (ctx: PlayContext) => {
   if (pending && bubble) {
     const bubbleBox = bubble.getBoundingClientRect();
     const footerBox = actions!.getBoundingClientRect();
-    if (footerBox.top < bubbleBox.bottom || Math.abs(footerBox.right - bubbleBox.right) > 1)
+    // The row overhangs the bubble's right edge by its control's inset, so the last glyph's ink sits
+    // on that edge (conversation.css `--cv-action-overhang`: (control - icon box) / 2; #27580, #31683).
+    const overhang = (gridLength("transcript-action-control") - gridLength("transcript-icon-box")) / 2;
+    if (footerBox.top < bubbleBox.bottom || Math.abs(footerBox.right - overhang - bubbleBox.right) > 1)
       throw new Error("waiting steer footer is not under the bubble's right edge");
   }
 };

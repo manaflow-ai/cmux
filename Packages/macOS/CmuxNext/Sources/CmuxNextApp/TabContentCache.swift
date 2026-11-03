@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextMacScreen
@@ -22,9 +23,12 @@ private let fallbackLogger = Logger(subsystem: "com.cmuxterm.app.next", category
 final class TabContentCache {
     private let daemon: DaemonService
     var terminals: [String: TerminalEntry] = [:]
-    var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
+    var browsers: [String: BrowserEntry] = [:] {
+        didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged(); pageInstalls.bump(Set(browsers.keys).symmetricDifference(oldValue.keys), installed: false) } }
+    }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
+    var withdrawnBy: [String: WeakPresenter] = [:] // the pane that last withdrew each tab (`release`)
     /// Every tab's content phase and visibility generation (plans/cmux-next/tab-lifecycle.md):
     /// the only source of show and hide for terminal surfaces and pages (`TabContentCache+Lifecycle`).
     var lifecycle = ContentLifecycle<String>()
@@ -46,7 +50,7 @@ final class TabContentCache {
     /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
     let goneTabs = GoneTabWatch()
     /// Browser pages' hover card thumbnails (R131), at most `TabPreviewFitting.cachedPixelSize`
-    /// each, with the page version each shows (`pageVersion`): a page is captured again only when
+    /// each, with the page version each shows (`BrowserTabState.pictureVersion`): a page is captured again only when
     /// its version moved. Kept apart from `previews`, whose full-size page images hibernation shows.
     let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
     var pageThumbnailVersions: [String: Int] = [:]
@@ -174,7 +178,6 @@ final class TabContentCache {
     }
 
     var liveTerminalCount: Int { terminals.count }
-
     /// True when `key` has a live surface or page (showing it is cheap).
     func hasContent(for key: String) -> Bool { terminals[key] != nil || browsers[key] != nil }
 
@@ -185,7 +188,7 @@ final class TabContentCache {
     /// The surface for a daemon terminal tab, created (attached) on demand
     /// over `daemon`'s socket (the local daemon, or a Cloud machine's link).
     func terminal(for tab: TabModel, daemon: DaemonService) -> TerminalEntry {
-        let validity = Self.terminalValidity(tab, daemon: daemon)
+        let validity = daemon.terminalViewValidity(of: tab)
         // A provisional split's view stays: its own tab's confirm attaches it (`awaitConfirm`).
         if let entry = terminals[tab.id], entry.validity == validity || entry.gate != nil {
             if entry.gate != nil, entry.confirming !== tab { awaitConfirm(entry, of: tab, daemon: daemon) } // a new record of the tab
@@ -193,9 +196,9 @@ final class TabContentCache {
         }
         let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                      generation: daemon.store.generation)
+        let identity = daemon.terminalIdentity(of: tab), carried = terminals[tab.id]?.session.carriedFrame(for: identity)
         if let stale = terminals.removeValue(forKey: tab.id) {
-            // Daemon restarted or the tab's surface changed: the pane
-            // presenting the old view lets it go before it closes.
+            // Daemon restarted or the tab's surface changed: the old pane lets the view go first; a new view of the same terminal shows its frame.
             if let owner = ledger.remove(tab.id) { presenters[owner]?.value?.surfaceWasDisplaced(tab.id) }
             applyLifecycle(lifecycle.send(.removed(tab.id)))
             pendingMounts[tab.id] = nil
@@ -210,6 +213,7 @@ final class TabContentCache {
                                   burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
                                   endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon)
+        session.showsTerminal(identity, carrying: carried)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate)
         terminals[tab.id] = entry
@@ -430,7 +434,7 @@ final class TabContentCache {
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         browsers[key] = entry
-        pageInstalls.bump()
+        pageInstalls.bump([key])
         // Pages are kept by hibernation, never by the terminal warm set.
         ledger.setRetained(key, false)
         contentDidMount(key)
@@ -479,9 +483,10 @@ final class TabContentCache {
     func key(of page: any BrowserTab) -> String? {
         browsers.first { $0.value.tab === page }?.key
     }
-
     /// The tab closed: free everything it held (a conversation tab's view: `onRelease`).
     func release(_ key: String, displacing: Bool = true) { // displacing false: the pane keeps its view (a stand-in's moved to its daemon tab)
+        if displacing, terminals[key] != nil, browsers[key] == nil, ((presenter(of: key) ?? withdrawnBy[key]?.value) as? PaneController)?.holdsRelease(of: key, { [weak self] in self?.release(key) }) == true { return } // F1: every release of a closing pane's terminal waits for its landing (its presenter first, else the pane that owned and withdrew it: Cmd-W withdraws first); a page goes now
+        withdrawnBy[key] = nil
         onRelease?(key)
         // A closed tab is mirrored nowhere any more (`TabMirrors`); a stand-in moving to its daemon tab keeps nothing to drop.
         if displacing { pageRequests.services?.tabMirrors.remove(key) }
@@ -495,7 +500,7 @@ final class TabContentCache {
         goneTabs.forget(key)
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)
-        previews.remove(key)
+        previews.remove(key); if displacing { lastFrames.remove(key) } // a closed tab's last frame goes with it (#32315)
         pageThumbnails.remove(key)
         pageThumbnailVersions[key] = nil
         shownPages.remove(key)

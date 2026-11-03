@@ -214,10 +214,6 @@ pub struct SpawnSpec {
     /// (`cwd_pin.rs`). The host's harness spawn fails when `cwd` leads elsewhere by then.
     #[serde(default)]
     pub cwd_pin: Option<crate::cwd_pin::CwdPin>,
-    /// The CPU class the harness starts at (`cpu_class.rs`), decided by the daemon. A spec from
-    /// a daemon that predates it starts the harness as before.
-    #[serde(default)]
-    pub cpu_class: crate::cpu_class::CpuClass,
     /// When the host ends on its own while no daemon controls it (`host.rs`, `orphan_step`).
     /// None: never (a daemon whose idle hibernation is off, or one that predates it).
     #[serde(default)]
@@ -742,6 +738,36 @@ pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
 #[cfg(not(unix))]
 pub fn write_record_atomic(_path: &Path, _record: &HostRecord) -> Result<()> {
     Err(crate::platform::unsupported("agent host records"))
+}
+
+/// `frame` as the bytes `write_frame` writes (length prefix and JSON), encoded once so
+/// it can be sent and kept without another copy. None when it is over the limit.
+pub fn encode_frame<T: Serialize>(frame: &T) -> Option<std::sync::Arc<[u8]>> {
+    encode_frame_within(frame, MAX_FRAME)
+}
+
+/// [`encode_frame`] with a body of at most `max` bytes.
+pub(crate) fn encode_frame_within<T: Serialize>(
+    frame: &T,
+    max: usize,
+) -> Option<std::sync::Arc<[u8]>> {
+    let body = serde_json::to_vec(frame).ok()?;
+    if body.len() > max {
+        return None;
+    }
+    let len = u32::try_from(body.len()).ok()?;
+    let mut buf = Vec::with_capacity(body.len().saturating_add(4));
+    buf.extend_from_slice(&len.to_be_bytes());
+    buf.extend_from_slice(&body);
+    Some(buf.into())
+}
+
+/// An entry frame serialized from a borrowed entry: the same bytes as
+/// `HostFrame::Entry { h, e }`, without copying the entry first.
+#[derive(Serialize)]
+#[serde(tag = "t", rename_all = "snake_case")]
+pub(crate) enum EntryFrame<'a> {
+    Entry { h: u64, e: &'a Entry },
 }
 
 pub async fn write_frame<W: AsyncWriteExt + Unpin, T: Serialize>(

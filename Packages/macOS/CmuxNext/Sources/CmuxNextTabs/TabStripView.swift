@@ -121,6 +121,14 @@ public final class TabStripView: NSView {
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0) {
         didSet { slotIndexCache = nil }
     }
+    /// The tabs fill the bar: they are narrower than their widest, or scroll (``updateCrowded()``).
+    /// The trailing controls then show at rest (`tabs.crowdedControls`), since their kept room is
+    /// room the tabs could use.
+    public internal(set) var isCrowded = false
+    /// ``isCrowded`` changed; the pane's "…" (``PaneToolbarView/strip``) follows it.
+    public var onCrowdedChange: ((Bool) -> Void)?
+    /// ``TabStripModel/holdsOneTab`` at the last sync: its change lays the pane out again (`syncFromModel`).
+    var laidOutOneTab: Bool?
     /// `result` indexed by tab (`slotIndex`), built on first use after each layout.
     var slotIndexCache: TabSlotIndex?
     /// The strip moves whose Core Animation transaction has not completed (`applyFrames`, `moveEnded`).
@@ -171,6 +179,13 @@ public final class TabStripView: NSView {
     var pressedAudioID: TabID?
     /// The tab whose speaker the pointer is on: its fill and the strip's tooltip.
     var audioHoveredID: TabID?
+    /// A press on a zoomed pane's indicator (`TabCell.zoomButtonRect`): its release there restores the layout.
+    var pressedZoomID: TabID?
+    /// The tab whose zoom indicator the pointer is on: its fill and the strip's tooltip.
+    var zoomHoveredID: TabID?
+    /// The tab whose zoom indicator the click sequence began on: its remaining presses do not
+    /// activate the tab or another button that moves into the indicator's old slot.
+    var zoomClickedID: TabID?
     var middlePressID: TabID?
     var pressedNewTab = false
     /// Press-and-hold on + opens the new tab menu (`TabNewTabHold`).
@@ -208,6 +223,8 @@ public final class TabStripView: NSView {
     private(set) lazy var escapeMonitor = TabDragEscapeMonitor(strip: self)
     /// A dropped tab keeps the placeholder's geometry when it arrives.
     var pendingDrop: (id: TabID, x: CGFloat, width: CGFloat)?
+    /// Identifies the committed drop whose result may still roll back this strip.
+    var dropCommitID: UUID?
     /// Group the phantom gap belongs to (a dropped tab would join it).
     var dropPlaceholderGroup: TabGroupID?
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")
@@ -367,6 +384,9 @@ public final class TabStripView: NSView {
         closingWatch.end()
         closingModeWidth = nil
         menuTracking.end()
+        _ = newTabHold.end()
+        pressedNewTab = false
+        newTabButton.isPressed = false
         buttonReveal.pointerInStrip = false
     }
 
@@ -400,6 +420,7 @@ public final class TabStripView: NSView {
         // What changed while out of sight lands at once in its final place: nobody saw it move.
         if modelChangedWhileHidden {
             modelChangedWhileHidden = false
+            layOutPaneIfOneTabChanged()
             sync(fromModel: true, animating: false)
         }
         hoverCards.register(hoverCard)
@@ -450,7 +471,7 @@ public final class TabStripView: NSView {
         if opensNewTabMenuOnPress { metrics.newTabButtonWidth += Metrics.space4 }
         hoverCard.tokensChanged()
         geometryDidChange()
-        let font = Typography.body
+        let font = Typography.tabTitle
         for cell in cells.values {
             cell.metrics = metrics
             cell.titleFont = font

@@ -88,6 +88,8 @@ mod batch_close;
 mod client_ids;
 mod close_effects;
 mod column_update;
+mod creation_burst_seams;
+mod creation_group;
 mod creation_settlement;
 mod effect_execution;
 mod effectful_operation;
@@ -106,10 +108,15 @@ mod tab_workspace_move;
 mod topology_operation;
 #[cfg(test)]
 mod topology_test_hooks;
+#[cfg(test)]
+pub(super) use creation_burst_seams::CreationBurstSeams;
+pub(super) use creation_group::CreationGroups;
+pub(crate) use creation_group::with_group_join_notice;
+use creation_group::{StagedCreation, StagedCreationOutcome, creation_shares_group_commit};
 mod unpublished_creation;
 pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget, CloseReason, RoomClose};
 use layout_projection::{remove_pane_from_layout, sync_layout_column_projection};
-pub(crate) use pane_browser::PANE_BROWSER_URL_FIELD;
+pub(crate) use pane_browser::{PANE_BROWSER_URL_FIELD, TabSplit};
 
 /// `pane.split`'s `focus` field: whether the new pane takes the focus. The
 /// resource router sends `false` when a caller omits it, so a programmatic

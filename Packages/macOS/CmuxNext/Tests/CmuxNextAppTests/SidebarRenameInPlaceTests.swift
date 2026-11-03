@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// User 2026-10-31: "double click to rename workspaces must not have layout shift. should also
 /// work for renaming groups too." A double-click on a workspace row or on a group header's name
 /// opens the editor in the title's place: its text starts on the title's first glyph and
 /// baseline, in the title's font, and no row moves or resizes before, during or after the edit.
-@MainActor @Suite(.serialized) struct SidebarRenameInPlaceTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarRenameInPlaceTests {
     /// A sidebar in a window with two groups of one workspace each.
     final class Harness {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 600), styleMask: [.borderless],

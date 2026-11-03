@@ -1,4 +1,4 @@
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import CmuxNextSettings
 public import CmuxNextDaemonService
 public import Foundation
@@ -50,6 +50,12 @@ public final class DiffPageRuntime {
     public func repository(at folder: URL) async -> DiffRepository? {
         guard let status = try? await status(folder.path) else { return nil }
         return DiffRepository(status: status)
+    }
+
+    /// The repository `folder` is in on another machine (#25581), from that machine's session
+    /// host through `git`: nil when it is in none; throws when the machine did not answer.
+    public static func repository(at folder: URL, git: any DiffGitRunning) async throws(AgentPaneGitFailure) -> DiffRepository? {
+        DiffRepository(status: try await git.status(folder.path))
     }
 
     /// The tab's grant (for `repository`'s root) and config, with `turn` as its

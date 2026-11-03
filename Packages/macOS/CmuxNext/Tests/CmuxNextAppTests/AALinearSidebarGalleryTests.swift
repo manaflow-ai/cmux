@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -10,7 +11,7 @@ import Testing
 /// groups ofc)"). `before` turns on the titlebar's New Workspace chevron, as the sidebar drew
 /// it; `after` is a fresh profile's sidebar. Dark and light, written under
 /// `linear-sidebar-gallery/` and bundled to `linear-sidebar-gallery.tar` for `cmux-ci run --artifact`.
-@MainActor @Suite(.serialized) struct AALinearSidebarGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AALinearSidebarGalleryTests {
     static func render(before: Bool, dark: Bool) throws -> CGImage {
         _ = NSApplication.shared
         let width: CGFloat = 280, height: CGFloat = 440

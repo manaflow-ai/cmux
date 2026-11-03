@@ -414,6 +414,44 @@ fn the_autocompact_cap_comes_from_the_flag_then_the_env_then_the_settings() {
     assert_eq!(autocompact(&codex, None), (Capped, Some(180_000)));
 }
 
+/// acpmux gives a Claude Code session its own autocompact window only when nothing the person
+/// set decides one (`harness_limits::lift_claude`, Leo 2026-10-20: 400K).
+#[test]
+fn acpmux_sets_the_claude_window_only_when_the_person_set_none() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut source, _) = claude(home.path());
+    let argv = |a: &[&str]| Some(a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    assert!(!claude_autocompact_unset(&source), "--autocompact in its argv");
+    source.argv = argv(&["claude"]);
+    assert!(claude_autocompact_unset(&source), "no flag, env or settings file");
+    let settings = home.path().join("settings.json");
+    std::fs::write(&settings, r#"{"theme": "dark", "env": {"FOO": "1"}}"#).unwrap();
+    assert!(claude_autocompact_unset(&source), "settings that name no window");
+    std::fs::write(&settings, r#"{"autoCompactWindow": "auto"}"#).unwrap();
+    assert!(!claude_autocompact_unset(&source), "the person's auto stays");
+    std::fs::write(&settings, r#"{"env": {"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50"}}"#).unwrap();
+    assert!(!claude_autocompact_unset(&source), "a window in settings.json's env");
+    std::fs::write(&settings, "{not json").unwrap();
+    assert!(!claude_autocompact_unset(&source), "settings it cannot read");
+    std::fs::remove_file(&settings).unwrap();
+    let project = home.path().join("repo");
+    std::fs::create_dir_all(project.join(".claude")).unwrap();
+    source.cwd = project.join("sub");
+    assert!(claude_autocompact_unset(&source), "a project with no settings");
+    std::fs::write(project.join(".claude/settings.local.json"), r#"{"autoCompactWindow": 600000}"#)
+        .unwrap();
+    assert!(!claude_autocompact_unset(&source), "a project's window, from a folder under it");
+    std::fs::remove_file(project.join(".claude/settings.local.json")).unwrap();
+    source.env.insert("CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(), "auto".into());
+    assert!(!claude_autocompact_unset(&source), "the env's window");
+    source.env.remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
+    let (key, value) = crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW;
+    source.env.insert(key.into(), value.into());
+    assert_eq!(autocompact(&source, None), (Autocompact::Capped, Some(400_000)));
+    source.argv = None;
+    assert!(!claude_autocompact_unset(&source), "a chat this daemon did not start");
+}
+
 /// A first read that starts after the day began, or a backlog it left, cannot say the day's
 /// counts: they are unknown (null), never the lower number read so far. Once the reads reach
 /// the end and cover the day, they are known.

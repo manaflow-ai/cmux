@@ -241,8 +241,26 @@ impl Brain {
                 }
                 _ => Vec::new(),
             };
-            let logged =
-                super::files::logged_text(&super::images::logged_text(&labelled, &images), &files);
+            // Local participants are conversation labels, not signed-in
+            // accounts. Only the Cloud source carries account identities.
+            let person = (self.settings.membership.owner != cmux_chief::rules::USER_LOCAL)
+                .then_some(summary)
+                .and_then(|summary| summary.participants.iter().find(|p| p.id == message.author))
+                .filter(|p| p.kind == cmux_conversation::ParticipantKind::Human)
+                .and_then(|p| p.person.as_deref())
+                .filter(|id| *id != cmux_chief::rules::USER_LOCAL);
+            self.trace.emit(
+                "usage.message",
+                serde_json::json!({"id": message.id, "person": person}),
+            );
+            let sender = self.settings.membership.agent_sender(summary, &message);
+            let logged = super::files::logged_text(
+                &super::images::logged_text(
+                    &super::inbox::agent_framed(sender.as_ref(), &labelled),
+                    &images,
+                ),
+                &files,
+            );
             if let Some(target) = crate::membership::thread_target(summary, &message) {
                 self.reply_threads.insert(message.id.clone(), target);
             }

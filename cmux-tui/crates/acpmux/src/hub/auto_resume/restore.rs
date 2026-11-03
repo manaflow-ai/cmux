@@ -29,7 +29,7 @@ impl Hub {
             || session.replaced.load(std::sync::atomic::Ordering::SeqCst)
             || session.status() == SessionStatus::Closed
             || session.turn().is_some()
-            || session.queue().iter().any(|q| !q.held)
+            || session.queue().iter().any(|q| !q.aside())
         {
             return;
         }
@@ -55,6 +55,11 @@ impl Hub {
             return;
         }
         let Some(last) = last else { return };
+        // The durable trigger dispatcher owns retries; a generic continuation
+        // would lose the verified principal and become an ordinary human turn.
+        if last.msg.get("trigger") == Some(&Value::Bool(true)) {
+            return;
+        }
         let Some(turn_id) = last.msg.get("turnId").and_then(Value::as_str).map(str::to_owned)
         else {
             return;
@@ -67,18 +72,24 @@ impl Hub {
             return;
         }
         let (mut retry, mut from) = (None::<RetrySummary>, None::<String>);
+        let mut not_before = None::<u64>;
+        let mut manual = None::<Value>;
+        let mut manual_recorded = false;
         let mut has_retry_marker = false;
         let mut turn_stopped = false;
         let (mut control, mut trust_gate) = (Control::Web, true);
+        let mut cloud_mobile = false;
         let (mut ended, mut floor_cancelled) = (false, false);
         let kinds = [
             "turn_started",
+            "queued",
             "user_message",
             "turn_control",
             "remote_control_ended",
             "remote_control_restored",
             "remote_floor_cancel",
             "auto_resume_scheduled",
+            "auto_resume_manual",
             "auto_resume_stopped",
             "auto_resume_skipped",
             "auto_resume_settled",
@@ -86,6 +97,13 @@ impl Hub {
             "turn_stop_requested",
         ];
         let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+            if matches!(e.kind.as_str(), "queued" | "user_message")
+                && e.msg.pointer("/_meta/provenance/manual") == Some(&Value::Bool(true))
+                && e.msg.pointer("/_meta/provenance/turnId").and_then(Value::as_str)
+                    == Some(turn_id.as_str())
+            {
+                manual_recorded = true;
+            }
             let is_cut = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id.as_str());
             match e.kind.as_str() {
                 "turn_started" if is_cut => {
@@ -95,6 +113,8 @@ impl Hub {
                     has_retry_marker = false;
                     control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
                     trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(true);
+                    cloud_mobile =
+                        e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
                     ended = false;
                     floor_cancelled = false;
                 }
@@ -104,6 +124,7 @@ impl Hub {
                         from = p.and_then(|p| p["from"].as_str()).map(str::to_owned);
                     }
                 }
+                "auto_resume_manual" if is_cut && !manual_recorded => manual = Some(e.msg),
                 "turn_control"
                     if is_cut && e.msg.get("control").and_then(Value::as_str) == Some("web") =>
                 {
@@ -112,13 +133,14 @@ impl Hub {
                 "remote_control_ended" => ended = true,
                 "remote_control_restored" => ended = false,
                 "remote_floor_cancel" if is_cut => floor_cancelled = true,
-                // daemon_restart records are queued continuations, not waiting retries.
+                // daemon_restart and moved records are queued continuations, not waiting
+                // retries.
                 "auto_resume_scheduled"
                     if is_cut
-                        && e.msg.get("reason").and_then(Value::as_str)
-                            != Some("daemon_restart") =>
+                        && !super::Cut::queued(e.msg.get("reason").and_then(Value::as_str)) =>
                 {
                     has_retry_marker = true;
+                    not_before = e.msg.get("notBefore").and_then(Value::as_u64);
                     retry = serde_json::from_value(e.msg).ok();
                 }
                 // Old stop records had no id; the turn boundary reset scopes those. New
@@ -128,18 +150,21 @@ impl Hub {
                 {
                     turn_stopped |= is_cut;
                     has_retry_marker = true;
-                    retry = None
+                    retry = None;
+                    manual = None;
                 }
                 "turn_stop_requested" if is_cut => {
                     turn_stopped = true;
                     has_retry_marker = true;
-                    retry = None
+                    retry = None;
+                    manual = None;
                 }
                 "auto_resume_skipped" | "auto_resume_settled" | "auto_resume_exhausted"
                     if is_cut =>
                 {
                     has_retry_marker = true;
-                    retry = None
+                    retry = None;
+                    manual = None;
                 }
                 _ => {}
             }
@@ -148,11 +173,16 @@ impl Hub {
         if scanned.is_err() {
             return;
         }
+        session.floor.cloud_mobile_turn.store(cloud_mobile, std::sync::atomic::Ordering::SeqCst);
+        if manual_recorded {
+            manual = None;
+        }
         // Stop may race the small gap between in-memory admission and turn_started.
         // Explicitly scoped cancellation remains terminal even if its record came first.
         if turn_stopped {
             has_retry_marker = true;
             retry = None;
+            manual = None;
         }
         // Refresh the durable last-turn summary before every skip/configuration decision.
         let mut summary = serde_json::Map::new();
@@ -165,11 +195,35 @@ impl Hub {
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn =
             Some(Value::Object(summary));
 
+        // A copied machine's first start (`clone_boot.rs`): the wait belongs to the machine it
+        // was copied from. Settle it here for good, so no later start of the copy restores it.
+        if let Some(from) = self.clone_of()
+            && (retry.is_some() || manual.is_some() || !has_retry_marker)
+        {
+            let prompt_id = retry
+                .as_ref()
+                .map(|r| json!(r.prompt_id))
+                .unwrap_or_else(|| last.msg.get("promptId").cloned().unwrap_or(Value::Null));
+            self.append(
+                session,
+                "mux",
+                "auto_resume_skipped",
+                json!({
+                    "turnId": turn_id, "promptId": prompt_id,
+                    "attempt": retry.as_ref().map(|r| r.attempt),
+                    "skipped": "clone_boot", "cloneOf": from,
+                }),
+            );
+            return;
+        }
+
         // Never substitute default retries for a config currently being changed. Wait for
         // the writer off this synchronous path, then reclaim restoration for this instance.
         let delays = match self.config.try_read() {
             Ok(config) => {
-                config.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())
+                let configured = config.auto_resume_delays_ms.clone();
+                drop(config);
+                super::effective_delays(configured)
             }
             Err(_) => {
                 let (hub, session) = (self.clone(), session.clone());
@@ -181,6 +235,34 @@ impl Hub {
                 return;
             }
         };
+        if let Some(saved) = manual {
+            let text = |key: &str| saved.get(key).and_then(Value::as_str);
+            let Some(_manual_prompt) = text("manualPromptId") else { return };
+            let Some(control) = text("control").map(str::to_owned) else { return };
+            let Some(trust_gate) = saved.get("trustGate").and_then(Value::as_bool) else { return };
+            let Some(_error) = text("error") else { return };
+            let from = text("from").map(str::to_owned);
+            let full_access_device = text("fullAccessDevice").map(str::to_owned);
+            let wake = Arc::new(Notify::new());
+            pending.replace(Mark::Waiting {
+                turn: turn_id.clone(),
+                retry: None,
+                _wake: Wake(wake),
+            });
+            drop(pending);
+            let hub = self.clone();
+            let session = session.clone();
+            let by = retry_turn::RetryBy {
+                control: Control::from_recorded(Some(&control)),
+                trust_gate,
+                full_access_device,
+                from,
+            };
+            tokio::spawn(async move {
+                let _ = hub.retry_turn_restored(&session, by).await;
+            });
+            return;
+        }
         if delays.is_empty() && (retry.is_some() || !has_retry_marker) {
             self.append(
                 session,
@@ -206,7 +288,7 @@ impl Hub {
             {
                 let delay = staggered(delay, &session.id);
                 let recovered = RetrySummary {
-                    attempt: (done + 1) as u64,
+                    attempt: done.saturating_add(1) as u64,
                     of: delays.len() as u64,
                     reason,
                     next_at: last.at.saturating_add(delay),
@@ -255,6 +337,7 @@ impl Hub {
         }
         let id = format!("{}{SUFFIX}{}", retry.prompt_id, retry.attempt);
         if let Some(outcome) = self.logged_prompt(session, &id) {
+            let outcome = outcome.unwrap_or_default();
             if outcome.get("stopReason").and_then(Value::as_str) == Some("cancelled") {
                 // The retry can be stopped while startup is still pending, before its
                 // turn_started. That Stop names the new turn, not the failed cut turn.
@@ -303,8 +386,10 @@ impl Hub {
                 control,
                 trust_gate: trust_gate || control == Control::Web,
                 error: &error,
+                not_before,
             };
-            hub.auto_resume(&session, cut, retry.attempt as usize).await;
+            hub.auto_resume(&session, cut, usize::try_from(retry.attempt).unwrap_or(usize::MAX))
+                .await;
         });
     }
 }
@@ -479,7 +564,7 @@ mod tests {
             assert_eq!(retry.is_object(), expected, "crash after {point}: {retry}");
             if ["message_stop", "stop_message", "stop_without_message"].contains(&point) {
                 assert_eq!(
-                    restored.logged_prompt(&session, "original~resume-1").unwrap()["stopReason"],
+                    restored.logged_prompt(&session, "original~resume-1").unwrap().unwrap()["stopReason"],
                     "cancelled"
                 );
                 let (again, session) = restart(&restored, &session).await;
@@ -614,6 +699,7 @@ mod tests {
                     control: Control::Local,
                     trust_gate: false,
                     error: "stream disconnected",
+                    not_before: None,
                 }),
             );
             let (again, session) = restart(&hub, &session).await;
@@ -770,6 +856,7 @@ mod tests {
                     control: Control::Local,
                     trust_gate: false,
                     error: "stream disconnected",
+                    not_before: None,
                 },
                 1,
                 &[],
@@ -896,6 +983,7 @@ mod tests {
                 control: Control::Local,
                 trust_gate: false,
                 error: "stream disconnected",
+                not_before: None,
             },
             1,
         )
@@ -912,6 +1000,7 @@ mod tests {
                 control: Control::Local,
                 trust_gate: false,
                 error: "stream disconnected",
+                not_before: None,
             },
             1,
             &[],
@@ -978,5 +1067,27 @@ mod tests {
                 .iter()
                 .any(|e| e.kind == "auto_resume_restored")
         );
+    }
+
+    #[tokio::test]
+    async fn retry_restore_does_not_replay_a_manual_retry_stopped_before_dispatch() {
+        let (hub, session) = idle_chat();
+        failed_retry(&hub, &session);
+        hub.append(
+            &session,
+            "mux",
+            "auto_resume_manual",
+            json!({
+                "turnId": "later-turn",
+                "promptId": "later-prompt",
+                "manualPromptId": "later-prompt~resume-1",
+                "error": "stream disconnected",
+                "control": "local",
+                "trustGate": false
+            }),
+        );
+        hub.append(&session, "mux", "auto_resume_stopped", json!({"turnId": "later-turn"}));
+        hub.restore_auto_resume(&session);
+        assert_eq!(hub.session_summary(&session)["retry"], Value::Null);
     }
 }

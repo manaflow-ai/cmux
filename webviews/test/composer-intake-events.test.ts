@@ -92,6 +92,25 @@ test("a failed upload fails each file it held, with the host's reason", async ()
   expect(failed).toEqual([[0, { text: "The disk is full." }]]);
 });
 
+test("keeps completed files when a later upload fails", async () => {
+  const ready: number[] = [];
+  const failed: [number, unknown][] = [];
+  const result = await intakeFiles(
+    [zip("one.zip"), zip("two.zip")],
+    {
+      allowImages: true,
+      upload: async () => ({ paths: ["/tmp/one.zip", ""], error: "Disconnected" }),
+    },
+    {
+      ready: (index) => ready.push(index),
+      failed: (index, error) => failed.push([index, error]),
+    },
+  );
+  expect(ready).toEqual([0]);
+  expect(failed).toEqual([[1, { text: "Disconnected" }]]);
+  expect(result.attachments.map((attachment) => attachment.name)).toEqual(["one.zip"]);
+});
+
 /// An image engine whose decoding waits for `decoded()`, as a slow preview does.
 function slowImageEngine() {
   imageEngine();

@@ -6,7 +6,7 @@ import CmuxNextLayout
 import Observation
 
 /// The live agent cursor visibility: resolves a target tab against the
-/// current models (`AgentCursorSnapshotBuilder` + the pure resolver), hands
+/// current models (`AgentCursorSnapshotBuilder` + the Rust rules), hands
 /// each window's cursor host its `AgentCursorTargetResolving`,
 /// and tells `onChange` when a tracked target's visibility changes between
 /// input events (a column scrolls, a window minimizes, a workspace or tab

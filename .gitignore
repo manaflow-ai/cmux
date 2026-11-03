@@ -68,6 +68,8 @@ tmp-*/
 
 # Local dogfood scratch (screenshots, recordings) — never commit
 artifacts/
+# ...except the Artifacts page's source.
+!/webviews/src/pages/artifacts/
 
 # tmux verbose debug logs (tmux -v) that land in the cwd
 tmux-*.log
@@ -114,6 +116,8 @@ Packages/macOS/CmuxNext/nested-groups-gallery/
 Packages/macOS/CmuxNext/nested-groups-gallery.tar
 Packages/macOS/CmuxNext/group-line-gallery/
 Packages/macOS/CmuxNext/group-line-gallery.tar
+Packages/macOS/CmuxNext/leading-column-gallery/
+Packages/macOS/CmuxNext/leading-column-gallery.tar
 Packages/macOS/CmuxNext/ws-no-color-gallery/
 Packages/macOS/CmuxNext/ws-no-color-gallery.tar
 Packages/macOS/CmuxNext/group-header-gallery/
@@ -126,3 +130,6 @@ Packages/macOS/CmuxNext/machines-section-gallery/
 Packages/macOS/CmuxNext/machines-section-gallery.tar
 Packages/macOS/CmuxNext/usage-warning-gallery/
 Packages/macOS/CmuxNext/usage-warning-gallery.tar
+
+# Spotlight exclusion marker that scripts/measure/quiet-host.sh writes in a fleet checkout
+.metadata_never_index

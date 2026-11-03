@@ -77,4 +77,11 @@ extension DaemonError {
         if case .connectionClosed(let reason) = self { return reason == LineTransport.busyRefusal }
         return false
     }
+
+    /// The daemon has no workspace by the id a request named (`selector.not_found` for a workspace): it ended, or its
+    /// create was undone, after the caller read it.
+    public var isWorkspaceNotFound: Bool {
+        guard case .command(_, _, let code?, let details, _) = self, code == "selector.not_found" else { return false }
+        return details?["scope"]?.stringValue == "workspace"
+    }
 }

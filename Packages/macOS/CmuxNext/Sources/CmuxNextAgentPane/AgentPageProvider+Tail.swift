@@ -13,7 +13,12 @@ extension AgentPageProvider {
         if method == "chat.tail.get" { return cache.tail(for: session) ?? .null }
         // No tail, or one this refuses: the chat is forgotten here, so no tab draws a transcript
         // this page no longer stands behind.
-        cache.remember(body["tail"], for: session)
+        // A hover's hand-over (`ifNewer`) never replaces a tail that ends on the same or a newer record.
+        if case .bool(true)? = body["ifNewer"] {
+            if let tail = body["tail"] { cache.rememberIfNewer(tail, for: session) }
+        } else {
+            cache.remember(body["tail"], for: session)
+        }
         return .null
     }
 }

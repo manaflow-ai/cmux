@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Testing
 
 /// The palette's search row puts the magnifier, the placeholder ("Search for commands…"), the
@@ -9,7 +10,7 @@ import Testing
 /// placeholder in the bundled Inter 4 pt above the magnifier and the caret, with the field frame
 /// itself centered: the editor's placeholder used string drawing, typed text TextKit.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 struct PaletteSearchCenteringTests {
     static let placeholder = "Search for commands…"
 

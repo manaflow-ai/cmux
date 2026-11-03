@@ -6,7 +6,7 @@ import CmuxNextFocus
 /// the keyboard (plans/cmux-next/focus.md section 5, "Browser context").
 ///
 /// The key router resolves a chord in this order: the binding table
-/// (catalog defaults, the tab-switch defaults of `KeyBindingDefaults`,
+/// (catalog defaults, the aliases and scoped defaults of `KeyBindingDefaults`,
 /// `cmux.json`), then, only when no entry applies, the user's Ghostty
 /// keybinds for window, tab and split actions. In a
 /// browser context that fallback is refused for every chord listed here,
@@ -63,9 +63,8 @@ enum BrowserChordTable {
     /// Italic, Underline, Insert Link, Strikethrough, bulleted and numbered lists, and paragraph
     /// alignment. Chrome gives a page these keys before its own menus; cmux does the same in a
     /// Chromium tab, and runs the cmux action bound to the chord (Cmd-B Toggle Sidebar, Cmd-I New
-    /// Agent Chat, Shift-Cmd-L Open Browser) only when the page leaves the key unhandled. The
-    /// match is on the chord typed, not the action: Shift-Cmd-L is Left Align in Google Docs, so
-    /// Open Browser waits for the page on purpose, and so does any action rebound onto one of these.
+    /// Agent Chat) only when the page leaves the key unhandled, matched on the chord typed. Shift-Cmd-L
+    /// New Browser Tab (``KeyRouter/opensBrowserActions``) runs first, as Chrome's Cmd-T, not Left Align.
     nonisolated static let pageEditingChords: Set<Shortcut> = [
         Shortcut("b"), Shortcut("i"), Shortcut("u"), Shortcut("k"),
         Shortcut("x", modifiers: [.command, .shift]), Shortcut("7", modifiers: [.command, .shift]),

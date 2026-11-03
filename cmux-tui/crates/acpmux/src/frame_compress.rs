@@ -30,7 +30,7 @@ pub const ZLIB: &str = "zlib";
 /// Messages shorter than this stay Text: compressing them saves little and costs a copy.
 pub const MIN_BYTES: usize = 16 << 10;
 
-/// Past this, the writer compresses on a blocking thread (15 MiB takes tens of milliseconds).
+/// Past this, the writer compresses on a blocking thread (31 MiB takes tens of milliseconds).
 const BLOCKING_BYTES: usize = 1 << 20;
 
 /// The `initialize` `_meta.acpmux.compression` a client sends to get compressed frames.

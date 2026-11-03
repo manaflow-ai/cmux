@@ -244,6 +244,8 @@ impl Hub {
                     "prompt": q.preview,
                     "queuedAt": q.queued_at,
                     "held": q.held,
+                    "awaitingOwner": q.awaiting_owner,
+                    "revision": q.revision,
                     "fromAgent": q.run.agent,
                     "fromSessionId": from_session_id,
                     "fromHarness": from_harness,

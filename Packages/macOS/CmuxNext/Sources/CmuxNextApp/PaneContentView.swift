@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextWakeups
 import Observation
@@ -24,6 +25,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The pane's own background and tint (`PaneContentView+Backdrop`).
     let backdropState = PaneBackdropState()
     private var paneBackgroundsObservation: Task<Void, Never>?
+    private var loneTabObservation: Task<Void, Never>?
     let contentHost = NSView()
     private(set) weak var content: NSView?
     /// Explicitly observed ownership: first-paint holds can change this without a tab-store update.
@@ -57,6 +59,13 @@ final class PaneContentView: NSView, PaneContentChrome {
             needsLayout = true
         }
     }
+    /// Vertical tabs (`PaneContentView+VerticalTabs`): the pane's tabs as a list on its leading edge
+    /// instead of the strip; nil shows the strip.
+    var verticalTabs: PaneVerticalTabs? {
+        didSet { if verticalTabs != oldValue { applyVerticalTabs() } }
+    }
+    /// The vertical list, made the first time the pane shows vertical tabs.
+    var verticalList: VerticalTabListView?
     /// A browser's tab bar above or below its toolbar (`tabs.barOrder`, R109).
     var barOrder: TabBarOrder = .aboveToolbar {
         didSet { if barOrder != oldValue { updateBand() } }
@@ -85,7 +94,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     var holdKeepsStrip = false
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
     var launchImageView: NSView?
-    var launchImageSize: CGSize?
+    var launchImageSizes: [CGSize] = [] // its pixels fit: the host's size when shown, and the image's own
     /// Move covers clear without invoking their one-frame reveal callback on resize.
     var launchImageInvokesResizeCallback = true
     /// Runs once when the launch image goes (`clearLaunchImage`).
@@ -125,6 +134,9 @@ final class PaneContentView: NSView, PaneContentChrome {
                 self?.refreshBandHeight()
             }
         }
+        loneTabObservation = Task { [weak self] in // a lone tab gives a chat the whole row (layout)
+            for await _ in ObservationStream({ stripModel.tabs.count == 1 && stripModel.groups.isEmpty }) { self?.needsLayout = true }
+        }
         paneBackgroundsObservation = Task { [weak self] in
             for await _ in ObservationStream({ DesignSettings.shared.paneBackgrounds }) { self?.paintPaneBackdrop() }
         }
@@ -149,10 +161,10 @@ final class PaneContentView: NSView, PaneContentChrome {
             tokenObservation?.cancel()
             placementObservation?.cancel()
             paneBackgroundsObservation?.cancel()
+            loneTabObservation?.cancel()
             agentTagObservation?.cancel()
         }
     }
-
 
     nonisolated override var isFlipped: Bool { true }
 
@@ -163,21 +175,26 @@ final class PaneContentView: NSView, PaneContentChrome {
         // Pinned to a browser's band, the strip follows its constraints and
         // the browser fills the pane (its band holds the strip's place).
         let shown = shownStripHeight
-        stripView.isHidden = shown <= 0
         toolbar?.view.isHidden = shown <= 0
         let tools = toolbarWidth(shown: shown), room = bounds.width - tools, row = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
         let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0 // a chat's tools in the row when they fit (PaneTabRowSharing)
+        // A chat alone in its pane draws no tab beside its tools: the page shows through the rest of the
+        // row (Leo 2026-11-03, "isn't it kinda arbitrary anyway if you literally only have one tab there?").
+        let loneTab = rowTools > 0 && rowContent?.tabRowTakesLoneTab == true && stripView.model.tabs.count == 1 && stripView.model.groups.isEmpty
+        stripView.isHidden = shown <= 0 || loneTab
         if !isBandActive {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
         }
-        let hostFrame = isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
+        var hostFrame = isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
+        let listWidth = layoutVerticalList()
+        if listWidth > 0 { (hostFrame.origin.x, hostFrame.size.width) = (hostFrame.minX + listWidth, max(0, hostFrame.width - listWidth)) }
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
-        if launchImageView != nil, let launchImageSize, launchImageSize != .zero, launchImageSize != contentHost.bounds.size {
-            // A move cover owns the clear callback that reveals the page on its next frame. A
-            // resize must discard old-size pixels without consuming that hand-off early.
+        if launchImageView != nil, let shown = launchImageSizes.first, shown != .zero, !launchImageSizes.contains(where: { abs($0.width - contentHost.bounds.width) <= 2 && abs($0.height - contentHost.bounds.height) <= 2 }) {
+            // A move cover owns the clear callback that reveals the page on its next frame. A resize drops old-size pixels, but
+            // not a grow to the image's own size (±2 pt of pixel rounding): a restored chat's tools joining the tab row (Leo 10-24).
             clearLaunchImage(invokeCallback: launchImageInvokesResizeCallback)
             launchImageInvokesResizeCallback = true
         }
@@ -209,7 +226,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         }
         layoutParked()
         layoutAgentTag()
-        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, in: self) }
+        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, tabs: !loneTab, in: self) }
         if hostChanged { onResize?() }
     }
 
@@ -228,6 +245,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         if let agent = content as? AgentPaneView, !hostsContent, agent.superview == nil {
             // Reparenting invokes this refresh on the old pane before the new pane binds its callback.
             agent.onNativeToolOwnerChange = nil
+            agent.onNativeToolMenuRequested = nil
         }
         nativeToolOwner.model = displayedAgentPaneView?.model
         toolbar?.refresh()
@@ -347,9 +365,18 @@ final class PaneContentView: NSView, PaneContentChrome {
         if let previous, previous !== view, previous.superview == nil {
             (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
             (previous as? AgentPaneView)?.onNativeToolOwnerChange = nil
+            (previous as? AgentPaneView)?.onNativeToolMenuRequested = nil
         }
         if let agent = view as? AgentPaneView {
-            agent.onNativeToolOwnerChange = { [weak self] in self?.refreshNativeToolOwner() }
+            let ownerModel = agent.model
+            agent.onNativeToolOwnerChange = { [weak self, weak agent] in
+                guard let self, let agent, self.content === agent, self.nativeToolOwner.model === ownerModel else { return }
+                self.refreshNativeToolOwner()
+            }
+            agent.onNativeToolMenuRequested = { [weak self, weak agent] id, menuItemID in
+                guard let self, let agent, self.content === agent, self.nativeToolOwner.model === ownerModel else { return }
+                self.toolbar?.view.presentNativeMenu(toolID: id, menuItemID: menuItemID)
+            }
         }
         content = view
         refreshNativeToolOwner()
@@ -393,6 +420,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         let shown = hostsContent ? content : nil
         (shown as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         (shown as? AgentPaneView)?.onNativeToolOwnerChange = nil
+        (shown as? AgentPaneView)?.onNativeToolMenuRequested = nil
         content = nil
         refreshNativeToolOwner()
         if let shown { if parks { retire(shown) } else { shown.removeFromSuperview() } }
@@ -440,13 +468,18 @@ final class PaneContentView: NSView, PaneContentChrome {
             let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
             contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
         }
-        // The strip: clear, or the user's tab bar background (R55).
-        stripView.wantsLayer = true
-        stripView.layer?.backgroundColor = stripView.performWithTheme { Palette.surfaceOverride(.tabBar)?.cgColor }
+        paintStrip()
         paintPaneBackdrop()
     }
-}
 
+    /// The strip: clear, or the user's tab bar background (R55). A chat sharing the row never gives it
+    /// a fill: the row, its tabs and the chat's tools sit on the window's own glass (Leo, 2026-11-03,
+    /// on the chat's color behind the header buttons: "it's so obvious to just remove the thing").
+    func paintStrip() {
+        stripView.wantsLayer = true
+        stripView.layer?.backgroundColor = stripView.performWithTheme { Palette.surfaceOverride(.tabBar)?.cgColor }
+    }
+}
 // A terminal or page edge inside the titlebar band never moves the window;
 // the strip, hit before this view, answers for its own empty space.
 extension PaneContentView: TitlebarPressDeciding {

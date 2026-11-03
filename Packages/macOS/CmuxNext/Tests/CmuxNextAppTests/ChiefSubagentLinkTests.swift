@@ -14,6 +14,10 @@ struct ChiefSubagentLinkTests {
         var shown: [String: String] = [:]
         var revealed: [String] = []
         var opened: [(session: String, host: String)] = []
+        /// The open's work; nil: it ends at once.
+        var work: ActionWork?
+        /// False: the open's tab is listed only when its work ends (a grouped, remote or refused-host open).
+        var showsAtOnce = true
 
         func host(chief: String = "chief:6b68ac4a") -> ChiefSidebar.Host {
             .init(conversation: { nil }, chiefHost: { chief },
@@ -21,8 +25,9 @@ struct ChiefSubagentLinkTests {
                   reveal: { [unowned self] tab in revealed.append(tab); return true },
                   openWorkspace: { [unowned self] session, host in
                       opened.append((session, host))
+                      guard showsAtOnce else { return Task { @MainActor [unowned self] in shown[session] = "tab-" + session; return nil } }
                       shown[session] = "tab-" + session
-                      return Task { nil }
+                      return work ?? Task { nil }
                   })
         }
     }
@@ -35,9 +40,38 @@ struct ChiefSubagentLinkTests {
         #expect(opened, "a live subagent's link read as gone")
         #expect(app.opened.map(\.session) == ["optchat-sub-6b68ac4a-a919"])
         #expect(app.opened.map(\.host) == ["chief:6b68ac4a"])
-        // The new workspace's chat tab comes forward once its work ends.
+        // The new workspace's chat tab comes forward (at once: the app shows it before the daemon answers).
         for _ in 0..<50 where app.revealed.isEmpty { await Task.yield() }
         #expect(app.revealed == ["tab-optchat-sub-6b68ac4a-a919"])
+    }
+
+    /// An open the app cannot show before the daemon answers (into a group, another host): its tab comes forward
+    /// once its work ends and lists it.
+    @Test func aSubagentWhoseWorkspaceWaitsForTheDaemonComesForwardWhenItsWorkEnds() async {
+        let app = FakeApp()
+        app.showsAtOnce = false
+        let sidebar = ChiefSidebar(lanes: AgentLaneStore(), host: app.host())
+        #expect(sidebar.openSubagentLink(session: "s-3", chiefHost: "chief:6b68ac4a", registry: ActionRegistry()))
+        #expect(app.revealed.isEmpty, "nothing is listed yet to come forward")
+        for _ in 0..<50 where app.revealed.isEmpty { await Task.yield() }
+        #expect(app.revealed == ["tab-s-3"])
+    }
+
+    /// The app shows a session's new workspace and chat tab in the open's turn (P4, `AgentTabStore.showWorkspace`),
+    /// before the daemon's creates: the row's click brings that tab forward then, and once only. It came forward only
+    /// when the open's work ended, after the daemon's creates (a chat open waited 67-1992 ms for them under load,
+    /// STATUS 3752).
+    @Test func aSubagentWhoseWorkspaceShowsAtOnceComesForwardBeforeTheDaemonAnswers() async {
+        let app = FakeApp()
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        app.work = Task { for await _ in gate {}; return nil }
+        let sidebar = ChiefSidebar(lanes: AgentLaneStore(), host: app.host())
+        #expect(sidebar.openSubagentLink(session: "s-2", chiefHost: "chief:6b68ac4a", registry: ActionRegistry()))
+        #expect(app.revealed == ["tab-s-2"], "the stand-in tab stayed behind until the daemon answered")
+        open.finish()
+        _ = await app.work?.value
+        for _ in 0..<50 { await Task.yield() }
+        #expect(app.revealed == ["tab-s-2"], "the tab came forward a second time when the work ended")
     }
 
     @Test func aLinkToAShownSubagentRevealsItsTabAndOpensNothing() {

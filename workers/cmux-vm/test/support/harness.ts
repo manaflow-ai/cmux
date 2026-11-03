@@ -85,6 +85,7 @@ interface StoredKey extends ApiKeyRecord {
 export async function makeHarness(options: HarnessOptions = {}) {
   const resources: OwnedResource[] = [];
   const recordFault = { before: 0, after: 0 };
+  const meshRecordFault = { before: 0, after: 0 };
   const keys: StoredKey[] = [];
   /** Service keys (cx-b4h.13), as parsed from the CMUX_VM_SERVICE_KEYS secret. */
   const serviceKeys: Array<{
@@ -155,12 +156,14 @@ export async function makeHarness(options: HarnessOptions = {}) {
         Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && live(row))),
       ),
     record: (resource) => Effect.gen(function* () {
+      if (resource.kind === "mesh" && meshRecordFault.before > 0) { meshRecordFault.before--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected before commit" })); }
       if (resource.kind === "vm" && recordFault.before > 0) { recordFault.before--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected before commit" })); }
       const existing = resources.find((r) => r.cmuxId === resource.cmuxId);
       if (existing && (existing.tenantId !== resource.tenantId || existing.kind !== resource.kind || existing.upstreamId !== resource.upstreamId || existing.createdBy !== resource.createdBy || existing.displayName !== resource.displayName || JSON.stringify(existing.labels) !== JSON.stringify(resource.labels) || JSON.stringify(existing.creation) !== JSON.stringify(resource.creation) || deleted.has(existing.cmuxId))) return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "allocation identity conflict" }));
-      if (!existing) resources.push({ ...resource, createdAt: nextCreatedAt(resource.createdAt) });
+      if (!existing) resources.push({ ...resource, createdAt: resource.kind === "mesh" ? resource.createdAt : nextCreatedAt(resource.createdAt) });
       // Mirrors the SQL: recording the same allocation again may commit it, never uncommit it.
       else if (existing.committed === false && resource.committed !== false) resources[resources.indexOf(existing)] = { ...existing, committed: true };
+      if (resource.kind === "mesh" && meshRecordFault.after > 0) { meshRecordFault.after--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected lost commit reply" })); }
       if (resource.kind === "vm" && recordFault.after > 0) { recordFault.after--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected lost commit reply" })); }
     }),
     // Mirrors the SQL: tenant and kind, live rows, newest first by (created_at, cmux_id), keyset after a position.
@@ -379,6 +382,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     upstreamRequests,
     resources,
     recordFault,
+    meshRecordFault,
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
       Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: (request) => upstream.fetch(request) }));
     },

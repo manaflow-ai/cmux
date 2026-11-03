@@ -128,6 +128,8 @@ MODEL_BY_PATH = {
     'types/SavedTabGroupMember': models.SavedTabGroupMember,
     'types/SavedTabGroupRecord': models.SavedTabGroupRecord,
     'types/Screen': models.Screen,
+    'types/SelectionPane': models.SelectionPane,
+    'types/SelectionScreen': models.SelectionScreen,
     'types/SendExpectAgent': models.SendExpectAgent,
     'types/ServerStatsConnections': models.ServerStatsConnections,
     'types/ServerStatsHistogram': models.ServerStatsHistogram,
@@ -260,6 +262,7 @@ MODEL_BY_PATH = {
     'commands/cloud-conversation-thread/request': models.CloudConversationThreadRequest,
     'commands/cloud-conversation-typing/request': models.CloudConversationTypingRequest,
     'commands/cloud-conversation-unsubscribe/request': models.CloudConversationUnsubscribeRequest,
+    'commands/cloud-environment/request': models.CloudEnvironmentRequest,
     'commands/cloud-host-replica-clear/request': models.CloudHostReplicaClearRequest,
     'commands/cloud-host-replica-set/request': models.CloudHostReplicaSetRequest,
     'commands/cloud-host-replica-status/request': models.CloudHostReplicaStatusRequest,
@@ -473,6 +476,8 @@ MODEL_BY_PATH = {
     'commands/send/result': models.SendResult,
     'commands/send-key/request': models.SendKeyRequest,
     'commands/server-stats/request': models.ServerStatsRequest,
+    'commands/set-attach-visibility/request': models.SetAttachVisibilityRequest,
+    'commands/set-attach-visibility/result': models.SetAttachVisibilityResult,
     'commands/set-cell-pixels/request': models.SetCellPixelsRequest,
     'commands/set-client-info/request': models.SetClientInfoRequest,
     'commands/set-client-sizing/request': models.SetClientSizingRequest,
@@ -601,6 +606,7 @@ MODEL_BY_PATH = {
     'events/screen-closed/payload': models.ScreenClosedEvent,
     'events/screen-renamed/payload': models.ScreenRenamedEvent,
     'events/scroll-changed/payload': models.ScrollChangedEvent,
+    'events/selection-changed/payload': models.SelectionChangedEvent,
     'events/settings-changed/payload': models.SettingsChangedEvent,
     'events/size-state/payload': models.SizeStateEvent,
     'events/status/payload': models.StatusEvent,
@@ -626,6 +632,7 @@ MODEL_BY_PATH = {
     'events/workspace-changed/payload': models.WorkspaceChangedEvent,
     'events/workspace-closed/payload': models.WorkspaceClosedEvent,
     'events/workspace-moved/payload': models.WorkspaceMovedEvent,
+    'events/workspace-presentation-changed/payload': models.WorkspacePresentationChangedEvent,
     'events/workspace-renamed/payload': models.WorkspaceRenamedEvent
 }
 

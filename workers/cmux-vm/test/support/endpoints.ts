@@ -136,6 +136,7 @@ export const ALL_SCOPES: ReadonlyArray<Scope> = SCOPES;
  * (no id), a mesh, a device, a tunnel, or a mesh plus a VM.
  */
 export const MESH_ENDPOINTS = [
+  { name: "createMeshIntent", method: "POST", template: "/v1/mesh-creations", scope: "mesh:write", target: "tenant" },
   { name: "createMesh", method: "POST", template: "/v1/meshes", scope: "mesh:write", target: "tenant" },
   { name: "listMeshes", method: "GET", template: "/v1/meshes", scope: "mesh:read", target: "tenant" },
   { name: "getMesh", method: "GET", template: "/v1/meshes/{meshId}", scope: "mesh:read", target: "mesh" },
@@ -144,6 +145,8 @@ export const MESH_ENDPOINTS = [
   { name: "listDevices", method: "GET", template: "/v1/meshes/{meshId}/devices", scope: "mesh:read", target: "mesh" },
   { name: "getMeshAcl", method: "GET", template: "/v1/meshes/{meshId}/acl", scope: "acl:read", target: "mesh" },
   { name: "putMeshAcl", method: "PUT", template: "/v1/meshes/{meshId}/acl", scope: "acl:write", target: "mesh" },
+  { name: "getMeshVm", method: "GET", template: "/v1/meshes/{meshId}/vms/{vmId}", scope: "mesh:read", target: "member" },
+  { name: "getVmReceiverPolicy", method: "GET", template: "/v1/meshes/{meshId}/vms/{vmId}/receiver-policy", scope: "mesh:read", target: "member" },
   { name: "attachMeshVm", method: "PUT", template: "/v1/meshes/{meshId}/vms/{vmId}", scope: "mesh:write", target: "member" },
   { name: "detachMeshVm", method: "DELETE", template: "/v1/meshes/{meshId}/vms/{vmId}", scope: "mesh:write", target: "member" },
   { name: "getDevice", method: "GET", template: "/v1/devices/{deviceId}", scope: "mesh:read", target: "device" },

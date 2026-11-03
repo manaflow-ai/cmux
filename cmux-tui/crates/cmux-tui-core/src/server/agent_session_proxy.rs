@@ -140,7 +140,7 @@ pub(super) fn bind(
         writer,
         id,
         json!({"app": "cmux-tui", "protocol": super::super::PROTOCOL_VERSION,
-        "version": crate::release::DISTRIBUTION_VERSION, "generation": mux.registry_identity().1,
+        "version": crate::release::distribution_version(), "generation": mux.registry_identity().1,
         "capabilities": ["agent-session-attach-v1", "agent-session-observe-v1"]}),
     )
 }
@@ -203,7 +203,10 @@ pub(super) fn session_of(
     writer: &MessageWriter,
 ) -> bool {
     let id = object.remove("id");
-    if bound || !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+    if bound
+        || (!mux.control_clients.is_unix(client) || mux.is_remote_client(client))
+            && !mux.cloud_mobile_client(client)
+    {
         return refuse(writer, id, Refusal::NotTrusted);
     }
     let Some(surface) = object.get("surface").and_then(Value::as_u64) else {

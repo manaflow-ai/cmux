@@ -185,6 +185,7 @@ struct IntentLog {
     /// sequence from the previous one no longer compares: an intent whose
     /// reply came settles with the new connection's first snapshot.
     mutating func connectionReplaced() {
+        replacedStandIns.removeAll() // another daemon may reuse their surfaces
         entries = entries.map { entry in
             var entry = entry
             if entry.settleSequence != nil {
@@ -213,6 +214,15 @@ struct IntentLog {
     private var cancelled: [ClientTransactionID] = []
 
     func wasCancelled(_ transaction: ClientTransactionID) -> Bool { cancelled.contains(transaction) }
+
+    /// The daemon surface each recently created stand-in tab became, by the stand-in's tab id
+    /// (bounded), still known after its intent left the log: a pane's strip shows the records one
+    /// observation step late, and a key acting on the stand-in it still selects acts on that tab
+    /// (``DaemonCreations/replacement(ofStandIn:in:)``).
+    private var replacedStandIns: [(standIn: String, surface: SurfaceID)] = []
+    private static let replacedStandInLimit = 64
+
+    func replacement(ofStandIn id: String) -> SurfaceID? { replacedStandIns.last { $0.standIn == id }?.surface }
 
     /// False when `transaction` is not pending.
     mutating func markCloseWhenCreated(_ transaction: ClientTransactionID) -> Bool {
@@ -255,6 +265,12 @@ struct IntentLog {
             if confirmed { $0.createdConfirmed = true }
         }
         guard confirmed else { return }
+        if case .createTab(_, let provisional)? = entries.first(where: { $0.transaction == transaction })?.kind,
+           let standIn = provisional.tabResourceID?.rawValue {
+            replacedStandIns.removeAll { $0.standIn == standIn }
+            replacedStandIns.append((standIn, surface))
+            if replacedStandIns.count > Self.replacedStandInLimit { replacedStandIns.removeFirst(replacedStandIns.count - Self.replacedStandInLimit) }
+        }
         entries = entries.map { entry in
             guard entry.transaction != transaction, entry.createdSurface == surface, !entry.createdConfirmed else { return entry }
             var entry = entry

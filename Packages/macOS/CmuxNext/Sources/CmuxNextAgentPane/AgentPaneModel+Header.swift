@@ -16,6 +16,19 @@ public struct AgentPaneMoveTarget: Equatable, Sendable {
         self.status = status
     }
 
+    /// Whether a title-menu move for `requested` may run on a tab now showing `shown`: only the
+    /// chat whose menu was opened moves; a tab with no chat or another chat moves nothing.
+    public nonisolated static func tabStillShows(_ shown: String?, requested: String) -> Bool {
+        guard let shown, !requested.isEmpty else { return false }
+        return shown == requested
+    }
+
+    /// Whether the title menu may list Cloud move targets: signed in, with the machine list loaded
+    /// for the account signed in now (the App's `CloudService.hasLoadedCurrentMachines`).
+    public nonisolated static func offered(signedIn: Bool, loadedCurrent: Bool) -> Bool {
+        signedIn && loadedCurrent
+    }
+
     var reply: [String: Any] {
         var value: [String: Any] = ["id": id, "label": label]
         if !status.isEmpty { value["status"] = status }
@@ -71,6 +84,9 @@ public struct AgentPaneHeaderHooks {
     /// Shows and focuses the tab that shows acpmux session `id` already, so a chat never streams in
     /// two tabs (``AgentPaneOfferOpen``); false when no tab shows it.
     public var showSession: @MainActor (String) -> Bool
+    /// Shows and focuses a tab that shows acpmux session `id` in any workspace or window, switching
+    /// to it (Needs you's Jump to workspace, ``AgentPaneAskOpen``); false when no tab shows it.
+    public var jumpToSession: @MainActor (String) -> Bool
     /// Whether acpmux session `session` is of chat `chat`'s family: a sub-session it started at any
     /// depth, or the session that started it (acpmux `startedBy`, mirrored by the app's turn-state
     /// watch). ``AgentPaneOfferOpen`` opens only those, or the pane's own sessions; none by default.
@@ -102,6 +118,7 @@ public struct AgentPaneHeaderHooks {
                 moveToFloatingChat: (@MainActor (String) -> Bool)? = nil,
                 refreshPullRequest: (@MainActor () -> Void)? = nil,
                 showSession: @escaping @MainActor (String) -> Bool = { _ in false },
+                jumpToSession: @escaping @MainActor (String) -> Bool = { _ in false },
                 isFamily: @escaping @MainActor (_ session: String, _ chat: String) -> Bool = { _, _ in false },
                 moveTargets: @escaping @MainActor () -> [AgentPaneMoveTarget] = { [] },
                 moveToMachine: @escaping @MainActor (_ machine: String, _ session: String) -> Bool = { _, _ in false },
@@ -122,6 +139,7 @@ public struct AgentPaneHeaderHooks {
         self.moveToFloatingChat = moveToFloatingChat
         self.refreshPullRequest = refreshPullRequest
         self.showSession = showSession
+        self.jumpToSession = jumpToSession
         self.isFamily = isFamily
         self.moveTargets = moveTargets
         self.moveToMachine = moveToMachine
@@ -210,12 +228,31 @@ extension AgentPaneModel {
             if let diffTurn = header.diffTurn { diffTurn(folder, turn, toggle) }
             else if toggle { header.toggle(Self.diffAction, folder) } else { header.run(Self.diffAction, folder) }
             return AgentPaneReply.success(["ran": true])
+        case .sessionInfo(let info):
+            sessionInfo.update(info)
+            return AgentPaneReply.success()
+        case .sessionInfoOverlays(let rects):
+            sessionInfo.updateOverlays(rects)
+            return AgentPaneReply.success()
+        case .copyText(let text):
+            guard transport.gestures.consume() else {
+                return Self.transportFailure(.gestureRequired)
+            }
+            NSPasteboard.general.clearContents()
+            guard NSPasteboard.general.setString(text, forType: .string) else {
+                return AgentPaneReply.failure(code: "unavailable", message: "Could not copy text")
+            }
+            return AgentPaneReply.success()
         case .tabRowTools(let width):
             tabRow.report(width: CGFloat(width)) // used only while chrome.tabs.rowTools is on and the pane offered the row
             return AgentPaneReply.success()
         case .tabRowToolsSet(let tools):
             guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }
             setTabRowTools(tools)
+            return AgentPaneReply.success()
+        case .tabRowToolsOpenMenu(let id, let menuItemID):
+            guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }
+            onTabRowToolMenuRequested?(id, menuItemID)
             return AgentPaneReply.success()
         case .tabState(let refresh):
             guard let header else {
@@ -256,8 +293,8 @@ extension AgentPaneModel {
             return AgentPaneReply.success()
         case .offerOpen(let session, let sender):
             return AgentPaneOfferOpen.respond(session, sender: sender, in: self)
-        case .asksOpen(let session):
-            return AgentPaneAskOpen.respond(session, in: self)
+        case .asksOpen(let session, let place):
+            return AgentPaneAskOpen.respond(session, at: place, in: self)
         case .asksAnswer(let ask):
             return await ask.respond(in: self)
         case .newChatHere(let cwd):

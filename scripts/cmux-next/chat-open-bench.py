@@ -81,6 +81,15 @@ parser.add_argument("--conditions", default="idle,load,load_utility,load_nice")
 parser.add_argument("--cases", default="sidebar,reopen,subagent,big,bloated,restore")
 parser.add_argument("--settle", type=float, default=6, help="seconds a load runs before the first open under it")
 parser.add_argument("--config", default="{}", help="cmux.json for the app (JSON); workspaces.newPlacement stays bottom")
+parser.add_argument("--record-launch", type=float, default=0,
+                    help="restore: record each relaunch's windows for SECONDS from the first frame (the app's "
+                         "--record-launch) into --launch-frames, and list the pictures the quit saved")
+parser.add_argument("--launch-frames", default="artifacts/launch-frames.tar.gz",
+                    help="with --record-launch: the archive of every relaunch's recorded frames (.tar.gz is added when missing)")
+parser.add_argument("--backdrop", choices=["opaque", "frosted", "glass", "glass-clear"], default="opaque",
+                    help="the window material (appearance.backgroundBlur at 85%% opacity; opaque leaves the default): "
+                         "a page over a translucent window is clear, which a saved picture must keep")
+parser.add_argument("--tag", default="chatopen", help="the tag the app was built with (its state folder)")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
@@ -90,9 +99,14 @@ CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
 SUBAGENTS = opts.subagents or opts.runs + 1
 # A new workspace goes last, so `workspace.selectLast` shows the one an open just made (the default
 # placement is the top of the list). Over --config: another placement would show the wrong workspace.
-CONFIG = bm.merged(json.loads(opts.config), {"workspaces": {"newPlacement": "bottom"}})
+# The tagged build's state folder (scripts/measure/chat-open.sh builds --tag, default "chatopen").
+TAG_DIR = os.path.join("tags", opts.tag)
+BACKDROP = {} if opts.backdrop == "opaque" else {"appearance": {"backgroundBlur": opts.backdrop, "backgroundOpacity": 0.85}}
+CONFIG = bm.merged(bm.merged(json.loads(opts.config), BACKDROP), {"workspaces": {"newPlacement": "bottom"}})
 AGENT = os.path.join(HERE, "chat_open_agent.py")
 NCPU = os.cpu_count() or 8
+# How often an open asks again to show its workspace before the app lists it (open_workspace).
+SHOW_POLL_S = 0.005
 
 
 def say(*parts):
@@ -230,7 +244,7 @@ class Run:
         self.sock = None
         self.scratch = None
 
-    def launch(self, trace_launch=False):
+    def launch(self, trace_launch=False, record=None):
         env = dict(self.env)
         if self.scratch is None:
             self.pid, self.sock, self.scratch = bm.launch(APP, CONFIG, env)
@@ -241,7 +255,13 @@ class Run:
             # The argument, not CMUX_CHAT_OPEN_TRACE_LAUNCH: the app unsets every inherited CMUX*
             # variable but the CMUX_NEXT_* knobs at launch (LaunchIdentity.inheritedKeys), before
             # the trace reads it, so a launch trace armed by the variable never ran.
-            self.pid, self.sock = relaunch(self.scratch, env, ["--chat-open-trace-launch"] if trace_launch else [])
+            args = ["--chat-open-trace-launch"] if trace_launch else []
+            if record:
+                # The app's own launch recorder (DebugWindowRecord): every window from its first frame,
+                # into a folder that must exist.
+                os.makedirs(record, exist_ok=True)
+                args += ["--record-launch", record, "--record-launch-seconds", str(opts.record_launch)]
+            self.pid, self.sock = relaunch(self.scratch, env, args)
         self.app = bm.App(APP, self.sock)
         deadline = time.monotonic() + 60
         while not self.app.ping() and time.monotonic() < deadline:
@@ -271,10 +291,30 @@ class Run:
             bm.end_bundle(APP)
         bm.end_bundle(APP)  # the bundle's daemons and helpers: this run's only (bm.launch checked)
 
+    def saved_pictures(self):
+        """The agent pages' pictures the last quit saved for this launch's first frame (AgentPaneLaunchImages).
+
+        In the build's folder under Application Support (SidebarSnapshotFile.buildDirectory), which
+        Foundation resolves from the account's own home, not the scratch HOME; both are read."""
+        import pwd
+        homes = [os.path.join(self.scratch or "", "home"), pwd.getpwuid(os.getuid()).pw_dir]
+        found = []
+        for home in homes:
+            for folder, _dirs, files in os.walk(os.path.join(home, "Library", "Application Support", "cmux")):
+                if os.path.basename(folder) == "agent-pane-images" and TAG_DIR in folder:
+                    found += sorted(files)
+        return found
+
     def end(self):
         bm.end_bundle(APP)
         if self.scratch:
             shutil.rmtree(self.scratch, ignore_errors=True)
+
+
+def recorded(folder):
+    """Whether the app's launch recorder finished in `folder`: every window it recorded wrote frames.json."""
+    windows = [os.path.join(folder, name) for name in os.listdir(folder) if name.startswith("window-")] if os.path.isdir(folder) else []
+    return bool(windows) and all(os.path.exists(os.path.join(window, "frames.json")) for window in windows)
 
 
 def relaunch(scratch, env, args=()):
@@ -325,6 +365,13 @@ def traced(run, open_fn):
     trace = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 15000, "settle_ms": 600,
                                               "page_timing": True}, timeout=40) or {}
     trace["open_reply"] = opened
+    # The script's own requests on the trace's clock (ms after arming; the app's wall clock at arming
+    # is `armed_wall`): open_sent to open_replied is the open's handler, open_replied to show_replied
+    # the wait for the app to list the workspace, show_replied to pane_made the show.
+    armed_wall = trace.get("armed_wall")
+    wall = opened.pop("wall", None) if isinstance(opened, dict) else None
+    if isinstance(armed_wall, (int, float)) and wall:
+        trace["wall_ms"] = {name: round((at - armed_wall) * 1000, 1) for name, at in wall.items()}
     trace["script_ms"] = round((time.monotonic() - began) * 1000, 1)
     trace["flashes"] = flashes(trace.get("frames"))
     trace["first_image_ms"] = first_of(trace.get("frames"), ("image",))
@@ -335,26 +382,32 @@ def traced(run, open_fn):
 
 
 def open_workspace(run, session):
-    """Opens `session` in a new workspace and shows it, as a sidebar click does. The action makes the
-    workspace and selects its tab but never switches to it (it is the Chief's background spawn), so
-    alone it left every open off screen: no agent pane was made and no trace bound.
+    """Opens `session` in a new workspace and shows it as soon as the app has that workspace, as a
+    person's open does (Open Chat shows its workspace in the window; a Chief subagent's row reveals
+    it once made). The action makes the workspace and selects its tab but never switches to it (it
+    is the Chief's background spawn), so alone it left every open off screen: no agent pane was made
+    and no trace bound.
 
-    It shows the workspace the open created, by its ref (`goToWorkspace`, as MCP's
-    agents_workspace_select does): `workspace.selectLast` reads the sidebar's order, which can lag
-    the open on a loaded host, and then showed the previous workspace. selectLast is only the
-    fallback when the open names no workspace or the switch is refused; `shown` says which ran."""
-    opened = run.app.action("agent.openSessionWorkspace", focus=True, session=session)
+    The open names its own workspace key and answers once its handler ran (`wait` False); the show
+    (`goToWorkspace` on that key) is asked again every SHOW_POLL_S until the control layer knows the
+    workspace (`not_found` before), so the show follows the app's create, not the open's reply,
+    which waits for the daemon's creates. `wall` keeps the times; `show_tries` how often it asked."""
+    key = str(uuid.uuid4())
+    wall = {"open_sent": time.time()}
+    opened = run.app.action("agent.openSessionWorkspace", focus=True, wait=False, session=session, key=key)
+    wall["open_replied"] = time.time()
     if opened.get("error"):
-        return opened
-    created = next((ref for ref in opened.get("created") or [] if str(ref).startswith("ws_")), None)
-    refused = None
-    if created:
-        reply = run.app.action("goToWorkspace", focus=True, workspace=created)
-        if not reply.get("error"):
-            return {**opened, "shown": {"via": "goToWorkspace", "reply": reply}}
-        refused = reply
-    reply = run.app.action("workspace.selectLast", focus=True)
-    return {**opened, "shown": {"via": "workspace.selectLast", "reply": reply, "refused": refused}}
+        return {**opened, "wall": wall}
+    deadline = time.monotonic() + 15
+    tries = 0
+    while True:
+        tries += 1
+        reply = run.app.action("goToWorkspace", focus=True, workspace=key)
+        if not reply.get("error") or "not_found" not in json.dumps(reply.get("error")) or time.monotonic() > deadline:
+            break
+        time.sleep(SHOW_POLL_S)  # test script: the workspace is not listed yet
+    wall["show_replied"] = time.time()
+    return {**opened, "key": key, "shown": {"via": "goToWorkspace", "reply": reply, "show_tries": tries}, "wall": wall}
 
 
 def settle_open(run, session):
@@ -401,13 +454,14 @@ def click_subagent(run):
     and which of the chat's subagent lines it renders depends on the build: a fixed name per open
     failed with "no visible element matches" for "Auditor 0" at one base and "Auditor 1" at
     another (2026-10-31). A click that matches nothing returns that error at once and does
-    nothing, so the next name is tried. Each open is its own copy of the chat with its own
+    nothing, so the next name is tried. The reply is the app's (its `clicked` and any `error` as
+    they came), with the subagent it named under `subagent`. Each open is its own copy of the chat with its own
     subagents, so the same name in two opens opens two subagents."""
     reply = None
     for k in range(SUBAGENTS - 1, -1, -1):
         reply = run.rpc("debug.agent_pane", {"action": "click", "text": f"Auditor {k}"}) or {}
         if reply.get("error") != "no visible element matches":
-            return {**reply, "clicked": f"Auditor {k}"}
+            return {**reply, "subagent": f"Auditor {k}"}
     return reply
 
 
@@ -434,6 +488,7 @@ def main():
     signal.signal(signal.SIGTERM, bm.interrupted)
     load = Load(root)
     run = None
+    frames_root = os.path.join(root, "launch-frames")
     try:
         say("chat-open: seeding")
         home, sessions, seeded = seed(root)
@@ -469,15 +524,26 @@ def main():
                 for index in range(opts.runs):
                     # The shown workspace is the last chat opened (a big one when it ran): it restores.
                     run.quit()
-                    run.launch(trace_launch=True)
+                    record_dir = os.path.join(frames_root, f"{condition}-restore-{index}") if opts.record_launch else None
+                    pictures = run.saved_pictures()
+                    run.launch(trace_launch=True, record=record_dir)
                     record = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 15000,
                                                                "settle_ms": 600, "page_timing": True}, timeout=40) or {}
                     record["flashes"] = flashes(record.get("frames"))
                     record["first_image_ms"] = first_of(record.get("frames"), ("image",))
                     record["acp_log"] = run.rpc("debug.agent_pane", {"action": "acp_log", "limit": 40})
+                    record["saved_pictures"] = pictures
+                    if record_dir:
+                        # The recording runs on the app's clock from its first window frame and writes
+                        # frames.json when it ends: the next quit waits for that (bounded), not a guess.
+                        done = time.monotonic() + opts.record_launch + 30
+                        while time.monotonic() < done and not recorded(record_dir):
+                            time.sleep(0.5)  # test script: waiting for the app's recorder to finish
+                        if not recorded(record_dir):
+                            say(f"chat-open: {condition} restore {index}: the launch recording wrote no frames.json")
                     records.append(record)
                     say(f"chat-open: {condition} restore {index}: first_content_ms={record.get('first_content_ms')} "
-                        f"first_image_ms={record.get('first_image_ms')}{why(record)}")
+                        f"first_image_ms={record.get('first_image_ms')} saved_pictures={pictures}{why(record)}")
                 results["raw"].setdefault(condition, {})["restore"] = records
                 results["cases"].setdefault(condition, {})["restore"] = summarize(records)
             load.stop()
@@ -486,6 +552,11 @@ def main():
         load.stop()
         if run:
             run.end()
+        if opts.record_launch and os.path.isdir(frames_root):
+            os.makedirs(os.path.dirname(os.path.abspath(opts.launch_frames)), exist_ok=True)
+            # make_archive adds the suffix itself: the path it returns is the one written.
+            archive = shutil.make_archive(os.path.abspath(opts.launch_frames).removesuffix(".tar.gz"), "gztar", frames_root)
+            say(f"chat-open: launch frames in {archive}")
         shutil.rmtree(root, ignore_errors=True)
     table = markdown(results)
     print("CHAT-OPEN-TABLE-BEGIN\n" + table + "\nCHAT-OPEN-TABLE-END", flush=True)

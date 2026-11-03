@@ -82,7 +82,7 @@ impl Mux {
             self.emit(MuxEvent::SurfaceExited(id, None));
             return;
         }
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.write().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         if let Some(surface) = self.surface(id)
             && let Some(identity) = self.resource_terminal_host_identity(&surface)
@@ -421,8 +421,12 @@ impl Mux {
                     public_terminal_id.as_ref().map(|id| self.exited_end_json(id.as_str(), end));
                 self.finish_terminal_exit_detach(effects.with_end(end));
             } else if detach_proof.is_none() || settle_until_ms.is_some() {
-                // The tabs stay and now show the terminal dead.
-                self.emit(MuxEvent::TreeChanged);
+                // The tabs stay and now show the terminal dead: each of them is a `tab-changed`,
+                // not a coarse `tree-changed` that makes a client read the whole tree (#32408).
+                match public_terminal_id.as_ref() {
+                    Some(public_id) => self.emit_terminal_tabs_changed(public_id),
+                    None => self.emit(MuxEvent::TreeChanged),
+                }
             }
         }
         if let Some(until_ms) = settle_until_ms {

@@ -43,6 +43,11 @@ fn observe_replays_and_streams_but_rejects_session_mutations() {
                "permission_id":"perm_attach","option_id":"allow"}),
         // An observer never composes, so it never types.
         json!({"cmd":"agent-session-typing","surface":surface,"on":true}),
+        // Nor does it pick the chat's model, mode or options.
+        json!({"cmd":"agent-session-set-model","surface":surface,"model_id":"opus"}),
+        json!({"cmd":"agent-session-set-mode","surface":surface,"mode_id":"plan"}),
+        json!({"cmd":"agent-session-set-config","surface":surface,
+               "config_id":"effort","value":"high"}),
     ] {
         assert_code(&client.request(mutation), "agent_session.read_only");
     }

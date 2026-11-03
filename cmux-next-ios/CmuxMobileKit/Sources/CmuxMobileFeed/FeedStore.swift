@@ -180,14 +180,24 @@ public final class FeedStore {
             guard items != oldValue else { return }
             // Events read before (this launch or an earlier one) stay read when the Mac
             // reports them again.
-            if items.contains(where: { !$0.isRead && readIDs.contains($0.id) }) {
+            if items.contains(where: { !$0.isRead && readSet.contains($0.id) }) {
                 items = items.map { item in
                     var item = item
-                    if readIDs.contains(item.id) { item.isRead = true }
+                    if readSet.contains(item.id) { item.isRead = true }
                     return item
                 }
                 return
             }
+            // A done event that left the window stays done when the Mac reports it again.
+            if !evictedDoneSet.isEmpty, items.contains(where: { !$0.isDone && evictedDoneSet.contains($0.id) }) {
+                items = items.map { item in
+                    var item = item
+                    if evictedDoneSet.contains(item.id) { item.isDone = true }
+                    return item
+                }
+                return
+            }
+            reindex()
             recordReadMarks()
             refreshDerived()
             #if DEBUG
@@ -197,11 +207,65 @@ public final class FeedStore {
         }
     }
 
+    /// How many events the Feed holds in memory: the newest, plus any open ask
+    /// older than them (an ask is never dropped while it waits for an answer).
+    /// The Mac's own ledger keeps 256 terminal events and the archive saves 200,
+    /// so the window only bounds what a long-running app collects live.
+    public static let memoryLimit = 500
+    /// Done flags of events dropped from the window, newest last: the Mac
+    /// re-reports its ledger, and a done event it brings back stays hidden.
+    static let evictedDoneLimit = 1000
+    @ObservationIgnored private var evictedDoneIDs: [String] = [] {
+        didSet { evictedDoneSet = Set(evictedDoneIDs) }
+    }
+    @ObservationIgnored private var evictedDoneSet: Set<String> = []
+
+    /// An older event the window keeps: an open ask, one with an answer on its way or a refusal
+    /// to show, and the one Undo can still bring back.
+    private func keepsOutsideWindow(_ item: FeedItem) -> Bool {
+        (item.needsYou && !item.isDone) || item.pending != nil || item.error != nil || item.id == lastDoneID
+    }
+
+    /// The newest `memoryLimit` events in Feed order, and every older event `keepsOutsideWindow`.
+    /// Applied only where events arrive (`insert`, `mergeHistory`, `replaceAll`), never in the
+    /// write of something the person did to one (an answer, a read, Done).
+    private func windowed(_ all: [FeedItem]) -> [FeedItem] {
+        var kept: [FeedItem] = []
+        kept.reserveCapacity(Self.memoryLimit)
+        var evictedDone: [String] = []
+        for (offset, item) in all.enumerated() {
+            if offset < Self.memoryLimit || keepsOutsideWindow(item) {
+                kept.append(item)
+            } else if item.isDone {
+                evictedDone.append(item.id)
+            }
+        }
+        if !evictedDone.isEmpty {
+            let known = evictedDoneSet
+            evictedDoneIDs = Array((evictedDoneIDs + evictedDone.filter { !known.contains($0) }).suffix(Self.evictedDoneLimit))
+        }
+        if !unseenNewIDs.isEmpty {
+            let present = Set(kept.map(\.id))
+            let unseen = unseenNewIDs.filter(present.contains)
+            if unseen != unseenNewIDs { unseenNewIDs = unseen }
+        }
+        return kept
+    }
+
     /// Writes `next` only when it differs. The Mac re-reports the same
     /// history on every tree change (several a second while an agent works),
     /// and an in-place write (`items[i] = x`, `mutate`) notifies observers even
     /// when nothing changed: the Feed re-rendered and re-saved for nothing.
+    /// The window and the evicted done flags apply before the comparison, so a
+    /// re-reported history the window already dropped is no change at all.
     private func setItems(_ next: [FeedItem]) {
+        var next = next
+        if !evictedDoneSet.isEmpty {
+            for index in next.indices where !next[index].isDone && evictedDoneSet.contains(next[index].id) {
+                next[index].isDone = true
+            }
+        }
+        if next.count > Self.memoryLimit { next = windowed(next) }
         if next != items { items = next }
     }
 
@@ -215,7 +279,21 @@ public final class FeedStore {
     }
     /// Persisted read flags (`FeedReadMarks`); nil keeps them in memory only (tests).
     @ObservationIgnored private var readMarks: FeedReadMarks?
-    @ObservationIgnored private var readIDs: [String] = []
+    @ObservationIgnored private var readIDs: [String] = [] {
+        didSet { readSet = Set(readIDs) }
+    }
+    /// `readIDs` as a set: every items write checks each item against it.
+    @ObservationIgnored private var readSet: Set<String> = []
+    /// Where each item is in `items`, by id: lookups from the live ledger (one per entry,
+    /// per tree update) were linear scans.
+    @ObservationIgnored private var itemIndex: [String: Int] = [:]
+
+    private func reindex() {
+        var index: [String: Int] = [:]
+        index.reserveCapacity(items.count)
+        for (offset, item) in items.enumerated() where index[item.id] == nil { index[item.id] = offset }
+        itemIndex = index
+    }
 
     private func recordReadMarks() {
         let read = items.filter(\.isRead).map(\.id)
@@ -248,13 +326,15 @@ public final class FeedStore {
         self.readMarks = readMarks
         let readIDs = readMarks?.load() ?? []
         self.readIDs = readIDs
-        let read = Set(readIDs)
+        readSet = Set(readIDs)
+        let read = readSet
         self.items = items.sorted { $0.createdAt > $1.createdAt }.map { item in
             var item = item
             if read.contains(item.id) { item.isRead = true }
             return item
         }
         self.answersLocally = answersLocally
+        reindex()
         refreshDerived()
     }
 
@@ -302,8 +382,10 @@ public final class FeedStore {
     public func count(_ filter: FeedFilter) -> Int { items.count(where: filter.matches) }
 
     public func insert(_ item: FeedItem, atTop: Bool) {
-        items.insert(item, at: 0)
         if !atTop { unseenNewIDs.append(item.id) }
+        var next = items
+        next.insert(item, at: 0)
+        setItems(next)
     }
 
     public func clearUnseen() {
@@ -311,6 +393,19 @@ public final class FeedStore {
     }
 
     public func markRead(_ id: String) { mutate(id) { $0.isRead = true } }
+
+    /// Marks several events read in one write (the Mac's reads arrive together).
+    public func markRead(_ ids: some Sequence<String>) {
+        var next = items
+        var changed = false
+        for id in ids {
+            guard let index = itemIndex[id], !next[index].isRead else { continue }
+            next[index].isRead = true
+            changed = true
+        }
+        if changed { items = next }
+    }
+
     /// Mark All Notifications as Read: every event in the Feed, in one write.
     public func markAllRead() {
         guard items.contains(where: { !$0.isRead }) else { return }
@@ -320,6 +415,7 @@ public final class FeedStore {
             return item
         }
     }
+
     public func markUnread(_ id: String) {
         readIDs.removeAll { $0 == id }
         readMarks?.save(readIDs)
@@ -341,6 +437,7 @@ public final class FeedStore {
 
     public func undoDone() {
         guard let id = lastDoneID else { return }
+        if evictedDoneSet.contains(id) { evictedDoneIDs.removeAll { $0 == id } }
         mutate(id) { $0.isDone = false }
         lastDoneID = nil
     }
@@ -360,6 +457,7 @@ public final class FeedStore {
         onItemsChange = nil
         actions = nil
         replaceAll([])
+        evictedDoneIDs = []
         useReadMarks(nil)
     }
 
@@ -370,7 +468,7 @@ public final class FeedStore {
 
     /// Inserts or replaces an item by id (live events are idempotent).
     public func upsert(_ item: FeedItem, atTop: Bool) {
-        if let index = items.firstIndex(where: { $0.id == item.id }) {
+        if let index = itemIndex[item.id] {
             var next = item
             next.isRead = items[index].isRead
             next.isDone = items[index].isDone
@@ -387,8 +485,9 @@ public final class FeedStore {
     /// answered); nothing counts as newly arrived.
     public func mergeHistory(_ history: [FeedItem]) {
         var next = items
+        var positions = itemIndex
         for item in history {
-            if let index = next.firstIndex(where: { $0.id == item.id }) {
+            if let index = positions[item.id] {
                 var merged = item
                 merged.isRead = next[index].isRead
                 merged.isDone = next[index].isDone
@@ -400,13 +499,14 @@ public final class FeedStore {
                 merged.createdAt = next[index].createdAt
                 next[index] = merged
             } else {
+                positions[item.id] = next.count
                 next.append(item)
             }
         }
         setItems(next.sorted { $0.createdAt > $1.createdAt })
     }
 
-    public func item(id: String) -> FeedItem? { items.first { $0.id == id } }
+    public func item(id: String) -> FeedItem? { itemIndex[id].map { items[$0] } }
 
     /// Drops an item the source withdrew (a duplicate of another event).
     public func remove(_ id: String) {
@@ -612,7 +712,7 @@ public final class FeedStore {
     }
 
     private func mutate(_ id: String, _ body: (inout FeedItem) -> Void) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = itemIndex[id] else { return }
         var item = items[index]
         body(&item)
         // An unchanged item is not written (no re-render, no save).
