@@ -229,18 +229,11 @@ const REFUSAL: Readonly<Record<Exclude<MachineExecReply, { ok: true }>["refusal"
   output_limit: [413, "vm_output_too_large", "the machine's answer exceeded the response limit; its output was discarded"]
 }
 
-/**
- * A JSON object body, or the refusal: a file write's of at most BODY_MAX bytes; an exec's of any length (its
- * command is staged on the machine in pieces), read whole into exactly its declared length when it declares one.
- */
-const jsonBody = async (request: Request, anyLength = false): Promise<Record<string, unknown> | Response> => {
+/** A JSON object body of at most BODY_MAX bytes, or the refusal. */
+const jsonBody = async (request: Request): Promise<Record<string, unknown> | Response> => {
   const declared = Number(request.headers.get("content-length") ?? "0")
-  if (!(declared >= 0 && (anyLength || declared <= BODY_MAX))) return refuse(413, "vm_file_too_large", "the request body is too large")
-  const bytes = !anyLength
-    ? await readBody(request, BODY_MAX).catch(() => null)
-    : request.headers.has("content-length")
-      ? await readBody(request, declared).catch(() => null)
-      : await request.arrayBuffer().then((b) => new Uint8Array(b), () => null)
+  if (!(declared >= 0 && declared <= BODY_MAX)) return refuse(413, "vm_file_too_large", "the request body is too large")
+  const bytes = await readBody(request, BODY_MAX).catch(() => null)
   if (bytes === null) return refuse(413, "vm_file_too_large", "the request body is too large")
   let body: unknown
   try {
@@ -268,7 +261,7 @@ export const handleCloudMachineGuest = async (request: Request, env: Env, machin
   }
 
   if (op === "exec") {
-    const body = await jsonBody(request, true)
+    const body = await jsonBody(request)
     if (body instanceof Response) return body
     const command = body.command
     if (typeof command !== "string" || command.trim() === "") return refuse(400, "vm_invalid_command", "command must be a non-empty string")

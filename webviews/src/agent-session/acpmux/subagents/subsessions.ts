@@ -9,7 +9,7 @@
 import { createContext, useContext, useMemo, useSyncExternalStore } from "react";
 import type { StringKey, Translate } from "../i18n";
 import type { RetryState } from "./retryState";
-import { cloudHost, type AcpmuxSessionEntry, type SessionWaiting } from "../sessionList";
+import { cloudHost, listed, type AcpmuxSessionEntry, type SessionWaiting } from "../sessionList";
 
 /// What a sub-session is doing: its turn runs, it waits on the person (a permission or a question),
 /// its turn failed or its agent went away, or it is done until it is sent more.
@@ -21,6 +21,9 @@ export type SubsessionInfo = {
   harness?: string;
   /// Its short name, else its title.
   name: string;
+  /// Its title (what the chat is about), when it has one apart from `name`: a finished task's line
+  /// in its parent's transcript names it by this (conversation/TaskLine.tsx).
+  title?: string;
   state: SubsessionState;
   /// Its last turn ended and nobody has looked at it yet.
   unread?: true;
@@ -137,10 +140,17 @@ export function subsessionState(entry: AcpmuxSessionEntry): SubsessionState {
 
 export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
   const state = subsessionState(entry);
+  const name = entry.shortName || entry.displayTitle || entry.title || entry.sessionId;
+  // Its first title that is not only its name or id: sessionEntry's display title is the session's
+  // name (`lead/october-review`) whenever acpmux gave it one, which would hide the real title.
+  const title = [entry.displayTitle, entry.title].find(
+    (candidate) => candidate && candidate !== name && candidate !== entry.name && candidate !== entry.sessionId,
+  );
   return {
     sessionId: entry.sessionId,
     ...(entry.harness ? { harness: entry.harness } : {}),
-    name: entry.shortName || entry.displayTitle || entry.title || entry.sessionId,
+    name,
+    ...(title ? { title } : {}),
     state,
     ...(state === "done" && entry.unread ? { unread: true as const } : {}),
     ...(entry.queued ? { queued: entry.queued } : {}),
@@ -216,6 +226,9 @@ export class SubsessionStore {
   /// Where each listed chat works, by id: its folder and the other machine it runs on, for the
   /// files its messages name (IncomingMessageCard.tsx), read with the same listeners.
   private places = new Map<string, SenderPlace>();
+  /// By machine, the listed chats that run on it, by name (a received line's machine menu,
+  /// IncomingMessageCard.tsx MachineMenu); this Mac's chats are under none.
+  private machines = new Map<string, readonly MachineChat[]>();
   private ids = new Set<string>();
   private namedKey = "";
   private readonly nameListeners = new Set<() => void>();
@@ -259,6 +272,7 @@ export class SubsessionStore {
     const hosts = new Map<string, string>();
     const places = new Map<string, SenderPlace>();
     const runs = new Map<string, SenderRun>();
+    const machines = new Map<string, MachineChat[]>();
     for (const entry of sessions) {
       if (entry.harness) harnesses.set(entry.sessionId, entry.harness);
       if (entry.model || entry.effort)
@@ -268,6 +282,14 @@ export class SubsessionStore {
         });
       const host = cloudHost(entry);
       if (host) hosts.set(entry.sessionId, host);
+      if (host && listed(entry)) {
+        // A peer's chat is listed as `<machine>/<name>`: the machine's menu already names the machine.
+        const full = entry.name?.trim() || entry.displayTitle?.trim() || entry.sessionId;
+        const name = full.startsWith(`${host}/`) && full.length > host.length + 1 ? full.slice(host.length + 1) : full;
+        let chats = machines.get(host);
+        if (!chats) machines.set(host, (chats = []));
+        chats.push({ sessionId: entry.sessionId, name });
+      }
       const cwd = entry.cwd?.trim();
       if (cwd || host) places.set(entry.sessionId, { ...(cwd && { cwd }), ...(host && { host }) });
     }
@@ -275,7 +297,16 @@ export class SubsessionStore {
     // and metadata should not notify every sender card only because rows were reordered.
     const sorted = <T>(map: Map<string, T>) => [...map].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
     const ids = new Set(sessions.map((entry) => entry.sessionId));
-    const namedKey = JSON.stringify([sorted(named), sorted(harnesses), sorted(places), sorted(runs), [...ids].sort()]);
+    for (const chats of machines.values())
+      chats.sort((a, b) => a.name.localeCompare(b.name) || (a.sessionId < b.sessionId ? -1 : 1));
+    const namedKey = JSON.stringify([
+      sorted(named),
+      sorted(harnesses),
+      sorted(places),
+      sorted(runs),
+      sorted(machines),
+      [...ids].sort(),
+    ]);
     const renamed = namedKey !== this.namedKey;
     this.named = named;
     this.ids = ids;
@@ -283,6 +314,7 @@ export class SubsessionStore {
     this.hosts = hosts;
     if (renamed) this.places = places;
     if (renamed) this.runs = runs;
+    if (renamed) this.machines = machines;
     this.namedKey = namedKey;
     if (renamed) for (const listener of this.nameListeners) listener();
     for (const entry of sessions) {
@@ -337,6 +369,12 @@ export class SubsessionStore {
   /// The other machine listed chat `sessionId` runs on; undefined for this Mac's.
   host(sessionId: string): string | undefined {
     return this.hosts.get(sessionId);
+  }
+
+  /// The listed chats on machine `host`, by name; none for this Mac's (no host). The same array
+  /// until the list changes, so a reader can hand it to `useSyncExternalStore`.
+  chatsOn(host: string): readonly MachineChat[] {
+    return this.machines.get(host) ?? NO_CHATS;
   }
 
   /// Where listed chat `sessionId` works: its folder, and the other machine it runs on.
@@ -400,6 +438,10 @@ export type SenderPlace = { cwd?: string; host?: string };
 /// The model and thinking effort a listed chat runs on (its sender's hover, IncomingMessageCard.tsx).
 export type SenderRun = { model?: string; effort?: string };
 
+/// A listed chat on another machine, as that machine's menu names it.
+export type MachineChat = { sessionId: string; name: string };
+const NO_CHATS: readonly MachineChat[] = [];
+
 /// Where the chat a message came from works, while the list has it (subsessions.ts `place`).
 export function useSenderPlace(sessionId: string | undefined): SenderPlace | undefined {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
@@ -425,4 +467,11 @@ export function useSenderChat(
   const readRun = () => (id ? store.run(id) : undefined);
   const run = useSyncExternalStore(store.subscribeNames, readRun, readRun);
   return { ...(id && { sessionId: id }), ...(harness && { harness }), ...(host && { host }), ...(run && { run }) };
+}
+
+/// The listed chats on machine `host`, live while the component shows.
+export function useMachineChats(host: string): readonly MachineChat[] {
+  const store = useContext(SubsessionContext)?.store ?? EMPTY;
+  const read = () => store.chatsOn(host);
+  return useSyncExternalStore(store.subscribeNames, read, read);
 }

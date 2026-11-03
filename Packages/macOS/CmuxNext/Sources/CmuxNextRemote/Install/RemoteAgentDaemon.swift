@@ -38,6 +38,16 @@ public struct RemoteAgentDaemonStatus: Sendable, Equatable {
         !running || (ready && agentHosts && liveAgents == 0 && remoteSessions == 0)
     }
 
+    /// The POSIX script (for `SSHCommandLine.script`) that stops the machine's agent daemon for a handoff, as an update restart
+    /// (`--restart`): hosted agents keep running for the new run, and a chat waiting on a provider
+    /// retry resumes there (a plain shutdown records `auto_resume_stopped`). An older CLI that does
+    /// not know `--restart` gets `--keep-agents` alone, the way acpmux's own host update falls back
+    /// (`SHUTDOWN_KEEPING_AGENTS` in acpmux `cli/hosts.rs`); any other failure is not retried.
+    public static func shutdownKeepingAgents(binary: String) -> String {
+        "out=$(\(binary) acp daemon shutdown --keep-agents --restart </dev/null 2>&1) || case \"$out\" in "
+            + "*\"unexpected argument '--restart'\"*) \(binary) acp daemon shutdown --keep-agents </dev/null ;; esac"
+    }
+
     /// cx-brq9m: why the handoff after an install leaves this daemon as it is; nil when the keyed
     /// restart may hand it over to the new binary (it keeps agent hosts: every hosted agent is
     /// adopted). A session proxied from a peer acpmux would end with this run, so it stays.
@@ -47,13 +57,16 @@ public struct RemoteAgentDaemonStatus: Sendable, Equatable {
         return nil
     }
 
-    /// cx-3r9mt: whether an automatic update may run: none runs, or it runs no live agent and no
-    /// peer session and holds no other client's person key (none, or `ownInstance`). (Move to the
-    /// remote cmux-tui with the other agent-daemon checks, cx-3r9mt move-to-Rust item.)
-    public func idleForUpdate(ownInstance: String?) -> Bool {
+    /// cx-3r9mt: whether an automatic update may run: none runs, or it holds no other client's
+    /// person key (none, or `ownInstance`). Live agents and peer sessions do not hold it back (Leo,
+    /// 2026-10-21: the daemon update never waits for idle): the install hands terminals to the new
+    /// daemon, and the agent daemon's handoff after it (``handoffBlocker``) adopts every hosted agent
+    /// and leaves a run with peer sessions as it is. A busy machine that waited for idle kept an
+    /// older cmux-tui, and its fixes, until someone clicked Update. (Move to the remote cmux-tui
+    /// with the other agent-daemon checks, cx-3r9mt move-to-Rust item.)
+    public func mayUpdateAutomatically(ownInstance: String?) -> Bool {
         guard running else { return true }
-        let otherKey = personKey && personInstance != ownInstance
-        return liveAgents == 0 && remoteSessions == 0 && !otherKey
+        return !(personKey && personInstance != ownInstance)
     }
 }
 
