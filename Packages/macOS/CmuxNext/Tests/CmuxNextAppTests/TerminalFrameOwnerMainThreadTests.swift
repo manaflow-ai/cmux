@@ -9,13 +9,13 @@ import GhosttyNextKit
 import Testing
 
 /// FRAME OWNER REFACTOR S4 P0 (switch round ab-s4-sw-22, build ada386be): with `motion.frameOwner.terminals` turned on
-/// while terminals showed frames, the app's main thread stopped for good at the first terminal resize, and every RPC
-/// timed out after it. The switch-OFF films of the same build worked.
+/// while terminals showed frames and the in-app recorder ran, the app's main thread stopped for good at the first
+/// terminal resize, and every RPC timed out after it. The switch-OFF films of the same build worked.
 ///
 /// A real Ghostty surface (its renderer thread, Metal and the GPU completion thread) in a window on screen, as in the
-/// films: the switch goes on at runtime, after the first frame; one resize lands; then the terminal keeps drawing at
+/// films: the switch goes on at runtime, after the first frame; resizes land; then the terminal keeps drawing at
 /// that size (output and a blinking cursor: frames that go to the screen off the main thread). The main thread must
-/// keep turning. A watchdog thread pings it every 250 ms. When a ping gets no answer within 3 s, the watchdog samples
+/// keep turning. A sampler thread pings it every 250 ms. When a ping gets no answer within 3 s, the sampler samples
 /// this process (`/usr/bin/sample`, every thread's stack), writes the sample to stderr and ends the process with exit
 /// code 70. So a hang fails the step with the stacks, and never waits for the runner's stall limit.
 ///
@@ -23,46 +23,16 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows,
                   .enabled(if: ["CMUX_TEST_REQUIRE_GUI", "CMUX_CI_DISPLAY_ROUTED"].contains { ProcessInfo.processInfo.environment[$0] == "1" }))
 struct TerminalFrameOwnerMainThreadTests {
-    @Test func theMainThreadKeepsTurningWhenTheSwitchGoesOnAndATerminalResizes() async throws {
-        let watchdog = MainThreadWatchdog(deadline: .seconds(3))
-        watchdog.start()
-        defer { watchdog.stop() }
-        let fixture = try await Fixture()
-        defer { fixture.close() }
-
-        // The switch goes on while the terminal shows frames (the films' px_tunable).
-        let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
-        try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
-
-        // One resize through the window's layout, as a pane's layout does.
-        fixture.container.terminalWidth = 520
-        fixture.container.needsLayout = true
-        let landed = await fixture.waitShown(width: 520)
-        #expect(landed, "520 pt never showed its own frame")
-
-        // The terminal keeps drawing at the shown size: output, with the cursor shown and blinking.
-        let offMainBefore = fixture.offMainPresents
-        for line in 0..<40 {
-            fixture.io.send(.output(Data("line \(line) after the resize\r\n".utf8)))
-            await fixture.commits(2)
-        }
-        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-        while ContinuousClock.now < deadline { await fixture.commits(1) }
-
-        // The hang needs frames that go to the screen off the main thread: the case must have made some.
-        #expect(fixture.offMainPresents > offMainBefore,
-                "no frame went to the screen off the main thread after the resize (host_off_main_presents \(offMainBefore) -> \(fixture.offMainPresents))")
-        #expect(fixture.session.surfaceView.frame.width == 520, "the terminal is \(fixture.session.surfaceView.frame.width) pt wide")
-    }
-
-    /// The same with the films' recorder load (sample 1 of the hung build did not hang without it): inside the main
-    /// thread's own Core Animation commit, every turn, a 1-point layer reads the terminal layer's contents and bounds
-    /// under `[CATransaction lock]`, as the in-app trace sampler and commit probe do while a film records. A property
-    /// change makes main commit every turn.
+    /// With the films' recorder load (sample 1 of the hung build did not hang without it): inside the main thread's own
+    /// Core Animation commit, every turn, a 1-point layer reads the terminal layer's contents and bounds under
+    /// `[CATransaction lock]`, as the in-app trace sampler and commit probe do while a film records. A property change
+    /// makes main commit every turn. Sample 4 of the hung app (pixel-perfect, STATUS 9732): main in
+    /// `CA::Transaction::commit > commit_transaction > _os_unfair_lock_lock_slow`, the Metal completion thread in
+    /// Ghostty's off-main present (`setSurfaceOffMain`, which committed while it held `[CATransaction lock]`).
     @Test func theMainThreadKeepsTurningUnderTheRecordersPerCommitLayerReads() async throws {
-        let watchdog = MainThreadWatchdog(deadline: .seconds(3))
-        watchdog.start()
-        defer { watchdog.stop() }
+        let sampler = HangSampler(deadline: .seconds(3))
+        sampler.start()
+        defer { sampler.stop() }
         let fixture = try await Fixture()
         defer { fixture.close() }
         let reader = LockingReaderLayer()
@@ -177,8 +147,8 @@ struct TerminalFrameOwnerMainThreadTests {
 
 /// Pings the main thread from a background queue. A ping that gets no answer within `deadline` samples this process
 /// (`/usr/bin/sample`, 2 s, every thread), writes the sample to stderr and ends the process with exit code 70: a main
-/// thread that stopped for good fails the test with its stack.
-nonisolated final class MainThreadWatchdog: Sendable {
+/// thread that stopped for good fails the test with its stack. (Not the app's `MainThreadWatchdog`.)
+private nonisolated final class HangSampler: Sendable {
     private let deadline: DispatchTimeInterval
     private let stopped = DispatchSemaphore(value: 0)
     private let running = Mutex<Bool>(false)
@@ -198,7 +168,7 @@ nonisolated final class MainThreadWatchdog: Sendable {
     }
 
     private func watch() {
-        // wakeup-allow: a test watchdog: one ping per 250 ms on a background queue, only while its test runs
+        // wakeup-allow: a test's hang sampler: one ping per 250 ms on a background queue, only while its test runs
         while running.withLock({ $0 }) {
             let answered = DispatchSemaphore(value: 0)
             DispatchQueue.main.async { answered.signal() }
@@ -215,7 +185,7 @@ nonisolated final class MainThreadWatchdog: Sendable {
         sample.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
         sample.arguments = [String(pid), "2", "-file", file]
         try? sample.run()
-        // concurrency-allow: the watchdog's background queue, after the main thread was seen stopped; it waits for sample
+        // concurrency-allow: the sampler's background queue, after the main thread was seen stopped; it waits for sample
         sample.waitUntilExit()
         let text = (try? String(contentsOfFile: file, encoding: .utf8)) ?? "sample did not run"
         FileHandle.standardError.write(Data("MAIN THREAD HANG (S4 frame owner): the main thread did not answer in 3 s. sample of pid \(pid):\n\(text)\n".utf8))
