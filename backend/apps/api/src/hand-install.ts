@@ -108,6 +108,11 @@ case "$HOME_DIR" in *[!A-Za-z0-9._/-]*) echo "cmux-hand: $HOME_DIR is not a plai
 LOG="$HOME_DIR/hand.log"
 SERVICE_NAME=cmux-hand
 [ "$CONFIGURED" != 1 ] || SERVICE_NAME=cmux-chief-hand
+AUTH_PLIST="" AUTH_UNIT=""
+if [ "$CONFIGURED" = 1 ]; then
+  AUTH_PLIST='<key>CMUX_CLAUDE_AUTH</key><string>own</string><key>CMUX_CODEX_AUTH</key><string>own</string>'
+  AUTH_UNIT='Environment=CMUX_CLAUDE_AUTH=own CMUX_CODEX_AUTH=own'
+fi
 if [ "$(uname -s)" = Darwin ]; then
   LABEL=dev.cmux.hand
   [ "$CONFIGURED" != 1 ] || LABEL=dev.cmux.chief-hand
@@ -119,7 +124,7 @@ if [ "$(uname -s)" = Darwin ]; then
 <plist version="1.0"><dict>
 <key>Label</key><string>$LABEL</string>
 <key>ProgramArguments</key><array><string>$BIN</string><string>hand</string><string>run</string></array>
-<key>EnvironmentVariables</key><dict><key>CMUX_HAND_HOME</key><string>$HOME_DIR</string></dict>
+<key>EnvironmentVariables</key><dict><key>CMUX_HAND_HOME</key><string>$HOME_DIR</string>$AUTH_PLIST</dict>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
 <key>StandardOutPath</key><string>$LOG</string><key>StandardErrorPath</key><string>$LOG</string>
 </dict></plist>
@@ -136,6 +141,7 @@ Description=cmux hand
 After=network-online.target
 [Service]
 Environment=CMUX_HAND_HOME=$HOME_DIR
+$AUTH_UNIT
 ExecStart=$BIN hand run
 Restart=always
 RestartSec=5
@@ -150,7 +156,7 @@ else
   if [ "$CONFIGURED" = 1 ]; then
     # A retry after a lost exec response does not start a second persistent hand.
     command -v flock >/dev/null 2>&1 || { echo "cmux-hand: configured service needs flock" >&2; exit 1; }
-    env -u ACPMUX_HOME -u ACPMUX_SOCKET CMUX_HAND_HOME="$HOME_DIR" nohup flock -n "$HOME_DIR/run.lock" "$BIN" hand run >>"$LOG" 2>&1 &
+    env -u ACPMUX_HOME -u ACPMUX_SOCKET CMUX_HAND_HOME="$HOME_DIR" CMUX_CLAUDE_AUTH=own CMUX_CODEX_AUTH=own nohup flock -n "$HOME_DIR/run.lock" "$BIN" hand run >>"$LOG" 2>&1 &
   else
     env -u ACPMUX_HOME -u ACPMUX_SOCKET CMUX_HAND_HOME="$HOME_DIR" nohup "$BIN" hand run >>"$LOG" 2>&1 &
   fi
