@@ -13,7 +13,8 @@ for every open (copy_chat), so no open ever reads a chat an earlier open or run 
 An entry is written to a temp folder and renamed into place, and read only when its manifest names
 its key and every file's size and sha256 match. Entries unused for MAX_AGE_S are pruned, and past
 MAX_ENTRIES or MAX_BYTES the least recently used go first. The cache deletes only folders under its
-own root that it named (an entry key or a .tmp- folder).
+own root that it wrote: a key-named folder whose manifest names that key, or a stale .tmp- folder. A
+cache folder that can't be read or written leaves the run uncached, never failed.
 """
 
 from __future__ import annotations
@@ -39,9 +40,12 @@ ACPMUX = os.path.join(ROOT, "cmux-tui", "crates", "acpmux")
 
 
 def default_root() -> str:
-    """The worker's per-user cache folder (CMUX_BENCH_SEED_CACHE overrides it)."""
+    """CMUX_BENCH_SEED_CACHE, else the fleet worker's step cache root (CMUX_CI_CACHE_DIR, set on
+    every step and kept between steps, unlike a step's HOME), else the per-user cache folder."""
     if os.environ.get("CMUX_BENCH_SEED_CACHE"):
         return os.environ["CMUX_BENCH_SEED_CACHE"]
+    if os.environ.get("CMUX_CI_CACHE_DIR"):
+        return os.path.join(os.environ["CMUX_CI_CACHE_DIR"], "cmux-bench", "chat-open")
     library = os.path.expanduser("~/Library/Caches")
     base = library if sys.platform == "darwin" else os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
     return os.path.join(base, "cmux-bench", "chat-open")
@@ -92,7 +96,28 @@ def source_digest(acpmux_binary: str | None = None) -> str:
 def entry_key(name: str, inputs: dict, digest: str) -> str:
     """The cache key of template entry `name` made from `inputs` by sources hashing to `digest`."""
     blob = json.dumps({"format": FORMAT, "name": name, "inputs": inputs, "sources": digest}, sort_keys=True)
-    return f"{name}-{hashlib.sha256(blob.encode()).hexdigest()[:32]}"
+    return f"{name}-{hashlib.sha256(blob.encode()).hexdigest()[:KEY_HEX]}"
+
+
+KEY_HEX = 32
+
+
+def is_key(name: str) -> bool:
+    """A folder name entry_key makes: <template name>-<32 hex digits>."""
+    stem, _, tail = name.rpartition("-")
+    return bool(stem) and _safe_name(stem) and len(tail) == KEY_HEX and all(c in "0123456789abcdef" for c in tail)
+
+
+def owned(root: str, name: str) -> bool:
+    """True for an entry this cache wrote: a key-shaped folder whose manifest names that key."""
+    if not is_key(name):
+        return False
+    try:
+        with open(os.path.join(root, name, "manifest.json")) as handle:
+            manifest = json.load(handle)
+    except (OSError, ValueError):
+        return False
+    return isinstance(manifest, dict) and manifest.get("format") == FORMAT and manifest.get("key") == name
 
 
 def _safe_name(name: str) -> bool:
@@ -109,10 +134,15 @@ def get(root: str, key: str) -> dict | None:
     try:
         with open(manifest_path) as handle:
             manifest = json.load(handle)
-        if manifest.get("format") != FORMAT or manifest.get("key") != key:
+        if not isinstance(manifest, dict) or manifest.get("format") != FORMAT or manifest.get("key") != key:
             raise ValueError("manifest names another key")
+        if not isinstance(manifest.get("templates"), dict) or not manifest["templates"]:
+            raise ValueError("manifest lists no templates")
         templates = {}
         for name, entry in manifest["templates"].items():
+            if not _safe_name(name) or not isinstance(entry, dict) or not isinstance(entry.get("events"), dict) \
+                    or not entry["events"] or not all(_safe_name(e) for e in entry["events"]):
+                raise ValueError(f"manifest entry {name!r} is malformed")
             base = os.path.join(folder, name)
 
             def read(rel, want):
@@ -124,20 +154,24 @@ def get(root: str, key: str) -> dict | None:
 
             templates[name] = {"id": entry["id"], "meta": read("session.json", entry["meta"]),
                                "events": {e: read(os.path.join("events", e), want) for e, want in entry["events"].items()}}
-    except (OSError, ValueError, KeyError, TypeError) as error:
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
         print(f"chat-open: seed cache {key}: dropped ({error})", file=sys.stderr)
         shutil.rmtree(folder, ignore_errors=True)
         return None
-    os.utime(manifest_path)  # last used, for pruning
+    try:
+        os.utime(manifest_path)  # last used, for pruning
+    except OSError:
+        pass
     return templates
 
 
 def put(root: str, key: str, inputs: dict, templates: dict, seed_s: float) -> bool:
     """Caches `templates` (name -> icl.read_chat dict) under `key`, atomically: written to a temp
     folder, then renamed. True when the entry is in place (this call's or a racing writer's)."""
-    os.makedirs(root, exist_ok=True)
-    temp = tempfile.mkdtemp(prefix=TMP_PREFIX, dir=root)
+    temp = None
     try:
+        os.makedirs(root, exist_ok=True)
+        temp = tempfile.mkdtemp(prefix=TMP_PREFIX, dir=root)
         manifest = {"format": FORMAT, "key": key, "inputs": inputs, "seed_s": round(seed_s, 1),
                     "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "templates": {}}
         for name, template in templates.items():
@@ -169,7 +203,8 @@ def put(root: str, key: str, inputs: dict, templates: dict, seed_s: float) -> bo
         return True
     except (OSError, ValueError) as error:
         print(f"chat-open: seed cache {key}: not written ({error})", file=sys.stderr)
-        shutil.rmtree(temp, ignore_errors=True)
+        if temp:
+            shutil.rmtree(temp, ignore_errors=True)
         return False
 
 
@@ -188,11 +223,13 @@ def prune(root: str, now: float | None = None, max_age_s: float = MAX_AGE_S, max
           max_bytes: int = MAX_BYTES, keep: tuple = ()) -> list[str]:
     """Removes entries unused for `max_age_s`, stale temp folders, then the least recently used
     past `max_entries` or `max_bytes` (never one named in `keep`). The removed names."""
-    if not os.path.isdir(root):
+    try:
+        names = os.listdir(root)
+    except OSError:
         return []
     now = time.time() if now is None else now
     removed, entries = [], []
-    for name in os.listdir(root):
+    for name in names:
         path = os.path.join(root, name)
         if not os.path.isdir(path) or os.path.islink(path):
             continue
@@ -201,10 +238,12 @@ def prune(root: str, now: float | None = None, max_age_s: float = MAX_AGE_S, max
                 shutil.rmtree(path, ignore_errors=True)
                 removed.append(name)
             continue
-        manifest = os.path.join(path, "manifest.json")
-        if not os.path.isfile(manifest):
+        if not owned(root, name):
             continue  # not an entry this cache wrote
-        used = os.lstat(manifest).st_mtime
+        try:
+            used = os.lstat(os.path.join(path, "manifest.json")).st_mtime
+        except OSError:
+            continue
         if now - used > max_age_s and name not in keep:
             shutil.rmtree(path, ignore_errors=True)
             removed.append(name)
