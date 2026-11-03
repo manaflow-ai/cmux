@@ -10,3 +10,8 @@
   align-items: center;
   color: var(--cv-muted);
 }
+/* The line opens another chat, not a fold, so its chevron points right after its words, as a
+   finished subagent's line does (subagents.css, cmux#32867), never down like "Worked for". */
+.acpmux-row .cv-task-line .cv-rotor {
+  transform: none;
+}

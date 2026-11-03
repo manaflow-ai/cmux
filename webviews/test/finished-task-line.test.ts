@@ -71,6 +71,7 @@ await requireBrowserLane("finished-task-line.test.ts", async () => {
     fold: number | null;
     reply: number | null;
     startCard: boolean;
+    chevron: { right: boolean } | null;
   };
   /** The task lines, the fold row's and the last reply's tops, and whether a start card is in sight. */
   const placed = (page: Page): Promise<Placed> =>
@@ -83,7 +84,11 @@ await requireBrowserLane("finished-task-line.test.ts", async () => {
         state: line.getAttribute("data-task-line"),
       }));
       const replies = [...document.querySelectorAll(".acpmux-row.acpmux-assistant")];
+      const glyph = document.querySelector(".cv-task-line .cv-rotor");
+      const box = glyph?.getBoundingClientRect();
+      const ink = glyph?.querySelector("path")?.getBoundingClientRect();
       return {
+        chevron: box && ink ? { right: ink.height > ink.width } : null,
         lines,
         fold: top(document.querySelector(".cv-worked, [data-row-kind='worked']")),
         reply: top(replies.at(-1)),
@@ -116,8 +121,11 @@ await requireBrowserLane("finished-task-line.test.ts", async () => {
         expect(line!.text).not.toContain("october-review");
         expect(line!.state).toBe("done");
         expect(line!.height).toBeGreaterThan(0);
+        // It opens another chat: its chevron points right (taller than wide), after the words.
+        expect(found.chevron?.right).toBe(true);
         // Under the fold, above the reply.
-        if (found.fold !== null) expect(line!.top).toBeGreaterThan(found.fold);
+        expect(found.fold).not.toBeNull();
+        expect(line!.top).toBeGreaterThan(found.fold!);
         expect(line!.top).toBeLessThan(found.reply!);
         // A click asks the app to open the task's chat.
         await page.evaluate(() => {
