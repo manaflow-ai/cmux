@@ -1513,6 +1513,15 @@
 }
 .acpmux-location-button .acpmux-env-live[data-connected="true"] { background: var(--agent-success, var(--acpmux-add, currentColor)); }
 .acpmux-location-button .acpmux-env-live[data-connected="false"] { border: 1px solid var(--agent-muted); }
+/* A Cloud machine that is resuming (withCloudSleep): the spinner turns where the dot was, centred on
+   the dot's own 6px box, so the strip never moves as paused turns to resuming and back to live. */
+.acpmux-location-button .acpmux-env-live-spinner {
+  position: absolute;
+  inset: -2px;
+  width: 10px;
+  height: 10px;
+  color: var(--agent-muted);
+}
 /* The cloud toggle (stripLayout cloud-toggle) stands at the strip's end, before the branch. */
 .acpmux-composer-context > .acpmux-location-picker[data-rows="run"] { flex: none; margin-left: auto; }
 .acpmux-composer-context > .acpmux-location-picker[data-rows="run"] + .acpmux-location-picker:last-child { margin-left: var(--acpmux-location-gap, 4px); }

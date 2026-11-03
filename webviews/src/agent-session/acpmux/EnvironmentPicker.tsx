@@ -45,6 +45,10 @@ const STATE_LABELS: Record<string, StringKey> = {
   connecting: "rail.connectorPending",
   degraded: "rail.connectorPending",
   reconnecting: "header.reconnecting",
+  // A Cloud machine the account says sleeps (cloudMachines.ts withCloudSleep): a calm state, never
+  // a link to fix.
+  paused: "composer.envPaused",
+  resuming: "composer.envResuming",
 };
 export function environmentStateLabel(environment: Environment): string {
   if (isCloudMachineRow(environment)) return cloudMachineLabel(environment.cloudMachine);

@@ -1,6 +1,8 @@
 // The New Tab page's ambient widgets (`tabs.newTabWidgets.weather|machines`, ambient.ts): one quiet
 // row under the composer in the greeting's dim color. The row takes its own height below the field,
 // so the field never moves when a widget turns on or a reading arrives.
+import { useEffect } from "react";
+import { cloudMachineAsleep, refreshCloudMachines, useCloudMachines, type CloudMachine } from "../cloudMachines";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxSnapshot } from "../model";
 import { Tooltip } from "../../../ui/Tooltip";
@@ -15,6 +17,7 @@ export function AmbientWidgets({
   snapshot,
   localName,
   now,
+  cloudMachines,
 }: {
   /// The weather widget's last reading; undefined draws no weather (off, or none yet).
   weather?: NewTabWeather;
@@ -23,9 +26,19 @@ export function AmbientWidgets({
   snapshot: Pick<AcpmuxSnapshot, "sessions" | "peers" | "peerKinds">;
   localName: string;
   now: number;
+  /// Gallery seam; the app's Cloud account list (cloudMachines.ts) is used when omitted.
+  cloudMachines?: readonly CloudMachine[];
 }) {
   const nt = useNt();
   const list = machines ? newTabMachines(snapshot, snapshot.peerKinds ?? {}, localName) : [];
+  // A Cloud machine acpmux has no link to may only be paused (Cloud machines pause on their own
+  // when idle): the account's list says so, read once while such a machine is listed.
+  const accountMachines = useCloudMachines();
+  const shownMachines = cloudMachines ?? accountMachines;
+  const asksAccount = !cloudMachines && list.some((machine) => machine.kind === "cloud" && !machine.online);
+  useEffect(() => {
+    if (asksAccount) void refreshCloudMachines();
+  }, [asksAccount]);
   if (!weather && !list.length) return null;
   const stale = weather ? weatherIsStale(weather, now) : false;
   return (
@@ -46,12 +59,17 @@ export function AmbientWidgets({
       )}
       {list.length > 0 && (
         <section className="nt-ambient-machines" aria-label={nt("widgets.machines")}>
-          {list.map((machine) => (
-            <Tooltip
-              key={machine.id}
-              label={`${machine.label}: ${nt(machine.online ? "widgets.online" : "widgets.offline")}`}
-            >
-              <span className="nt-ambient-machine" data-online={machine.online || undefined}>
+          {list.map((machine) => {
+            // A paused Cloud machine is a calm state, never "offline": its first use resumes it.
+            const paused = machine.kind === "cloud" && !machine.online && cloudMachineAsleep(machine.label, shownMachines);
+            const status = machine.online ? "widgets.online" : paused ? "widgets.paused" : "widgets.offline";
+            return (
+            <Tooltip key={machine.id} label={`${machine.label}: ${nt(status)}`}>
+              <span
+                className="nt-ambient-machine"
+                data-online={machine.online || undefined}
+                data-paused={paused || undefined}
+              >
                 <span className="nt-ambient-machine-icon" style={machine.color ? { color: machine.color } : undefined}>
                   <Icon name={MACHINE_ICONS[machine.kind]} size={14} />
                 </span>
@@ -59,7 +77,8 @@ export function AmbientWidgets({
                 <span className="nt-ambient-dot" aria-hidden="true" />
               </span>
             </Tooltip>
-          ))}
+            );
+          })}
         </section>
       )}
     </div>
