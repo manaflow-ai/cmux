@@ -12,6 +12,8 @@ import { LaneNoticeBatch } from "./LaneNoticeBatch";
 import { incomingPrompt, type IncomingMessage } from "./incomingMessage";
 import { projectInboxRows } from "./laneNoticeBatches";
 import { LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
+import { findSkipped } from "./chatFind";
+import { isVisiblyEmptyMessage } from "./visibleMessage";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -101,6 +103,10 @@ test("a fire notice is one line: its red mark, the sender and machine, the title
   expect(line.querySelector(".cv-received__from")?.textContent).toBe("base-red-watch");
   expect(line.querySelector(".cv-received__host")?.textContent).toBe("ci-mini-3");
   expect(line.querySelector(".cv-notice__title")?.textContent).toBe("cmux-next fast tier failed on 3 PRs");
+  // Find reaches the title on its line (the rest of the line is a summary Find skips).
+  const title = line.querySelector(".cv-notice__title")!;
+  expect(findSkipped(title.firstChild?.parentElement ?? title)).toBe(false);
+  expect(findSkipped(line.querySelector(".cv-received__host"))).toBe(true);
   // Nothing in the mark moves: no animation on the page's mark.
   expect(container.innerHTML).not.toContain("animate");
   await act(async () => (line.querySelector(".cv-disclosure__toggle") as HTMLElement).click());
@@ -136,4 +142,18 @@ test("a fold of notices reads Received N notices and shows the fire on its head"
   const head = container.querySelector(".cv-message-group__head")!;
   expect(head.querySelector(".cv-message-group__count")?.textContent).toBe("Received 3 notices");
   expect(head.querySelector(".cv-notice-mark")?.getAttribute("data-severity")).toBe("fire");
+});
+
+test("a notice of a title alone is still a row", () => {
+  const message = notice("fire", "fast tier failed", "");
+  expect(message.text).toBe("");
+  const row = {
+    id: "t",
+    version: 1,
+    at: 1,
+    kind: "user",
+    text: "fast tier failed",
+    incoming: { kind: "message", message },
+  } as AcpmuxRow;
+  expect(isVisiblyEmptyMessage(row)).toBe(false);
 });

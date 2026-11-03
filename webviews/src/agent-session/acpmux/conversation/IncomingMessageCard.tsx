@@ -396,10 +396,12 @@ export function IncomingMessageLine({
       toggleLabel={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
       label={
         // Find counts the panel's whole text, not the line's first-line copy of it.
-        // A notice's title is its text (the row's, which Find searches): Find highlights it here.
+        // A notice's title is its text (the row's, which Find searches): Find highlights it here,
+        // inside the line Find otherwise skips (chatFind.ts `findSkipped`).
         <span
           className={`cv-received__preview${agentNotice ? " cv-notice__title" : ""}`}
           data-find-skip={agentNotice ? undefined : ""}
+          data-find-keep={agentNotice ? "" : undefined}
         >
           {agentNotice && look === "tag" && agentNotice.severity !== "info" && (
             <span className="cv-notice__tag" data-severity={agentNotice.severity} data-find-skip="">

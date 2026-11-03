@@ -187,6 +187,9 @@ test("a link's destination can never close its Markdown link early, and a URL ke
   const read = renderedNotice(
     "[notice from s] T\nBody\nLinks: https://example.com/foo_(bar) (Docs), https://example.com/a,b",
   );
+  expect(renderedNotice("[notice from s] T\nLinks: https://example.com/docs (Docs (v2))")?.notice.links).toEqual([
+    { url: "https://example.com/docs", label: "Docs (v2)" },
+  ]);
   expect(read?.notice.links).toEqual([
     { url: "https://example.com/foo_(bar)", label: "Docs" },
     { url: "https://example.com/a,b" },

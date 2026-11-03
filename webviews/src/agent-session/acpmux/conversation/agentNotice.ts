@@ -67,7 +67,7 @@ const RENDERED_HEAD =
 /// The rendered Links line: `Links: URL (LABEL), URL, …`.
 const LINKS_LINE = /^Links:[ \t]+(https:\/\/\S+.*)$/;
 /// One link of the Links line: its URL (parentheses in it kept), then its label in parentheses.
-const LINK = /^(https:\/\/\S+?)(?: \(([^)\n]{1,64})\))?$/;
+const LINK = /^(https:\/\/\S+?)(?: \(([^\n]{1,64})\))?$/;
 
 /// The body of a notice prompt: its text without the rendered head line and the Links line, which
 /// the row draws itself. Text in no such form is the body as it is.
