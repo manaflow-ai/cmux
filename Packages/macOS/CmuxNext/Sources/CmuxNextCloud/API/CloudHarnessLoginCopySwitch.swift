@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The remote off switch for a Release build's copy of the person's Claude login to their own Cloud
 /// machine (Leo, 2026-11-02: "A remote off switch, so if Anthropic objects we turn it off for
