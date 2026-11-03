@@ -13,7 +13,7 @@
 //! are the contract (the monitor de-duplicates on them).
 
 use crate::event::{FocusEvent, Responder};
-use crate::state::{Context, Expectation, ExpectationKey, FocusState, Overlay, Resolved, Target};
+use crate::state::{Context, Expectation, FocusState, Overlay, Resolved, Target};
 use crate::topology::{Kind, Topology};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
@@ -504,27 +504,11 @@ pub fn world(observation: &Observation) -> WorldResult {
     result
 }
 
-/// The focused pane shows the tab the model targets, and the focus is not
-/// on its way to another tab (a creation's new tab not shown yet: the page
-/// the person left gives up the keys meanwhile, P0 INVERSE-KEY).
+/// The focused pane shows the tab the model targets.
 pub fn is_settled(window: &ObservedWindow) -> bool {
-    if awaits_other_tab(&window.model) {
-        return false;
-    }
     let underlying = &window.model.underlying;
     let (Some(pane), Some(tab)) = (underlying.pane(), underlying.tab()) else { return true };
     window.presented.get(pane).map(String::as_str) == Some(tab)
-}
-
-/// `FocusState::awaits_other_tab` for an observed model.
-fn awaits_other_tab(model: &Model) -> bool {
-    match &model.expectation {
-        Some(Expectation { key: ExpectationKey::Tab { id }, .. }) => {
-            model.resolved.tab() != Some(id.as_str())
-        }
-        Some(Expectation { key: ExpectationKey::Surface { .. }, .. }) => true,
-        None => false,
-    }
 }
 
 /// The responder's name in reports.

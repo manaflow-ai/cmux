@@ -5,8 +5,8 @@ import Testing
 /// Chromium page in its own child window), then Ctrl-` asked for a new terminal tab that the window did not show yet.
 /// The focus waited for it and still resolved the agent page, and the wait moved no responder: the page window kept the
 /// keys, so the line typed for the new terminal went to the page window instead of the cmux window's creation hold.
-/// Through the app FFI (`FocusMachine`), the same rule `cmux-focus-core`'s tests/awaited_tab.rs checks: a wait for
-/// another tab is a responder change in the same reduction (`FocusEffectApplier` then takes the keys from the page).
+/// Through `FocusMachine` (the window's focus machine): a wait for another tab is a responder change in the same
+/// reduction (`FocusEffectApplier` then takes the keys from the page).
 struct FocusWaitLeavesPageTests {
     private func homeFocused() -> (FocusMachine, FocusState) {
         let machine = FocusMachine()
