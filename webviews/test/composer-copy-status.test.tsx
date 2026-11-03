@@ -338,7 +338,10 @@ test("inline attachments added while a 4 MiB Cut stages preserve the changed dra
   await act(async () => {
     await native.paused.promise;
   });
-  act(() => box.addAttachment(strip("new-strip")));
+  act(() => {
+    box.field().setCaret(Number.MAX_SAFE_INTEGER);
+    box.addAttachment(strip("new-strip"));
+  });
   const edited = box.field().value();
   expect(edited).toContain(inlineToken("new-strip"));
   await act(async () => {
