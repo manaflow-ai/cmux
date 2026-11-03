@@ -4,6 +4,7 @@ use super::{Conn, str_param};
 use crate::hub::Hub;
 use crate::rpc::RpcError;
 use crate::workflow_runs::{ActivityRecord, Child};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -300,9 +301,11 @@ pub(crate) fn owner_call<'a>(
         let _connection =
             Connection(tokio::spawn(super::serve_connection(hub.clone(), input, output)));
         let mut hello = json!({"protocolVersion":1,"clientInfo":{"name":"workflow","version":crate::hub::VERSION}});
-        hello["_meta"] = json!({"acpmux":{}});
-        hello["_meta"]["acpmux"][crate::hub::person::CALLER_FIELD] = json!({
-            "sessionId":owner,"token":crate::hub::person::caller_token(owner)});
+        hello.set_path(
+            &["_meta", "acpmux", crate::hub::person::CALLER_FIELD],
+            json!({
+            "sessionId":owner,"token":crate::hub::person::caller_token(owner)}),
+        );
         for (id, method, params) in
             [(1, crate::rpc::method::INITIALIZE, hello), (2, method, params)]
         {
