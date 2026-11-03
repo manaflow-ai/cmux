@@ -3,3 +3,6 @@
 
 #[path = "cloud_harness_login_ffi/cases.rs"]
 mod cloud_harness_login;
+
+#[path = "cloud_harness_login_ffi/ask_cases.rs"]
+mod cloud_ask;

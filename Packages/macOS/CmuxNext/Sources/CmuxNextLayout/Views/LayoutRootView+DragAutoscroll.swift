@@ -39,6 +39,8 @@ extension ScreenContentView {
         if x < band { speed = -Self.autoscrollMaxSpeed * (1 - x / band) }
         if x > range.width - band { speed = Self.autoscrollMaxSpeed * (1 - (range.width - x) / band) }
         guard speed != 0 else { return false }
+        // A frame that shows no later than the last one (after a hang) moves nothing: the drag keeps ticking.
+        guard dt > 0 else { return true }
         let target = ColumnStripGeometry.clamp(scroll.target + speed * CGFloat(dt), contentWidth: geometry.contentWidth,
                                                viewportWidth: geometry.stripWidth)
         guard abs(target - scroll.target) > 0.01 else { return false }

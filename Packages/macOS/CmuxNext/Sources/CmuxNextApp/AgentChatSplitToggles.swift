@@ -49,7 +49,7 @@ final class AgentChatSplitToggles {
 
     /// Toggles header action `id` on chat tab `chat` (in `store`): closes the split it opened while it is in the chat's
     /// workspace, else opens one (an untracked kind just runs; Terminal always opens one with `terminalButtonAdds` on).
-    /// `extra`: more arguments for the action (Changes' chat turn, ``DiffTurnArgument``).
+    /// `extra`: more arguments for the action (Changes' chat turn or patch, ``AgentPaneDiffTurn/actionArguments``).
     func toggle(_ id: String, cwd: String?, url: String? = nil, extra: [String: ActionValue] = [:], chat: String, store: DaemonStore?,
                 actions: AgentChatTabActions) {
         if AgentChatTerminalAdds().adds(id) { return open(id, cwd: cwd, url: url, extra: extra, chat: chat, store: store, actions: actions) }

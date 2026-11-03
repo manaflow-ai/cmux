@@ -26,6 +26,9 @@
  * when logged in to one).
  * The daemon handshake (identify.ts) must serve REQUIRED_IMAGE_CAPABILITIES and, with
  * --expect-capabilities, every listed capability; --team-vm also checks /srv/team.
+ * The session host stays up 60 s after boot and after one forced rebind, with no legacy or migration
+ * error, and UDP 4101 bound on a Cloud-bound Native clone (daemon-uptime.ts). No agent sign-in
+ * (~/.claude/.credentials.json, ~/.codex/auth.json) or daemon identity comes from the image.
  * Checks that need the bind agent are reported as PENDING.
  * Every clone is deleted whatever happens.
  */
@@ -45,6 +48,7 @@ import { browserRoleProbe } from "./browser-probe";
 import { GH_SHIM } from "./github-auth";
 import { HOST_CLI, NATIVE_RECEIVER_SMOKE } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
+import { daemonHoldCommand, daemonUptimeDetail, daemonUptimeProblems, forcedRebindCommand, HOLD_SECONDS } from "./daemon-uptime";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
 
 const REMOTE_IDENTITY = `${DEVBOX_WORK_HOME}/.local/state/cmux/remote/sessions/${Buffer.from(CMUX_TUI_SESSION).toString("base64url")}/auth/identity.json`;
@@ -83,6 +87,25 @@ export function secretScanCommand(skip: readonly string[] = []): string {
   const files = "for f in /root/.git-credentials /root/.netrc /root/.npmrc /home/*/.git-credentials /home/*/.netrc /home/*/.npmrc; do [ -s \"$f\" ] && echo \"credential-file $f\"; done";
   const keys = "for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do [ -s \"$f\" ] && echo \"authorized-keys $f\"; done";
   return `{ ${[...lines, files, keys].join("; ")}; } | grep -vE ${sq(SCAN_EXCLUDES.map((p) => ` ${p.replace(/[.]/g, "\\.")}`).join("|"))} || true`;
+}
+
+/** Agent sign-ins a shared image must never carry (checked by existence only, never read). */
+export const AGENT_SIGN_IN_LEFTOVERS = [".claude/.credentials.json", ".codex/auth.json"] as const;
+const BIND_MARKER = "/etc/cmux/daemon-instance-id";
+
+/**
+ * Prints one `kind path` line per leftover; empty output passes. Daemon state and identity count as
+ * image content when older than this clone's bind (BIND_MARKER): the bake removes ~/.local/state/cmux
+ * and cmux-tui before the snapshot, so any such file there is a leftover; under ~/.cmux (whose bin/
+ * the bake links) only identity-shaped names count. The smoke runs on images the bake built from the
+ * shared base; a snapshot seeded from a person's own machine never comes through here.
+ */
+export function imageLeftoversCommand(): string {
+  const homes = "/root /home/*";
+  const signIns = `for h in ${homes}; do for f in ${AGENT_SIGN_IN_LEFTOVERS.join(" ")}; do [ -e "$h/$f" ] && echo "agent-sign-in $h/$f"; done; done`;
+  const state = `for h in ${homes}; do for d in "$h/.local/state/cmux" "$h/.local/state/cmux-tui"; do [ -d "$d" ] && find "$d" -type f ! -newer ${BIND_MARKER} 2>/dev/null | head -10 | sed 's#^#daemon-state #'; done; done`;
+  const identity = `for h in ${homes}; do [ -d "$h/.cmux" ] && find "$h/.cmux" -path "$h/.cmux/bin" -prune -o -type f \\( -iname '*identity*' -o -iname '*auth*' -o -iname '*key*' -o -iname '*token*' -o -name machine-id -o -name resource-effect-pepper \\) ! -newer ${BIND_MARKER} -print 2>/dev/null | head -10 | sed 's#^#daemon-identity #'; done`;
+  return `{ test -e ${BIND_MARKER} || echo "no-bind-marker ${BIND_MARKER}"; ${signIns}; ${state}; ${identity}; } 2>/dev/null; true`;
 }
 
 /**
@@ -241,6 +264,8 @@ async function functionalChecks(vm: Vm, lock: InputsLock, report: Report): Promi
   check(report, "no-secrets", secrets.stdout.trim() === "", secrets.stdout.trim() || "no pattern matched");
   const credentials = await run(vm, tree ? devTreeCredentialCheckCommand(tree) : `${CREDENTIAL_FILES_CHECK} && echo no-credential-files`);
   check(report, tree ? "dev-tree-no-credentials" : "no-credential-files", credentials.code === 0, credentials.stdout.trim() || credentials.stderr.slice(-300));
+  const signIns = await run(vm, imageLeftoversCommand());
+  check(report, "no-sign-in-or-identity-leftovers", signIns.code === 0 && signIns.stdout.trim() === "", signIns.stdout.trim() || "no agent sign-in or daemon identity from the image");
   const programs = await run(vm, programChecksCommand(lock), 240_000);
   const problems = programProblems(lock, programs.stdout);
   const ran = programs.stdout.trim().split("\n");
@@ -320,6 +345,22 @@ async function resolverChecks(vm: Vm, report: Report): Promise<void> {
   check(report, "dns-resolved-restart", problems.length === 0, problems.join("\n") || dns.stdout.trim());
 }
 
+/**
+ * The session host stays up HOLD_SECONDS after boot and again after one forced rebind (daemon-uptime.ts).
+ * Last on its clone: the rebind restarts the session host and rewrites the bound id.
+ */
+async function daemonUptimeChecks(vm: Vm, report: Report, nativeReceiver: boolean): Promise<void> {
+  const hold = (HOLD_SECONDS + 60) * 1000;
+  const boot = await run(vm, daemonHoldCommand(), hold);
+  const bootProblems = daemonUptimeProblems(boot.stdout, nativeReceiver);
+  check(report, "daemon-stays-up", boot.code === 0 && bootProblems.length === 0, bootProblems.join("\n") || daemonUptimeDetail(boot.stdout));
+  const rebind = await run(vm, forcedRebindCommand(), 120_000);
+  const rebound = /^rebound=1$/m.test(rebind.stdout);
+  const after = rebound ? await run(vm, daemonHoldCommand(), hold) : undefined;
+  const afterProblems = after ? daemonUptimeProblems(after.stdout, nativeReceiver) : [`forced rebind did not finish: ${rebind.stdout.trim() || rebind.stderr.slice(-200)}`];
+  check(report, "daemon-stays-up-after-rebind", after?.code === 0 && afterProblems.length === 0, afterProblems.join("\n") || daemonUptimeDetail(after?.stdout ?? ""));
+}
+
 function summarize(rows: Array<Record<string, number | string>>): Record<string, unknown> {
   const pick = (key: string) => rows.map((r) => Number(r[key])).filter((v) => v >= 0 && Number.isFinite(v));
   const stat = (key: string) => {
@@ -385,7 +426,8 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
       report.browser = { timings: browser.timings, idle: browser.idle, pending: browser.pending };
       for (const [name, c] of Object.entries(browser.checks)) check(report, `browser-${name}`.replace(/^browser-browser-/, "browser-"), c.ok, c.detail);
     }
-    await idlePhase(kept[0].vm, report, options.idleSeconds);
+    // Separate clones: the hold and rebind on one run while the other idles.
+    await Promise.all([idlePhase(kept[0].vm, report, options.idleSeconds), daemonUptimeChecks(kept[1].vm, report, Boolean(options.nativeReceiver))]);
     if (options.resizeProbe) {
       report.resize = await resizeProbe(kept[0].vm);
       const after = JSON.parse(String((report.resize as Record<string, unknown>).after)) as { cpu: number; memoryMb: number; rootMb: number };

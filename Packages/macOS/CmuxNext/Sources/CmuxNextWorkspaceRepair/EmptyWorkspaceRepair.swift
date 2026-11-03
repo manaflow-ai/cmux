@@ -105,6 +105,7 @@ public final class EmptyWorkspaceRepair {
     /// that touches none of them must examine none (sidebar churn).
     @ObservationIgnored private(set) var visited = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.empty-workspace")
+    private let createLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.workspace-create")
 
     /// The daemon-facing closures come from the App (`init(daemon:)`), which
     /// owns the connection and the workspace close path.
@@ -381,6 +382,31 @@ public final class EmptyWorkspaceRepair {
             return try await body()
         } catch {
             if states[key] == .awaitingPane { states[key] = nil; recordFailure(key, error) }
+            throw error
+        }
+    }
+
+    /// Creates workspace `key` (`createWorkspace`) and its first terminal or tab (`createTerminal`),
+    /// and never leaves it half-created: when a step fails, `closeWorkspace` closes the key, except
+    /// after a refused create (it made nothing, and the key may name a live workspace). The create
+    /// failure stays the one error thrown; a failed close is logged.
+    public func withTerminal<T>(
+        _ key: WorkspaceKey,
+        createWorkspace: () async throws -> Void,
+        createTerminal: (WorkspaceKey) async throws -> T,
+        closeWorkspace: (WorkspaceKey) async throws -> Void
+    ) async throws -> T {
+        var refused = false // a refused create made nothing (the key may name a live workspace)
+        do {
+            do { try await createWorkspace() } catch { refused = (error as? DaemonError).map { if case .command = $0 { true } else { false } } ?? false; throw error }
+            return try await createTerminal(key)
+        } catch {
+            if !refused { do {
+                try await closeWorkspace(key)
+            } catch let closeError {
+                // The create failure stays the one error the user sees.
+                createLogger.error("closing a half-created workspace failed: \(String(describing: closeError), privacy: .public)")
+            } }
             throw error
         }
     }

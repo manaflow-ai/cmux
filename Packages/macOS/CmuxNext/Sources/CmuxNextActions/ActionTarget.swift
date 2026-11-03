@@ -170,4 +170,13 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .priorityRow: .agentChat
         }
     }
+
+    /// The kinds of the objects this menu's target holds whose actions its rows offer, with the
+    /// target as their place. The tab bar's empty area targets its pane and offers New Tab and
+    /// Reopen Closed Tab, which act on the pane's tabs (Chrome's and Edge's tab strip menus); the
+    /// handlers take the pane as the place. Surface coverage counts such a row for its action's
+    /// target kind (`ActionSurfaceParityTests`). Every other menu's rows act on its target itself.
+    public var contentKinds: [ActionTargetKind] {
+        self == .tabStrip ? [.tab] : []
+    }
 }

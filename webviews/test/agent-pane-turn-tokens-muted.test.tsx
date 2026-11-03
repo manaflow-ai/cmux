@@ -10,7 +10,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { tokenLines, tokenLineMarkup } from "./support/turnTokenLines";
+import { SPLIT, tokenLines, tokenLineMarkup } from "./support/turnTokenLines";
 
 const conversationCss = readFileSync(
   path.resolve(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),
@@ -26,8 +26,10 @@ const rule = (selector: string) => {
 for (const [name, line] of Object.entries(tokenLines))
   test(`${name}: the count is its own span, which the quieter rule keys on`, () => {
     const html = tokenLineMarkup(line);
+    // The live line says one count as Claude Code's does, "679.9K tokens" (claude-code-tool-rows.test.tsx).
+    const count = name.includes("Thinking.tsx") ? "679.9K tokens" : "679.9K out";
     expect(html).toContain(
-      '<span class="cv-worked__count"><span class="cv-worked__sep" aria-hidden="true">·</span><span class="cv-worked__tokens">679.9K out</span></span>',
+      `<span class="cv-worked__count"><span class="cv-worked__sep" aria-hidden="true">·</span><span class="cv-worked__tokens">${count}</span></span>`,
     );
     // The line's words come before the count's span, outside it.
     expect(html.indexOf("cv-worked__count")).toBeGreaterThan(html.search(/Working for|Thinking/));
@@ -42,4 +44,15 @@ test("the count takes the theme's tertiary text token, in tabular numerals, neve
   expect(rule(".cv-worked")).toContain("color: var(--cv-activity-text);");
   expect(conversationCss).toContain("--cv-text-muted: var(--agent-muted);");
   expect(conversationCss).toContain("--cv-text-dim: var(--agent-soft);");
+});
+
+// The coordinator, relaying Leo's capture of "Thinking 7m 34s · ↓ 4.5K out ↑ 1.4M in": the split
+// counts on the live line are "debug noise in the main transcript". It says one count, as Claude
+// Code's does, and keeps the split in that count's hover.
+test("the live line at the bottom says one count, the split on hover", () => {
+  const line = Object.entries(tokenLines).find(([name]) => name.includes("Thinking.tsx"))![1];
+  const html = tokenLineMarkup(line, SPLIT);
+  expect(html).toContain('<span class="cv-worked__tokens" title="');
+  expect(html).toMatch(/cv-worked__tokens" title="[^"]*12\.4K/);
+  expect(html.replace(/title="[^"]*"/g, "")).not.toMatch(/↓|↑| in</);
 });

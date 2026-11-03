@@ -229,6 +229,22 @@ RESERVED_OK = re.compile(r"^Ghostty-defaults-OK:\s*\S", re.MULTILINE)
 CRASH_ALLOWLIST = SCRIPTS + "/crash-allowlist.json"
 CRASH_BASELINE = SCRIPTS + "/crash-safety-baseline.json"
 CRASH_OK = re.compile(r"^Crash-allow-OK:[ \t]*(\S.*)$", re.MULTILINE)
+# Ratchet baselines a scanner here reads from the scripts folder: file -> (key columns, count column). The hook copies
+# its INSTALLED scripts over both trees, and that copy cannot know that a push removed sites and lowered or deleted
+# their row in the same commit: the check then reads "fewer than the baseline, lower its row" as a new finding and
+# refuses the fix (lead 2026-11-03: the merge service refused #33091, the process-scan base red's fix, this way). So
+# each tree reads its own commit's row wherever it is lower than the installed one (a deleted row counts as 0), and
+# the installed row everywhere else: a raise or a new row is still judged against the installed copy, as before.
+# Left out: crash-safety-baseline.json (a count under its row is only a note there; a raise needs Crash-allow-OK),
+# and the baselines no scanner here reads (godfile, layers, main-actor-work, check-menu-actions, rust-panic,
+# system-blue, type-scale, app-size): their CI checks read the pushed tree's own copy.
+RATCHET_BASELINES = {
+    "process-scan-baseline.tsv": ((0,), 1),
+    "state-roots-baseline.tsv": ((0,), 1),
+    "raw-spawn-baseline.tsv": ((0,), 1),
+    "app-id-special-cases-baseline.tsv": ((0,), 1),
+    "swift-type-scale-baseline.tsv": ((0, 1), 2),
+}
 CRASH_ALLOW_CHECK = "Crash allowlist review (Crash-allow-OK trailer)"
 FREEZE_CHECK = "Coordinator path freeze (WINDOW FREEZE lines)"
 # The coordinator's WINDOW (`FREEZE: <path prefix> token=<token>` lines; a `# LIFTED ...` line is not one). It
@@ -464,6 +480,9 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
         write_tree(repo, dest, files, index)
         if trusted_scripts:
             shutil.copytree(trusted_scripts, dest / SCRIPTS, dirs_exist_ok=True)
+            lowered = lower_ratchet_baselines(repo, rev, dest / SCRIPTS)
+            if lowered and side == "head":
+                log("prepush-gate: these ratchet rows read the push's own lower values:\n  " + "\n  ".join(lowered))
             if side == "head":
                 taken = apply_reviewed_crash_data(repo, base, head, dest / SCRIPTS)
                 if taken:
@@ -773,6 +792,52 @@ def crash_raises(repo: Path, base: str, head: str) -> list[tuple[str, str, str |
             subject = message.strip().splitlines()[0] if message.strip() else ""
             found.append((sha, subject, trailer.group(1).strip() if trailer else None, allow, rows))
     return found
+
+
+def _ratchet_rows(text: str, keys: tuple[int, ...], count: int) -> dict[tuple[str, ...], int]:
+    """{key: count} of a ratchet baseline's rows; comments, blank and malformed lines are not rows."""
+    rows = {}
+    for line in text.splitlines():
+        parts = line.split("\t")
+        if line.startswith("#") or len(parts) <= max(*keys, count) or not parts[count].isdigit():
+            continue
+        rows[tuple(parts[i] for i in keys)] = int(parts[count])
+    return rows
+
+
+def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str]:
+    """Rewrite each RATCHET_BASELINES file in SCRIPTS_DIR (a tree's copy of the installed scripts) so a row reads REV's
+    own count where that is lower (a row REV deleted reads 0 and is dropped); every other line stays the installed
+    one, so a raise or a new row is never taken. REV without the file changes nothing. Returns what was lowered."""
+    taken: list[str] = []
+    for name, (keys, count) in RATCHET_BASELINES.items():
+        path = scripts_dir / name
+        own = git_batch.run(repo, ["show", f"{rev}:{SCRIPTS}/{name}"])
+        if not path.is_file() or own.returncode != 0:
+            continue
+        pushed = _ratchet_rows(own.stdout.decode(errors="replace"), keys, count)
+        lines, changed = [], False
+        for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
+            row = _ratchet_rows(line, keys, count)
+            if not row:
+                lines.append(line)
+                continue
+            (key, installed), = row.items()
+            now = pushed.get(key, 0)
+            if now >= installed:
+                lines.append(line)
+                continue
+            changed = True
+            if now == 0:
+                taken.append(f"{name}: {' '.join(key)} {installed} -> 0 (row deleted)")
+                continue
+            parts = line.rstrip("\n").split("\t")
+            parts[count] = str(now)
+            lines.append("\t".join(parts) + ("\n" if line.endswith("\n") else ""))
+            taken.append(f"{name}: {' '.join(key)} {installed} -> {now}")
+        if changed:
+            path.write_text("".join(lines), encoding="utf-8")
+    return taken
 
 
 def apply_reviewed_crash_data(repo: Path, base: str, head: str, scripts_dir: Path) -> list[str]:
@@ -1398,47 +1463,33 @@ def guardrails(repo: Path, ranges: list, started) -> bool:
 # like the guardrails. The two slower files (test_perf_cron_io.py, 22 s; test_perf_cron_arch_report.py, 82 s:
 # real git clones and subprocesses) are run by hand.
 PERF_CRON_PATHS = ("scripts/cmux-next/perf-cron", "scripts/cmux-next/tests/test_perf_cron")
-PERF_CRON_FILES = ("scripts/cmux-next/perf-cron.py", "scripts/cmux-next/perf-budgets.py", "scripts/cmux-next/perf-budgets.json",
-                   "scripts/cmux-next/perf-profile-split.py", "scripts/cmux-next/tests/test_perf_cron.py",
-                   "scripts/cmux-next/tests/fixtures", "scripts/perf-bench")
-PERF_CRON_TIMEOUT = 60
 
 
 def perf_cron_tests(repo: Path, ranges: list) -> bool:
-    """Run test_perf_cron.py on each pushed head whose own changes touch the perf cron; True when a test fails.
+    """Name the perf cron's unit tests when a pushed head's own changes touch the perf cron; never run them.
 
-    RANGES are push_range.OwnRange values: a path counts when it changes over the base and since the head of
-    every range the push does not own (a merge of origin/feat-cmux-next that only brings in a cron change runs
-    nothing). It runs the head's own files (git
-    archive), not the checkout's. It fails open: a git error, a missing file at an older head, a broken Python or
-    a run past PERF_CRON_TIMEOUT prints a warning and lets the push through."""
-    refused = False
+    They are that head's own code, and the hook never runs code the push controls (docs/contributor-verification.md,
+    trust boundary: a pushed branch may be a contributor's). Running the reviewed copy of the tests would still import
+    the pushed perf-cron.py. CI does not run them either (no new CI tests), so the person runs them on code they
+    trust, with the command printed here. RANGES are push_range.OwnRange values: a path counts when it changes over
+    the base and since the head of every range the push does not own. Never refuses the push: returns False."""
     for own in ranges:
         head = own.head
         try:
             # changed_files keeps only the app's source scopes; the cron is under scripts/.
             changed = [{p for p in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode().split("\0") if p}
                        for base in [own.base, *(a for _, a in own.before)]]
-            if not any(p.startswith(PERF_CRON_PATHS) for p in set.intersection(*changed)):
-                continue
-            with tempfile.TemporaryDirectory(prefix="cmux-prepush-perf-cron-") as tmp:
-                present = [p for p in PERF_CRON_FILES if git(repo, "ls-tree", "--name-only", head, "--", p, check=False).strip()]
-                if "scripts/cmux-next/tests/test_perf_cron.py" not in present:
-                    continue
-                archive = git(repo, "archive", head, "--", *present)
-                subprocess.run(["tar", "-x", "-C", tmp], input=archive, check=True, capture_output=True, timeout=60)
-                done = subprocess.run([sys.executable, "-I", "-m", "unittest", "discover", "-s", "scripts/cmux-next/tests",
-                                       "-p", "test_perf_cron.py"], cwd=tmp, capture_output=True, text=True,
-                                      timeout=PERF_CRON_TIMEOUT)
         except (Exception, SystemExit) as error:  # SystemExit: git() exits on a failed git call
-            log(f"prepush-gate: WARNING: the perf cron tests did not run ({type(error).__name__}: {error}); not applied "
-                "to this push. Run python3 -I -m unittest discover -s scripts/cmux-next/tests -p 'test_perf_cron*.py'.")
+            log(f"prepush-gate: WARNING: could not tell whether {head[:12]} changes the perf cron "
+                f"({type(error).__name__}: {error}).")
             continue
-        if done.returncode != 0:
-            tail = "\n".join((done.stderr or done.stdout).splitlines()[-25:])
-            log(f"prepush-gate: the perf cron tests fail at {head[:12]} (scripts/cmux-next/tests/test_perf_cron.py):\n{tail}")
-            refused = True
-    return refused
+        touched = sorted(p for p in set.intersection(*changed) if p.startswith(PERF_CRON_PATHS))
+        if touched:
+            log(f"prepush-gate: {head[:12]} changes the perf cron ({', '.join(touched[:3])}"
+                f"{' ...' if len(touched) > 3 else ''}). The hook does not run its unit tests: they are this push's own "
+                "code. Run them yourself on code you trust: python3 -I -m unittest discover -s scripts/cmux-next/tests "
+                "-p 'test_perf_cron*.py'.")
+    return False
 
 
 # guardrails.py loads count-swift-code-lines.py (CI's lexer) from the installed copy: an old one counts
@@ -1654,7 +1705,7 @@ def main(argv: list[str] | None = None) -> int:
         t0 = time.monotonic()
         guarded = perf_cron_tests(repo, ranges) or guarded
         if args.timings:
-            log(f"  {time.monotonic() - t0:5.2f}s  perf cron tests")
+            log(f"  {time.monotonic() - t0:5.2f}s  perf cron (named, not run)")
         t0 = time.monotonic()
         guarded = compile_trailer(repo, compile_ranges(repo, pushed_lines, push_range, args.remote), trusted_scripts) or guarded
         if args.timings:

@@ -72,6 +72,26 @@ describe("migration 0004", () => {
 });
 
 describe("mesh store", () => {
+  it("leaves a deleted VM out of the members, even when its member row was never detached", async () => {
+    const meshId = newMeshId();
+    const live = newVmId();
+    const gone = newVmId();
+    const base = { tenantId: A, createdBy: "key:test", createdAt: at, displayName: null, labels: {} };
+    const members = await run(
+      Effect.gen(function* () {
+        const owned = yield* OwnershipStore;
+        const store = yield* MeshStore;
+        yield* owned.record({ ...base, kind: "vm", cmuxId: live, upstreamId: UpstreamId.make("vm-live") });
+        yield* owned.record({ ...base, kind: "vm", cmuxId: gone, upstreamId: UpstreamId.make("vm-gone") });
+        yield* store.attachMember(A, { meshId, vmId: live, ipv4: "10.128.0.5", attachedAt: at });
+        yield* store.attachMember(A, { meshId, vmId: gone, ipv4: "10.128.0.6", attachedAt: at });
+        yield* owned.markDeleted(A, "vm", gone, at);
+        return yield* store.listMembers(A, meshId);
+      }),
+    );
+    expect(members.map((member) => member.vmId)).toEqual([live]);
+  });
+
   it("gives each /20 slot to one mesh only", async () => {
     const first = newMeshId();
     const second = newMeshId();
