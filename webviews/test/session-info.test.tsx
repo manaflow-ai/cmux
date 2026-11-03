@@ -8,6 +8,8 @@
 // default, stays open (or closed) in each chat pane on its own, floats outside the chat's layout so it never
 // moves or reflows the chat (Settings Push always takes a column), hides a section with nothing in it, and shows five pull
 // requests under Changes and five running subagents, each then Show more (Claude Code desktop's).
+// Every section in view (`setSessionInfoMore(true)`): the panel's compact default view is
+// session-info-compact-default.test.tsx's.
 import { readFileSync } from "node:fs";
 
 import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
@@ -41,6 +43,7 @@ import {
   SESSION_INFO_WIDTH,
   sessionInfoState,
   resetSessionInfoState,
+  setSessionInfoMore,
   setSessionInfoSection,
 } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
@@ -104,6 +107,7 @@ function installDom(sessionInfo: boolean): HTMLElement {
   for (const key of Object.keys(replacements)) saved.set(key, scope[key]);
   Object.assign(scope, replacements);
   resetSessionInfoState();
+  setSessionInfoMore(true);
   return dom.window.document.getElementById("root")!;
 }
 
@@ -113,6 +117,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetSessionInfoState();
+  setSessionInfoMore(true);
   setHeaderState({ inspector: false, pullRequest: null });
   dom?.window.close();
   dom = undefined;
@@ -1355,8 +1360,8 @@ test("with only started chats Subagents is still drawn, and the running line's c
     root = createRoot(container);
     root.render(<Pane snapshot={localChat} onOpenOutput={noop} sessions={sessions} />);
   });
-  // What it made (Outputs) comes before what it runs (Subagents): SessionInfo.tsx RAIL_LAYOUT.
-  expect(sectionIds(container)).toEqual(["environment", "context", "outputs", "subagents"]);
+  // What it runs (Subagents) comes before what it made (Outputs): sectionOrder.ts DEFAULT_ORDER.
+  expect(sectionIds(container)).toEqual(["environment", "context", "subagents", "outputs"]);
   expect(meta(section(container, "subagents"))).toBe("1 running · 1 done");
   // Closed, with Subagents folded: the running line's "2 subagents" opens it at Subagents.
   await click(head(section(container, "subagents")!));

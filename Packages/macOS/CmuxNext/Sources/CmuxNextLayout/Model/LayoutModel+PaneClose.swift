@@ -26,8 +26,7 @@ extension LayoutModel {
     /// - Returns: The pending close, for ``settlePaneClose(_:)`` or ``cancelPaneClose(_:)``; nil when
     ///   the pane is not shown, is zoomed, or nothing stays to take its space.
     public func showPaneClose(_ pane: PaneID) -> PendingPaneClose? {
-        guard paneCloses[pane] == nil, let screen = screens.first(where: { $0.layout.contains(pane) }), !screen.zoomed,
-              let after = Self.removingSplitPane(pane, from: screen.layout) else { return nil }
+        guard let (screen, after) = paneCloseShown(pane) else { return nil }
         let close = PendingPaneClose(pane: pane, successor: Self.successor(of: pane, in: screen.layout), transaction: .make())
         paneCloseSequence += 1
         paneCloses[pane] = PaneCloseHold(transaction: close.transaction, sequence: paneCloseSequence)
@@ -46,6 +45,18 @@ extension LayoutModel {
         return close
     }
 
+    /// Whether ``showPaneClose(_:)`` would show `pane`'s close now (it changes nothing): a close
+    /// that may still be rolled back (a terminal's close while the daemon's read decides) hides the
+    /// pane only when the layout can show it leaving.
+    public func canShowPaneClose(_ pane: PaneID) -> Bool { paneCloseShown(pane) != nil }
+
+    /// `pane`'s screen and its layout without `pane`, when its close can be shown.
+    private func paneCloseShown(_ pane: PaneID) -> (screen: LayoutScreen, after: ScreenLayout)? {
+        guard paneCloses[pane] == nil, let screen = screens.first(where: { $0.layout.contains(pane) }), !screen.zoomed,
+              let after = Self.removingSplitPane(pane, from: screen.layout) else { return nil }
+        return (screen, after)
+    }
+
     /// The daemon accepted the close: the next snapshot says what is true (it was asked after the
     /// close committed), with the pane or without it.
     public func settlePaneClose(_ close: PendingPaneClose) {
@@ -59,6 +70,16 @@ extension LayoutModel {
         paneCloses[close.pane] = nil
         showOverlaid()
         flushLandedCloseSizes()
+    }
+
+    /// Takes back `pane`'s pending close, whoever showed it, as a refusal does: the caller shows the pane
+    /// again (a rolled-back hide) or hands the close on to one shown in this same turn.
+    /// - Returns: Whether a close was pending.
+    @discardableResult
+    public func withdrawPaneClose(_ pane: PaneID) -> Bool {
+        guard let hold = paneCloses[pane] else { return false }
+        cancelPaneClose(PendingPaneClose(pane: pane, successor: nil, transaction: hold.transaction))
+        return true
     }
 
     /// Whether `pane` is hidden by a pending close.
