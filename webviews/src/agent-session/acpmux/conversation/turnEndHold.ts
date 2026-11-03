@@ -8,7 +8,8 @@
 // gone, the view anchored on a row further down, and the chat jumped. Rows the reader has in view
 // therefore keep their open state while the reader is scrolled up: each fold an update would close
 // over one of them stays open, as if the reader had opened it, and closes only when they close it.
-import type { AcpmuxRow } from "../model";
+import { isLineRow, MESSAGE_RUN, type AcpmuxRow } from "../model";
+import { messageRunRowId } from "./messageRuns";
 import { hiddenRowFolds } from "./turns";
 import type { Folds } from "./viewFolds";
 
@@ -36,10 +37,33 @@ export function foldsToHold(
   const held = new Set<string>();
   // The rows that went are the reshaped tail's, near the end: walk back from it.
   for (let index = rows.length - 1; index >= 0 && missing.size > 0; index -= 1) {
-    if (!missing.delete(rows[index]!.id)) continue;
-    for (const key of hiddenRowFolds(rows, drawn, index)) if (!folds.has(key)) held.add(key);
+    const row = rows[index]!;
+    if (!missing.delete(row.id)) continue;
+    // A row in a message run that was open keeps that run open by the key its line toggles, never
+    // by a key of its own: the line closes by its key alone, so a second key kept the run open on
+    // the first click (cmux#33300).
+    const ownRun = messageRunRowId(row.id);
+    const runKey = openRunKeyOf(before, row.id);
+    for (const key of hiddenRowFolds(rows, drawn, index)) {
+      const hold = key === ownRun && runKey !== undefined ? runKey : key;
+      if (!folds.has(hold)) held.add(hold);
+    }
   }
   return [...held];
+}
+
+/// The key of the open message-run line in `drawn` whose rows hold `rowId` (messageRuns.ts): the
+/// id of the line its rows follow. The walk goes back from the row to the line before it, and stops
+/// at the turn's prompt, which a run never crosses.
+function openRunKeyOf(drawn: readonly AcpmuxRow[], rowId: string): string | undefined {
+  let index = drawn.length - 1;
+  while (index >= 0 && drawn[index]!.id !== rowId) index -= 1;
+  for (index -= 1; index >= 0; index -= 1) {
+    const row = drawn[index]!;
+    if (row.kind === MESSAGE_RUN) return row.foldOpen && row.messageRun?.rows.includes(rowId) ? row.id : undefined;
+    if (row.kind === "user" && !isLineRow(row)) return undefined;
+  }
+  return undefined;
 }
 
 /// `folds` with `extra` open too.
