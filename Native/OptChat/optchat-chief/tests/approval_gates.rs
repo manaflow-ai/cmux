@@ -670,6 +670,43 @@ fn pending_prompt(h: &Harness) -> bool {
         .is_some_and(|(_, s)| s.permission.is_some())
 }
 
+/// A hidden local owner subagent has no agent tab. Its request must still
+/// reach the person in Home, once, and stay pending while that card is shown.
+#[test]
+fn hidden_local_owner_permission_has_one_home_card_and_no_watchdog() {
+    let mut h = harness(None, false, default_script());
+    const T0: u64 = 1_800_000_000_000;
+    h.brain.set_clock(Arc::new(|| T0));
+    let session = subagent_asking(&mut h, false);
+    h.settle_posts();
+    assert_eq!(
+        questions(&h),
+        1,
+        "the hidden local request needs an actionable Home card"
+    );
+    assert!(h.brain.unanswered_permissions().is_empty());
+    h.brain.deny_overdue_permissions_at(T0 + 3_600_000);
+    assert_eq!(answered(&h, "p1"), None);
+    assert!(pending_prompt(&h));
+    // Replayed permission events and subsequently opening a workspace must
+    // not post another card or answer the request behind the person's back.
+    h.brain.step(permission_in(
+        &session,
+        "p1",
+        "Bash",
+        json!({"command": "make deploy"}),
+    ));
+    h.brain.step(Input::SubagentWorkspace {
+        id: "a1".into(),
+        key: "workspace:7".into(),
+        name: "deploy the docs".into(),
+        ws: None,
+    });
+    h.settle_posts();
+    assert_eq!(questions(&h), 1);
+    assert_eq!(answered(&h, "p1"), None);
+}
+
 #[test]
 fn a_relayed_allow_acpmux_refuses_tells_the_person_where_to_allow_once_and_keeps_the_prompt() {
     // The user typed "allow" in the Chief chat; the Chief relayed it, and
