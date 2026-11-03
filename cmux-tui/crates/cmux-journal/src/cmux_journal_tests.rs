@@ -97,7 +97,7 @@ fn records_round_trip_in_order_across_a_reopen() {
     let (journal, report, seen) = open(&storage);
     assert!(seen.is_empty());
     assert_eq!(report.next_lsn, 1);
-    for lsn in 1..=50 {
+    for lsn in 1..=50u64 {
         let class = if lsn.is_multiple_of(3) { Class::Stream } else { Class::Ack };
         assert_eq!(journal.append(7, class, &payload(lsn)), Ok(lsn));
     }

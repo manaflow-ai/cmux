@@ -41,7 +41,6 @@ const MAX_UNSYNCED_BYTES: usize = 8 * 1024 * 1024;
 
 struct Active {
     file: Box<dyn StorageFile>,
-    seq: u64,
     size: u64,
 }
 
@@ -102,7 +101,7 @@ impl Writer {
             dir,
             journal_id: start.journal_id,
             next_seq: tail.seq.saturating_add(1),
-            active: Some(Active { file: tail.file, seq: tail.seq, size: tail.size }),
+            active: Some(Active { file: tail.file, size: tail.size }),
             retained: Vec::new(),
             retained_last: durable,
             retained_ack: false,
@@ -327,7 +326,7 @@ impl Writer {
             prev_last: self.durable,
         };
         let file = make_segment(self.storage.as_ref(), &self.dir, &header)?;
-        self.active = Some(Active { file, seq: header.seq, size: len64(SEGMENT_HEADER_LEN) });
+        self.active = Some(Active { file, size: len64(SEGMENT_HEADER_LEN) });
         self.next_seq = header.seq.saturating_add(1);
         self.written = 0;
         self.publish(|stats| stats.segments_created = stats.segments_created.saturating_add(1));
