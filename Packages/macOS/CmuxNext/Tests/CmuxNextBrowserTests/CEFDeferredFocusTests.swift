@@ -179,30 +179,48 @@ import Testing
         #expect(tab.pageReady && reported() == 2)
     }
 
-    /// Review of #32633: a Chromium New Tab page (a blank document, `about:blank`) never counted as ready, so Cmd-L
-    /// after Escape waited the whole bound; and every new page waited for its document. Only a tab that comes back from
-    /// the session (a reopen, a hibernation wake) waits for its first document; another page takes keys once Chromium
-    /// created it. A restored blank tab is ready once its blank document loaded.
-    @Test func onlyARestoredTabWaitsForItsDocumentAndABlankOneCountsWhenItIsTheTabs() throws {
+    /// Review of #32633: a Chromium New Tab page (a blank document) never counted as ready, so Cmd-L after Escape waited
+    /// the whole bound. A page with nothing to load takes keys once Chromium created it; a page asked to show a blank
+    /// document is ready once that blank document loaded.
+    @Test func aPageWithNothingToLoadIsReadyAtOnceAndABlankTargetCountsItsBlankDocument() throws {
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (fresh, freshReported) = try Self.readyTab(runtime, browser: 20, restored: nil)
-        #expect(fresh.pageReady && freshReported() == 1, "a New Tab page was not ready once Chromium created it")
+        #expect(fresh.pageReady && freshReported() == 1, "a page with nothing to load was not ready once Chromium created it")
         Self.load(runtime, 20, "about:blank")
         #expect(freshReported() == 1)
         let (blank, blankReported) = try Self.readyTab(runtime, browser: 21, restored: "about:blank")
         #expect(!blank.pageReady)
         Self.load(runtime, 21, "about:blank")
-        #expect(blank.pageReady && blankReported() == 1, "a restored blank tab never got ready: its keys waited the whole bound")
+        #expect(blank.pageReady && blankReported() == 1, "a tab asked to show a blank page never got ready: its keys waited the whole bound")
     }
 
-    /// A shown tab whose browser Chromium created, and a count of its ready-for-keys reports. `restored`: the URL a tab
-    /// that comes back from the session shows (nil: a new page).
+    /// Lead on STATUS 7916 (v6 of #32633, cycle B 0 of 3): a reopened tab that loads its page by address (no saved
+    /// navigation state) counted as ready at its attach, so the held keys went to the empty document before its restore
+    /// navigation began. In the journal order: the browser exists, an empty document loads, then the page's navigation
+    /// starts and its document loads. The keys wait for that document.
+    @Test func aReopenedTabLoadingByAddressWaitsForItsPageNotTheEmptyDocumentBeforeIt() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, reported) = try Self.readyTab(runtime, browser: 22, restored: "http://127.0.0.1:8080/?c=1")
+        #expect(!tab.pageReady && reported() == 0, "a reopened tab was ready at its attach, before its page's navigation began")
+        Self.load(runtime, 22, "about:blank")
+        #expect(!tab.pageReady, "the empty document before the restore navigation counted as the page")
+        runtime.handle(.loadingState(browser: 22, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadStart(browser: 22, url: "http://127.0.0.1:8080/?c=1", fromPost: false))
+        #expect(!tab.pageReady, "ready at the commit, before the page's script ran")
+        runtime.handle(.loadEnd(browser: 22, httpStatus: 200))
+        runtime.handle(.loadingState(browser: 22, loading: false, canGoBack: false, canGoForward: false))
+        #expect(tab.pageReady && reported() == 1)
+    }
+
+    /// A shown tab whose browser Chromium created, and a count of its ready-for-keys reports. `restored`: the URL the tab
+    /// was asked to show before Chromium made it (a reopen by address; nil: a page with nothing to load).
     private static func readyTab(_ runtime: CEFRuntime, browser: Int32, restored: String? = "https://example.com/") throws -> (CEFTab, () -> Int) {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
         host.add(tab)
-        if let restored, let url = URL(string: restored) { (tab.awaitsFirstDocument, tab.pendingURL) = (true, url) }
+        if let restored, let url = URL(string: restored) { tab.load(url) } // as the app asks for it before Chromium made the page
         final class Count { var value = 0 }
         let count = Count()
         tab.onReadyForKeys = { count.value += 1 }
