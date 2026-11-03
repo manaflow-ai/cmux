@@ -385,12 +385,12 @@ export function CloudStartView({
             {planLabels.upgrade}
           </a>
           {onRunHere && (
-            <button type="button" className="acpmux-cloud-start__link" onClick={onRunHere}>
+            <button type="button" className="acpmux-cloud-start__link" onClick={() => onRunHere()}>
               {planLabels.runHere}
             </button>
           )}
           {onDismiss && (
-            <button type="button" className="acpmux-cloud-start__link" onClick={onDismiss}>
+            <button type="button" className="acpmux-cloud-start__link" onClick={() => onDismiss()}>
               {t("harness.notNow")}
             </button>
           )}
