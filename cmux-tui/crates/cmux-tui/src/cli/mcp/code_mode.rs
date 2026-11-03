@@ -875,7 +875,7 @@ fn run_script(
             move |request: Request| -> String {
                 let mut used = count.borrow_mut();
                 // The workflow journal counts fresh activities after replay
-                // lookup. Its budget resets per resume; docs/waits do not spend it.
+                // lookup. Its budget resets per resume; only internal waits are free.
                 if !workflow_mode && *used >= MAX_CALLS {
                     return failure(
                         "script.too_many_calls",
