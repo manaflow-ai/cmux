@@ -17,7 +17,7 @@
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-idle-power.sh --ref SHA --arg=scenarios=idle-chats \
 #     --arg=config=bench --artifact artifacts/perf-idle-power.json \
-#     [--arg=chats=40] [--arg=settle=60] [--arg=measure=120] [--arg=budget=5]
+#     [--arg=chats=40] [--arg=settle=60] [--arg=measure=120] [--arg=budget=5] [--arg=profile_before=1]
 #   The log prints the per-process table between PERF-IDLE-CHATS-TABLE-BEGIN and -END;
 #   the JSON keeps it as results[0].markdown.
 # Output: PERF-POWER lines; JSON at artifacts/perf-idle-power.json.
@@ -42,6 +42,7 @@ for arg in "$@"; do
     settings=*) settings="${arg#settings=}" ;;
     freeze=*) freeze="${arg#freeze=}"; [[ "$freeze" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: freeze=SECONDS" >&2; exit 2; } ;;
     neighbors=*) neighbors="${arg#neighbors=}"; [[ "$neighbors" =~ ^[0-3]$ ]] || { echo "perf-idle-power.sh: neighbors=0..3" >&2; exit 2; } ;;
+    profile_before=1) export IDLE_PROFILE_BEFORE=1 ;;
     *) echo "perf-idle-power.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
