@@ -151,6 +151,7 @@ export function ComposerContext({
   environmentFace,
   stripLayout = "where-machine",
   runDetails,
+  cloudWorksOn,
   cloudSignedIn: cloudSignedInSeam,
 }: {
   summary?: Summary;
@@ -236,6 +237,10 @@ export function ComposerContext({
   /// Gallery seam: the cloud toggle's rows' second lines, as ChatGPT Work has them (`cloud-toggle`
   /// only; the shipped picker has no second lines, design/environment-picker.md rule 0).
   runDetails?: RunRowDetails;
+  /// Gallery seam, ChatGPT Work's model (not built in cmux: an agent on Cloud runs on its Cloud
+  /// machine, with its files there): with Cloud picked, the machine chip's face says which machine the
+  /// Cloud agent works on ("works on studio-mac").
+  cloudWorksOn?: string;
   /// Gallery seam; the app's Cloud account state (cloudMachines.ts) is used when omitted.
   cloudSignedIn?: boolean;
 }) {
@@ -579,13 +584,15 @@ export function ComposerContext({
   // machine picked is the workspace's own New machine; Another machine with none picked asks for one.
   const localMachine = currentComputer?.kind === "local" && !savedPick && !waiting;
   const machineValue =
-    cloudPicked || sandboxPicked
-      ? t("composer.newMachine")
-      : layout === "where-machine" && localMachine
-        ? t(CONTEXT_LABELS.chooseMachine)
-        : localMachine
-          ? (localName ?? t("composer.thisMac"))
-          : placeName;
+    cloudPicked && cloudWorksOn
+      ? cloudWorksOn
+      : cloudPicked || sandboxPicked
+        ? t("composer.newMachine")
+        : layout === "where-machine" && localMachine
+          ? t(CONTEXT_LABELS.chooseMachine)
+          : localMachine
+            ? (localName ?? t("composer.thisMac"))
+            : placeName;
   const machineLive =
     cloudPicked || sandboxPicked || savedPick || waiting || (layout === "where-machine" && localMachine)
       ? undefined
@@ -597,7 +604,7 @@ export function ComposerContext({
       <LocationFace icon={<ServerIcon />} value={waitingName} chevron />
     ) : (
       <LocationFace
-        icon={layout === "cloud-toggle" ? <EnvironmentIcon kind={cloudPicked ? "cloud" : (currentComputer?.kind ?? "local")} name={currentComputer?.label} /> : <ServerIcon />}
+        icon={cloudPicked && cloudWorksOn ? <EnvironmentIcon kind="local" /> : layout === "cloud-toggle" ? <EnvironmentIcon kind={cloudPicked ? "cloud" : (currentComputer?.kind ?? "local")} name={currentComputer?.label} /> : <ServerIcon />}
         value={machineValue}
         chevron
         {...(machineLive !== undefined ? { live: machineLive } : {})}

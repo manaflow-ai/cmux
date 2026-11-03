@@ -866,6 +866,15 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     ...stripVariants("where-machine-always"),
     ...stripVariants("cloud-toggle"),
     ...stripVariants("combined"),
+    "strip-cloud-works-on": {
+      note: 'ChatGPT Work\'s model, for comparison only (not built in cmux: a Cloud chat\'s agent runs on its Cloud machine with its files there). Where says the agent lives in Cloud; the machine chip says the computer it works on, as ChatGPT\'s "In the cloud" chat whose files and shell are on the Mac.',
+      props: {
+        ...stripMachines,
+        stripLayout: "where-machine" as const,
+        runMode: { mode: "cloud" as const, onMode: () => undefined },
+        cloudWorksOn: "works on studio-mac",
+      },
+    },
     "environment-picker-cloud-chat": {
       // The whole list, down to the Cloud section, past the entry's 180px stage.
       height: 420,
