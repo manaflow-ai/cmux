@@ -168,11 +168,14 @@ struct ClosingPanes {
         entry.maxX.fixed += delta
     }
 
-    /// Takes `pane` out (its close was taken back, or its host went): its frame now, to start its live frame from, with
+    /// Takes `pane` out (its close was taken back): where it shows now (its last presented sides, carried with the strip as
+    /// the live frames are, so it reads no live frame a change has not carried yet), to start its live frame from, with
     /// its sides' velocities (a side on a live neighbour moves at that neighbour's speed).
     mutating func remove(_ pane: PaneID, frames: [PaneID: AnimatedFrame]) -> AnimatedFrame? {
-        guard let rect = rects(frames: frames)[pane], let entry = entries.removeValue(forKey: pane) else { return nil }
+        guard let entry = entries.removeValue(forKey: pane) else { return nil }
         order.removeAll { $0 == pane }
+        let rect = CGRect(x: entry.minX.fixed, y: entry.minY.fixed, width: max(0, entry.maxX.fixed - entry.minX.fixed),
+                          height: max(0, entry.maxY.fixed - entry.minY.fixed))
         /// The velocity of the live neighbour whose facing edge places this side now (the slowest one).
         func speed(_ side: Side, at value: CGFloat, edge: (CGRect) -> CGFloat, _ velocity: (AnimatedFrame) -> CGFloat) -> CGFloat {
             let live = side.neighbours.compactMap { frames[$0] }

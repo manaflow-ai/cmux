@@ -17,7 +17,7 @@ protocol BrowserPagePaneMotionHolding: NSView {
 /// once when the hold ends, before the pane hears that the motion landed. A page that cannot hold any longer (DevTools
 /// docked, a side panel or a fit came up, the tab was hidden mid-hold) lays out live at the chrome's page area, as a page
 /// does in a split or close spring: never the shell, the chrome's own page area is beside it. A page hidden and shown again
-during the hold holds again (`resumePageHold`).
+/// during the hold holds again (`resumePageHold`).
 extension CEFTabContentView: BrowserPagePaneMotionHolding {
     var holdsPageInPaneMotion: Bool { pageMotionHold != nil || canStartPageHold }
 
