@@ -460,6 +460,16 @@ public actor MockHomeSource: HomeSource {
     /// Submits waiting for `releaseSubmits` now.
     public var heldSubmitCount: Int { heldSubmits.count }
 
+    /// Changes a mock conversation's owner for local-versus-cloud UI fixtures, through the
+    /// same summary event as the owner. This source never reaches a real conversation service.
+    public func setOwner(_ owner: ConversationSummary.Owner, in conversation: ConversationID) {
+        guard var summary = conversations[conversation], summary.owner != owner else { return }
+        summary.owner = owner
+        summary.rev += 1
+        conversations[conversation] = summary
+        publish(.conversationChanged(summary, stream: .conversation(conversation), rev: summary.rev))
+    }
+
     /// Posts `text` as `author` under `key` (a Chief's reply carries its turn key) and returns its seq.
     @discardableResult
     public func post(_ text: String, from author: ParticipantID, in conversation: ConversationID, key: IdempotencyKey) -> Seq? {

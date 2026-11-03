@@ -14,6 +14,7 @@ import { LiveBook } from "./live";
 import { readPresentation } from "./presentation";
 import { RunBook } from "./runs";
 import { HomeSheets } from "./sheets";
+import { ChiefWorkStore } from "./ChiefWorkStore";
 import {
   HomeOps,
   type HomeAttachment,
@@ -166,6 +167,8 @@ export class HomeChannelsStore {
   readonly attachments: AttachmentService | undefined;
   /** The page's sheets (new message, new Chief, invite, archive) and the Chief records. */
   readonly sheets: HomeSheets;
+  /** The selected Chief's on-demand background work, separate from conversation turn runs. */
+  readonly chiefWork: ChiefWorkStore;
 
   /** `host`: the page's host, when there is one (the app): it relays the person's click for a
    * Chief's grant and delete. */
@@ -175,6 +178,7 @@ export class HomeChannelsStore {
     /** The page's host bridge (the app), or null in a browser: the page serves it hostSelection.ts. */
     readonly host: PageClient | null = null,
   ) {
+    this.chiefWork = new ChiefWorkStore(client);
     this.attachments = client ? new AttachmentService(client) : undefined;
     this.avatars = client ? new AvatarService(client) : undefined;
     this.sheets = new HomeSheets(client, host, {
@@ -395,6 +399,7 @@ export class HomeChannelsStore {
 
   private stop(): void {
     this.life++;
+    this.chiefWork.select(undefined);
     this.running = false;
     this.syncViewing();
     for (const stop of this.stops) stop();

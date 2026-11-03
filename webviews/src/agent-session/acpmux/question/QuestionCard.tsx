@@ -788,7 +788,7 @@ function ChoiceMark({ multi, chosen }: { multi: boolean; chosen: boolean }) {
       data-chosen={chosen || undefined}
       aria-hidden="true"
     >
-      {multi && chosen && <Check size={11} strokeWidth={2} />}
+      {multi && chosen && <Check size={12} strokeWidth={2} />}
     </span>
   );
 }

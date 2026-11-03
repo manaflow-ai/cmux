@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
 @testable import CmuxNextDaemon
 import Foundation
 import Observation

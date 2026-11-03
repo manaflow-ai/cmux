@@ -81,6 +81,7 @@ export function toolRunSummary(t: Translate, items: readonly AcpmuxActivity[]): 
 /// (messageRuns.ts) puts them between its own.
 export function toolRunPhrases(t: Translate, items: readonly AcpmuxActivity[]): string[] {
   const tools = items.filter((item) => item.tool);
+  const finished = finishedBackgroundPhrase(t, items);
   const count = (category: ToolRunCategory) =>
     category === "edited"
       ? editedFiles(tools)
@@ -105,7 +106,20 @@ export function toolRunPhrases(t: Translate, items: readonly AcpmuxActivity[]): 
         return one ? t("toolRun.ran.one") : t("toolRun.ran.other", { n });
     }
   };
-  return toolRunCategories(items).map(phrase);
+  const phrases = toolRunCategories(items).map(phrase);
+  return finished ? [finished, ...phrases] : phrases;
+}
+
+/// The background tasks a run's calls started that have ended (finished, failed or stopped), as the
+/// lead of its summary: "finished 6 background tasks", the way Claude Code desktop opens a run's
+/// header ("Finished 6 background tasks, ran 5 commands (4 failed)"; Leo, 2026-11-03: "claude code
+/// desktop's summarization of tool calls/parsing of them seem kinda good?"). Undefined with none.
+/// The calls still count where they belong ("ran 5 commands"): a background shell is a command too.
+export function finishedBackgroundPhrase(t: Translate, items: readonly AcpmuxActivity[]): string | undefined {
+  let n = 0;
+  for (const item of items) if (item.tool?.background && item.tool.background.state !== "running") n += 1;
+  if (n === 0) return undefined;
+  return n === 1 ? t("toolRun.finishedBackground.one") : t("toolRun.finishedBackground.other", { n });
 }
 
 /// The distinct files a run's reads opened, by their locations, or one per read without any.
