@@ -75,20 +75,28 @@ class Daemon {
   /** Resolves when the held attach has been asked for. */
   asked = new Promise<void>((resolve) => (this.holding = resolve));
 
+  /// What every request asked, in order.
+  readonly asked_: string[] = [];
+
   constructor(
     readonly sessionA: string,
     readonly sessionB: string,
     readonly pages: Map<string, Page>,
+    connects = true,
   ) {
-    queueMicrotask(() => {
-      this.readyState = 1;
-      this.onopen?.();
-    });
+    if (connects) queueMicrotask(() => this.connect());
+  }
+
+  /// The socket opens: for a held connect, once the app's bridge gets to it (a loaded Mac).
+  connect(): void {
+    this.readyState = 1;
+    this.onopen?.();
   }
 
   send(raw: string): void {
     const message = JSON.parse(raw) as Message;
     if (message.id === undefined) return;
+    this.asked_.push(message.method);
     const sessionId = String(message.params?.sessionId ?? "");
     if (message.method === "_acpmux/attach" && sessionId === this.hold) {
       this.held = message;
@@ -231,9 +239,9 @@ class Fixture {
   ///
   /// A new tab is a new page, so the page's own tails start empty — which is what makes these
   /// tests about the host. `samePage` keeps them, for the one test that is about the page's map.
-  tab(sessionId: string, options: { hold?: boolean; fail?: boolean; samePage?: boolean } = {}) {
+  tab(sessionId: string, options: { hold?: boolean; fail?: boolean; samePage?: boolean; holdConnect?: boolean } = {}) {
     if (!options.samePage) resetKeptTailsForTests();
-    const daemon = new Daemon(this.a, this.b, this.pages);
+    const daemon = new Daemon(this.a, this.b, this.pages, !options.holdConnect);
     if (options.hold) daemon.hold = sessionId;
     if (options.fail) daemon.fail = sessionId;
     const drawn: AcpmuxSnapshot[] = [];
@@ -288,6 +296,68 @@ test("a chat opened in a new tab draws from the tail the host kept, before its o
   expect(text(tab.last())).toContain("Retry added.");
   // The whole transcript came over, so there is nothing older to offer.
   expect(tab.last()!.canLoadOlder).toBe(false);
+});
+
+/// #32735: on a loaded Mac the page's socket crosses the app's bridge (transport.open, then
+/// `initialize`) slowly, and a chat the host held still showed only the loading mark until it had:
+/// the kept tail waited for the socket. The tail is the app's own memory, so it draws on the host's
+/// answer, and the open then attaches over it as before.
+test("a chat the host kept draws while the page's socket is still connecting", async () => {
+  const chat = new Fixture("slow-socket");
+  chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retry added.")] });
+  chat.pages.set(chat.b, { events: [prompt("Docs"), reply(chat.b, "Docs updated.")] });
+  await chat.readInATab();
+  expect(chat.host.tails.has(chat.a)).toBe(true);
+
+  const tab = chat.tab(chat.a, { holdConnect: true });
+  await flush();
+  // Nothing has reached acpmux: the socket is not open.
+  expect(tab.daemon.asked_).toEqual([]);
+  expect(text(tab.last())).toContain("Retry added.");
+  expect(tab.last()!.sessionId).toBe(chat.a);
+  expect(tab.last()!.chatRead).toBe(true);
+  expect(tab.last()!.drewKeptTail).toBe(true);
+
+  // The socket opens: the chat's attach goes out with the list, as on any cold open, and its page
+  // lays over the rows drawn.
+  chat.pages.set(chat.a, {
+    events: [
+      prompt("Look at the retry path"),
+      reply(chat.a, "Retry added."),
+      prompt("And tests"),
+      reply(chat.a, "Tests added."),
+    ],
+  });
+  tab.daemon.connect();
+  live.push(await tab.client);
+  // One attach, sent beside the list rather than after it (`askEarly`).
+  expect(tab.daemon.asked_.filter((method) => method === "_acpmux/attach")).toHaveLength(1);
+  expect(tab.daemon.asked_.indexOf("_acpmux/attach")).toBe(tab.daemon.asked_.indexOf("_acpmux/watch") + 1);
+  const shown = text(tab.last());
+  expect(shown).toContain("Retry added.");
+  expect(shown).toContain("Tests added.");
+  expect(shown.split("Retry added.").length - 1).toBe(1);
+  expect(tab.last()!.canLoadOlder).toBe(false);
+});
+
+/// #32735: a held connect whose attach then fails leaves no rows drawn as if read.
+test("a tail drawn while connecting goes when the chat's attach fails", async () => {
+  const chat = new Fixture("slow-socket-fail");
+  chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retry added.")] });
+  chat.pages.set(chat.b, { events: [prompt("Docs"), reply(chat.b, "Docs updated.")] });
+  await chat.readInATab();
+
+  const tab = chat.tab(chat.a, { holdConnect: true, fail: true });
+  await flush();
+  expect(text(tab.last())).toContain("Retry added.");
+  tab.daemon.connect();
+  await tab.client.then(
+    (client) => live.push(client),
+    () => undefined,
+  );
+  await flush();
+  expect(text(tab.last())).not.toContain("Retry added.");
+  expect(chat.host.tails.has(chat.a)).toBe(false);
 });
 
 /// The flow this cache is named for, which every other test here reaches the long way round: the
