@@ -20,7 +20,7 @@ import { MOTION_EASE_OUT, MOTION_MS } from "../../../motion/scale.generated";
 import { isAgentMotionOff } from "../../shared/motion";
 import { useT } from "../i18n";
 import { SessionInfoFold } from "./SessionInfoSection";
-import { moveTo, sectionGroup, setSectionOrder, tuckedSections, useSectionOrder } from "./sectionOrder";
+import { isAppId, moveTo, sectionGroup, setSectionOrder, tuckedSections, useSectionOrder } from "./sectionOrder";
 import type { SessionInfoSectionId } from "./sessionInfoState";
 
 type Reorder = {
@@ -101,7 +101,10 @@ export function SessionInfoSectionList({
   look?: SessionInfoCompactLook;
 }) {
   const t = useT();
-  const saved = useSectionOrder();
+  const saved = useSectionOrder(Object.keys(sections).filter(isAppId));
+  // The pointer listeners last for the drag, while the catalog/storage can change underneath it.
+  const latestOrder = useRef(saved);
+  latestOrder.current = saved;
   // While a drag runs, the order it shows; saved when the drag ends.
   const [draft, setDraft] = useState<SessionInfoSectionId[]>();
   const [dragging, setDragging] = useState<SessionInfoSectionId>();
@@ -122,7 +125,9 @@ export function SessionInfoSectionList({
   const focus = useRef<SessionInfoSectionId | undefined>(undefined);
 
   const slot = (id: SessionInfoSectionId) =>
-    list.current?.querySelector<HTMLElement>(`:scope > [data-slot="${id}"]`) ?? null;
+    [...(list.current?.children ?? [])].find((node) => (node as HTMLElement).dataset.slot === id) as
+      | HTMLElement
+      | undefined;
 
   /// Draws the dragged section under the pointer, whatever its layout place now is.
   const follow = () => {
@@ -212,7 +217,7 @@ export function SessionInfoSectionList({
       settle.current = { id: held.id, top: node ? node.offsetTop + drawnShift(node) : held.grabTop };
       drag.current = undefined;
       const final = cancel ? held.before : list.current ? shownNow() : held.before;
-      if (!cancel) setSectionOrder(final);
+      if (!cancel) setSectionOrder(final, latestOrder.current);
       setDraft(undefined);
       setDragging(undefined);
     };
@@ -299,7 +304,7 @@ export function SessionInfoSectionList({
       // A pointer drag owns the order until it drops or Escape puts it back.
       if (drag.current || at < 0 || to < 0 || to >= shown.length) return;
       focus.current = id;
-      setSectionOrder(moveTo(shown, id, to));
+      setSectionOrder(moveTo(shown, id, to), saved);
     },
   };
 
