@@ -853,6 +853,90 @@ def step_switch_warmcost(j, step):
     return {"fit": report.get("fit"), "samples": len(report["samples"]), "window": display.get("window_frame")}
 
 
+def step_switch_panecost(j, step):
+    """Lead on STATUS 8158: the warm set must hold the visible panes of the last N workspaces, so its size needs the
+    cost of one warm hidden terminal at the size of a pane in a `grid` workspace, with light and heavy scrollback.
+    Opens `workspaces` grid workspaces one at a time (cols x rows plain shells; with `scrollback_lines` each pane
+    prints that many lines once), each shown once. After each, samples the app footprint, RSS and debug.surfaces.
+    Fits footprint = a + b * live + c * evicted. Writes video/panecost-<label>.json."""
+    cols, rows_ = (int(x) for x in step.get("grid", [3, 4]))
+    count = int(step.get("workspaces", 4))
+    settle = float(step.get("settle", 8))
+    lines = int(step.get("scrollback_lines", 0))
+    label = step.get("label", "light")
+    prefix = j.sub(step.get("prefix", "pc"))
+    fill = ("/bin/sh -c 'i=0; while [ $i -lt %d ]; do echo line $i of the scrollback of a busy pane to fill history "
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx; i=$((i+1)); done; exec $SHELL'" % lines) if lines else None
+
+    def surfaces():
+        got = j.app.rpc("debug.surfaces", {}) or {}
+        return {k: got.get(k) for k in ("live_terminals", "warm_terminal_capacity", "last_frames")}
+
+    def sample(extra):
+        fp = _footprint(j.app.pid)
+        row = dict(extra, **surfaces())
+        row["app_footprint_mb"] = round(fp[0] / 1048576.0, 1) if fp else None
+        row["app_rss_mb"] = round(fp[1] / 1048576.0, 1) if fp else None
+        return row
+
+    report = {"grid": [cols, rows_], "scrollback_lines": lines, "samples": [sample({"workspaces": 0, "panes": 0})]}
+    panes = 0
+    for i in range(1, count + 1):
+        name = "%s-%d" % (prefix, i)
+        args = {"name": name, "focus": True}
+        if fill:
+            args["command"] = fill
+        _run_setup_action(j, {"action": "newTab", "args": args})
+        ws = _wait(lambda: _ws_named(j, name), float(step.get("create_timeout", 60)), "workspace %s did not appear" % name)
+        _shows(j, ws, name)
+        first = _terminals_of(ws)[0][1]
+        panes += 1
+        made = [first]
+        for c in range(1, cols):
+            made.append(_new_terminal(j, name, "splitRight", prompt=False))
+            panes += 1
+        for col_term in list(made):
+            for r in range(1, rows_):
+                _new_terminal(j, name, "splitDown", prompt=False)
+                panes += 1
+        if fill:
+            for _, term in _terminals_of(_ws_named(j, name)):
+                if term != first:
+                    _write_terminal(j, term, fill.replace("exec $SHELL", "true") + "\n")
+        time.sleep(settle)  # journey pacing: let the panes draw and the shells settle before the sample
+        row = sample({"workspaces": i, "panes": panes})
+        live = row.get("live_terminals")
+        row["live"] = live
+        row["evicted"] = (panes - live) if isinstance(live, int) else None
+        report["samples"].append(row)
+        print("PANECOST sample " + json.dumps(row), flush=True)
+    pts = [(1.0, r["live"], r["evicted"], r["app_footprint_mb"]) for r in report["samples"]
+           if isinstance(r.get("live"), int) and isinstance(r.get("evicted"), int) and r.get("app_footprint_mb")]
+    if len(pts) >= 4:
+        m = [[sum(p[a] * p[b] for p in pts) for b in range(3)] + [sum(p[a] * p[3] for p in pts)] for a in range(3)]
+        ok = True
+        for col in range(3):
+            piv = max(range(col, 3), key=lambda r: abs(m[r][col]))
+            if abs(m[piv][col]) < 1e-9:
+                ok = False
+                break
+            m[col], m[piv] = m[piv], m[col]
+            for r in range(3):
+                if r != col:
+                    f = m[r][col] / m[col][col]
+                    m[r] = [x - f * y for x, y in zip(m[r], m[col])]
+        if ok:
+            a, b, c = (round(m[i][3] / m[i][i], 2) for i in range(3))
+            report["fit"] = {"base_mb": a, "per_live_pane_mb": b, "per_evicted_pane_mb": c, "points": len(pts)}
+    mark = "%s-mark" % prefix
+    _run_setup_action(j, {"action": "newTab", "args": {"name": mark, "focus": True,
+                                                       "command": "/bin/sh -c 'echo PANECOST-MARK; exec sleep 3600'"}})
+    _shows(j, _wait(lambda: _ws_named(j, mark), 60, "workspace %s did not appear" % mark), mark)
+    (j.out / "video").mkdir(exist_ok=True)
+    (j.out / "video" / ("panecost-%s.json" % label)).write_text(json.dumps(report, indent=1, default=str))
+    print("PANECOST-REPORT " + json.dumps({"label": label, "fit": report.get("fit")}), flush=True)
+    return {"fit": report.get("fit"), "samples": len(report["samples"])}
+
 def _cpu_wakeups(pid):
     """(cpu ns, wakeups) of `pid` (proc_pid_rusage RUSAGE_INFO_V4: user+system mach ticks, pkg idle + interrupt
     wakeups), or None."""
@@ -1004,7 +1088,8 @@ def step_switch_warmbusy(j, step):
 
 STEPS = {"switch_profile": step_switch_profile, "switch_tabs_profile": step_switch_tabs_profile, "switch_record": step_switch_record, "switch_keys": step_switch_keys,
          "switch_adopt_shown": step_switch_adopt_shown,
-         "switch_cua_record": step_switch_cua_record, "switch_warmcost": step_switch_warmcost, "switch_warmbusy": step_switch_warmbusy}
+         "switch_cua_record": step_switch_cua_record, "switch_warmcost": step_switch_warmcost, "switch_warmbusy": step_switch_warmbusy,
+         "switch_panecost": step_switch_panecost}
 
 
 if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "beacon":

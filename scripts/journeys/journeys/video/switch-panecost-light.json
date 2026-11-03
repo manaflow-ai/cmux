@@ -1,0 +1,58 @@
+{
+ "id": "switch-panecost-light",
+ "priority": "P2",
+ "title": "SWITCH FRAMES: app footprint per warm hidden terminal at 3x4 pane size, light scrollback (0 lines a pane)",
+ "why": "Lead on STATUS 8158: size the warm set from physical memory in panes of the last N workspaces; needs the cost of one warm pane.",
+ "source": "SWITCH FRAMES (STATUS 8162)",
+ "budget_seconds": 250,
+ "steps": [
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 90% x 90% of the screen",
+   "fraction": [
+    0.02,
+    0.04,
+    0.9,
+    0.9
+   ]
+  },
+  {
+   "do": "switch_panecost",
+   "title": "4 workspaces of 3x4 plain shells, 0 scrollback lines a pane",
+   "grid": [
+    3,
+    4
+   ],
+   "workspaces": 4,
+   "settle": 8,
+   "scrollback_lines": 0,
+   "label": "light",
+   "prefix": "pc-${nonce}"
+  },
+  {
+   "do": "switch_adopt_shown"
+  },
+  {
+   "do": "expect",
+   "title": "the shown marker workspace prints PANECOST-MARK in the daemon, the app and on screen",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_contains": "PANECOST-MARK"
+    },
+    {
+     "app_text_contains": "PANECOST-MARK"
+    },
+    {
+     "frame_text": "PANECOST-MARK"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
