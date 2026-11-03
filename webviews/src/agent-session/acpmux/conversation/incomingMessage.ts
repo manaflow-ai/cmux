@@ -28,7 +28,14 @@
 // threads draw as received lines (inboxNotice.ts), its text for the agent never shows.
 import { clipMessagePreview as clip } from "./clipMessagePreview";
 import { inboxNotice, type InboxNotice } from "./inboxNotice";
-import { legacyNotice, noticeBody, provenanceNotice, renderedNotice, type AgentNotice } from "./agentNotice";
+import {
+  automatedNotice,
+  legacyNotice,
+  noticeBody,
+  provenanceNotice,
+  renderedNotice,
+  type AgentNotice,
+} from "./agentNotice";
 
 /// Who a family message's sender is to this chat (acpmux `fromRole`, subsession_send.rs
 /// `family_role`): the chat that started it, one it started, one further up, or another below or
@@ -377,16 +384,17 @@ export function incomingPrompt(
         message: { name: notice.sender, notice, ...remote, ...harness, text: noticeBody(text), raw: text },
       };
   }
-  // A notice an older acpmux kept no provenance for, and tell-coordinator's page (agentNotice.ts
-  // `legacyNotice`): only from `acpmux send` at a shell or its outbox, or a sender that named
-  // itself, never the person's own prompt in the pane.
+  // A notice an older acpmux kept no provenance for, tell-coordinator's page (agentNotice.ts
+  // `legacyNotice`) and a reconciler's or hook's plain-text notice (`automatedNotice`): only from
+  // `acpmux send` at a shell or its outbox, or a sender that named itself, never the person's own
+  // prompt in the pane.
   const viaSend =
     (!provenance &&
       typeof msg?.client === "string" &&
       (CLI_CLIENT.test(msg.client) || OUTBOX_CLIENT.test(msg.client))) ||
     (provenance?.kind === "agent_message" && provenance.from === NAMED_SENDER);
   if (viaSend) {
-    const read = renderedNotice(text) ?? legacyNotice(text);
+    const read = renderedNotice(text) ?? legacyNotice(text) ?? automatedNotice(text);
     if (read && "notice" in read)
       return {
         kind: "message",
@@ -464,6 +472,17 @@ export function incomingPrompt(
     const agent = agentSigned(body, [name]);
     if (name) return { kind: "message", message: { ...(agent ?? { name, text: body }), raw: text } };
   }
+  // A reconciler's or hook's plain-text notice in the history (agentNotice.ts `automatedNotice`):
+  // its line, which opens to the whole text. acpmux's inbox notice read back from the history (it
+  // keeps no provenance there) is the inbox's message, as at a shell (laneReport.ts reads it).
+  const automated = automatedNotice(rest);
+  if (automated)
+    return {
+      kind: "message",
+      message: { name: automated.notice.sender, notice: automated.notice, text: automated.body, raw: text },
+    };
+  const inbox = INBOX_RELAY.exec(rest);
+  if (inbox) return { kind: "message", message: { name: "inbox", text: inbox[1]!.trim(), raw: text } };
   const notification = NOTIFICATION.exec(rest);
   if (notification && !withoutBookkeeping(rest.slice(notification[0].length))) {
     const summary = tag(notification[0], "summary") || tag(notification[0], "status");
@@ -686,6 +705,10 @@ function digestBody(text: string): string {
 const DIGEST_LEAD =
   /^\d+ messages? from other agents arrived while you were busy\.(?: Each follows as it was sent, oldest first\.)?\s*/;
 const DIGEST_PART = /^\[agent message \d+ of \d+\] from ([^\n]+)$/gm;
+
+/// acpmux's inbox notice as the agent reads it (hub/inbox.rs `render`): `[inbox] New messages from
+/// other agents …`.
+const INBOX_RELAY = /^\[inbox\][ \t]+(New messages from other agents\b[\s\S]*)$/;
 
 /// Claude Code's line before an envelope it delivers, by itself or with the agent busy.
 const PREFACE = /^Another Claude session sent a message(?: while you were working)?:\s*/;
