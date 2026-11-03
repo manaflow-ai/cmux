@@ -241,5 +241,150 @@ class RunnerPinTests(unittest.TestCase):
             w.close()
 
 
+
+class SecondReviewTests(Blessed):
+    """Review of #33930 at c366f1481d0 (FIX, comment 6612669328): findings A (stale bytecode), B (three faults that
+    were not NO VERDICT within the budget) and C (a TRUTH fact that passes with no check)."""
+
+    def test_a_same_size_same_second_judge_edit_is_a_difference_not_reproduced(self):
+        # Finding A: every film process read one bytecode cache under $TMPDIR, keyed by the source's size and mtime.
+        judges = self.judges("judges-stale", keys="def judge(base):\n    return {'presses': 0}\n")
+        code, out = self.w.cli("bless", "--judges", str(judges), "--reason", "stale", "--jobs", "2", "--no-git-check")
+        self.assertEqual(code, 0, out)
+        path = judges / "video-cases" / "judge_keys.py"
+        stat = path.stat()
+        self.assertEqual(run_cli(self.w, judges)[0], 0)  # the cache now holds the old bytecode
+        path.write_text(path.read_text().replace("'presses': 0", "'presses': 7"))
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))  # the same size and the same mtime
+        code, out = run_cli(self.w, judges)
+        self.assertEqual(code, 1, out)
+        self.assertIn(".presses: 0 -> 7", out)
+
+    def test_a_film_that_closes_its_output_and_hangs_ends_at_the_budget(self):
+        # Finding B1: at the pipe's end the runner waited for the process with no limit.
+        # The stand-in hangs 40 s, then ends by itself: a runner without the fix ends late, never leaves it behind.
+        hang = self.judges("judges-quiet", keys=textwrap.dedent('''
+            import os, time
+            def judge(base):
+                os.dup2(os.open(os.devnull, os.O_WRONLY), 1)
+                time.sleep(40)
+                return {"presses": 0}
+            '''))
+        started = time.monotonic()
+        code, out = run_cli(self.w, hang, "--film-seconds", "2", timeout=180)
+        self.assertEqual(code, 2, out)
+        self.assertIn("did not finish", out)
+        self.assertLess(time.monotonic() - started, 20, out)
+
+    def test_a_host_error_inside_judge_scan_is_no_verdict(self):
+        # Finding B2: judge_scan runs as its own process, so its MemoryError or EMFILE became its result text.
+        for name, error in (("oom", "MemoryError()"), ("emfile", "OSError(24, 'Too many open files')")):
+            scan = self.judges(f"judges-scan-{name}", scan=f"raise {error}\n")
+            code, out = run_cli(self.w, scan)
+            self.assertEqual(code, 2, (name, out))
+            self.assertIn("judge_scan", out)
+
+    def test_a_unit_test_process_ended_by_a_signal_is_no_verdict(self):
+        # Finding B3: a killed test file was a TRUTH failure (exit 1) with the count "-1 of 0".
+        killed = self.judges("judges-unit-killed")
+        (killed / "test_video_judge.py").write_text("import os, signal\nos.kill(os.getpid(), signal.SIGKILL)\n")
+        code, out = run_cli(self.w, killed)
+        self.assertEqual(code, 2, out)
+        self.assertIn("unit test", out)
+        self.assertNotIn("-1 of", out)
+
+    def test_judge_scan_leaves_no_folder_behind(self):
+        # Note H: a film ended during judge_scan left its judge-scan-* folder in $TMPDIR.
+        tmp = Path(tempfile.mkdtemp(prefix="goldens-tmp-"))
+        try:
+            slow = self.judges("judges-scan-slow2", scan="import time\ntime.sleep(60)\n")
+            done = subprocess.run([sys.executable, "-I", str(HERE / "judge_goldens.py"), "run", "--store", str(self.w.store),
+                                   "--manifest", str(self.w.manifest), "--judges", str(slow), "--jobs", "2",
+                                   "--film-seconds", "2"], capture_output=True, text=True, timeout=120,
+                                  env=dict(os.environ, TMPDIR=str(tmp)))
+            self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+            self.assertEqual(sorted(p.name for p in tmp.iterdir() if p.name.startswith("judge-scan-")), [])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TruthFactTests(unittest.TestCase):
+    """Finding C: a fact of a film that is not in films.json passed `run` unchecked (bless refused it), and some
+    expectation shapes are met by any result. Both are NO VERDICT now, in run and in bless."""
+
+    def workspace(self, fact):
+        """A blessed workspace with one good fact; then FACT is added to its truth.json."""
+        import test_judge_goldens_truth as truth
+        w = truth.TruthWorkspace()
+        w.write_truth()
+        self.assertEqual(w.snapshot()[0], 0)
+        code, out = w.bless()
+        self.assertEqual(code, 0, out)
+        doc = json.loads((w.manifest / "truth.json").read_text())
+        doc["facts"].append(fact)
+        (w.manifest / "truth.json").write_text(json.dumps(doc))
+        return w
+
+    def assert_no_verdict(self, fact, needle):
+        w = self.workspace(fact)
+        try:
+            code, out = w.cli("bless", "--judges", str(w.judges), "--reason", "t", "--jobs", "2", "--no-git-check")
+            self.assertEqual(code, 2, out)
+            self.assertIn(needle, out)
+            code, out = w.run()
+            self.assertEqual(code, 2, out)
+            self.assertIn(needle, out)
+        finally:
+            w.close()
+
+    def test_a_fact_of_a_film_not_in_films_json_is_no_verdict(self):
+        self.assert_no_verdict({"id": "typo", "film": "px-build-120x2/px-keys-typo", "why": "t",
+                                "expect": [{"judge": "video_judge", "absent_check": "jump"}]}, "typo")
+
+    def test_a_fact_with_no_check_is_no_verdict(self):
+        self.assert_no_verdict({"id": "empty", "film": "px-build-120x2/px-keys", "why": "t"}, "empty")
+
+    def test_an_empty_or_reversed_span_is_no_verdict(self):
+        for name, spans in (("no-spans", []), ("reversed", [[190, 164]])):
+            with self.subTest(case=name):
+                self.assert_no_verdict({"id": name, "film": "px-build-120x2/px-keys", "why": "t",
+                                        "expect": [{"judge": "video_judge", "defect_frames": spans}]}, name)
+
+    def test_an_unknown_expectation_key_is_no_verdict(self):
+        self.assert_no_verdict({"id": "odd", "film": "px-build-120x2/px-keys", "why": "t",
+                                "expect": [{"judge": "video_judge", "check": "gap or overlap", "frame": [3, 6]}]}, "odd")
+
+    def test_only_skips_the_facts_of_films_it_does_not_select(self):
+        import test_judge_goldens_truth as truth
+        w = truth.TruthWorkspace()
+        try:
+            w.write_truth()
+            self.assertEqual(w.snapshot()[0], 0)
+            self.assertEqual(w.bless()[0], 0)
+            code, out = w.run(None, "--only", "px-build-120x2/*")
+            self.assertEqual(code, 0, out)
+            self.assertIn("truth: 2 of 2", out)
+        finally:
+            w.close()
+
+
+class RulerFrameIdentityTests(unittest.TestCase):
+    """Note D: the ruler counts scan records, the judge counts the complete frames of frames.json. A film whose
+    records do not match its complete frames one to one, by time, is NO VERDICT for a ruler fact."""
+
+    def test_a_scan_with_one_record_more_than_the_complete_frames_is_no_verdict(self):
+        import test_judge_goldens_truth as truth
+        w = truth.TruthWorkspace()
+        try:
+            film = w.gallery / "px-build-120x2" / "px-keys"
+            truth.write_scan(Path(f"{film}.mov.scan"), 10)  # 10 records; frames.json has 9 complete frames
+            fact = {"line": "row", "at": 10, "class": "#FF00FF", "x": [18, 22], "frames": [3, 6], "min_run_px": 8}
+            with self.assertRaises(ValueError) as caught:
+                jg.ruler_check(str(film), fact)
+            self.assertIn("complete frames", str(caught.exception))
+        finally:
+            w.close()
+
+
 if __name__ == "__main__":
     unittest.main()
