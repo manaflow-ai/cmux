@@ -132,10 +132,119 @@ public struct AttachSurfaceRequest: DaemonRequest {
 
 extension SendInputRequest {
     /// The `send` line of one key press's bytes (`{"bytes":…,"cmd":"send","flow":…,"id":…,"surface":…}`, no
-    /// newline), as ``WireCoding/encodeRequest(_:id:)`` writes it. Every key typed into a daemon terminal
-    /// comes here (`TerminalAttachment.enqueueInput`).
+    /// newline), byte for byte what ``WireCoding/encodeRequest(_:id:)`` writes for it (sorted keys, standard
+    /// base64, no flow when nil). Every key typed into a daemon terminal comes here
+    /// (`TerminalAttachment.enqueueInput`), so it is written into a stack buffer and copied once into a `Data` with
+    /// room for the newline the transport appends: no `JSONEncoder`, no key-name conversion, no base64 String.
     static func keyLine(surface: SurfaceID, bytes: Data, flow: UInt64?, id: UInt64) -> Data { // perf-hot: 20us terminal-key (every key typed into a terminal)
-        // A request of a UInt64, Data and an optional UInt64 always encodes.
-        (try? WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: bytes, flow: flow), id: id)) ?? Data()
+        // The fixed text, the base64 digits and three numbers of at most 20 digits.
+        let capacity = KeyLineText.fixedCount + (bytes.count + 2) / 3 * 4 + 3 * 20
+        return withUnsafeTemporaryAllocation(of: UInt8.self, capacity: capacity) { buffer -> Data in
+            guard let start = buffer.baseAddress else { return Data() }
+            var cursor = start
+            KeyLineText.write(KeyLineText.bytesPrefix, at: &cursor)
+            bytes.withUnsafeBytes { raw in KeyLineText.writeBase64(raw, at: &cursor) }
+            KeyLineText.write(KeyLineText.cmdField, at: &cursor)
+            if let flow {
+                KeyLineText.write(KeyLineText.flowField, at: &cursor)
+                KeyLineText.writeDecimal(flow, at: &cursor)
+            }
+            KeyLineText.write(KeyLineText.idField, at: &cursor)
+            KeyLineText.writeDecimal(id, at: &cursor)
+            KeyLineText.write(KeyLineText.surfaceField, at: &cursor)
+            KeyLineText.writeDecimal(surface.rawValue, at: &cursor)
+            KeyLineText.put(UInt8(ascii: "}"), at: &cursor)
+            let count = cursor - start
+            var line = Data(capacity: count + 1)
+            line.append(start, count: count)
+            return line
+        }
+    }
+}
+
+/// The text of a key's `send` line (``SendInputRequest/keyLine(surface:bytes:flow:id:)``), written through a
+/// cursor into a buffer the caller sized: static strings, base64 digits and decimal numbers, no allocation.
+private nonisolated struct KeyLineText {
+    // Each of several characters: a one-character StaticString keeps a scalar, not a pointer (`utf8Start` traps).
+    static let bytesPrefix: StaticString = #"{"bytes":""#
+    static let cmdField: StaticString = #"","cmd":"send""#
+    static let flowField: StaticString = #","flow":"#
+    static let idField: StaticString = #","id":"#
+    static let surfaceField: StaticString = #","surface":"#
+    /// The fixed text and the closing brace.
+    static let fixedCount = bytesPrefix.utf8CodeUnitCount + cmdField.utf8CodeUnitCount + flowField.utf8CodeUnitCount
+        + idField.utf8CodeUnitCount + surfaceField.utf8CodeUnitCount + 1
+
+    static func write(_ text: StaticString, at cursor: inout UnsafeMutablePointer<UInt8>) {
+        cursor.initialize(from: text.utf8Start, count: text.utf8CodeUnitCount)
+        cursor += text.utf8CodeUnitCount
+    }
+
+    static func put(_ byte: UInt8, at cursor: inout UnsafeMutablePointer<UInt8>) {
+        cursor.initialize(to: byte)
+        cursor += 1
+    }
+
+    /// Standard base64 with `=` padding, as `Data.base64EncodedString()` writes it: three bytes at a time into
+    /// four digits, the last group padded.
+    static func writeBase64(_ bytes: UnsafeRawBufferPointer, at cursor: inout UnsafeMutablePointer<UInt8>) {
+        var group: UInt32 = 0
+        var filled = 0
+        for byte in bytes {
+            group = group << 8 | UInt32(truncatingIfNeeded: byte)
+            filled += 1
+            guard filled == 3 else { continue }
+            writeDigits(of: group, count: 4, at: &cursor)
+            group = 0
+            filled = 0
+        }
+        switch filled {
+        case 1:
+            writeDigits(of: group << 16, count: 2, at: &cursor)
+            put(UInt8(ascii: "="), at: &cursor)
+            put(UInt8(ascii: "="), at: &cursor)
+        case 2:
+            writeDigits(of: group << 8, count: 3, at: &cursor)
+            put(UInt8(ascii: "="), at: &cursor)
+        default:
+            break
+        }
+    }
+
+    /// The first `count` base64 digits of the 24-bit `group`, most significant first (bits 18, 12, 6, 0).
+    static func writeDigits(of group: UInt32, count: Int, at cursor: inout UnsafeMutablePointer<UInt8>) {
+        var shift: UInt32 = 18
+        for _ in 0..<count {
+            put(base64Digit(UInt8(truncatingIfNeeded: group >> shift & 63)), at: &cursor)
+            shift &-= 6
+        }
+    }
+
+    /// The base64 digit of a 6-bit value (`A`-`Z`, `a`-`z`, `0`-`9`, `+`, `/`).
+    static func base64Digit(_ value: UInt8) -> UInt8 {
+        switch value {
+        case 0..<26: UInt8(ascii: "A") &+ value
+        case 26..<52: UInt8(ascii: "a") &+ (value &- 26)
+        case 52..<62: UInt8(ascii: "0") &+ (value &- 52)
+        case 62: UInt8(ascii: "+")
+        default: UInt8(ascii: "/")
+        }
+    }
+
+    /// `value` in decimal, as the JSON encoder writes an unsigned integer: one digit per power of ten from the
+    /// first nonzero one (at least one digit).
+    static func writeDecimal(_ value: UInt64, at cursor: inout UnsafeMutablePointer<UInt8>) {
+        var rest = value
+        var power: UInt64 = 10_000_000_000_000_000_000  // the largest power of ten a UInt64 holds
+        var started = false
+        for _ in 0..<20 {
+            let digit = rest / power
+            rest -= digit &* power
+            if started || digit > 0 || power == 1 {
+                started = true
+                put(UInt8(ascii: "0") &+ UInt8(truncatingIfNeeded: digit), at: &cursor)
+            }
+            power /= 10
+        }
     }
 }

@@ -329,15 +329,16 @@ final class LineTransport: Sendable {
             case .success(let value): id = value
             case .failure(let error): return error
             }
-            let payload: Data
-            do { payload = try body(id) } catch { return error }
+            // The line is appended to in place: a body that leaves room for the newline (a key's `send` line)
+            // is not copied for it.
+            var line: Data
+            do { line = try body(id) } catch { return error }
             state.withLock { state in
                 state.pending.updateValue(waiter, forKey: id)
                 state.order.append(id)
                 state.eventCountAtSend[id] = state.eventCount
             }
             submittedID = id
-            var line = payload
             line.append(0x0A)
             if socket.fd < 0 {
                 writeFailure = "socket closed"
