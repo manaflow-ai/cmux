@@ -2,6 +2,7 @@ import CmuxNextActions
 import CoreGraphics
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextSidebar
 
 /// Animation speed, titlebar style, interface size (the chrome body
 /// font; terminal fonts come from the Ghostty config) and pane chrome
@@ -12,6 +13,8 @@ import CmuxNextSettings
 enum AppearanceHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let uiScale = UIScaleSetting()
+        // Debug > Sizing Playground: every surface's sizes at every sidebar density and text size (msg 19857).
+        registry.bindEffect("debug.sizingPlayground", effect: { [playground = SizingPlaygroundWindow()] _ in playground.show(); return .done })
         // Customize Appearance… opens Settings on Appearance (R82: the studio panel went with the Swift Settings UI).
         registry.bind("appearance.customize", run: { invocation in
             try context.services.settingsWindow.show(section: .appearance, focus: invocation.allowsViewChange)

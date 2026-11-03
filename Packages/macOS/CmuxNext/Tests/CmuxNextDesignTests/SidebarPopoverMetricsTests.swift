@@ -33,8 +33,8 @@ import Testing
                                              columnGap: 6, blockGap: 6, mediaRadius: 6))
     }
 
-    /// The popover's width follows its text: 26 body sizes, on the 2 pt grid (340 pt at 13 pt, the width
-    /// it had at 13 pt, 338 now, keeps the measure of about 50 characters a line at every size).
+    /// The popover's width follows its text: 26 body sizes on the 2 pt grid, about 50 characters a
+    /// line at every size (338 pt at 13 pt, near the fixed 340 pt it had before).
     @Test func widthFollowsTextSize() {
         #expect(Self.popover(.compact).width == 312)
         #expect(Self.popover(.compact, .large).width == 338)
