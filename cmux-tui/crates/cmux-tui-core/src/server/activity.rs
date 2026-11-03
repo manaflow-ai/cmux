@@ -45,6 +45,15 @@ fn now_ms() -> u64 {
 }
 
 impl ActivityStream {
+    /// Runs `hold` while this thread holds the activity lock (test hook: a person's key must not wait for it,
+    /// R-DAEMON-STATE S1).
+    #[cfg(test)]
+    pub(crate) fn hold_lock_for_test(&self, hold: impl FnOnce()) {
+        let (lock, _) = &*self.shared;
+        let _state = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        hold();
+    }
+
     /// Input from a person's attached client (callers filter unattached one-shot sends).
     pub(crate) fn note_user_input(&self) {
         self.update(|state| state.user_input_ms = Some(now_ms()));

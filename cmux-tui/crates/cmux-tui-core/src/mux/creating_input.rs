@@ -93,6 +93,15 @@ fn env_millis(name: &str) -> Option<Duration> {
 }
 
 impl Mux {
+    /// Runs `hold` while this thread holds the creating-input lock (test hook: a person's key must not wait for
+    /// it, R-DAEMON-STATE S1).
+    #[cfg(test)]
+    pub(crate) fn hold_creating_input_lock_for_test(&self, hold: impl FnOnce()) {
+        let _terminals =
+            self.creating_inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+        hold();
+    }
+
     /// A creation that names `terminal_id` was received: input for the id is queued from now on.
     /// Returns the generation the creation must end, or `None` when it does not own the id's
     /// queue: a live terminal already has the id (a refused or replayed create: input goes to

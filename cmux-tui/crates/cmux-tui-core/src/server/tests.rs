@@ -540,6 +540,7 @@ mod identify_before_queue;
 mod incognito_orphans;
 mod incognito_remote;
 mod input_lane;
+mod input_shared_locks;
 mod layout_receipts_shutdown;
 mod outbound_and_scheduler;
 mod read_barrier;
