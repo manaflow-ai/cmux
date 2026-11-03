@@ -1,9 +1,8 @@
-import CmuxNextAgentPane
-import CmuxNextCloud
-import CmuxNextHomeEngine
+public import CmuxNextAgentPane
+public import CmuxNextCloud
 import CmuxNextWakeups
 import CryptoKit
-import Foundation
+public import Foundation
 import os
 
 /// Lends this app's acpmux daemon the signed-in user's cmux sign-in (a Mac install token minted
@@ -21,11 +20,11 @@ import os
 /// waits for none of an earlier one's (a token fetch can hang): its newer `seq` already
 /// outranks whatever the earlier one still sends, which never retries past it. On a switch of user or team
 /// the earlier sign-in is cleared before the new one is fetched, so a failure leaves none.
-@MainActor final class GitHubAppLease {
+@MainActor public final class GitHubAppLease {
     /// One `_acpmux/github_app_lease` call; the daemon's reply, nil if none.
-    typealias Call = @MainActor (_ params: [String: Any]) async -> [String: Any]?
+    public typealias Call = @MainActor (_ params: [String: Any]) async -> [String: Any]?
     /// A Mac install token for `team` (a cmux team id).
-    typealias Tokens = @MainActor (_ team: String) async throws -> String
+    public typealias Tokens = @MainActor (_ team: String) async throws -> String
 
     private let origin: String?
     private let call: Call
@@ -33,11 +32,11 @@ import os
     private let renewal = DemandTimer(owner: "GitHubAppLease.renewal")
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "github-app-lease")
     /// Moves on with each account change, so a lend for an earlier one never lands.
-    private(set) var generation = 0
+    public private(set) var generation = 0
     /// The current account change's `seq` (ms, and past every earlier one).
     private var seq: UInt64 = 0
     /// Failures in a row of the current account change (read by tests).
-    private(set) var failures = 0
+    public private(set) var failures = 0
     /// The last lend or clear queued; the next waits for it.
     private var tail: Task<Void, Never>?
     /// The account change (`generation`) `tail` is for.
@@ -47,13 +46,13 @@ import os
     private var queued = 0
 
     /// Lend again this long before the token's `exp`.
-    nonisolated static let renewMargin: TimeInterval = 90
+    public nonisolated static let renewMargin: TimeInterval = 90
     /// And at least this often, for a daemon that restarted without it.
-    nonisolated static let resend: TimeInterval = 300
+    public nonisolated static let resend: TimeInterval = 300
     /// Waits after a failure (the daemon may still be starting), the last repeating.
-    nonisolated static let retryDelays: [Duration] = [.seconds(5), .seconds(15), .seconds(60), .seconds(300)]
+    public nonisolated static let retryDelays: [Duration] = [.seconds(5), .seconds(15), .seconds(60), .seconds(300)]
 
-    convenience init(identity: MacInstallIdentity, apiBaseURL: URL, environment: @escaping @MainActor () -> AcpmuxEnvironment?) {
+    public convenience init(identity: MacInstallIdentity, apiBaseURL: URL, environment: @escaping @MainActor () -> AcpmuxEnvironment?) {
         self.init(origin: HomeCloudLease.origin(apiBaseURL),
                   call: { params in await Self.send(environment(), params) },
                   tokens: { team in
@@ -64,7 +63,7 @@ import os
                   })
     }
 
-    init(origin: String?, call: @escaping Call, tokens: @escaping Tokens) {
+    public init(origin: String?, call: @escaping Call, tokens: @escaping Tokens) {
         self.origin = origin
         self.call = call
         self.tokens = tokens
@@ -77,7 +76,7 @@ import os
     /// that routing needs no lookup): the active Stack team's (`stackTeamIdFor`), or with none
     /// the user's personal team (`personalTeamIdFor`). Nil signed out, and when the organization
     /// manages the account and no team is active (cmux is off for it there).
-    nonisolated static func backendTeam(stackProjectID: String, userID: String?, stackTeamID: String?, managed: Bool) -> String? {
+    public nonisolated static func backendTeam(stackProjectID: String, userID: String?, stackTeamID: String?, managed: Bool) -> String? {
         guard let userID else { return nil }
         if let stackTeamID { return "team_" + hex20("stack-team:\(stackProjectID):\(stackTeamID)") }
         if managed { return nil }
@@ -91,11 +90,13 @@ import os
 
     /// The account the lease last followed. The first one seen always counts, signed out
     /// included, so a daemon that kept a lease from the app's last run has it cleared.
-    nonisolated struct Account {
+    public nonisolated struct Account {
         private var last: (user: String?, team: String?)?
 
+        public init() {}
+
         /// Whether `user` in `team` differs from the last one (and is now the last).
-        mutating func changed(user: String?, team: String?) -> Bool {
+        public mutating func changed(user: String?, team: String?) -> Bool {
             if let last, last.user == user, last.team == team { return false }
             last = (user, team)
             return true
@@ -112,7 +113,7 @@ import os
     /// `team` is ``backendTeam(stackProjectID:userID:stackTeamID:managed:)``). The daemon's
     /// lease is cleared first (again until it says so), so no earlier sign-in or team stays
     /// usable; then, with a user and a team, this one is lent.
-    func accountChanged(user: String?, team: String?) {
+    public func accountChanged(user: String?, team: String?) {
         self.user = user
         self.team = team
         generation += 1
@@ -130,16 +131,16 @@ import os
     /// A sign-out started (``CloudService/willSignOut``): the lease is cleared now, not once the
     /// sign-out ends, since its install revoke may fail or take a while and the daemon must not
     /// mint with this sign-in meanwhile.
-    func signOutStarted() {
+    public func signOutStarted() {
         accountChanged(user: nil, team: nil)
     }
 
     /// Every lend and clear queued so far has run (for tests).
-    func settled() async {
+    public func settled() async {
         while let task = running.values.first { await task.value }
     }
 
-    func clear(_ generation: Int) {
+    public func clear(_ generation: Int) {
         enqueue(generation) { [weak self] in await self?.clearNow(generation) }
     }
 
@@ -196,12 +197,12 @@ import os
         running[id] = task
     }
 
-    func stop() {
+    public func stop() {
         generation += 1
         renewal.cancel()
     }
 
-    func lend(_ generation: Int) {
+    public func lend(_ generation: Int) {
         enqueue(generation) { [weak self] in await self?.lendNow(generation) }
     }
 
@@ -245,7 +246,7 @@ import os
 
     /// The `sub` (the cmux user id) and `team` claims of an install token: read to check which
     /// account and team it is for, never trusted as a credential.
-    nonisolated static func claims(ofToken token: String) -> (user: String?, team: String?) {
+    public nonisolated static func claims(ofToken token: String) -> (user: String?, team: String?) {
         let parts = token.split(separator: ".")
         guard parts.count == 3 else { return (nil, nil) }
         var payload = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
@@ -264,7 +265,7 @@ import os
     /// The call on `line`, only once acpmux took its person proof. `open` also returns a line whose
     /// proof was refused or never asked for (an older daemon, or another one at the socket path),
     /// and the sign-in must never reach that daemon at all, not even to be refused.
-    static func send(on line: some AgentDialogLine, _ params: [String: Any]) async -> [String: Any]? {
+    public static func send(on line: some AgentDialogLine, _ params: [String: Any]) async -> [String: Any]? {
         defer { line.close() }
         guard line.isPerson else { return nil }
         return await line.call("_acpmux/github_app_lease", params)
