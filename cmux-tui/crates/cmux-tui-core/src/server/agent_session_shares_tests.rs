@@ -635,7 +635,8 @@ fn uninvite_ends_the_accounts_connections_and_its_later_joins() {
         "share_id":share["share_id"], "account":"Ann@example.com"}));
     assert_eq!(gone["ok"], true, "{gone}");
     wait_unbound(&mux, 1);
-    assert_eq!(c3.request(json!({"cmd":"agent-session-events", "surface":surface}))["ok"], true);
+    let still = c3.request(json!({"cmd":"agent-session-attach", "surface":surface}));
+    assert_eq!(still["ok"], true, "another invitee stays: {still}");
     assert_code(&redeem_as(&mut owner, &share, "ann@example.com", "a1"), "share.kicked");
     assert_code(&redeem_as(&mut owner, &share, "ann@example.com", "a3"), "share.not_invited");
     let shown = list(&mut owner);
