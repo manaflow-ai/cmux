@@ -403,7 +403,7 @@ struct CloudStartSession {
     /// The machine takes the person's harness login before the session starts, as a composer start's does (+Login).
     /// The login may wait on a confirm: `still` checks the asking account after it, as after every wait.
     func passHarnessLogin(_ session: CloudMachineSession, agent: String, still: () throws -> Void) async throws {
-        _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session)
+        _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session, codexPrompt: false) // a scripted run never waits on a device code
         try still()
     }
     /// How long a machine has to come up (Move to Cloud's own wait).

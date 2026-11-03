@@ -602,6 +602,19 @@ fn drain(h: &mut Harness) {
 /// `make deploy` pending; with a workspace (its agent tab shows the
 /// prompt with an Allow button) when `workspace`. Returns its session.
 fn subagent_asking(h: &mut Harness, workspace: bool) -> String {
+    subagent_asking_with_allow(h, workspace, true)
+}
+
+fn subagent_asking_with_allow(h: &mut Harness, workspace: bool, allow_once: bool) -> String {
+    subagent_asking_with_delivery(h, workspace, allow_once, None)
+}
+
+fn subagent_asking_with_delivery(
+    h: &mut Harness,
+    workspace: bool,
+    allow_once: bool,
+    reject: Option<&str>,
+) -> String {
     use optchat_chief::tools::Orchestrator;
     let spawner = owner_spawner(h);
     let spawned = run_with(h, move || {
@@ -625,12 +638,26 @@ fn subagent_asking(h: &mut Harness, workspace: bool) -> String {
             ws: None,
         });
     }
-    h.brain.step(permission_in(
-        &session,
-        "p1",
-        "Bash",
-        json!({"command": "make deploy"}),
-    ));
+    let mut event = permission_in(&session, "p1", "Bash", json!({"command": "make deploy"}));
+    if !allow_once
+        && let Input::Agents(event) = &mut event
+        && let AgentEvent::Permission { request, .. } = event.as_mut()
+    {
+        request["options"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .filter(|o| o["kind"] == "allow_once")
+            .for_each(|o| o["kind"] = json!("allow_always"));
+    }
+    if let Some(reject) = reject {
+        h.owner
+            .lock()
+            .unwrap()
+            .rejects
+            .push_back(Some(reject.into()));
+    }
+    h.brain.step(event);
     drain(h);
     session
 }
@@ -671,6 +698,80 @@ fn pending_prompt(h: &Harness) -> bool {
 }
 
 #[test]
+fn a_delivered_home_card_expires_when_home_is_never_opened() {
+    // A conversation receipt proves delivery, not that Home is visible.
+    // Keep #22941's deadline even when the card arrives and events replay.
+    let mut h = harness(None, false, default_script());
+    const T0: u64 = 1_800_000_000_000;
+    h.brain.set_clock(Arc::new(|| T0));
+    let session = subagent_asking(&mut h, false);
+    h.settle_posts();
+    assert_eq!(questions(&h), 1);
+    assert_eq!(
+        h.brain.unanswered_permissions(),
+        vec![(session.clone(), "p1".into())]
+    );
+
+    let wait = optchat_chief::approval::PERMISSION_WAIT.as_millis() as u64;
+    h.brain.set_clock(Arc::new(move || T0 + wait - 1));
+    h.brain.step(permission_in(
+        &session,
+        "p1",
+        "Bash",
+        json!({"command": "make deploy"}),
+    ));
+    h.brain.deny_overdue_permissions_at(T0 + wait - 1);
+    assert_eq!(answered(&h, "p1"), None);
+    h.brain.deny_overdue_permissions_at(T0 + wait);
+    h.settle_posts();
+
+    assert_eq!(answered(&h, "p1"), Some(Some("reject".into())));
+    assert!(!pending_prompt(&h));
+    assert!(h.brain.unanswered_permissions().is_empty());
+    assert!(h.owner.lock().unwrap().ops.iter().any(|(_, op)| matches!(op, Op::MessageEdit { parts, .. }
+        if matches!(&parts[0], Part::Question(q) if q.state == cmux_conversation::QuestionState::Cancelled))));
+}
+
+/// A hidden local owner subagent has no agent tab. Its request must still
+/// reach the person in Home once, with the existing workspace answer path intact.
+#[test]
+fn hidden_local_owner_permission_has_one_home_card_and_workspace_keeps_its_answer_path() {
+    let mut h = harness(None, false, default_script());
+    const T0: u64 = 1_800_000_000_000;
+    h.brain.set_clock(Arc::new(|| T0));
+    let session = subagent_asking(&mut h, false);
+    h.settle_posts();
+    assert_eq!(
+        questions(&h),
+        1,
+        "the hidden local request needs an actionable Home card"
+    );
+    assert_eq!(h.brain.unanswered_permissions().len(), 1);
+    h.brain.deny_overdue_permissions_at(T0 + 1);
+    assert_eq!(answered(&h, "p1"), None);
+    assert!(pending_prompt(&h));
+    // Replayed permission events and subsequently opening a workspace must
+    // not post another card or answer the request behind the person's back.
+    h.brain.step(permission_in(
+        &session,
+        "p1",
+        "Bash",
+        json!({"command": "make deploy"}),
+    ));
+    h.brain.step(Input::SubagentWorkspace {
+        id: "a1".into(),
+        key: "workspace:7".into(),
+        name: "deploy the docs".into(),
+        ws: None,
+    });
+    h.settle_posts();
+    assert_eq!(questions(&h), 1);
+    h.brain.deny_overdue_permissions_at(T0 + 3_600_000);
+    assert_eq!(answered(&h, "p1"), None);
+    assert!(h.brain.unanswered_permissions().is_empty());
+}
+
+#[test]
 fn a_relayed_allow_acpmux_refuses_tells_the_person_where_to_allow_once_and_keeps_the_prompt() {
     // The user typed "allow" in the Chief chat; the Chief relayed it, and
     // acpmux took it only from the person's app: "not delivered", and the
@@ -685,7 +786,7 @@ fn a_relayed_allow_acpmux_refuses_tells_the_person_where_to_allow_once_and_keeps
     let lines = approval_lines(&h, "p1");
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(
-        lines[0].contains("a1 waits for your approval to run `make deploy`: use the Allow button in its workspace."),
+        lines[0].contains("a1 waits for your approval to run `make deploy`: use the Allow button in Home or its workspace."),
         "{lines:?}"
     );
     // The app shows the prompt with a working button: it stays for the person.
@@ -700,9 +801,9 @@ fn a_relayed_allow_acpmux_refuses_tells_the_person_where_to_allow_once_and_keeps
 }
 
 #[test]
-fn a_relayed_allow_for_a_prompt_the_app_does_not_show_denies_it_and_says_so() {
+fn a_relayed_allow_for_an_unanswerable_prompt_denies_it_and_says_so() {
     let mut h = harness(None, false, default_script());
-    subagent_asking(&mut h, false);
+    subagent_asking_with_allow(&mut h, false, false);
     h.agents.inner.lock().unwrap().refuse_allows = true;
     let answer = relay_allow(&mut h);
     assert!(answer.contains("It was denied."), "{answer}");
@@ -720,7 +821,7 @@ fn a_prompt_nobody_can_answer_is_denied_once_it_waits_two_minutes() {
     let mut h = harness(None, false, default_script());
     const T0: u64 = 1_800_000_000_000;
     h.brain.set_clock(Arc::new(|| T0));
-    let session = subagent_asking(&mut h, false);
+    let session = subagent_asking_with_allow(&mut h, false, false);
     assert_eq!(
         h.brain.unanswered_permissions(),
         vec![(session.clone(), "p1".to_owned())]
@@ -1059,6 +1160,308 @@ fn a_tell_to_a_session_points_at_acpmux_send_and_sends_nothing() {
         "{:?}",
         inner.finds
     );
+}
+
+#[test]
+fn hidden_card_is_not_answerable_until_the_owner_acknowledges_it() {
+    let mut h = harness(None, false, default_script());
+    // A rejected send is not a displayed card, and keeps the fail-closed watchdog.
+    let session = subagent_asking_with_delivery(&mut h, false, true, Some("agent_budget"));
+    assert_eq!(
+        h.brain.unanswered_permissions(),
+        vec![(session, "p1".into())]
+    );
+    assert!(
+        h.brain
+            .state()
+            .sub("a1")
+            .unwrap()
+            .1
+            .permission
+            .as_ref()
+            .unwrap()
+            .home_message
+            .is_none()
+    );
+}
+
+#[test]
+fn hidden_card_relays_do_not_deny_a_request_the_person_can_answer() {
+    let mut h = harness(None, false, default_script());
+    subagent_asking(&mut h, false);
+    h.agents.inner.lock().unwrap().refuse_allows = true;
+    let answer = relay_allow(&mut h);
+    assert!(answer.contains("Home"), "{answer}");
+    assert_eq!(answered(&h, "p1"), None);
+    assert!(pending_prompt(&h));
+    assert_eq!(questions(&h), 1);
+}
+
+#[test]
+fn a_home_card_keeps_the_full_request_snapshot_and_replaces_changed_requests() {
+    let mut h = harness(None, false, default_script());
+    let session = subagent_asking(&mut h, false);
+    h.brain.step(permission_in(
+        &session,
+        "p1",
+        "Bash",
+        json!({"command": "printf '你好 /tmp/a'", "nested": {"n": 1.25}}),
+    ));
+    h.settle_posts();
+    let owner = h.owner.lock().unwrap();
+    let cards: Vec<_> = owner
+        .messages
+        .iter()
+        .flat_map(|m| &m.parts)
+        .filter_map(|p| {
+            if let Part::Question(q) = p {
+                Some(q)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(cards.len(), 2);
+    let raw: Value =
+        serde_json::from_str(&cards[1].items[0].options[0].preview.as_ref().unwrap().text).unwrap();
+    assert_eq!(
+        raw["toolCall"]["rawInput"]["command"],
+        "printf '你好 /tmp/a'"
+    );
+    assert_ne!(cards[0].items[0].id, cards[1].items[0].id);
+    assert!(owner.ops.iter().any(|(_, op)| matches!(op, Op::MessageEdit { parts, .. } if matches!(&parts[0], Part::Question(q) if q.state == cmux_conversation::QuestionState::Cancelled))));
+}
+
+fn settled_session(session: &str) -> cmux_chief::acp::SessionSummary {
+    serde_json::from_value(json!({"sessionId": session, "name": "a1", "status": "idle",
+        "harness": "claude-sr", "pendingPermissions": 0}))
+    .unwrap()
+}
+
+#[test]
+fn a_settled_hidden_request_retires_its_card_durably() {
+    let mut h = harness(None, false, default_script());
+    let session = subagent_asking(&mut h, false);
+    assert_eq!(questions(&h), 1);
+    h.brain
+        .step(Input::from(AgentEvent::SessionChanged(settled_session(
+            &session,
+        ))));
+    assert!(!pending_prompt(&h));
+    let edits: Vec<_> = h
+        .brain
+        .state()
+        .outbox
+        .iter()
+        .filter(|e| e.idempotency_key.starts_with("home-approval-ended:"))
+        .collect();
+    assert_eq!(
+        edits.len(),
+        1,
+        "the app's card-write failure still has a durable fallback"
+    );
+    assert!(
+        edits[0].not_before.is_some(),
+        "give the app time to record its actual answer"
+    );
+}
+
+#[test]
+fn an_attempted_card_delivered_after_expiry_is_immediately_retired() {
+    let mut h = harness(None, false, default_script());
+    const T0: u64 = 1_800_000_000_000;
+    h.brain.set_clock(Arc::new(|| T0));
+    subagent_asking_with_delivery(&mut h, false, true, Some("actor_mismatch"));
+    assert!(
+        !h.owner
+            .lock()
+            .unwrap()
+            .messages
+            .iter()
+            .any(|m| m.parts.iter().any(|p| matches!(p, Part::Question(_))))
+    );
+    assert!(!h.brain.unanswered_permissions().is_empty());
+    h.brain.deny_overdue_permissions_at(T0 + 3_600_000);
+    assert_eq!(answered(&h, "p1"), Some(Some("reject".into())));
+    h.connect();
+    h.settle_posts();
+    let owner = h.owner.lock().unwrap();
+    assert!(owner.ops.iter().any(|(_, op)| matches!(op, Op::MessageEdit { parts, .. }
+        if matches!(&parts[0], Part::Question(q) if q.state == cmux_conversation::QuestionState::Cancelled))));
+}
+
+#[test]
+fn replacing_a_watched_request_forgets_its_old_expiry() {
+    let mut h = harness(None, false, default_script());
+    let session = subagent_asking_with_allow(&mut h, false, false);
+    assert_eq!(
+        h.brain.unanswered_permissions(),
+        vec![(session.clone(), "p1".into())]
+    );
+    h.brain.step(permission_in(
+        &session,
+        "p2",
+        "Bash",
+        json!({"command": "make test"}),
+    ));
+    assert!(
+        !h.brain
+            .unanswered_permissions()
+            .iter()
+            .any(|(_, p)| p == "p1")
+    );
+    h.settle_posts();
+    assert_eq!(questions(&h), 1);
+    assert_eq!(answered(&h, "p2"), None);
+}
+
+#[test]
+fn a_missing_session_after_reconnect_retires_its_persisted_card() {
+    let mut h = harness(None, false, default_script());
+    subagent_asking(&mut h, false);
+    assert_eq!(questions(&h), 1);
+    h.brain.step(Input::from(AgentEvent::Up(vec![])));
+    assert!(!pending_prompt(&h));
+    assert!(h.owner.lock().unwrap().ops.iter().any(|(_, op)| matches!(op, Op::MessageEdit { parts, .. }
+        if matches!(&parts[0], Part::Question(q) if q.state == cmux_conversation::QuestionState::Cancelled))));
+}
+
+#[test]
+fn home_card_idempotency_keys_fit_even_with_long_permission_ids() {
+    let mut h = harness(None, false, default_script());
+    let session = subagent_asking(&mut h, false);
+    h.brain.step(permission_in(
+        &session,
+        &"permission-".repeat(32),
+        "Bash",
+        json!({"command": "make test"}),
+    ));
+    h.settle_posts();
+    let owner = h.owner.lock().unwrap();
+    let keys: Vec<_> = owner
+        .ops
+        .iter()
+        .filter(|(key, _)| key.starts_with("home-approval:"))
+        .map(|(key, _)| key)
+        .collect();
+    assert_eq!(keys.len(), 2);
+    assert!(keys.iter().all(|key| key.len() <= 128));
+}
+
+#[test]
+fn a_cloud_owned_conversation_keeps_local_subagents_out_of_home_approvals() {
+    let mut cloud = members(false);
+    cloud.owner = "cloud".into();
+    let mut h = harness_with(None, false, default_script(), cloud);
+    subagent_asking(&mut h, false);
+    assert_eq!(questions(&h), 0);
+    assert_eq!(h.brain.unanswered_permissions().len(), 1);
+    assert!(pending_prompt(&h));
+}
+
+#[test]
+fn discovering_the_local_owner_presents_an_already_pending_hidden_request() {
+    let mut cloud = members(false);
+    cloud.owner = "cloud".into();
+    let mut h = harness_with(None, false, default_script(), cloud);
+    subagent_asking(&mut h, false);
+    assert_eq!(questions(&h), 0);
+    let local = members(false);
+    h.owner.lock().unwrap().summary = Some(local.clone());
+    h.brain.step(Input::from(DaemonEvent::Changed {
+        conversation: CONV.into(),
+        change: Change::Conversation {
+            conversation: Box::new(local),
+        },
+    }));
+    h.settle_posts();
+    assert_eq!(questions(&h), 1);
+    assert_eq!(h.brain.unanswered_permissions().len(), 1);
+}
+
+#[test]
+fn replacing_the_conversation_needs_a_new_home_card_receipt() {
+    let mut h = harness(None, false, default_script());
+    subagent_asking(&mut h, false);
+    let old_receipt = h
+        .brain
+        .state()
+        .sub("a1")
+        .unwrap()
+        .1
+        .permission
+        .as_ref()
+        .unwrap()
+        .home_message
+        .clone();
+    let mut summary = members(false);
+    summary.id = "conv_recreated".into();
+    h.owner.lock().unwrap().summary = Some(summary.clone());
+    h.brain.step(Input::from(DaemonEvent::Up {
+        port: Box::new(FakeDaemon(h.owner.clone())),
+        conversation: summary,
+        reconnect: Box::new(|| {}),
+    }));
+    h.settle_posts();
+    assert_eq!(questions(&h), 2);
+    assert_ne!(
+        h.brain
+            .state()
+            .sub("a1")
+            .unwrap()
+            .1
+            .permission
+            .as_ref()
+            .unwrap()
+            .home_message,
+        old_receipt
+    );
+    assert_eq!(h.brain.unanswered_permissions().len(), 1);
+}
+
+#[test]
+fn losing_local_ownership_before_a_late_ack_tombstones_that_request() {
+    let mut h = harness(None, false, default_script());
+    let session = subagent_asking_with_delivery(&mut h, false, true, Some("actor_mismatch"));
+    let owner = h.owner.clone();
+    let mut summary = owner.lock().unwrap().summary.clone().unwrap();
+    summary.owner = "cloud".into();
+    h.brain.step(Input::from(DaemonEvent::Up {
+        port: Box::new(FakeDaemon(owner)),
+        conversation: summary,
+        reconnect: Box::new(|| {}),
+    }));
+    h.settle_posts();
+    let p = h
+        .brain
+        .state()
+        .sub("a1")
+        .unwrap()
+        .1
+        .permission
+        .as_ref()
+        .unwrap();
+    assert!(p.home_closed && p.home_message.is_none());
+    assert_eq!(h.brain.unanswered_permissions().len(), 1);
+    let attempts = questions(&h);
+    h.brain.step(Input::from(DaemonEvent::Changed {
+        conversation: CONV.into(),
+        change: Change::Conversation {
+            conversation: Box::new(members(false)),
+        },
+    }));
+    h.brain.step(permission_in(
+        &session,
+        "p1",
+        "Bash",
+        json!({"command": "make deploy"}),
+    ));
+    assert_eq!(
+        questions(&h),
+        attempts,
+        "a cancelled ledger receipt must not become readiness"
+    );
+    assert_eq!(h.brain.unanswered_permissions().len(), 1);
 }
 
 // Leo, 2026-11-02, on the Chief refusing to pass his coordinator's routing

@@ -323,6 +323,10 @@ extension SettingsSchema {
         "browser.enabled": .userOnly,
         // On, agents can ask to read another browser's cookies and data again (`browser.importCookies`, `import.suggest`).
         "browser.import.enabled": .privacy,
+        // Only the person's Connect click opts in to reading Messages.
+        "imessage.enabled": .privacy,
+        // A walkthrough choice, never permission to read Messages or send a reply.
+        "imessage.automationSkipped": .userOnly,
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         // The app that opens your files from a menu: an agent must not pick what runs them.
         "files.textEditor": .userOnly,

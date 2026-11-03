@@ -19,6 +19,14 @@ public import MessagesLabHome
 /// `HomeStoreBinding` (refusals, unanswered ops, attachment fetches, Cancel
 /// Upload), so no host can leave those unwired.
 public final class HomeNativeTranscriptView: NSView {
+    public var isPersonApprovalEvent: (NSEvent) -> Bool {
+        get { transcript.isPersonApprovalEvent }
+        set { transcript.isPersonApprovalEvent = newValue }
+    }
+    public var approvals: (any HomeApprovalDeciding)? {
+        get { transcript.approvals }
+        set { transcript.approvals = newValue }
+    }
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
     var starterSent = false

@@ -2715,6 +2715,18 @@
       "title" : "Server",
       "type" : "string"
     },
+    "imessage.automationSkipped" : {
+      "default" : false,
+      "description" : "Remember skipping the Messages Automation step. This does not grant access or authorize sending.",
+      "title" : "Skip Messages Automation",
+      "type" : "boolean"
+    },
+    "imessage.enabled" : {
+      "default" : false,
+      "description" : "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click.",
+      "title" : "Connect iMessage",
+      "type" : "boolean"
+    },
     "labs.classicHome" : {
       "default" : false,
       "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
