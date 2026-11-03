@@ -20,6 +20,8 @@ public final class LinkHintController {
         /// The page has nothing to label.
         let noLinks: () -> Void
         var pending = LinkHintPendingKeys<NSEvent>() // every key typed while the page answers, in order
+        /// The page said no text field has the keyboard: the keys are hint keys from now on, whatever the targets take.
+        var noField = false
     }
 
     private var session: Session?
@@ -56,6 +58,7 @@ public final class LinkHintController {
             // No text field has the keyboard: the keys typed now are hint keys, the session's whatever the targets
             // take (a heavy page), and never a page's (review 6594559342: a page shortcut on a hint letter would run).
             bound.cancel()
+            session?.noField = true
             let targets = await targetsAnswer(tab)
             guard !Task.isCancelled else { return }
             collected((false, targets ?? []), from: tab)
@@ -66,7 +69,7 @@ public final class LinkHintController {
     /// The page did not say within the bound whether a text field has the keyboard (a hung renderer, a closed tab): the
     /// keys typed meanwhile go to the page, in order.
     func answerTimedOut() {
-        guard let current = session, current.keys.hints == nil else { return }
+        guard let current = session, current.keys.hints == nil, !current.noField else { return }
         if let tab = current.tab { tab.host.lifecycleTrace.record(tab.id, "link-hints no answer: keys go to the page") }
         cancel()
     }
