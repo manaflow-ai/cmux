@@ -339,7 +339,14 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
       }
       const notice = noticeOf(row);
       if (notice?.kind === "inbox") {
-        const children = attachQueueSource(row, inboxChildren(row, notice).filter(keepDelivery));
+        const parsed = inboxChildren(row, notice);
+        // A notice whose text named no thread this page can read keeps its own line, its text whole
+        // behind the chevron: never no row at all (router-review on cmux#34320).
+        if (!parsed.length) {
+          out.push(row);
+          return;
+        }
+        const children = attachQueueSource(row, parsed.filter(keepDelivery));
         if (foldNotices && !insideInbox && children.length > 1) out.push(projectedBatch(row, children));
         else out.push(...children);
       } else if (row.inboxDelivery) {

@@ -7,6 +7,9 @@
 import { expect, test } from "bun:test";
 import { AUTOMATED_NOTICE_HEADS, automatedNotice, noticeRowText } from "./agentNotice";
 import { incomingPrompt } from "./incomingMessage";
+import { projectInboxRows } from "./laneNoticeBatches";
+import { laneNotice } from "./laneReport";
+import type { AcpmuxRow } from "../model";
 
 const CONFLICT =
   "[stall-reconciler] #31356 conflicts with main at 42ed8159e6c1: .github/workflows/cloud-capture-provision.yml, webviews/src/agent-session/acpmux/direct.ts. Rebase or merge base; this notice won't repeat for head 3dc49e20c151.";
@@ -122,4 +125,29 @@ test("the person's own prompt in the pane is never read as an automated notice",
     expect(incomingPrompt(text, { client: "app" })).toBeUndefined();
     expect(incomingPrompt(text, { client: "web#01a" })).toBeUndefined();
   }
+});
+
+/// A row as direct.ts draws an incoming prompt, for the inbox projection.
+function received(id: string, text: string, msg: { client: string }): AcpmuxRow {
+  const incoming = incomingPrompt(text, msg)!;
+  const message = incoming.kind === "message" ? incoming.message : undefined;
+  return { id, version: 1, at: 1, kind: "user", text: message?.text ?? text, untyped: true, incoming } as AcpmuxRow;
+}
+
+test("an inbox notice whose thread topic holds spaces keeps its rows through the projection", () => {
+  const spaced =
+    "[inbox] New messages from other agents in 1 thread.\n- 1 new in picker plan from lane-a: done with the picker (thread topic:picker plan)";
+  const message = { name: "inbox", text: spaced.slice("[inbox] ".length), raw: spaced };
+  expect(laneNotice(message)?.threads?.map((thread) => thread.id)).toEqual(["topic:picker plan"]);
+  const rows = projectInboxRows([received("a", spaced, cli)]);
+  expect(rows.length).toBe(1);
+  expect(rows[0]!.text).toContain("done with the picker");
+});
+
+test("an inbox notice that names no thread this page can read keeps its own row, its text whole", () => {
+  const odd = "[inbox] New messages from other agents in 2 threads.\nSomething this page has no parser for.";
+  const row = received("b", odd, cli);
+  const rows = projectInboxRows([row]);
+  expect(rows).toEqual([row]);
+  expect(rows[0]!.incoming?.kind === "message" && rows[0]!.incoming.message.raw).toBe(odd);
 });
