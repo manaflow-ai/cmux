@@ -75,6 +75,7 @@ public final class AgentPageProvider: PageProvider {
     public static let hostEvents = "cmux.agent.host.events"
 
     private let prepare: Prepare
+    private let tailGeneration = AgentPaneTailCache.shared.generation
     private var listeners: [UInt64: @MainActor (JSONValue) -> Void] = [:]
     private var bufferedEvents: [AgentPageEvent] = []
     private var transportConnection: Int?
@@ -369,7 +370,7 @@ public final class AgentPageProvider: PageProvider {
         // `chat.scrollAnchor.forget` would have erased a chat's place instead of being refused.
         if AgentPaneScrollAnchors.handles(method: method) { return try Self.scrollAnchor(method, params: params, op: op) }
         if AgentPaneTailCache.handles(method: method) {
-            return try await Self.tail(method, params: params, op: op, host: tailHost)
+            return try await Self.tail(method, params: params, op: op, host: tailHost, pageGeneration: tailGeneration)
         }
         // Needs you's read of a chat's open requests: the host's, never the relay's (AgentPanePendingAsks).
         if method == "chat.asks.pending" { return try await pendingAsks.reply(params, op: op, socket: pendingAsksSocket()) }
