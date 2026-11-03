@@ -195,7 +195,8 @@ pub fn settle(
         // The person no longer shares the vault with this machine: its entries go.
         Answer::NotGranted => (plan::wipe(&state), "not_granted", 0),
         Answer::Revoked => {
-            let (_, deleted, _) = apply(&mut state, plan::wipe(&state), store);
+            let steps = plan::wipe(&state);
+            let (_, deleted, _) = apply(&mut state, steps, store);
             state.last_result = Some("vault.revoked".to_owned());
             state.hub = hub.to_owned();
             let _ = write_state(home, &state);
@@ -257,7 +258,8 @@ pub fn forget(home: &Path, store: &dyn SecretStore) -> Result<Outcome, Failure> 
     let _lock = lock(home, true).map_err(Failure::code)?;
     let mut state = read_state(home);
     let hub = state.hub.clone();
-    let (_, deleted, failed) = apply(&mut state, plan::wipe(&state), store);
+    let steps = plan::wipe(&state);
+    let (_, deleted, failed) = apply(&mut state, steps, store);
     if failed.is_empty() {
         match std::fs::remove_file(state_path(home)) {
             Ok(()) => {}
