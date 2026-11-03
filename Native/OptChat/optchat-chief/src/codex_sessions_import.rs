@@ -84,6 +84,8 @@ fn injected(text: &str) -> bool {
         "<user_instructions>",
         "<permissions",
         "<turn_aborted>",
+        // `!cmd`: the command and its output, which can hold secrets.
+        "<user_shell_command>",
         "# AGENTS.md instructions",
     ]
     .iter()
