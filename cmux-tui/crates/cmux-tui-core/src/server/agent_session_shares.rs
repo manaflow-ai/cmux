@@ -101,6 +101,15 @@ pub(super) struct ShareTerms {
     pub(super) create_id: Option<String>,
 }
 
+/// The encoded registry a change that adds records may leave: below `state_file`'s 64 KiB read
+/// bound with room for the kicks, revokes and state changes that are never refused.
+const MAX_SAVED_BYTES: usize = 56 * 1024;
+
+/// Whether `shares` stays within [`MAX_SAVED_BYTES`] once written.
+fn fits(shares: &[LinkShare]) -> bool {
+    serde_json::to_vec(shares).is_ok_and(|bytes| bytes.len() <= MAX_SAVED_BYTES)
+}
+
 /// Accounts invited to one share at once.
 const MAX_INVITEES: usize = 16;
 /// An invited account's live guests at once (its browsers and devices).
@@ -457,7 +466,11 @@ impl LinkShares {
                 _ => Ok(value),
             },
             Ok((value, false)) => Ok(value),
-            Err(code) => Err(code),
+            // A refused change leaves nothing behind.
+            Err(code) => {
+                *shares = before;
+                Err(code)
+            }
         };
         self.note_ended(&start, shares);
         answer
@@ -580,6 +593,9 @@ impl LinkShares {
             let reply = json!({"share_id": share_id, "secret": secret, "url": null,
                 "expires_at": expires_at, "session": session, "surface": surface,
                 "uses_left": uses});
+            if !fits(shares) {
+                return Err("share.limit");
+            }
             Ok((reply, true))
         })
     }
@@ -654,6 +670,11 @@ impl LinkShares {
                     if live >= MAX_GUESTS_PER_ACCOUNT {
                         return Err("share.used");
                     }
+                    // The account's ended guests go: an invited account may join again anyway,
+                    // so its history only grows the file.
+                    share.guests.retain(|g| {
+                        g.account.as_ref() != Some(account) || g.state == GuestState::Active
+                    });
                 }
                 None if share.uses_left == 0 => return Err("share.used"),
                 None => share.uses_left -= 1,
@@ -669,6 +690,9 @@ impl LinkShares {
             };
             let answer = reply(&guest);
             share.guests.push(guest);
+            if !fits(shares) {
+                return Err("share.limit");
+            }
             Ok((answer, true))
         })
     }
@@ -715,6 +739,9 @@ impl LinkShares {
                 invited_at: now,
                 state: InviteState::Invited,
             });
+            if !fits(shares) {
+                return Err("share.limit");
+            }
             Ok((answer, true))
         })
     }
