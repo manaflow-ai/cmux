@@ -303,9 +303,18 @@ await requireBrowserLane("agent-pane-turn-end-keeps-place.test.ts", async () => 
     return { score: shift.score, moves: shift.moves, first: first.id, maxMove, flickers, lost };
   };
 
-  async function open(name: string) {
+  /// The call a reader scrolled into the running turn has in view (after "Checking call site 7").
+  const MID = "t6";
+  const midCall = events.findIndex(
+    (event) =>
+      event.kind === "tool_call" && (event.msg.params as { update: { toolCallId: string } }).update.toolCallId === MID,
+  );
+  async function open(name: string, midRunning = false) {
     events.length = opened;
     status = "running";
+    // A command in an earlier run that still runs (a parallel `cp` while later calls go on): the
+    // live line names it, and its run draws no row for it (turns.ts `codexRuns`, `lineCall`).
+    events[midCall] = { ...events[midCall]!, msg: ran(MID, midRunning ? "in_progress" : "completed") };
     const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
     await installPaintedFrames(page);
     await page.goto(url());
@@ -399,19 +408,75 @@ await requireBrowserLane("agent-pane-turn-end-keeps-place.test.ts", async () => 
     return measure(frames, view);
   };
 
-  for (const [where, streams] of [
-    ["turn", false],
-    ["history", false],
-    ["turn", true],
+  /// The earlier run's running command finishes while the reader has it in view, then the turn ends.
+  const finishThenEnd = async (page: Page) => {
+    await startSampling(page);
+    emit("in", "tool_call_update", update({ sessionUpdate: "tool_call_update", toolCallId: MID, status: "completed" }));
+    await page.evaluate(async () => {
+      for (let frame = 0; frame < 20; frame++) await window.cmuxPaintFrame();
+    });
+    return endTurn(page, false);
+  };
+
+  /// A newer call takes the line while the earlier command still runs, and finishes: the line names
+  /// the earlier command again (it never reads nowhere), and nothing in view moves; then the turn ends.
+  const yieldThenEnd = async (page: Page) => {
+    await startSampling(page);
+    const paint = (frames: number) =>
+      page.evaluate(async (count) => {
+        for (let frame = 0; frame < count; frame++) await window.cmuxPaintFrame();
+      }, frames);
+    emit("in", "tool_call", ran("t30", "in_progress"));
+    await page.locator(LIVE).getByText("rg retry t30").waitFor();
+    await paint(4);
+    emit(
+      "in",
+      "tool_call_update",
+      update({ sessionUpdate: "tool_call_update", toolCallId: "t30", status: "completed" }),
+    );
+    await page.locator(LIVE).getByText(`rg retry ${MID}`).waitFor();
+    await paint(10);
+    return endTurn(page, false);
+  };
+
+  for (const [where, streams, mid] of [
+    ["turn", false, undefined],
+    ["history", false, undefined],
+    ["turn", true, undefined],
+    // cmux#33200: a command still running in an earlier run in view comes back into its run as a
+    // row when it finishes or the turn ends, which moved every row under it down by one row.
+    ["turn", false, "ends"],
+    ["turn", false, "finishes"],
+    ["turn", false, "yields"],
   ] as const)
     test.each(engines.map(([name]) => name))(
-      `%s: ${streams ? "a turn that streams calls, a message and its end" : "a turn that ends"} while the reader is scrolled up (${where}) moves nothing in sight`,
+      `%s: ${streams ? "a turn that streams calls, a message and its end" : mid === "finishes" ? "a running earlier command that finishes, then the turn's end" : mid === "yields" ? "a running earlier command a newer call takes the line from, then gives it back" : mid ? "a turn that ends with an earlier command still running" : "a turn that ends"} while the reader is scrolled up (${where}) moves nothing in sight`,
       async (name) => {
-        const page = await open(name);
+        const page = await open(name, mid !== undefined);
         await scrollTo(page, where);
-        const result = streams ? await streamThenEnd(page) : await endTurn(page);
+        if (mid) {
+          // The running command's run is in view, and its row is not drawn: the live line names it.
+          const inView = await page.locator(".acpmux-scroll").evaluate((node) => {
+            const view = node.getBoundingClientRect();
+            return [...node.querySelectorAll<HTMLElement>("[data-row-id]")]
+              .filter((row) => {
+                const box = row.getBoundingClientRect();
+                return box.bottom > view.top && box.top < view.bottom;
+              })
+              .map((row) => row.textContent ?? "");
+          });
+          expect(inView.some((text) => text.includes("Checking call site 7:"))).toBe(true);
+          expect(inView.some((text) => text.includes("Checking call site 8:"))).toBe(true);
+        }
+        const result = streams
+          ? await streamThenEnd(page)
+          : mid === "finishes"
+            ? await finishThenEnd(page)
+            : mid === "yields"
+              ? await yieldThenEnd(page)
+              : await endTurn(page);
         console.log(
-          `${name} ${where}${streams ? " streaming" : ""}: shift score ${result.score}, first row ${result.first} moved ${result.maxMove}px, ` +
+          `${name} ${where}${streams ? " streaming" : ""}${mid ? ` mid-${mid}` : ""}: shift score ${result.score}, first row ${result.first} moved ${result.maxMove}px, ` +
             `lost rows ${JSON.stringify(result.lost)}, flickers ${JSON.stringify(result.flickers)}, moves ${JSON.stringify(result.moves.slice(0, 6))}`,
         );
         expect(result.lost).toEqual([]);

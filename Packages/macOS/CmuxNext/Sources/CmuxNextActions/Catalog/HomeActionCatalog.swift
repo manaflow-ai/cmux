@@ -9,7 +9,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         // Owner round trips a caller that waits (`action.run` with `wait`) gets the
         // 40 s result deadline for: a group with invites takes several requests.
-        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.inviteToTeam", "home.newChief", "home.archiveChief", "home.deleteChief",
+        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.inviteToTeam", "home.newChief", "home.archiveChief", "home.deleteChief", "home.setPrimaryChief",
                                     "home.renameConversation", "home.addMembers", "home.removeMember", "home.leaveConversation",
                                     "home.muteConversation", "home.unmuteConversation", "home.sendMessage",
                                     "home.createGroup", "home.setChiefReplies"]
@@ -233,6 +233,15 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "archivebox", surfaces: [.keyboard],
                 arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
                 cliName: "home archive-chief",
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            // The primary Chief: texts to the cmux line go to it (`chief.update {is_default}`); `cmux chief primary` runs it.
+            ActionDescriptor(
+                id: "home.setPrimaryChief", title: t("action.home.setPrimaryChief", "Make Primary Chief"),
+                keywords: ["home", "chief", "primary", "default", "text", "imessage", "sms"],
+                category: .window, symbol: "star", surfaces: [.keyboard],
+                arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
+                cliName: "home primary-chief",
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // Deleting cannot be undone (Archive Chief can): it asks first.
