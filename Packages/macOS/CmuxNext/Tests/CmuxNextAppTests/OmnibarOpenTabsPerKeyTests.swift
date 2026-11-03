@@ -21,6 +21,36 @@ struct OmnibarOpenTabsPerKeyTests {
         #expect(many == few, "a key read \(few) page states at 10 open tabs and \(many) at 100")
     }
 
+    /// The index still follows the tabs: a row for each open tab, its new address after a navigation, gone once the tab
+    /// closes, and never the asking tab's own.
+    @Test func switchToTabRowsFollowOpenNavigateAndClose() async {
+        let (cache, pages) = Self.cache(openTabs: 3)
+        let engine = cache.suggestionEngine
+        #expect(await Self.switchRows(engine, "site1", asking: nil) == ["tab-1"])
+        #expect(await Self.switchRows(engine, "site1", asking: "tab-1").isEmpty, "the asking tab is never its own row")
+
+        pages[2].load(URL(string: "https://moved.example/there")!)
+        #expect(await Self.switchRows(engine, "moved", asking: nil) == ["tab-2"], "a navigated tab's row follows it")
+        #expect(await Self.switchRows(engine, "site2", asking: nil).isEmpty, "its old address is no longer offered")
+
+        cache.release("tab-0")
+        #expect(await Self.switchRows(engine, "site0", asking: nil).isEmpty, "a closed tab's row leaves")
+    }
+
+    /// The Switch to Tab rows for `text`, once every open-tab change the cache made so far is in the index.
+    static func switchRows(_ engine: OmniboxSuggestionEngine, _ text: String, asking: String?) async -> [String] {
+        // The feed follows each page on the main actor's next turns: let it run, then wait for the index.
+        for _ in 0..<20 { await Task.yield() }
+        await engine.openTabsSettled()
+        let gate = OmniboxGenerationGate()
+        gate.begin(1)
+        var rows: [BrowserSuggestion] = []
+        for await delivery in engine.deliveries(for: OmniboxRequest(text: text, generation: 1, gate: gate, tabKey: asking)) {
+            if case .local(let local) = delivery { rows = local }
+        }
+        return rows.filter { $0.kind == .switchToTab }.compactMap(\.tabKey)
+    }
+
     /// A cache holding `count` open Chromium-kind pages of the default profile, each on its own URL and title.
     static func cache(openTabs count: Int) -> (TabContentCache, [MockBrowserTab]) {
         let cache = TabContentCache(daemon: DaemonService(),
