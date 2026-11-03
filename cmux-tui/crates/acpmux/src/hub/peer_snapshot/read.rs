@@ -78,10 +78,36 @@ impl Store {
         }
         events.reverse();
         let h = &c.head;
+        // A caller may cap more tightly than the store. Find the newest prompt before
+        // that page in the retained records, falling back to the one persisted before
+        // the run. Never inject a duplicate when the page itself starts a turn.
+        let opener = events
+            .first()
+            .filter(|r| !starts_turn(r))
+            .and_then(|first| {
+                let before = seq_of(first)?;
+                c.records
+                    .as_ref()
+                    .and_then(|records| {
+                        records.range(..before).rev().map(|(_, r)| r).find(|r| starts_turn(r))
+                    })
+                    .or_else(|| {
+                        h.turn_opener.as_ref().filter(|r| {
+                            starts_turn(r)
+                                && of_session(r, key)
+                                && seq_of(r).is_some_and(|s| s < before)
+                        })
+                    })
+            })
+            .filter(|r| {
+                bytes.saturating_add(usize::try_from(record_bytes(r)).unwrap_or(usize::MAX))
+                    <= max_bytes
+            });
         json!({
             "events": events, "lastSeq": h.last_seq, "generation": h.generation,
             "capturedAt": h.captured_at, "hostLastSeq": h.host_last_seq,
             "hasMore": !(h.from_start && events.len() == all), "summary": h.summary,
+            "turnOpener": opener,
         })
     }
 }

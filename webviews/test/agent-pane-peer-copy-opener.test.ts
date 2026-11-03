@@ -20,11 +20,21 @@ const events = [
     msg: {
       method: "session/update",
       params: {
-        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Investigation complete." } },
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Investigation complete." },
+        },
       },
     },
   },
-  { sessionId: "chat", seq: 101, at: 101000, dir: "mux", kind: "turn_result", msg: { stopReason: "end_turn" } },
+  {
+    sessionId: "chat",
+    seq: 101,
+    at: 101000,
+    dir: "mux",
+    kind: "turn_result",
+    msg: { stopReason: "end_turn" },
+  },
 ];
 const snapshot = {
   peer: "peer",
@@ -90,7 +100,9 @@ test("a snapshot never forwards a malformed, foreign, or non-opening prompt", ()
 });
 
 test("a whole page or one starting a new turn needs no preceding prompt", () => {
-  expect(peerCopyTail({ ...snapshot, hasMore: false, turnOpener: prompt }, "peer/chat")!.tail.turnOpener).toBeUndefined();
+  expect(
+    peerCopyTail({ ...snapshot, hasMore: false, turnOpener: prompt }, "peer/chat")!.tail.turnOpener,
+  ).toBeUndefined();
   const nextPrompt = { ...prompt, seq: 100, msg: { text: "Next turn" } };
   expect(
     peerCopyTail({ ...snapshot, events: [nextPrompt], turnOpener: prompt }, "peer/chat")!.tail.turnOpener,

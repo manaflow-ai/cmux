@@ -61,7 +61,7 @@ export function peerCopyTail(reply: unknown, sessionId: string): { tail: KeptTai
   const tail: KeptTail = {
     events,
     summary,
-    turnOpener: undefined,
+    turnOpener: whole ? undefined : snapshotTurnOpener(r.turnOpener, events[0]!, r.sessionId, sessionId),
     historyExhausted: whole,
     queue: [],
     configSeq: 0,
@@ -78,6 +78,35 @@ export function peerCopyTail(reply: unknown, sessionId: string): { tail: KeptTai
     offline: false,
   };
   return { tail, copy };
+}
+
+/// The prompt before this exact page, kept by the daemon with the snapshot. Old snapshots have
+/// none. An opener is never a steer or a record of another session; it must precede the page.
+function snapshotTurnOpener(
+  value: unknown,
+  first: EventRecord,
+  replySessionId: unknown,
+  sessionId: string,
+): EventRecord | undefined {
+  const opener = value as EventRecord | undefined;
+  const pageSessionId = first.sessionId ?? (typeof replySessionId === "string" ? replySessionId : sessionId);
+  if (
+    !opener ||
+    typeof opener !== "object" ||
+    !Number.isSafeInteger(opener.seq) ||
+    opener.seq <= 0 ||
+    opener.seq >= first.seq ||
+    opener.dir !== "mux" ||
+    opener.kind !== "user_message" ||
+    !opener.msg ||
+    typeof opener.msg !== "object" ||
+    Array.isArray(opener.msg) ||
+    opener.msg.steer === true ||
+    (opener.sessionId !== undefined && opener.sessionId !== pageSessionId) ||
+    (first.dir === "mux" && first.kind === "user_message" && first.msg?.steer !== true)
+  )
+    return undefined;
+  return { ...opener, sessionId: opener.sessionId ?? pageSessionId };
 }
 
 /// The attach failed because the chat's machine is down (acpmux `peer_unreachable`), not because

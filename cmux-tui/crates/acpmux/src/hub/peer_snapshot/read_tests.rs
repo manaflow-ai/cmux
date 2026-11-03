@@ -215,7 +215,6 @@ fn a_loss_not_sent_yet_goes_before_a_read_of_its_peer() {
     assert!(hub.peer_snapshots.dropped().unsent.is_empty());
 }
 
-
 fn prompt(seq: u64) -> Value {
     json!({"sessionId": "m1", "seq": seq, "dir": "mux", "kind": "user_message",
            "msg": {"text": format!("prompt {seq}")}})
