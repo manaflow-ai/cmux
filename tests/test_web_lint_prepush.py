@@ -1513,6 +1513,11 @@ class CheckPiecesTests(unittest.TestCase):
                                             "os.posix_spawnp('git', ['git'], {'PATH': '/usr/bin'})\n",
             "a tree link named git": "import subprocess\nsubprocess.run([os.path.join(HERE, 'bin', 'git'), "
                                      "os.path.join(HERE, 'run.sh')])\n",
+            # Review of 819516a108c: a bare name the kernel reads from the current folder.
+            "os.execv of a bare name": "os.chdir(HERE)\nos.execv('git', ['git'])\n",
+            "os.posix_spawn of a bare name": "os.chdir(HERE)\nos.waitpid(os.posix_spawn('git', ['git'], {}), 0)\n",
+            "os.spawnv of a bare name": "os.chdir(HERE)\nos.spawnv(os.P_WAIT, 'git', ['git'])\n",
+            "os.execvpe with an empty PATH": "os.chdir(HERE)\nos.execvpe('git', ['git'], {'PATH': ''})\n",
         }
         for way, body in ways.items():
             with self.subTest(way=way):
@@ -1527,7 +1532,9 @@ class CheckPiecesTests(unittest.TestCase):
                 (tree / "scripts/cmux-next/bin/git").symlink_to("/bin/sh")
                 if way in ("a tree program", "os.execv", "a bare name on PATH", "os.execvp on PATH", "shell=True",
                            "os.system", "os.popen", "a relative path from its cwd", "os.posix_spawnp",
-                           "an empty PATH entry", "posix_spawnp on its own PATH", "a tree link named git"):
+                           "an empty PATH entry", "posix_spawnp on its own PATH", "a tree link named git",
+                           "os.execv of a bare name", "os.posix_spawn of a bare name", "os.spawnv of a bare name",
+                           "os.execvpe with an empty PATH"):
                     result = subprocess.run(result.args, cwd=tree / "webviews", text=True, capture_output=True)
                 if way == "a zip on sys.path":
                     import zipfile
