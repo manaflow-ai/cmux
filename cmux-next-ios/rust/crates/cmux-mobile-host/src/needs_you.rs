@@ -62,7 +62,8 @@ pub fn sanitize(items: Vec<Request>) -> Vec<Request> {
     items
         .into_iter()
         .filter_map(|item| {
-            let id = valid_id(&item.id, 128)?;
+            // `feed-` and the id must fit a push event id (64): the phone finds the row by it.
+            let id = valid_id(&item.id, 64 - EVENT_PREFIX.len())?;
             let title = text_label(&item.title, 200);
             if title.is_empty() || !seen.insert(id.clone()) {
                 return None;
@@ -157,9 +158,11 @@ fn save(path: &Path, ids: &VecDeque<String>) -> Result<(), String> {
     std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 
-fn open_sender() -> &'static watch::Sender<Vec<Request>> {
-    static OPEN: OnceLock<watch::Sender<Vec<Request>>> = OnceLock::new();
-    OPEN.get_or_init(|| watch::channel(Vec::new()).0)
+/// None until the app sent its first set: before that the open requests are not known, and an
+/// empty list served then would read as "every request closed" on the phone.
+fn open_sender() -> &'static watch::Sender<Option<Vec<Request>>> {
+    static OPEN: OnceLock<watch::Sender<Option<Vec<Request>>>> = OnceLock::new();
+    OPEN.get_or_init(|| watch::channel(None).0)
 }
 
 /// The app's whole set of open requests (`needs_you` control line). Phones and the pusher hear
@@ -167,16 +170,16 @@ fn open_sender() -> &'static watch::Sender<Vec<Request>> {
 pub fn set(items: Vec<Request>) {
     let items = sanitize(items);
     open_sender().send_if_modified(|current| {
-        if *current == items {
+        if current.as_ref() == Some(&items) {
             return false;
         }
-        *current = items;
+        *current = Some(items);
         true
     });
 }
 
-/// The open requests now and as they change.
-pub fn subscribe() -> watch::Receiver<Vec<Request>> {
+/// The open requests now and as they change (None: not known yet).
+pub fn subscribe() -> watch::Receiver<Option<Vec<Request>>> {
     open_sender().subscribe()
 }
 
@@ -186,7 +189,7 @@ pub async fn run(reporter: Reporter) {
     let mut open = subscribe();
     loop {
         let current = open.borrow_and_update().clone();
-        for event in pushed.pushes(&current) {
+        for event in current.map(|open| pushed.pushes(&open)).unwrap_or_default() {
             reporter.send(event);
         }
         if open.changed().await.is_err() {
@@ -199,9 +202,13 @@ pub async fn run(reporter: Reporter) {
 pub async fn serve(sender: &ChannelSender, mut receiver: ChannelReceiver) -> Result<(), Refusal> {
     let mut open = subscribe();
     loop {
-        let message = serde_json::json!({ "items": *open.borrow_and_update() });
-        if sender.send(Bytes::from(message.to_string())).await.is_err() {
-            return Ok(());
+        let current = open.borrow_and_update().clone();
+        // Not known yet: nothing is sent until the app's first set arrives.
+        if let Some(items) = current {
+            let message = serde_json::json!({ "items": items });
+            if sender.send(Bytes::from(message.to_string())).await.is_err() {
+                return Ok(());
+            }
         }
         loop {
             tokio::select! {
@@ -293,18 +300,26 @@ mod tests {
         assert_eq!(items.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["fi_a", "fi_http"]);
         assert_eq!(items[1].url, None);
         assert_eq!(sanitize((0..100).map(|n| request(&format!("fi_{n}"))).collect()).len(), MAX_ITEMS);
+        // Its push id (`feed-<id>`) must name it whole.
+        assert!(sanitize(vec![request(&"a".repeat(60))]).is_empty());
+        assert_eq!(push_event(&sanitize(vec![request(&"a".repeat(59))])[0]).event_id.len(), 64);
     }
 
     #[tokio::test]
     async fn the_set_reaches_subscribers_only_when_it_changes() {
         let mut open = subscribe();
-        open.borrow_and_update();
+        // Not known until the app sends its first set (an empty list would close every row).
+        assert!(open.borrow_and_update().is_none());
         set(vec![request("fi_watch")]);
         assert!(open.has_changed().unwrap());
-        assert_eq!(open.borrow_and_update().iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["fi_watch"]);
+        let ids = |r: &watch::Receiver<Option<Vec<Request>>>| {
+            r.borrow().as_ref().map(|v| v.iter().map(|r| r.id.clone()).collect::<Vec<_>>())
+        };
+        open.mark_unchanged();
+        assert_eq!(ids(&open), Some(vec!["fi_watch".to_owned()]));
         set(vec![request("fi_watch")]);
         assert!(!open.has_changed().unwrap());
         set(Vec::new());
-        assert!(open.borrow_and_update().is_empty());
+        assert_eq!(ids(&open), Some(Vec::new()));
     }
 }

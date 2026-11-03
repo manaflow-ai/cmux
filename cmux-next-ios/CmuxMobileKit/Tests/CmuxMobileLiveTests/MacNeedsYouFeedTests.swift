@@ -30,7 +30,7 @@ import Testing
         #expect(item.macID == "mac-1")
         #expect(item.agentName == "GitHub")
         #expect(item.link == URL(string: "https://github.com/acme/app/pull/30817"))
-        #expect(item.markdown == "**Spaces switcher**\n\n[acme/app#30817](https://github.com/acme/app/pull/30817)")
+        #expect(item.markdown == "**Spaces switcher**\n\n[acme/app\\#30817](<https://github.com/acme/app/pull/30817>)")
         #expect(!item.opensTerminal)
     }
 
@@ -65,6 +65,14 @@ import Testing
         // The link closed: nothing counts as read until the list comes again.
         feed.linkClosed(macID: "mac-1")
         #expect(!store.isClosedMacRequest(eventID: "feed-fi_held", mac: "mac-1"))
+    }
+
+    /// A PR title is anyone's text: it never becomes a link or markup on the row.
+    @Test func thePostersTextIsShownNotRendered() throws {
+        let store = FeedStore(items: [])
+        MacNeedsYouFeed(store: store).apply(Self.message(#"{"id":"fi_x","title":"[pay](https://evil.example) **now**"}"#), macID: "mac-1")
+        let item = try #require(store.item(id: MacNeedsYouFeed.itemID(macID: "mac-1", request: "fi_x")))
+        #expect(item.markdown == #"**\[pay\]\(https://evil\.example\) \*\*now\*\***"#)
     }
 
     @Test func aRowWithoutAnHttpsLinkOrATitleIsNotTrusted() {

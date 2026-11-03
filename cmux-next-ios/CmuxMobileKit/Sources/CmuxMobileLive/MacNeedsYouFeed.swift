@@ -93,14 +93,26 @@ public final class MacNeedsYouFeed {
         linkClosed(macID: macID)
     }
 
+    /// `text` with every markdown punctuation mark escaped, on one line.
+    static func escaped(_ text: String) -> String {
+        var out = ""
+        for character in text {
+            if character.isNewline { out.append(" "); continue }
+            if "\\`*_{}[]()<>#+-.!|~".contains(character) { out.append("\\") }
+            out.append(character)
+        }
+        return out
+    }
+
     /// The Feed row of `request`: a pinned ask that opens its link (the PR), with what it is about.
     static func item(_ request: Request, macID: String) -> FeedItem {
-        var markdown = "**\(request.title)**"
+        // The texts are the poster's (a PR title anyone may write): shown as text, never as markdown.
+        var markdown = "**\(escaped(request.title))**"
         if let url = request.url {
             let text = request.body.isEmpty ? url.absoluteString : request.body
-            markdown += "\n\n[\(text)](\(url.absoluteString))"
+            markdown += "\n\n[\(escaped(text))](<\(url.absoluteString)>)"
         } else if !request.body.isEmpty {
-            markdown += "\n\n" + request.body
+            markdown += "\n\n" + escaped(request.body)
         }
         var item = FeedItem(
             id: itemID(macID: macID, request: request.id), kind: .needsInput, workspaceID: "", tabID: "",
