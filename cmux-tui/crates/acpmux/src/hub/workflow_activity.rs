@@ -44,6 +44,11 @@ impl Hub {
                 };
                 let previous_id = format!("{task_id}-g{}", policy.epoch);
                 if policy.epoch != 0 && policy.epoch != generation {
+                    if self.workflow_bg_uncertain(&session, &previous_id) {
+                        return Err(RpcError::internal(
+                            "prior workflow task launch is uncertain; resume cannot execute it twice",
+                        ));
+                    }
                     let previous = self.bg_list(&session);
                     let previous =
                         previous.get("tasks").and_then(Value::as_array).and_then(|rows| {
