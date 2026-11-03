@@ -37,7 +37,7 @@ import os
         let home = home, app = app, resolve = environment
         // Resolving a daemon checks its executable on disk, on the same files lane as the pinned ID.
         guard let (id, candidates) = try? await work.run(.userBlocking, mayBlock: .files, {
-            let pinned = Self.pinnedID(try? String(blockingContentsOf: file, encoding: .utf8))
+            let pinned = Self.readPinnedID(at: file)
             let id = pinned ?? String(ChiefHome.tabHost(muxHome: brain.muxHome).dropFirst(ChiefHome.tabHostPrefix.count))
             return (id, [resolve(brain), resolve(home), app].compactMap { $0 })
         }) else { return .refused }
@@ -56,7 +56,12 @@ import os
                 return gate(bytes)
             }) ? .answered : .refused
         }
-        return .expired
+        // A missing response can mean an unavailable daemon; keep the card retryable.
+        return .refused
+    }
+
+    private nonisolated static func readPinnedID(at file: URL) -> String? {
+        pinnedID(try? String(blockingContentsOf: file, encoding: .utf8))
     }
 
     nonisolated static func localSession(_ session: String) -> String? {

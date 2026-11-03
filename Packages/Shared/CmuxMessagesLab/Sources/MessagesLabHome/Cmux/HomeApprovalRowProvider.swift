@@ -35,7 +35,9 @@ final class HomeApprovalRowProvider: TranscriptCustomRowProvider {
         return .custom(custom)
     }
     static func custom(_ payload: Payload) -> CustomPart? {
-        guard let data = try? JSONEncoder().encode(payload) else { return nil }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(payload) else { return nil }
         return CustomPart(kind: kind, version: HomeDiagramRowProvider.version(String(decoding: data, as: UTF8.self)), payload: data)
     }
     static func payload(_ part: CustomPart) -> Payload? { part.kind == kind ? part.decode(Payload.self) : nil }
