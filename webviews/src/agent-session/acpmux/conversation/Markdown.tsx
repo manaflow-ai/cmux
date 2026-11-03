@@ -50,6 +50,8 @@ import { SkillWord } from "./SkillWord";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { isAgentMotionOff } from "../../shared/motion";
 import { animateScroll } from "../threadMinimap/scrollMotion";
+import { SessionRefCode } from "./SessionRef";
+import { agentRef } from "./sessionRefs";
 import { JUMP_CURVE, jumpDuration } from "../threadMinimap/model";
 import { decorateTimes, splitTimeTokens, TimeHover } from "./timeHover";
 
@@ -705,8 +707,13 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
           <SoftBroken text={inner} />
         </code>
       );
+      // An agent link or a `HOST/NAME` (sessionRefs.ts): a link to the session when it is the
+      // reader's (Leo, 2026-11-03: "these links aren't clickable"); a name stays code until then.
+      const ref = path ? undefined : agentRef(inner);
       out.push(
-        path ? (
+        ref ? (
+          <SessionRefCode key={k++} text={inner} agentRef={ref} fallback={code} />
+        ) : path ? (
           <PathChip key={k++} path={path} written={inner} label={lineLabel(path, inner)} />
         ) : isBareFileName(inner) ? (
           // A file name with no folder: its chip when it is in a folder the reply names.

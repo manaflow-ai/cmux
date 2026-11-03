@@ -152,6 +152,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextApps",
         "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextControl",
@@ -160,6 +161,7 @@
         "CmuxNextDesignTokens",
         "CmuxNextDictation",
         "CmuxNextErrorJournal",
+        "CmuxNextIcons",
         "CmuxNextPages",
         "CmuxNextPalette",
         "CmuxNextRemoteFetch",

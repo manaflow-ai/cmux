@@ -606,3 +606,61 @@ test("a running background turn with no rows yet is a plain line, no chevron and
     client.close();
   }
 });
+
+// A chat's log as Leo's chat had it (2026-11-02): background tasks ended one after another, the agent
+// answered each with a lone "·" in its own message, and the session's bookkeeping came between ("why
+// do you still do these"). A turn whose only reply is "·" has nothing to open, so it draws no line and
+// no dot. Turns that also ran something fold their lines into one.
+const dotSay = (messageId: string): Step => [
+  "in",
+  "agent_message_chunk",
+  update({ sessionUpdate: "agent_message_chunk", messageId, content: { type: "text", text: "·" } }),
+];
+const quietTask = (id: string, work: boolean): Step[] => [
+  ["in", "config_option_update", update({ sessionUpdate: "config_option_update", configOptions: [] })],
+  started(id),
+  ...(work ? [ran(`${id}-check`)] : []),
+  dotSay(`msg-${id}`),
+  ended(id, true),
+];
+
+test("quiet background turns answered with a lone dot draw no line and no dot", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Run the four suites in the background", "Started them.", "t1"),
+      ...["bg-a", "bg-b", "bg-c", "bg-d"].flatMap((id) => quietTask(id, false)),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const dots = rows().filter((row) => row.text === "·");
+    expect(dots.map((row) => row.inBackground)).toEqual(["bg-a", "bg-b", "bg-c", "bg-d"]);
+    const view = drawn(rows());
+    expect(view.some((row) => row.text === "·")).toBe(false);
+    expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
+test("quiet background turns in a row that ran something fold into one counted line", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Run the four suites in the background", "Started them.", "t1"),
+      ...["bg-a", "bg-b", "bg-c", "bg-d"].flatMap((id) => quietTask(id, true)),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const view = drawn(rows());
+    expect(view.some((row) => row.text === "·")).toBe(false);
+    const lines = view.filter((row) => row.kind === BACKGROUND_TURN);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.backgroundRun).toMatchObject({ finished: 4 });
+    // Opened, the four lines draw again in order, each closed on its own rows.
+    const open = drawn(rows(), [lines[0]!.id]).filter((row) => row.kind === BACKGROUND_TURN);
+    expect(open.map((row) => row.background?.id ?? "run")).toEqual(["run", "bg-a", "bg-b", "bg-c", "bg-d"]);
+  } finally {
+    client.close();
+  }
+});

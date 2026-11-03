@@ -1444,6 +1444,25 @@
    its own (Machines…). No section headers and no second lines; each of the first nine machines ends
    with its ⌥⌘ digit, then the current one's check. */
 .acpmux-env-popover { min-width: 220px; }
+/* Its rows as the model picker's and every other menu's (design/menus.md, popupSurface.css): the
+   neutral menu wash (--acpmux-menu-hover, as .acpmux-quick-item), no accent tint and no focus bar,
+   inset 5 from the popup's edges at radius 5, the icon at the shared 15 leading. The highlight is
+   hover and the arrow keys only: the row Base UI highlights by itself on open draws nothing, so the
+   current machine shows by its check alone (Austin 2026-11-02: "This highlighting needs some fix",
+   a dark teal block edge to edge over This Mac's check). */
+.acpmux-menu.acpmux-location-menu.acpmux-env-popover { padding: var(--cmux-menu-highlight-inset); }
+.acpmux-env-popover .acpmux-menu-item {
+  padding-inline: calc(var(--cmux-menu-icon-x) - var(--cmux-menu-highlight-inset))
+    calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
+  border-radius: var(--cmux-menu-highlight-radius);
+}
+.acpmux-folder-popover.acpmux-env-popover .acpmux-menu-item[data-highlighted] {
+  background: var(--acpmux-menu-hover);
+  box-shadow: none;
+}
+.acpmux-folder-popover.acpmux-env-popover.acpmux-env-highlight-auto .acpmux-menu-item[data-highlighted] {
+  background: transparent;
+}
 /* A short list has no search field: the field stays, unseen, for the arrows, Return and Escape. */
 .acpmux-env-popover.acpmux-env-searchless .acpmux-location-search {
   position: absolute;
@@ -1463,6 +1482,54 @@
   box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: var(--ui-row-radius);
   padding-inline: 8px;
+}
+/* The machine control's live dot (ComposerContext stripLayout): filled while a chat can start on
+   the machine, a ring when not, as the machine list's own status. It stays when a narrow strip drops
+   the machine's name. */
+.acpmux-location-button .acpmux-env-live {
+  --acpmux-env-live-size: 6px;
+  flex: none;
+  position: relative;
+  width: var(--acpmux-env-live-size);
+  height: var(--acpmux-env-live-size);
+  margin-left: 5px;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.acpmux-location-button .acpmux-env-live[data-connected="true"] { background: var(--agent-success, var(--acpmux-add, currentColor)); }
+.acpmux-location-button .acpmux-env-live[data-connected="false"] { border: 1px solid var(--agent-muted); }
+/* The cloud toggle (stripLayout cloud-toggle) stands at the strip's end, before the branch. */
+.acpmux-composer-context > .acpmux-location-picker[data-rows="run"] { flex: none; margin-left: auto; }
+.acpmux-composer-context > .acpmux-location-picker[data-rows="run"] + .acpmux-location-picker:last-child { margin-left: var(--acpmux-location-gap, 4px); }
+/* Its menu's question, as ChatGPT's "Where should this chat run?": one quiet line over the rows. */
+.acpmux-env-popover .acpmux-env-heading {
+  padding: 4px calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding)) 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: 16px;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.acpmux-env-popover .acpmux-env-icon:is([data-kind="add"], [data-kind="another"], [data-kind="server"], [data-kind="gear"]) { color: var(--agent-muted); }
+/* The Cloud chip's hairline over its setup rows (New Cloud Machine…, Open Cloud…). */
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-divider]) { position: relative; margin-top: 9px; }
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-divider])::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: -5px;
+  border-top: .5px solid color-mix(in srgb, var(--agent-text) 14%, transparent);
+  pointer-events: none;
+}
+/* An empty project chip ("Choose project") reads dimmed, as Codex's strip, until a project is picked. */
+.acpmux-location-button .acpmux-location-label[data-dim] { color: var(--agent-muted); }
+/* The cloud toggle (ChatGPT Work) is a round icon button. */
+.acpmux-composer-context > .acpmux-location-picker[data-rows="run"] .acpmux-location-button {
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
+  border-radius: 999px;
+  justify-content: center;
+  padding-inline: 0;
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
 }
 /* The plain Computer menu (ComposerContext LocationPicker) heads its machines' sections. */
 .acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-section]) { position: relative; margin-top: 20px; }

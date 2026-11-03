@@ -81,6 +81,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // This daemon's own copy of a peer session's events (`hub/peer_snapshot.rs`),
     // answered here while the peer is down too.
     "_acpmux/peer_snapshot",
+    "_acpmux/peer_snapshots_clear",
 ];
 
 /// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
@@ -301,18 +302,31 @@ async fn forward_inner(
                 return Err(peer.unreachable_error());
             }
         }
-        // A dropped file crosses the link as one frame: checked here, and only to a peer that
-        // takes it (`hub/file_uploads.rs`).
+        // A legacy dropped file is adapted to bounded chunks before crossing the peer link,
+        // and only to a peer that takes uploads (`hub/file_uploads.rs`).
         if m == method::MUX_FILE_PUT {
-            crate::hub::file_uploads::check(params)?;
+            let (_, data) = crate::hub::file_uploads::check(params)?;
             if !peer.supports_file_put() {
                 return Err(crate::hub::file_uploads::peer_unsupported(&peer));
             }
+            if crate::hub::file_uploads::decoded_len(data)
+                > crate::hub::file_uploads::LEGACY_MAX_BYTES
+            {
+                let mut header = json!({"sessionId": id});
+                super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut header);
+                let mut result =
+                    crate::hub::file_uploads::forward_put(&peer, header, params).await?;
+                result.set("peer", json!(peer.name));
+                return Ok(Some(result));
+            }
         }
         // A person's prompt is checked here, before `mark_forwarded` drops its provenance
-        // (`author.rs`).
+        // (`author.rs`). A tool's notice goes on as it came (`mark_forwarded` keeps it), checked
+        // here first so a bad one is refused by this daemon, not the peer
+        // (`prompt_provenance::notice_of`).
         if m == method::SESSION_PROMPT {
             crate::author::of_prompt(params)?;
+            crate::prompt_provenance::notice_checked(params)?;
         }
         // A prompt that waits for the owner, and the owner's answer to one, go only to a peer
         // that holds it (`hub/queue_approve.rs`): an older one would run it unapproved.

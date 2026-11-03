@@ -53,7 +53,17 @@
 // a new message does, leaves on a kept snapshot, its list opens and folds on the shared fold
 // (conversation/fold.ts), a line that joins it rises in, and its header's words tick. What runs
 // turns the shared spinner, never a breathing dot.
-import { memo, type ReactElement, useCallback, useContext, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  memo,
+  type ReactElement,
+  useCallback,
+  useContext,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { foldMotion, useFold } from "../conversation/fold";
@@ -78,6 +88,7 @@ import { toolDetail } from "./trayDetail";
 import { trayPanelLook, trayRowLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
+import { trayFoldHeadLook } from "./trayFoldHead.experiment";
 import { traySurfaceLook } from "./traySurface.experiment";
 import { Tick, useTrayMotion } from "./trayMotion";
 import type { StartedSession } from "../started/startedSessions";
@@ -162,6 +173,9 @@ export const SubagentTray = memo(function SubagentTray({
   const now = useNow(items.length > 0);
   const trayNode = useRef<HTMLElement | null>(null);
   const [narrow, setNarrow] = useState(false);
+  // Room for one name in the folded header, not two: a measured narrow tray (an unmeasured one, 0px,
+  // keeps two).
+  const [oneName, setOneName] = useState(false);
   // Folded until the person opens it; their choice holds for this chat (trayFoldMemory.ts).
   const [opened, setOpened] = useState<boolean | undefined>(() => trayOpenFor(chat));
   const [openCommands, setOpenCommands] = useState<ReadonlySet<string>>(() => new Set());
@@ -174,6 +188,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [row] = useState(() => experimentArm(trayRowLook));
   const [head] = useState(() => experimentArm(trayHeadLook));
   const [surface] = useState(() => experimentArm(traySurfaceLook));
+  const [foldHead] = useState(() => experimentArm(trayFoldHeadLook));
   // Only the bottom stack's tray leaves on a snapshot: one placed in the transcript moves with it.
   const motionRef = useTrayMotion(shown, enters, placement === "tray");
   const setTrayRef = useCallback(
@@ -186,11 +201,16 @@ export const SubagentTray = memo(function SubagentTray({
   useLayoutEffect(() => {
     const node = trayNode.current;
     if (!node || typeof ResizeObserver === "undefined") return;
-    const update = (width: number) =>
+    const update = (width: number) => {
       setNarrow((current) => {
         const next = width <= 400;
         return current === next ? current : next;
       });
+      setOneName((current) => {
+        const next = width > 0 && width <= 400;
+        return current === next ? current : next;
+      });
+    };
     update(node.getBoundingClientRect().width);
     const observer = new ResizeObserver(([entry]) =>
       update(entry?.contentRect.width ?? node.getBoundingClientRect().width),
@@ -268,6 +288,8 @@ export const SubagentTray = memo(function SubagentTray({
     });
   const arrivals = { arrived, played };
   const arrivalRefs = useRef(new Map<string, (node: HTMLElement | null) => (() => void) | undefined>());
+  // What runs by name, newest first: computed when the items change (an event), never per tick.
+  const newest = useMemo(() => newestNames(t, items), [t, items]);
   if (items.length === 0 && finished.length === 0) return null;
   // Its subagents and the chats it started are one word: subagents.
   const subagents = items.filter((item) => item.kind !== "command").length;
@@ -289,6 +311,14 @@ export const SubagentTray = memo(function SubagentTray({
     ]
       .filter((part): part is string => typeof part === "string")
       .join(" · ") || t("summary.subagents");
+  // Folded, the header is the one line above the composer, so it names what runs, newest first, as
+  // Claude Code's running-tasks list does (trayFoldHead.experiment.ts; Leo, 2026-11-03: "the
+  // "running" bar above the composer is currently no longer usable bc it doesn't display much").
+  // A narrow pane names only the newest; the rest are a count. Open, the lines name them.
+  const named = !open && foldHead !== "counts" && newest.length > 0;
+  const shownNames = named ? newest.slice(0, foldHead === "one" || oneName ? 1 : 2) : [];
+  const headText = named ? shownNames.join(" · ") : title;
+  const moreCount = items.length - shownNames.length;
   // Keep live and ended cards in one keyed child list. When a task completes, its card moves
   // between groups without remounting, so keyboard focus and the open affordance stay put.
   // Ended, cancelled (motion turned off midway) or unmounted first (a fold), a line's
@@ -388,7 +418,10 @@ export const SubagentTray = memo(function SubagentTray({
           >
             <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
           </span>
-          <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} steadyCounts />
+          <Tick className="acpmux-summary-text acpmux-running-tray__title" text={headText} steadyCounts />
+          {named && moreCount > 0 && (
+            <span className="acpmux-summary-meta acpmux-running-tray__more">{t("tools.more", { n: moreCount })}</span>
+          )}
           {/* Quiet meta right after the counts, never a column of its own far from them. */}
           <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
             {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
@@ -610,6 +643,25 @@ function agentTooltip(t: Translate, agent: Subagent): string | undefined {
     doing,
   ];
   return lines.filter((line): line is string => Boolean(line)).join("\n") || undefined;
+}
+
+/// What each running item is called, newest first: a subagent by its task, a command by its
+/// description or its short command (processes.ts `commandLabel`), a chat by its title. An item with
+/// no start time sorts after those with one, in its list order.
+/// At most the newest two are named (the default arm names one), so a long list costs a sort of its
+/// start times, never a label per item.
+function newestNames(t: Translate, items: readonly TrayItem[]): readonly string[] {
+  return items
+    .map((item, index) => ({ item, index, start: itemStart(item) ?? Number.NEGATIVE_INFINITY }))
+    .sort((a, b) => b.start - a.start || a.index - b.index)
+    .slice(0, 2)
+    .map(({ item }) =>
+      item.kind === "agent"
+        ? subagentTaskLabel(t, item.agent)
+        : item.kind === "command"
+          ? (sendLabel(t, item.command) ?? commandLabel(item.command))
+          : item.session.title,
+    );
 }
 
 /// The header's fixed mark for background work (trayHead.experiment.ts): a running ring, never the

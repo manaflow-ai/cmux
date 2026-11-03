@@ -197,6 +197,78 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
   },
 ];
 
+/** The status rows at the bottom of a running turn (design/transcript-spacing.md, "Row kinds", the
+ * status rows; Leo, 2026-11-03 04:44Z, on two captures of a running Claude chat where they stood
+ * 55 to 70 apart, then cramped: "this is pretty bad spacing and formatting" / "i thought we made this
+ * stuff smaller"). Each is a one-line row: a folded run, "Subagent finished", the live "Thinking"
+ * line, the waiting group's "1 message from 1 session", another agent's received line and "Sent to"
+ * sit flush on the 22 pitch (rule 3), 16 from the prose around them (rule 4). Measured over gallery
+ * variants `working-bottom` and `reply-received` by test/transcript-spacing-kinds.test.ts. */
+export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & { variant: "working-bottom" | "reply-received" })[] = [
+  {
+    id: "work-to-subagent",
+    variant: "working-bottom",
+    between: '"Sent a message, ran 3 commands, used 3 tools" and "Subagent finished" under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "one-line rows sit flush (rule 3)",
+  },
+  {
+    id: "subagent-to-live",
+    variant: "working-bottom",
+    between: '"Subagent finished" and the live "Thinking" line under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "the live line is a one-line row (rule 3, step-to-live)",
+  },
+  {
+    id: "live-to-waiting",
+    variant: "working-bottom",
+    between: 'the live "Thinking" line and "1 message from 1 session" under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "the waiting group's head is a one-line row (rule 3, live-to-step)",
+  },
+  {
+    id: "reply-footer-to-received",
+    variant: "reply-received",
+    between: "an earlier reply's footer glyph centre (hover-revealed) and the received line under it, centre to centre",
+    value: 51,
+    tolerance: 1,
+    source: "as footer-to-received: 16 + 24 + 11",
+  },
+  {
+    id: "received-to-sent",
+    variant: "reply-received",
+    between: 'another agent\'s received line and the "Sent to" line under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "one-line rows sit flush (rule 3)",
+  },
+  {
+    id: "sent-to-live",
+    variant: "reply-received",
+    between: '"Sent to" and the live "Thinking" line under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "the live line is a one-line row (rule 3, step-to-live)",
+  },
+];
+
+/** A session link chip on a one-line row (a received line's sender, "Sent to"'s recipient): no taller
+ * than the row's text, so the row reads as one line of words (Leo, 2026-11-03, on a bordered chip
+ * taller than its row's text: "i thought we made this stuff smaller"). Claude Code desktop names the
+ * sender inline, underlined, at the row's size; ChatGPT draws a name as plain text. Measured over
+ * gallery variant `reply-received` by test/transcript-spacing-kinds.test.ts. */
+export const SESSION_CHIP = {
+  /** The chip's box over its label's glyph box, CSS px: at most this much taller (ours 1em + 4px,
+   * 18 at 14px, about 1.5 over the glyphs; the 22 chip it replaces stood 5 over them). */
+  overText: 3,
+  /** The chip's label is the row's own size: its font size over the row's text's, CSS px. */
+  fontDelta: 0,
+  pending: undefined as string | undefined,
+} as const;
+
 /** An opened run's commands sit this far in from its head's text (design/transcript-spacing.md, "Row
  * kinds"): text left edge to text left edge. Ours and Codex desktop 0, the icon in the head's column;
  * Claude Code desktop +7 inside a bordered card. */
@@ -206,15 +278,16 @@ export const RUN_CHILD = {
   pending: undefined as string | undefined,
 } as const;
 
-/** The footer's icon buttons (design/transcript-spacing.md, "Reply footer"): ChatGPT's sizes (Leo:
- * "didn't i always say we can do it like chatgpt"), Claude's placement (the gaps above). */
+/** The footer's icon buttons (design/transcript-spacing.md, "Reply footer"): Claude's sizes in
+ * ChatGPT's 32 line (Leo, 2026-11-02, of ChatGPT's 20 in 32: "WHY ARE THESE SO BIG"), Claude's
+ * placement (the gaps above). */
 export const FOOTER = {
-  /** Icon glyph box, CSS px: chatgpt.com 20 (Claude 16). */
-  glyph: 20,
-  /** Button hit box: chatgpt.com 32 (Claude 24). */
-  button: 32,
+  /** Icon glyph box, CSS px: Claude 16 (chatgpt.com 20). */
+  glyph: 16,
+  /** Button hit box: grid transcript-action-control 28 (chatgpt.com 32, Claude 24). */
+  button: 28,
   /** Button to button, left edge to left edge: the buttons touch in both apps. */
-  pitch: 32,
+  pitch: 28,
   pending: undefined as string | undefined,
 } as const;
 
