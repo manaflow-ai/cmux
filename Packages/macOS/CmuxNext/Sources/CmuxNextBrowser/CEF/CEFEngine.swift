@@ -473,7 +473,6 @@ public final class CEFEngine: BrowserEngine {
         tab.machineStore = configuration.machineStore
         tab.navigationGuard = configuration.navigationGuard
         host.add(tab)
-        tab.awaitsFirstDocument = configuration.restoreState != nil // keys typed after a reopen wait for the restored document
         if configuration.zoom != 1 { tab.setZoom(configuration.zoom) }
         if case .chromium(let state)? = configuration.restoreState, let shim = runtime.shim,
            shim.navigationRestoreSupported() == 1, shim.forkAPIVersion() >= CEFTab.navigationRestoreForkAPI {
