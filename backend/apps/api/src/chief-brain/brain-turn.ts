@@ -294,6 +294,7 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<"pending" | 
   let reason: string | null = null
   let timer: ReturnType<typeof setTimeout> | undefined
   let pending: "auth" | "provisioning" | undefined
+  let machineReply: string | undefined
   // The Claude Code route (chief-brain-cc/): the turn runs as Claude Code in its own VM; everything else here is the same.
   // Claude Code creates a VM and runs with bypass permissions. A participant-authored turn must
   // stay on the Pi path, where effectful tools return an owner-approval request.
@@ -304,7 +305,7 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<"pending" | 
       b.sql.exec(`DELETE FROM cb_config WHERE name = ?`, `machine-retry:${id}`)
       const result = await machineTurn(b, id, machine, JSON.parse(row.input ?? "[]") as Array<string>)
       if ("pending" in result) pending = result.pending
-      else { ok = result.ok; reason = result.ok ? null : result.reason }
+      else { ok = result.ok; reason = result.ok ? null : result.reason; if (result.ok) machineReply = result.text }
     } else if (cc) {
       const model = isClaude(row.model) ? row.model : OPUS
       if (model !== row.model) b.sql.exec(`UPDATE cb_turn SET model = ? WHERE id = ?`, model, id)
@@ -412,7 +413,9 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<"pending" | 
     return "pending"
   }
   if (child) return b.childEnd(id, ok, reason)
-  const reply = ok ? lastTalk(b.sql, id) : ""
+  // The trajectory's talk preview is clipped. The machine result keeps the complete reply,
+  // including a build URL after a long response; recovery reads it from its durable state.
+  const reply = ok ? machineReply ?? lastTalk(b.sql, id) : ""
   const post = !ok ? "none" : reply === "" || isNoReply(reply) ? "no_reply" : "pending"
   b.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = ? WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), post === "pending" ? clipReply(linkIds(reply)) : null, post, id)
   b.sql.exec(`UPDATE cb_inbox SET state = ? WHERE turn = ?`, ok ? "done" : "failed", id)
