@@ -240,7 +240,7 @@ struct PaneContentPolicyTests {
             atReverse[pane] = try await Self.grids(pane, rig)
             sizeAtReverse[pane] = try Self.surface(pane, in: rig).frame.size
         }
-        let frames = Self.run(rig)
+        let frames = try Self.run(rig)
         #expect(frames > 3, "the reverse press did not spring (\(frames) frames)")
         for pane in panes {
             let was = try #require(start[pane]), surface = try Self.surface(pane, in: rig)
@@ -450,7 +450,7 @@ struct PaneContentPolicyTests {
         rig.root.layoutSubtreeIfNeeded()
         #expect(host.isHidden && !host.showsClosingGround, "a pane nothing closes over showed its ground")
         #expect(try rig.screen.closingPanes.isEmpty, "a pane nothing closes over has a closing frame")
-        Self.run(rig)
+        try Self.run(rig)
         #expect(host.superview == nil, "the closed host is left in the tree after the landing")
     }
 
