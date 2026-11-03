@@ -183,6 +183,47 @@ struct AgentPaneActAsMeTests {
         #expect(gestures.reserve(connection: 1, intent: mode) == nil, "a posted gesture reserved a mode")
     }
 
+    /// A Send a driver reserved while the grant was on, then redeemed after the person pressed Turn Off,
+    /// is refused, even when the grant was turned on again in between. The person's own ticket still sends.
+    @Test func turningItOffVoidsThePostedSendTickets() throws {
+        let grant = AgentPaneActAsMe()
+        grant.turnOn(.taken())
+        let gestures = Self.gestures(grant)
+        let send = try #require(AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": ["promptId": "p-1"]]]))
+        let pick = AgentPaneGesturePick(method: "session/prompt", params: ["_meta": ["acpmux": ["promptId": "p-1"]]])
+        gestures.recordPosted(driver: Self.driver)
+        let posted = try #require(gestures.reserve(connection: 1, intent: send))
+        grant.turnOff()
+        #expect(!gestures.redeem(posted, connection: 1, pick: pick), "a posted Send ticket outlived Turn Off")
+
+        // Reserved while on, then off and on again: still void.
+        grant.turnOn(.taken())
+        gestures.recordPosted(driver: Self.driver)
+        let beforeOff = try #require(gestures.reserve(connection: 1, intent: send))
+        grant.turnOff()
+        grant.turnOn(.taken())
+        #expect(!gestures.redeem(beforeOff, connection: 1, pick: pick), "turning it on again revived a revoked ticket")
+        // A ticket reserved under the standing grant sends.
+        gestures.recordPosted(driver: Self.driver)
+        let standing = try #require(gestures.reserve(connection: 1, intent: send))
+        #expect(gestures.redeem(standing, connection: 1, pick: pick))
+        // The person's own Send ticket does not depend on the grant.
+        gestures.record()
+        let own = try #require(gestures.reserve(connection: 1, intent: send))
+        grant.turnOff()
+        #expect(gestures.redeem(own, connection: 1, pick: pick), "Turn Off voided the person's own Send")
+    }
+
+    @Test func aGesturePostedBeforeTurnOffDoesNotGrantOnceTurnedOnAgain() {
+        let grant = AgentPaneActAsMe()
+        grant.turnOn(.taken())
+        let gestures = Self.gestures(grant)
+        gestures.recordPosted(driver: Self.driver)
+        grant.turnOff()
+        grant.turnOn(.taken())
+        #expect(!gestures.consumePosted(for: "session/prompt"))
+    }
+
     // MARK: The consent card
 
     @Test func theCardsAllowTakesOnlyThePersonsOwnClick() throws {

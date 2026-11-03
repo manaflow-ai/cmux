@@ -120,6 +120,9 @@ import Security
     private var managed = false
     /// The person turned a managed grant off for this run of the app.
     private var managedHeldOff = false
+    /// Counts ``turnOff()`` calls: a posted gesture or a ticket it reserved carries the count it was made
+    /// under, and is void once the grant was turned off after it, even when the grant is on again.
+    public private(set) var revocations = 0
     /// The latest let-throughs, newest last (at most ``keptLetThroughs``).
     public private(set) var letThroughs: [LetThrough] = []
     static let keptLetThroughs = 64
@@ -162,6 +165,7 @@ import Security
     /// Turns the grant off, from any press: revoking needs no proof.
     public func turnOff() {
         person = false
+        revocations += 1
         if managed { managedHeldOff = true }
         Self.logger.notice("act-as-me turned off")
         persist(false)
