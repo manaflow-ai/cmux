@@ -184,7 +184,8 @@ import Testing
 
         private func pass() async {
             await Task.yield()
-            RunLoop.main.run(until: Date().addingTimeInterval(0.001))
+            // One main run-loop pass, with its before-waiting observers (the frame commit's stage).
+            _ = CFRunLoopRunInMode(.defaultMode, 0.001, false)
         }
 
         func close() {
