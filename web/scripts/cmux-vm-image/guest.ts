@@ -163,6 +163,23 @@ export async function firstExec(vm: Vm, t0: number, budgetMs = 60_000): Promise<
   throw new Error("guest never answered an exec");
 }
 
+/**
+ * Reads a guest file, retrying a dropped connection: the provider's file API has reset a large
+ * read now and then (once in about twenty right after a kernel switch, 2026-11-02). Reads have
+ * no side effects, so a retry is safe.
+ */
+export async function readGuestBytes(vm: Vm, file: string, attempts = 4): Promise<Uint8Array> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return new Uint8Array(await vm.fs.readFile(file));
+    } catch (error) {
+      if (attempt >= attempts) throw error;
+      console.log(`read ${file} failed (${String(error).slice(0, 120)}); retry ${attempt} of ${attempts - 1}`);
+      await sleep(2_000 * attempt);
+    }
+  }
+}
+
 export type ExecResult = { code: number; stdout: string; stderr: string; ms: number };
 
 export async function run(vm: Vm, command: string, timeoutMs = STEP_TIMEOUT_MS, user = "root"): Promise<ExecResult> {

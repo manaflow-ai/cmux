@@ -20,7 +20,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Freestyle } from "freestyle";
-import { createVm, deleteVm, firstExec, run, sleep, type Ledger, type StepLog, type Vm } from "./guest";
+import { createVm, deleteVm, firstExec, readGuestBytes, run, sleep, type Ledger, type StepLog, type Vm } from "./guest";
 import { sq, type GuestKernelLock } from "./lock";
 
 export const GUEST_KERNEL_DIR = "/usr/lib/cmux/kernel";
@@ -36,7 +36,7 @@ const BUILT_IMAGE = `${BUILD_DIR}/vmlinuz`;
 /** The provider's exec call stops at 5 minutes; the build runs as its own unit and is polled. */
 const BUILD_UNIT = "cmux-kernel-build";
 const BUILD_BUDGET_MS = 30 * 60_000;
-/** A switch is a clean shutdown and a boot: 8 to 22 s measured (n = 12, 2026-11-03). */
+/** A switch is a clean shutdown and a boot: 8 to 22 s measured (n = 12, 2026-11-02). */
 const SWITCH_BUDGET_MS = 180_000;
 
 export type GuestKernelFile = { path: string; bytes: Uint8Array; mode: number };
@@ -61,19 +61,24 @@ export const GUEST_KERNEL_DIRS_COMMAND = `install -d -m 0755 ${GUEST_KERNEL_DIR}
 /**
  * After the files and the kernel are written: record its release and sha256, check the
  * base kernel's config is the one the kernel was built from, verify and enable the units,
- * and load the kernel once without switching (a kernel the base cannot load fails here).
+ * clear the switch attempt count, and load the kernel once without switching (a kernel the
+ * base cannot load fails here).
+ *
+ * The config check runs only on the provider kernel (`providerRelease`): a machine already on
+ * an older cmux kernel reports that kernel's config, and it is upgraded to the new one in place.
  */
-export function guestKernelInstallCommand(lock: GuestKernelLock, imageSha256: string): string {
+export function guestKernelInstallCommand(lock: GuestKernelLock, imageSha256: string, providerRelease: string): string {
   const units = GUEST_KERNEL_UNITS.map((u) => `/etc/systemd/system/${u}`).join(" ");
   return [
     `printf '%s\\n' ${sq(lock.version)} > ${GUEST_KERNEL_DIR}/release`,
     `printf '%s  vmlinuz\\n' ${imageSha256} > ${GUEST_KERNEL_IMAGE}.sha256`,
     `chown -R root:root ${GUEST_KERNEL_DIR} && chmod 0644 ${GUEST_KERNEL_DIR}/*`,
-    `test "$(zcat /proc/config.gz | sha256sum | cut -d' ' -f1)" = ${lock.baseConfigSha256} || { echo "base kernel config differs from kernel.baseConfigSha256"; exit 1; }`,
+    `{ test "$(uname -r)" != ${sq(providerRelease)} || test "$(zcat /proc/config.gz | sha256sum | cut -d' ' -f1)" = ${lock.baseConfigSha256} || { echo "base kernel config differs from kernel.baseConfigSha256 (after a base change, rerun with --update-lock and set it from the new base's /proc/config.gz)"; exit 1; }; }`,
     `systemd-analyze verify ${units}`,
     "systemctl daemon-reload",
     "systemctl enable cmux-guest-kernel.timer cmux-guest-kernel-booted.service >/dev/null 2>&1",
     `test "$(systemctl is-enabled cmux-guest-kernel.timer)" = enabled && test "$(systemctl is-enabled cmux-guest-kernel-booted.service)" = enabled`,
+    `${GUEST_KERNEL_CLI} reset`,
     `${GUEST_KERNEL_CLI} load`,
     `${GUEST_KERNEL_CLI} status`,
   ].join(" && ");
@@ -91,7 +96,7 @@ export function guestKernelBuildScript(lock: GuestKernelLock): string {
     `curl -fsSL --retry 3 -o ${tarball} ${sq(lock.url)}`,
     `test "$(stat -c %s ${tarball})" = ${lock.size}`,
     `printf '%s  %s\\n' ${lock.sha256} ${tarball} | sha256sum -c --quiet -`,
-    // kernel.org's signed list must name the same digest (a second, independent source for it).
+    // kernel.org's sha256sums.asc must name the same digest: a second source for it (its PGP signature is not checked).
     // To a file, not a pipe: grep -q stops reading at the match and curl would fail on the closed pipe.
     `curl -fsSL --retry 3 -o sha256sums.asc ${sq(lock.checksumsUrl)}`,
     `grep -qx '${lock.sha256}  ${tarball}' sha256sums.asc`,
@@ -110,8 +115,11 @@ export function guestKernelBuildScript(lock: GuestKernelLock): string {
 
 export type BuiltGuestKernel = { bytes: Uint8Array; sha256: string; release: string; gcc: string; builderVmId: string; buildMs: number };
 
-/** Builds the locked kernel on its own VM (named `<name>-kernel`) and deletes the VM. */
-export async function buildGuestKernel(fs: Freestyle, ledger: Ledger, L: StepLog, lock: GuestKernelLock, name: string, allowUnprefixed: boolean): Promise<BuiltGuestKernel> {
+/**
+ * Builds the locked kernel on its own VM (named `<name>-kernel`) and deletes the VM.
+ * An aborted `signal` (the bake failed elsewhere) stops the wait at the next poll.
+ */
+export async function buildGuestKernel(fs: Freestyle, ledger: Ledger, L: StepLog, lock: GuestKernelLock, name: string, allowUnprefixed: boolean, signal?: AbortSignal): Promise<BuiltGuestKernel> {
   const vmName = `${name}-kernel`;
   const builder = await createVm(fs, ledger, { name: vmName, snapshotId: lock.builder, allowUnprefixed });
   const t0 = Date.now();
@@ -121,6 +129,7 @@ export async function buildGuestKernel(fs: Freestyle, ledger: Ledger, L: StepLog
     await L.step(builder.vm, "kernel-build-start", `systemd-run --unit=${BUILD_UNIT} --collect bash -c 'bash /root/${BUILD_UNIT}.sh > /root/${BUILD_UNIT}.log 2>&1; echo $? > /root/${BUILD_UNIT}.rc'`);
     const deadline = Date.now() + BUILD_BUDGET_MS;
     for (;;) {
+      if (signal?.aborted) throw new Error("kernel build abandoned: the bake failed");
       const rc = await run(builder.vm, `cat /root/${BUILD_UNIT}.rc 2>/dev/null || true`);
       const code = rc.stdout.trim();
       if (code !== "") {
@@ -128,7 +137,7 @@ export async function buildGuestKernel(fs: Freestyle, ledger: Ledger, L: StepLog
         if (code !== "0") throw new Error(`kernel build exited ${code}: ${log.slice(-1500)}`);
         const line = log.split("\n").find((l) => l.startsWith("BZIMAGE ")) ?? "";
         const [, sha, release] = line.split(" ");
-        const bytes = new Uint8Array(await builder.vm.fs.readFile(BUILT_IMAGE));
+        const bytes = await readGuestBytes(builder.vm, BUILT_IMAGE);
         if (sha256Hex(bytes) !== sha) throw new Error(`downloaded bzImage sha256 ${sha256Hex(bytes)} is not the builder's ${sha}`);
         if (release !== lock.version) throw new Error(`built kernel release ${release}, lock ${lock.version}`);
         const gcc = (log.split("\n").find((l) => l.startsWith("GCC ")) ?? "").slice(4);

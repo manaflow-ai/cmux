@@ -73,13 +73,20 @@ Unrequested base software is removed in L1 (the third-party agent package, the n
 
 The provider boots every machine with its own kernel (6.1.102, built 2026-08-26) and has no kernel setting. The image runs the current 6.1 stable release instead, pinned in `inputs.lock.json` (`kernel`: the kernel.org tarball by sha256, the base's `/proc/config.gz` by sha256, the builder snapshot and a fixed build timestamp). `web/scripts/cmux-vm-image/guest-kernel.ts` builds it on a throwaway `freestyle/ubuntu-2xl` VM in parallel with the bake (about 5 minutes) with the base's own configuration (`make olddefconfig`), and the bake switches the builder to it with kexec right after the disk-only steps (apt, store), so the snapshot's memory image is the cmux kernel's and every clone resumes on it.
 
-The guest side is `images/cmux-vm/guest/cmux-guest-kernel` (load with `kexec_file_load`, switch with `systemctl kexec`) and three pieces, each from a measurement on Freestyle (2026-11-03):
+The guest side is `images/cmux-vm/guest/cmux-guest-kernel` (load with `kexec_file_load`, switch with `systemctl kexec`) and three pieces, each from a measurement on Freestyle (2026-11-02):
 
-- `cmux-guest-kernel.shutdown`, a system-shutdown hook: before the jump it unbinds every virtio driver, the disk last. 6.1 leaves virtio devices running across kexec, and the host kept writing into buffers the old kernel posted: without the hook the new kernel hung on every `sm` and default-size machine (it came up only on `2xl`); without the disk, 1 of 4; with all of them, 10 of 10 (8 to 22 s).
+- `cmux-guest-kernel.shutdown`, a system-shutdown hook: before the jump it unbinds every virtio driver, the disk last and only once `/` is read-only. 6.1 leaves virtio devices running across kexec, and the host kept writing into buffers the old kernel posted: without the hook the new kernel hung on every `sm` and default-size machine (it came up only on `2xl`); without the disk, 1 of 4; with all of them, 10 of 10 (8 to 22 s).
 - `cmux-guest-kernel.timer`: a cold boot (power off and start, or the provider's automatic restart) runs the provider kernel again, and the timer switches 30 s into the boot. Not earlier: the provider's start call waits for its guest agent and failed every time the machine rebooted at 2 s; start returns at 2.3 to 2.8 s and nothing in the guest marks it.
 - `cmux-guest-kernel-booted.service` clears the switch attempt count early in every boot on the cmux kernel; after two switches that did not come up, the timer leaves the machine on the provider kernel instead of looping.
 
-Running machines get it with `images/cmux-vm/guest-kernel-install.ts` (docs/cloud-guest-upgrades.md).
+Running machines get it with `images/cmux-vm/guest-kernel-install.ts` (docs/cloud-guest-upgrades.md), which also moves a machine from an older cmux kernel to the locked one.
+
+Limits:
+
+- A cold boot runs on the provider kernel for its first 30 s, then the switch ends every process the boot started (a clean systemd stop and start, files kept). A machine paused within those 30 s switches 30 s after its resume. A switch the backend starts once the provider's start call returns would remove the window; that belongs in the backend.
+- The kernel's inputs are pinned (tarball, base config, timestamp), but the compiler is the builder snapshot's: the build records `gcc --version`, and the same lock can give a different bzImage when the builder's toolchain changes. The tarball is checked against its pinned sha256 and against the entry in kernel.org's `sha256sums.asc`; that file's signature is not verified.
+- A new base snapshot (`--update-lock`) does not change `kernel.baseConfigSha256`: the build and the install both refuse a base whose `/proc/config.gz` differs, and the new value is set by hand from that base (`zcat /proc/config.gz | sha256sum`) after checking the config change.
+- Bumping the kernel is a lock change (`kernel.version`, `url`, `sha256`, `size`), a bake and, for running machines, the install script.
 
 ### 4.2 Package list (V1 "package list pending")
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -114,10 +114,26 @@ describe("guest kernel files and commands", () => {
     expect(script).toContain(`KBUILD_BUILD_TIMESTAMP='${kernel.buildTimestamp}'`);
   });
 
-  test("the install refuses a base whose config is not the one the kernel was built from", () => {
-    const command = guestKernelInstallCommand(kernel, "0".repeat(64));
-    expect(command).toContain(`= ${kernel.baseConfigSha256} ||`);
-    expect(command.indexOf("systemctl enable")).toBeLessThan(command.indexOf(`${GUEST_KERNEL_CLI} load`));
+  test("the install checks the config on the provider kernel only, then resets the count before loading", () => {
+    const command = guestKernelInstallCommand(kernel, "0".repeat(64), "6.1.102");
+    expect(command).toContain(`test "$(uname -r)" != '6.1.102' || test "$(zcat /proc/config.gz | sha256sum | cut -d' ' -f1)" = ${kernel.baseConfigSha256} ||`);
+    const at = (needle: string) => command.indexOf(needle);
+    expect(at("systemctl enable")).toBeLessThan(at(`${GUEST_KERNEL_CLI} reset`));
+    expect(at(`${GUEST_KERNEL_CLI} reset`)).toBeLessThan(at(`${GUEST_KERNEL_CLI} load`));
+  });
+
+  test("the install's config check passes on a cmux kernel and refuses another provider config", async () => {
+    const command = guestKernelInstallCommand(kernel, "0".repeat(64), "6.1.102");
+    const check = command.split(" && ").find((part) => part.includes("zcat /proc/config.gz")) ?? "";
+    const dir = mkdtempSync(path.join(tmpdir(), "guest-kernel-check-"));
+    // Stand-ins for uname and zcat: the running release and a config that is not the locked one.
+    writeFileSync(path.join(dir, "uname"), '#!/bin/sh\necho "$FAKE_RELEASE"\n', { mode: 0o755 });
+    writeFileSync(path.join(dir, "zcat"), "#!/bin/sh\necho other config\n", { mode: 0o755 });
+    const env = (release: string) => ({ ...process.env, PATH: `${dir}:${process.env.PATH}`, FAKE_RELEASE: release });
+    expect((await runChild("sh", ["-c", check], { env: env(kernel.version) })).status).toBe(0);
+    const refused = await runChild("sh", ["-c", check], { env: env("6.1.102") });
+    expect(refused.status).toBe(1);
+    expect(refused.stdout).toContain("base kernel config differs");
   });
 
   test("sha256Hex matches the shell's sha256sum", async () => {
@@ -135,8 +151,9 @@ describe("the shutdown hook", () => {
   const drivers = ["virtio_blk", "virtio_net", "vmw_vsock_virtio_transport", "virtio_balloon", "virtio_rng"];
 
   /** A fake sysfs with one device per driver; `shared` points every unbind file at one file. */
-  async function fakeSysfs(shared: boolean): Promise<string> {
+  async function fakeSysfs(shared: boolean, rootOptions = "ro,relatime"): Promise<string> {
     const root = mkdtempSync(path.join(tmpdir(), "guest-kernel-sysfs-"));
+    writeFileSync(path.join(root, "mounts"), `proc /proc proc rw,nosuid 0 0\n/dev/vda / ext4 ${rootOptions} 0 0\ntmpfs /tmp tmpfs rw 0 0\n`);
     for (const [i, driver] of drivers.entries()) {
       const dir = path.join(root, "bus/virtio/drivers", driver);
       const made = await runChild("sh", ["-c", `mkdir -p "$1/virtio${i}" && { [ "$2" = 0 ] || ln -s "$3" "$1/unbind"; }`, "mk", dir, shared ? "1" : "0", path.join(root, "last-unbind")]);
@@ -145,10 +162,12 @@ describe("the shutdown hook", () => {
     return root;
   }
 
+  const hookEnv = (root: string) => ({ ...process.env, CMUX_SYSFS: root, CMUX_PROC: root });
+
   test("does nothing on a power off, reboot or halt", async () => {
     const root = await fakeSysfs(false);
     for (const action of ["poweroff", "reboot", "halt"]) {
-      const r = await runChild("sh", [hookPath, action], { env: { ...process.env, CMUX_SYSFS: root } });
+      const r = await runChild("sh", [hookPath, action], { env: hookEnv(root) });
       expect(r.status).toBe(0);
       for (const driver of drivers) expect(() => readFileSync(path.join(root, "bus/virtio/drivers", driver, "unbind"))).toThrow();
     }
@@ -156,16 +175,89 @@ describe("the shutdown hook", () => {
 
   test("on kexec, unbinds every virtio device", async () => {
     const root = await fakeSysfs(false);
-    const r = await runChild("sh", [hookPath, "kexec"], { env: { ...process.env, CMUX_SYSFS: root } });
+    const r = await runChild("sh", [hookPath, "kexec"], { env: hookEnv(root) });
     expect(r.status).toBe(0);
     for (const [i, driver] of drivers.entries()) expect(readFileSync(path.join(root, "bus/virtio/drivers", driver, "unbind"), "utf8")).toBe(`virtio${i}\n`);
   });
 
   test("unbinds the disk last", async () => {
     const root = await fakeSysfs(true);
-    const r = await runChild("sh", [hookPath, "kexec"], { env: { ...process.env, CMUX_SYSFS: root } });
+    const r = await runChild("sh", [hookPath, "kexec"], { env: hookEnv(root) });
     expect(r.status).toBe(0);
     expect(readFileSync(path.join(root, "last-unbind"), "utf8")).toBe("virtio0\n");
+  });
+
+  test("leaves the disk bound while / is still writable", async () => {
+    const root = await fakeSysfs(false, "rw,relatime");
+    const r = await runChild("sh", [hookPath, "kexec"], { env: hookEnv(root) });
+    expect(r.status).toBe(0);
+    expect(() => readFileSync(path.join(root, "bus/virtio/drivers/virtio_blk/unbind"))).toThrow();
+    expect(readFileSync(path.join(root, "bus/virtio/drivers/virtio_net/unbind"), "utf8")).toBe("virtio1\n");
+  });
+});
+
+describe("cmux-guest-kernel", () => {
+  const script = fileURLToPath(new URL("../../images/cmux-vm/guest/cmux-guest-kernel", import.meta.url));
+  const kernelBytes = new TextEncoder().encode("a kernel\n");
+
+  /** A fake root with the kernel installed as `installed`, running `running`, after `attempts` switches. */
+  function fakeRoot(opts: { running: string; installed: string; attempts?: number; corrupt?: boolean }): string {
+    const root = mkdtempSync(path.join(tmpdir(), "guest-kernel-root-"));
+    for (const dir of ["usr/lib/cmux/kernel", "var/lib/cmux", "proc/sys/kernel"]) mkdirSync(path.join(root, dir), { recursive: true });
+    writeFileSync(path.join(root, "usr/lib/cmux/kernel/vmlinuz"), kernelBytes);
+    writeFileSync(path.join(root, "usr/lib/cmux/kernel/vmlinuz.sha256"), `${opts.corrupt ? "0".repeat(64) : sha256Hex(kernelBytes)}  vmlinuz\n`);
+    writeFileSync(path.join(root, "usr/lib/cmux/kernel/release"), `${opts.installed}\n`);
+    writeFileSync(path.join(root, "proc/sys/kernel/osrelease"), `${opts.running}\n`);
+    writeFileSync(path.join(root, "proc/cmdline"), "console=ttyS0\n");
+    if (opts.attempts !== undefined) writeFileSync(path.join(root, "var/lib/cmux/guest-kernel-attempts"), `${opts.attempts}\n`);
+    return root;
+  }
+  const cli = (root: string, command: string) => runChild("python3", ["-I", script, command], { env: { ...process.env, CMUX_GUEST_KERNEL_ROOT: root } });
+  const attemptsOf = (root: string) => readFileSync(path.join(root, "var/lib/cmux/guest-kernel-attempts"), "utf8").trim();
+
+  test("status reports the running and installed releases and the count", async () => {
+    const root = fakeRoot({ running: "6.1.102", installed: "6.1.191", attempts: 1 });
+    const r = await cli(root, "status");
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toBe("running=6.1.102 installed=6.1.191 attempts=1 on-cmux-kernel=no");
+  });
+
+  test("booted and boot clear the count on the cmux kernel without switching", async () => {
+    for (const command of ["booted", "boot"]) {
+      const root = fakeRoot({ running: "6.1.191", installed: "6.1.191", attempts: 1 });
+      expect((await cli(root, command)).status).toBe(0);
+      expect(attemptsOf(root)).toBe("0");
+    }
+  });
+
+  test("booted leaves the count alone on the provider kernel", async () => {
+    const root = fakeRoot({ running: "6.1.102", installed: "6.1.191", attempts: 1 });
+    expect((await cli(root, "booted")).status).toBe(0);
+    expect(attemptsOf(root)).toBe("1");
+  });
+
+  test("boot stays on the provider kernel after two switches that did not come up", async () => {
+    const root = fakeRoot({ running: "6.1.102", installed: "6.1.191", attempts: 2 });
+    const r = await cli(root, "boot");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("staying on 6.1.102");
+    expect(attemptsOf(root)).toBe("2");
+  });
+
+  test("a kernel that fails its sha256 is never loaded, and the attempt still counts", async () => {
+    const root = fakeRoot({ running: "6.1.102", installed: "6.1.191", attempts: 0, corrupt: true });
+    for (const command of ["load", "boot", "switch"]) {
+      const r = await cli(root, command);
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain("does not match");
+    }
+    expect(attemptsOf(root)).toBe("2");
+  });
+
+  test("reset clears the count", async () => {
+    const root = fakeRoot({ running: "6.1.102", installed: "6.1.191", attempts: 2 });
+    expect((await cli(root, "reset")).status).toBe(0);
+    expect(attemptsOf(root)).toBe("0");
   });
 });
 

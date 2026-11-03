@@ -8,7 +8,8 @@
  * The kernel comes from a bake's output (the workflow artifact holds `vmlinuz-<release>` next to
  * `bake-<name>.json`, whose guestKernel.sha256 it must match). The script writes the kernel, the
  * cmux-guest-kernel script, its shutdown hook and units, checks that the machine runs the provider
- * kernel the lock's kernel was configured from, and loads the kernel once without switching.
+ * kernel the lock's kernel was configured from (or a cmux kernel installed earlier, which this
+ * replaces), clears the switch attempt count and loads the kernel once without switching.
  *
  * Without --switch-now nothing running changes: the machine switches at its next cold boot (power
  * off and start). --switch-now switches at once: systemd stops every unit cleanly and the machine
@@ -20,6 +21,7 @@ import path from "node:path";
 import { argValue, freestyleClient, hasFlag, run, StepLog, type Vm } from "./guest";
 import {
   GUEST_KERNEL_CLI,
+  GUEST_KERNEL_DIR,
   GUEST_KERNEL_DIRS_COMMAND,
   GUEST_KERNEL_IMAGE,
   guestKernelFiles,
@@ -55,14 +57,16 @@ export async function install(options: InstallOptions): Promise<string> {
   mkdirSync(options.outDir, { recursive: true });
   const L = new StepLog(path.join(options.outDir, `guest-kernel-install-${options.vmId}.log`));
   const vm = freestyleClient().vms.ref(options.vmId) as unknown as Vm;
-  const running = (await L.step(vm, "running-kernel", "uname -r")).trim();
-  if (running !== lock.base.fingerprint.kernelRelease && running !== lock.kernel.version) {
-    throw new Error(`${options.vmId} runs kernel ${running}; this kernel was configured from the provider's ${lock.base.fingerprint.kernelRelease}`);
+  // The provider kernel, or a cmux kernel this script installed before (an upgrade in place).
+  const [running, installed = ""] = (await L.step(vm, "running-kernel", `uname -r && cat ${GUEST_KERNEL_DIR}/release 2>/dev/null || true`)).trim().split("\n");
+  const provider = lock.base.fingerprint.kernelRelease;
+  if (running !== provider && running !== installed.trim()) {
+    throw new Error(`${options.vmId} runs kernel ${running}, neither the provider's ${provider} nor an installed cmux kernel`);
   }
   await L.step(vm, "kernel-dirs", GUEST_KERNEL_DIRS_COMMAND);
   await writeRootFile(vm, GUEST_KERNEL_IMAGE, kernel.bytes, 0o644);
   for (const file of guestKernelFiles()) await writeRootFile(vm, file.path, file.bytes, file.mode);
-  await L.step(vm, "kernel-install", guestKernelInstallCommand(lock.kernel, kernel.sha256));
+  await L.step(vm, "kernel-install", guestKernelInstallCommand(lock.kernel, kernel.sha256, provider));
   if (options.switchNow) {
     await switchToGuestKernel(vm, L, lock.kernel.version);
     const problems = guestKernelProblems(lock.kernel, await L.step(vm, "kernel-status", `${GUEST_KERNEL_CLI} status`));

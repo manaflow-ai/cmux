@@ -81,7 +81,7 @@ import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLi
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
-import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
+import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, readGuestBytes, run, sleep, StepLog, type Vm } from "./guest";
 import { buildGuestKernel, type BuiltGuestKernel, GUEST_KERNEL_CLI, GUEST_KERNEL_DIRS_COMMAND, GUEST_KERNEL_IMAGE, guestKernelFiles, guestKernelInstallCommand, guestKernelProblems, switchToGuestKernel } from "./guest-kernel";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, hostConfig, hostUnit } from "./host-agent";
 import {
@@ -317,7 +317,7 @@ async function writeGuestFile(vm: Vm, target: string, bytes: string | Uint8Array
 }
 
 async function readGuestText(vm: Vm, file: string): Promise<string> {
-  return new TextDecoder().decode(await vm.fs.readFile(file));
+  return new TextDecoder().decode(await readGuestBytes(vm, file));
 }
 
 type Ctx = { vm: Vm; L: StepLog; lock: InputsLock; lockText: string; options: BakeOptions; result: BakeResult; name: string };
@@ -641,7 +641,7 @@ async function installGuestKernel(ctx: Ctx, built: BuiltGuestKernel): Promise<vo
   await L.step(vm, "kernel-dirs", GUEST_KERNEL_DIRS_COMMAND);
   await writeGuestFile(vm, GUEST_KERNEL_IMAGE, built.bytes, 0o644);
   for (const file of guestKernelFiles()) await writeGuestFile(vm, file.path, file.bytes, file.mode);
-  await L.step(vm, "kernel-install", guestKernelInstallCommand(lock.kernel, built.sha256));
+  await L.step(vm, "kernel-install", guestKernelInstallCommand(lock.kernel, built.sha256, lock.base.fingerprint.kernelRelease));
   const switchMs = await switchToGuestKernel(vm, L, lock.kernel.version);
   await firstExec(vm, Date.now());
   const problems = guestKernelProblems(lock.kernel, await L.step(vm, "kernel-status", `${GUEST_KERNEL_CLI} status`));
@@ -741,8 +741,8 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   ].join(" && "))).trim();
   result.sbomFile = path.join(options.outDir, `sbom-${name}.cdx.json`);
   result.manifestFile = path.join(options.outDir, `manifest-${name}.tsv`);
-  writeFileSync(result.sbomFile, gunzipSync(Buffer.from(await vm.fs.readFile("/tmp/cmux-out/sbom.cdx.json.gz"))));
-  writeFileSync(result.manifestFile, gunzipSync(Buffer.from(await vm.fs.readFile("/tmp/cmux-out/manifest.tsv.gz"))));
+  writeFileSync(result.sbomFile, gunzipSync(await readGuestBytes(vm, "/tmp/cmux-out/sbom.cdx.json.gz")));
+  writeFileSync(result.manifestFile, gunzipSync(await readGuestBytes(vm, "/tmp/cmux-out/manifest.tsv.gz")));
   const sbom = JSON.parse(readFileSync(result.sbomFile, "utf8")) as { components?: unknown[] };
   result.sbomComponents = sbom.components?.length ?? 0;
   await L.step(vm, "tmp-empty", `rm -rf /tmp/cmux-out /tmp/cmux-syft /root/.cache && ${TMP_LEFTOVERS} | head -5; test -z "$(${TMP_LEFTOVERS})"`);
@@ -750,6 +750,22 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
   result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
   await L.step(vm, "machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
+}
+
+/**
+ * Waits for `work` while sending the builder a trivial exec every minute, so a builder left
+ * without calls while the kernel finishes is not taken for idle.
+ */
+async function awaitKeepingAlive<T>(vm: Vm, work: Promise<T>): Promise<T> {
+  let done = false;
+  const settled = work.finally(() => {
+    done = true;
+  });
+  while (!done) {
+    await Promise.race([settled.catch(() => undefined), sleep(60_000)]);
+    if (!done) await run(vm, "true", 30_000).catch(() => undefined);
+  }
+  return settled;
 }
 
 /** Bakes one snapshot. Never throws: failures land in result.error; the builder is always deleted. */
@@ -766,7 +782,8 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const t0 = Date.now();
   let builder: Awaited<ReturnType<typeof createVm>> | null = null;
   // The kernel builds on its own VM while the image's first steps run; awaited before the switch.
-  const kernelBuild = buildGuestKernel(fs, ledger, L, lock.kernel, name, options.promotion || options.prodCopy === true);
+  const kernelAbort = new AbortController();
+  const kernelBuild = buildGuestKernel(fs, ledger, L, lock.kernel, name, options.promotion || options.prodCopy === true, kernelAbort.signal);
   kernelBuild.catch(() => undefined);
   try {
     builder = await createVm(fs, ledger, { name, snapshotId: lock.base.snapshot, allowUnprefixed: options.promotion || options.prodCopy === true });
@@ -781,7 +798,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     result.npmStrip = await L.step(ctx.vm, "npm-strip", npmStripCommand(ctx.lock));
     await installApt(ctx);
     await installStore(ctx);
-    await installGuestKernel(ctx, await kernelBuild);
+    await installGuestKernel(ctx, await awaitKeepingAlive(ctx.vm, kernelBuild));
     await wireCmuxTui(ctx);
     await configureSystem(ctx);
     await installMetadataGuard(ctx);
@@ -803,6 +820,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     result.snapshotMs = Date.now() - tSnap;
     L.log(`SNAPSHOT ${snap.snapshotId} (${result.snapshotMs} ms)`);
   } catch (error) {
+    kernelAbort.abort();
     result.error = String(error);
     L.log(`BAKE FAILED: ${result.error}`);
   } finally {

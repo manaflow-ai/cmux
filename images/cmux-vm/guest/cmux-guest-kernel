@@ -18,6 +18,8 @@ loaded kernel.
   cmux-guest-kernel load         verify and load the installed kernel (no switch)
   cmux-guest-kernel boot         from the timer: load and switch, once per cold boot
   cmux-guest-kernel switch       load and switch now; ends every process, keeps the disk
+  cmux-guest-kernel booted       from cmux-guest-kernel-booted.service: clear the count on the cmux kernel
+  cmux-guest-kernel reset        clear the attempt count (after installing a new kernel)
 
 The kernel file is checked against its sha256 before every load. A machine
 that fails to come up on the cmux kernel is not switched again: each switch is
@@ -33,11 +35,13 @@ import os
 import subprocess
 import sys
 
-KERNEL_DIR = "/usr/lib/cmux/kernel"
+# Tests run the script against a fake root; on a machine ROOT is empty.
+ROOT = os.environ.get("CMUX_GUEST_KERNEL_ROOT", "")
+KERNEL_DIR = f"{ROOT}/usr/lib/cmux/kernel"
 KERNEL = f"{KERNEL_DIR}/vmlinuz"
 RELEASE_FILE = f"{KERNEL_DIR}/release"
 SHA256_FILE = f"{KERNEL_DIR}/vmlinuz.sha256"
-ATTEMPTS = "/var/lib/cmux/guest-kernel-attempts"
+ATTEMPTS = f"{ROOT}/var/lib/cmux/guest-kernel-attempts"
 MAX_ATTEMPTS = 2
 
 SYS_KEXEC_FILE_LOAD = 320  # x86_64
@@ -58,7 +62,7 @@ def installed_release():
 
 
 def running_release():
-    return os.uname().release
+    return read(f"{ROOT}/proc/sys/kernel/osrelease")
 
 
 def attempts():
@@ -91,17 +95,26 @@ def verify():
 def load():
     verify()
     # The provider's command line starts its guest agent and network; the cmux kernel keeps it.
-    cmdline = read("/proc/cmdline").encode() + b"\0"
+    cmdline = read(f"{ROOT}/proc/cmdline").encode() + b"\0"
     libc = ctypes.CDLL(None, use_errno=True)
+    libc.syscall.restype = ctypes.c_long
     fd = os.open(KERNEL, os.O_RDONLY | os.O_CLOEXEC)
     try:
-        rc = libc.syscall(SYS_KEXEC_FILE_LOAD, fd, -1, len(cmdline), ctypes.c_char_p(cmdline), KEXEC_FILE_NO_INITRAMFS)
+        # kexec_file_load(int kernel_fd, int initrd_fd, unsigned long cmdline_len, const char *cmdline, unsigned long flags)
+        rc = libc.syscall(
+            ctypes.c_long(SYS_KEXEC_FILE_LOAD),
+            ctypes.c_int(fd),
+            ctypes.c_int(-1),
+            ctypes.c_ulong(len(cmdline)),
+            ctypes.c_char_p(cmdline),
+            ctypes.c_ulong(KEXEC_FILE_NO_INITRAMFS),
+        )
     finally:
         os.close(fd)
     if rc != 0:
         err = ctypes.get_errno()
         raise SystemExit(f"cmux-guest-kernel: kexec_file_load failed: {os.strerror(err)} ({err})")
-    if read("/sys/kernel/kexec_loaded") != "1":
+    if read(f"{ROOT}/sys/kernel/kexec_loaded") != "1":
         raise SystemExit("cmux-guest-kernel: kexec_file_load returned 0 but no kernel is loaded")
     log(f"loaded {installed_release()}")
 
@@ -121,6 +134,9 @@ def main(argv):
         return 0
     if command == "load":
         load()
+        return 0
+    if command == "reset":
+        set_attempts(0)
         return 0
     if command == "booted":
         if running_release() == installed_release() and attempts():
