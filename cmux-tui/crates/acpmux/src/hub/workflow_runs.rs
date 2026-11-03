@@ -13,6 +13,7 @@ impl Hub {
         name: String,
         source: String,
         args: Value,
+        local_principal: bool,
     ) -> Result<RunRecord> {
         let meta = owner.meta();
         anyhow::ensure!(!meta.remote_origin, "a remote chat starts no local workflow");
@@ -26,6 +27,7 @@ impl Hub {
             id,
             name,
             owner_session_id: owner.id.clone(),
+            local_principal,
             source,
             source_hash: String::new(),
             args,

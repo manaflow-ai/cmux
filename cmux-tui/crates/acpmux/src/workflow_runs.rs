@@ -61,6 +61,9 @@ pub struct RunRecord {
     pub id: String,
     pub name: String,
     pub owner_session_id: String,
+    /// The same-user Unix CLI created this owner in asking mode, without a chat proof.
+    #[serde(default)]
+    pub local_principal: bool,
     pub source: String,
     pub source_hash: String,
     pub args: Value,
@@ -103,6 +106,7 @@ impl Store {
             let previous = read(&path)?;
             ensure!(
                 previous.owner_session_id == record.owner_session_id
+                    && previous.local_principal == record.local_principal
                     && previous.source == record.source
                     && previous.args == record.args
                     && previous.allowed_tools == record.allowed_tools
