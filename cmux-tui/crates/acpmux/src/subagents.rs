@@ -268,11 +268,13 @@ impl SubagentTree {
             self.names.insert(id, label(name));
             return;
         }
-        if let Some(task) = text("task") {
-            // A task names one that has no name (a Codex legacy spawn says only its prompt).
-            if !self.names.contains_key(&id) {
-                self.names.insert(id, label(task));
-            }
+        // A task names one that has no name (a Codex legacy spawn says only its prompt). An event
+        // with a task but no name, for one already named, still gets that name (a progress whose
+        // task the tree repeated, ``label``).
+        if let Some(task) = text("task")
+            && !self.names.contains_key(&id)
+        {
+            self.names.insert(id, label(task));
             return;
         }
         if let (Some(name), Some(object)) = (self.names.get(&id), event.as_object_mut()) {
