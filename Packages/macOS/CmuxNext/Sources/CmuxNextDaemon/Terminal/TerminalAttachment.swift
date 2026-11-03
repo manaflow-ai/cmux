@@ -70,8 +70,13 @@ public actor TerminalAttachment: TerminalByteChannel {
         var detached = false
         /// The daemon takes `set-size-counts` for this lease (`shared-sizing-v1`).
         var hidesInPlace = false
-        /// The daemon batches a hidden view's output (`attach-visibility-v1`).
+        /// The daemon batches a hidden view's output (`attach-visibility-v1`), and says `shown` once a view shown again
+        /// has every byte printed before the show (`attach-visibility-shown-v1`); only a snapshot stream batches.
         var batchesHidden = false
+        var marksShown = false
+        var snapshotStream = false
+        /// `set-attach-visibility` shows sent after a hide: a `shown` answering fewer is an older show's.
+        var showsSent: UInt64 = 0
         /// This view's sizing participant (the attach reply's `participant`); nil until then.
         var participant: String?
         /// The newest size state this view passed on, and one that came before the reply named
@@ -156,6 +161,8 @@ public actor TerminalAttachment: TerminalByteChannel {
                 guard let decoded = Self.decodeAttachLine(name: name, line: line, surface: surface),
                       let event = sequencer.value.withLock({ $0.admit(decoded) })
                 else { return }
+                if case .snapshot = event { control.value.withLock { $0.snapshotStream = true } }
+                if case .shown(let shows?) = event, shows < control.value.withLock({ $0.showsSent }) { return }
                 if case .sizeState(let state, let selfParticipant) = event {
                     // Pushed under the same lock that orders generations (see admitSizeState).
                     Self.admitSizeState(state, selfParticipant: selfParticipant, control: control, queue: queue)
@@ -221,6 +228,7 @@ public actor TerminalAttachment: TerminalByteChannel {
             control.lastReported = size
             control.hidesInPlace = identity.supports(DaemonCapability.sharedSizing.rawValue)
             control.batchesHidden = identity.supports(DaemonCapability.attachVisibility.rawValue)
+            control.marksShown = identity.supports(DaemonCapability.attachVisibilityShown.rawValue)
             if let participant = response.participant { control.participant = participant }
             // The reply's state, or a newer one held before the participant was known, now with it.
             // Pushed inside the lock: a newer stream state admitted meanwhile cannot go first.
@@ -387,36 +395,16 @@ public actor TerminalAttachment: TerminalByteChannel {
             case .claim:
                 claimGeometry(reporting: nil)
             case .visibility(let visible):
+                if visible { control.value.withLock { $0.showsSent += 1 } }
                 fireAndForget(SetAttachVisibilityRequest(surface: surface, visible: visible))
             }
         }
     }
 
-    /// What `sendHidden` sends, in order.
-    enum HiddenStep: Equatable, Sendable {
-        case sizeCounts(lease: String, counts: Bool?)
-        case releaseSize(lease: String)
-        case claim
-        /// `set-attach-visibility`: the daemon batches a hidden view's output (`attach-visibility-v1`).
-        case visibility(Bool)
-    }
-
-    /// The commands a view that hid (`hidden`) or shows again sends, given its lease and whether the daemon hides it
-    /// in place (`shared-sizing-v1`).
-    /// With `attach-visibility-v1` a hidden view's output is batched to once a second: the batching starts after
-    /// the view stops counting toward the grid, and ends before it counts again, so a shown view's first frame
-    /// follows its waiting output (SWITCH FRAMES SF-5).
-    static func hiddenSteps(hidden: Bool, lease: String?, inPlace: Bool, batchesHidden: Bool) -> [HiddenStep] {
-        var sizing: [HiddenStep] = []
-        if let lease {
-            if inPlace {
-                sizing = [.sizeCounts(lease: lease, counts: hidden ? false : nil)]
-            } else {
-                sizing = hidden ? [.releaseSize(lease: lease)] : [.claim]
-            }
-        }
-        guard batchesHidden else { return sizing }
-        return hidden ? sizing + [.visibility(false)] : [.visibility(true)] + sizing
+    /// Shown again after it hid, this view's stream brings `shown` once it holds every byte printed before the show
+    /// (the daemon held them while hidden): a switch keeps its last frame until then (SWITCH FRAMES SF-5, pre-show).
+    public nonisolated var marksShownAfterHide: Bool {
+        control.value.withLock { $0.batchesHidden && $0.marksShown && $0.snapshotStream }
     }
 
     /// Idempotent: the first call detaches and closes the connection.

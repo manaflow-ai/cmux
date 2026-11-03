@@ -75,6 +75,11 @@ public nonisolated protocol TerminalIO: Sendable {
     /// snapshot. Ordered with `write`.
     func resyncRequested() async
 
+    /// Hidden now, the owner holds this terminal's output (a daemon attach with `attach-visibility-v1`), and shown
+    /// again it sends what waits, then ``TerminalIOEvent/caughtUp``. Read before the IO is told it shows again: a
+    /// switch keeps what it showed until the terminal drew that output (SWITCH FRAMES SF-5, pre-show).
+    @MainActor var catchesUpWhenShown: Bool { get }
+
     /// The name the typing probe gives this IO's terminal (``TypingLatencyProbe/Source``): the same one
     /// the attachment that sends its keys uses, so an echo counts only for the terminal that typed.
     /// Nil (the default): the probe takes no echo hop from this IO while a press is tied to a terminal.
@@ -90,6 +95,7 @@ public extension TerminalIO {
     func takeOverSize(setLatest: Bool) async {}
     func reconnectRequested() async {}
     func resyncRequested() async {}
+    @MainActor var catchesUpWhenShown: Bool { false }
     nonisolated var typingProbeSource: TypingLatencyProbe.Source? { nil }
 }
 
@@ -124,6 +130,9 @@ public nonisolated enum TerminalIOEvent: Sendable, Equatable {
     /// Another view sets the terminal's grid and it does not fit this one: the view says for whom
     /// and offers Take over. Nil clears it.
     case sizedFor(TerminalSizedFor?)
+    /// Shown again after the owner held its output while hidden (``TerminalIO/catchesUpWhenShown``): every byte
+    /// the terminal printed before the show came before this (the daemon's `shown`, `attach-visibility-shown-v1`).
+    case caughtUp
 }
 
 /// "Sized for <device> · cols×rows" over a terminal whose grid another view sets

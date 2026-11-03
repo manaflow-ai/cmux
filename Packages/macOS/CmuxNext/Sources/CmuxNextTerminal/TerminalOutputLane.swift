@@ -37,6 +37,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
 
     private struct Backlog {
         var bytes = 0
+        var total: UInt64 = 0
         var waiters: [CheckedContinuation<Void, Never>] = []
     }
 
@@ -53,10 +54,20 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
 
     /// Bytes queued but not parsed yet.
     var pendingBytes: Int { backlog.withLock { $0.bytes } }
+    /// Bytes ever queued on this lane: a hidden terminal's frame is older than its content once this moved since it
+    /// hid (``TerminalCatchUp``).
+    var queuedTotal: UInt64 { backlog.withLock { $0.total } }
+
+    private func noteQueued(_ count: Int) {
+        backlog.withLock { backlog in
+            backlog.bytes += count
+            backlog.total &+= UInt64(count)
+        }
+    }
 
     func processOutput(_ data: Data) {
         guard !data.isEmpty else { return }
-        backlog.withLock { $0.bytes += data.count }
+        noteQueued(data.count)
         queue.async { [self] in
             defer { parsed(data.count) }
             guard let surface, !closing.load(ordering: .relaxed) else { return }
@@ -77,7 +88,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// was (logged); a failed history chunk keeps the pages applied so far.
     func restoreSnapshot(_ data: Data, phase: ghostty_surface_snapshot_phase_e) {
         guard !data.isEmpty else { return }
-        backlog.withLock { $0.bytes += data.count }
+        noteQueued(data.count)
         queue.async { [self] in
             defer { parsed(data.count) }
             guard let surface, !closing.load(ordering: .relaxed) else { return }
@@ -104,7 +115,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// history (the caller then asks for READY + history); an error changes
     /// nothing. History of a READY before it is abandoned either way.
     func restoreLocalHistory(_ data: Data, expectedRows: UInt64, digest: Data) {
-        backlog.withLock { $0.bytes += data.count }
+        noteQueued(data.count)
         queue.async { [self] in
             defer { parsed(data.count) }
             var result = Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue)
@@ -133,7 +144,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// writes; the private replay keys work only here), in stream order.
     func applyKittyReplay(_ data: Data) {
         guard !data.isEmpty else { return }
-        backlog.withLock { $0.bytes += data.count }
+        noteQueued(data.count)
         queue.async { [self] in
             defer { parsed(data.count) }
             guard let surface, !closing.load(ordering: .relaxed) else { return }

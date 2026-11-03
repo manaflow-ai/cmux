@@ -85,7 +85,7 @@ public final class TerminalSession {
     public var isRenderingSuspended = false {
         didSet {
             surfaceView.isRenderingSuspended = isRenderingSuspended
-            if isRenderingSuspended != oldValue { frameChanges.wake() } // shown or hidden: its kept frame follows
+            if isRenderingSuspended != oldValue { renderingSuspendedChanged() } // its kept frame follows; a switch may wait
         }
     }
     /// This terminal's content changes, for the launch frame keeper (``TerminalLaunchFrameKeeper``).
@@ -160,10 +160,10 @@ public final class TerminalSession {
     /// replay then needs a fresh surface.
     private(set) var surfaceHasContent = false
     let frameHold = TerminalFrameHold()
+    let catchUp = TerminalCatchUp()
     /// READY snapshots restored in place, and surfaces swapped in for a
     /// later VT replay (diagnostics: a snapshot attach never swaps).
-    private(set) var restoredSnapshots = 0
-    private(set) var swappedSurfaces = 0
+    private(set) var restoredSnapshots = 0, swappedSurfaces = 0
     /// The daemon terminal this session shows (``showsTerminal(_:carrying:)``).
     private(set) var terminalIdentity: String?
     /// Last frames shown while this session attached (``showLastFrame(_:)``).
@@ -432,7 +432,7 @@ public final class TerminalSession {
         closeCancels.forEach { $0.cancel() }
         closeCancels = []
         input.finish()
-        frameHold.end() // a held frame has no time limit: it goes with the session, not with the object
+        endHolds() // a held frame has no time limit: it goes with the session, not with the object
         surfaceView.removeFromSuperview()
     }
 
@@ -481,7 +481,7 @@ public final class TerminalSession {
             if surfaceHasContent { swapSurface() }
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
-            frameHold.contentQueued()
+            contentQueued()
             TerminalTimings.contentApplied()
         case .kittyReplay(let replay):
             // GhosttyNextKit restores Kitty graphics through GHOSTSNP snapshots
@@ -492,7 +492,7 @@ public final class TerminalSession {
             if surfaceHasContent { swapSurface() }
             surfaceView.lane?.processOutput(replay.vt)
             surfaceHasContent = true
-            frameHold.contentQueued()
+            contentQueued()
             TerminalTimings.contentApplied()
         case .snapshot(let data, let phase):
             // The same surface takes the owner's state: no swap.
@@ -500,7 +500,7 @@ public final class TerminalSession {
             guard restored, phase.isReady else { return }
             restoredSnapshots += 1
             surfaceHasContent = true
-            frameHold.contentQueued()
+            contentQueued()
             TerminalTimings.contentApplied()
         case .output(let data):
             TypingLatencyProbe.shared.mark(.outputReceived, source: io.typingProbeSource,
@@ -511,7 +511,7 @@ public final class TerminalSession {
             // The surface may have been swapped while waiting (a replay).
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
-            frameHold.contentQueued()
+            contentQueued()
             TerminalTimings.contentApplied()
         case .resize(let columns, let rows):
             guard columns > 0, rows > 0 else { return }
@@ -524,9 +524,9 @@ public final class TerminalSession {
             surfaceView.updateReflowPreview()
             view.showStatus(status)
             // A disconnected or exited view no longer knows who sets the grid.
-            if status != .connected { view.showSizedFor(nil) }
-        case .sizedFor(let sizedFor):
-            view.showSizedFor(model.connection == .connected ? sizedFor : nil)
+            if status != .connected { view.showSizedFor(nil); catchUp.finish() } // a waiting switch shows what there is
+        case .sizedFor(let sizedFor): view.showSizedFor(model.connection == .connected ? sizedFor : nil)
+        case .caughtUp: catchUp.caughtUp()
         }
     }
 

@@ -31,6 +31,9 @@ public enum TerminalChannelEvent: Sendable, Hashable {
     /// The terminal's shared-sizing state changed (`size-state`); `participant` is this view's id
     /// in it, so the view can tell whether it sets the grid.
     case sizeState(TerminalSizeState, participant: String?)
+    /// Shown again (`set-attach-visibility`): every byte the terminal printed before the show came before this
+    /// (`shown`, `attach-visibility-shown-v1`); `shows`: the daemon's count of this view's shows it answered.
+    case shown(shows: UInt64?)
     case closed(TerminalChannelCloseReason)
 }
 

@@ -276,6 +276,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `set-attach-visibility`: a hidden terminal view's output is batched to once per wall-clock second, and sent at
     /// once when it shows again (SWITCH FRAMES SF-5).
     case attachVisibility = "attach-visibility-v1"
+    /// A terminal view shown again gets `shown` once every byte its terminal printed before the show is on its stream:
+    /// a switch keeps the last frame until the view drew it (SWITCH FRAMES SF-5, pre-show).
+    case attachVisibilityShown = "attach-visibility-shown-v1"
     /// `subscribe` carries no `scroll-changed`: no subscriber in this app applies it (the scrollbars come from the
     /// terminals' own surfaces), yet every hidden busy terminal's events woke the event pump and asked for a
     /// main-thread frame about 15 times a second (SWITCH FRAMES SF-5). Attach streams still carry it.
@@ -544,7 +547,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
              .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
-             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach,
+             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .attachVisibility, .attachVisibilityShown, .subscribeScrollOnAttach,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,

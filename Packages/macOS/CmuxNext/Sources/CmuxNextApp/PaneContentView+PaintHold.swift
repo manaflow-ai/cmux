@@ -2,6 +2,7 @@ import AppKit
 public import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextPages
+public import CmuxNextTerminal
 import CmuxNextWakeups
 
 /// One that painted and is shown again waits for its frame at the size it
@@ -27,6 +28,12 @@ extension InternalPageView: PaneFirstPaintGated {
         guard let page = content as? PageWebView else { return body() }
         page.whenPainted(body)
     }
+}
+
+/// A terminal shown again keeps the last tab until it drew the output held while hidden (`TerminalCatchUp`).
+extension TerminalHostView: PaneFirstPaintGated {
+    public var awaitsFirstPaint: Bool { awaitsCatchUp }
+    public func whenFirstPainted(_ body: @escaping () -> Void) { whenCaughtUp(body) }
 }
 
 extension PaneContentView {
