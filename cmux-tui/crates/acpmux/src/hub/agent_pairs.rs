@@ -416,7 +416,8 @@ impl Hub {
     /// `send_message` or `start_session` (`subsession_message`): a session of this daemon, by
     /// its exact id (the cmux daemon writes it `acp:<id>`). `None` for any other prompt, for a
     /// sender that is no session here (the person's `cli`, a terminal, another actor), and for
-    /// acpmux's own withdraw notices.
+    /// acpmux's own withdraw notices. A tool's notice (`notice`) sent from inside a session here
+    /// is that session's, by the `fromSessionId` the daemon bound.
     fn agent_message_sender(&self, provenance: Option<&Value>) -> Option<Arc<Session>> {
         let p = provenance?;
         let kind = p.get("kind").and_then(Value::as_str);
@@ -427,6 +428,7 @@ impl Hub {
                     | "session_message"
                     | super::subsessions::PROVENANCE_KIND
                     | super::lane_reports::KIND
+                    | crate::prompt_provenance::NOTICE_KIND
             )
         ) {
             return None;
@@ -434,7 +436,14 @@ impl Hub {
         if p.get("msgId").and_then(Value::as_str).is_some_and(|id| id.ends_with(".withdrawn")) {
             return None;
         }
-        let from = p.get("from").and_then(Value::as_str)?;
+        // A tool's notice names its sender only by name (`from` is `fromAgent`): the session that
+        // sent it is the one the daemon bound (`fromSessionId`, its proven caller), so a pause or
+        // a take-over holds a notice as it holds that session's other messages.
+        let from = if kind == Some(crate::prompt_provenance::NOTICE_KIND) {
+            p.get(crate::prompt_provenance::FROM_SESSION_ID).and_then(Value::as_str)?
+        } else {
+            p.get("from").and_then(Value::as_str)?
+        };
         let from = from.strip_prefix("acp:").unwrap_or(from);
         if from == PERSON_SENDER {
             return None;
