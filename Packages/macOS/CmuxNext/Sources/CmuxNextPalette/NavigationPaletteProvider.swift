@@ -56,7 +56,7 @@ public final class NavigationPaletteProvider: PaletteProvider {
     /// that kind: "Agent Chat 1", "Agent Chat 2". The workspace's own row already reads that name,
     /// and its subtitle still does (Leo 2026-11-03: "some of these are way too duplicated").
     static func distinctTitles(_ entries: [PaletteNavigationEntry]) -> [PaletteNavigationEntry] {
-        func repeats(_ entry: PaletteNavigationEntry) -> (key: String, kind: TabKind)? {
+        func repeats(_ entry: PaletteNavigationEntry) -> (key: String, kind: PaletteNavigationEntry.TabKind)? {
             guard case .tab(let kind) = entry.kind, let workspace = entry.workspaceTitle,
                   folded(entry.title) == folded(workspace), !workspace.isEmpty else { return nil }
             return ("\(entry.workspaceID ?? workspace)\u{1F}\(kind.rawValue)", kind)
