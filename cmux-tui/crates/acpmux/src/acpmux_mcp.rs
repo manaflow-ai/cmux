@@ -6,7 +6,8 @@
 //! session's messages holding some words, `session_search.rs`) and the team mailbox tools
 //! (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
 //! background tasks under the daemon (`bg_start`, `bg_list`, `bg_output`, `bg_stop`,
-//! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent. `github_status` names the GitHub
+//! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent, and reads a pull request's state
+//! in one condensed call (`pr_state`, `acpmux_mcp_pr.rs`). `github_status` names the GitHub
 //! account cmux can see, never a token (`github_status.rs`). With a cmux sign-in it also saves,
 //! searches, lists and reads the person's cmux artifacts (`artifact_*`, `acpmux_mcp_artifacts.rs`).
 //!
@@ -14,6 +15,8 @@
 //! the session's caller token from this server's env (`hub/person.rs` (a)), on this daemon's
 //! socket only. So it can do nothing that CLI cannot, and the daemon records a message it sends
 //! as that session's (`session_message`, `prompt_provenance.rs`), never as the person's words.
+//! `pr_state` alone is not a daemon request: it runs the agent's own `gh` (one `gh pr view`),
+//! with this server's environment, which the agent gave it.
 //! A remote-origin session gets no tools at all (`agent_tools::left_out`).
 
 use std::sync::Arc;
@@ -56,6 +59,8 @@ const LS_FIELDS: &[&str] =
 pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
 mod bg;
+#[path = "acpmux_mcp_pr.rs"]
+mod pr;
 #[path = "acpmux_mcp_send.rs"]
 mod send;
 
@@ -63,6 +68,7 @@ fn tools() -> Value {
     let mut all = base_tools();
     if let Some(list) = all.as_array_mut() {
         list.extend(bg::tools());
+        list.push(pr::tool());
     }
     all
 }
@@ -257,6 +263,9 @@ pub async fn run() -> Result<()> {
                 }
                 if bg::TOOLS.contains(&name) {
                     return bg::call(&daemon, &session, name, &args).await;
+                }
+                if name == pr::NAME {
+                    return pr::call(&daemon, &session, &args).await;
                 }
                 if name == crate::github_status::TOOL {
                     let sources = crate::github_status::Sources::current();

@@ -119,6 +119,9 @@ import CmuxNextCompat
     /// A folder pick took the person's gesture (``grantPicked(_:)``): the next `session/new` on this
     /// Mac on that connection carries it as its own (``startCredit``). Nothing else spends it.
     var pickCredit = AgentPaneGestureCredit()
+    /// A Cloud chat's Sign in took the person's click (`_acpmux/agent_login/start`): it also opens
+    /// that sign-in's page once (``takeSignInPage(_:)``), so Sign in is one click.
+    var signInPageCredit = AgentPaneGestureCredit()
     /// Home folders of the chat's machine the person chose by Use Home Folder (cx-1bhjj): only
     /// these may be trusted or started in there. Never this Mac's roots (``addedRoots``).
     public internal(set) var remoteHomeChosen: Set<String> = []
@@ -277,6 +280,7 @@ import CmuxNextCompat
         if !remoteWire { remoteHomeChosen = [] }
         startCredit.clear()
         pickCredit.clear()
+        signInPageCredit.clear()
         decisions.reset()
         sentFirst = false
         promptRelay = AgentPanePromptRelay(connection, journal: promptJournal)

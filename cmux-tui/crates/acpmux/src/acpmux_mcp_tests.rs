@@ -76,7 +76,8 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "bg_start",
             "bg_list",
             "bg_output",
-            "bg_stop"
+            "bg_stop",
+            "pr_state"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();

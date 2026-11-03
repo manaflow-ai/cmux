@@ -95,6 +95,7 @@ pub mod model_copies;
 pub mod native;
 pub mod no_panic;
 pub mod offer_mcp;
+pub mod opaque_agent_id;
 pub(crate) mod opencode_ask;
 #[cfg(windows)]
 mod owner_only;
@@ -108,6 +109,7 @@ pub mod placement;
 mod platform;
 pub mod probe_cleanup;
 pub mod probe_prompt;
+pub mod prompt_cache_env;
 pub mod prompt_class;
 pub mod prompt_context;
 pub mod prompt_provenance;

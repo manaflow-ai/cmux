@@ -823,6 +823,55 @@ async fn dispatch_request(
     params: Value,
     resolved: Option<Arc<crate::hub::Session>>,
 ) -> Result<Value, RpcError> {
+    // The Chief reads a paired machine's harnesses before placing a task there.
+    // Only this machine's own clients may select a peer; send no caller params
+    // onward, so neither another hop nor a health refresh/update can be requested.
+    if matches!(m, method::MUX_HARNESSES | method::MUX_HARNESS_HEALTH) {
+        if let Some(selected) = params.pointer("/_meta/acpmux/peer") {
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                return Err(RpcError::invalid_params(
+                    "only the local app or unix socket may read a peer's harnesses",
+                ));
+            }
+            let name = selected
+                .as_str()
+                .filter(|name| !name.is_empty())
+                .ok_or_else(|| RpcError::invalid_params("peer must name a paired machine"))?;
+            let peer = hub
+                .peer_by_name(name)
+                .ok_or_else(|| RpcError::not_found(format!("no peer {name:?}")))?;
+            if !peer.ready() {
+                return Err(peer.unreachable_error());
+            }
+            let mut answer =
+                tokio::time::timeout(std::time::Duration::from_secs(5), peer.request(m, json!({})))
+                    .await
+                    .map_err(|_| {
+                        RpcError::internal(format!("peer {name:?} did not report harnesses in 5 s"))
+                    })??;
+            answer
+                .as_object_mut()
+                .ok_or_else(|| RpcError::internal("peer did not report a harness object"))?
+                .insert("peer".into(), json!(name));
+            return Ok(answer);
+        }
+        if m == method::MUX_HARNESS_HEALTH && conn.origin == Origin::Peer {
+            if !params.as_object().is_some_and(|p| p.is_empty()) {
+                return Err(RpcError::invalid_params(
+                    "a peer reads only cached harness sign-in status with no parameters",
+                ));
+            }
+            // A peer needs auth enums, never diagnostic paths or a probe that
+            // runs programs. Missing cached rows remain unknown to its picker.
+            let rows: Vec<Value> = hub
+                .health
+                .rows_for_subjects(&hub.health_subjects().await)
+                .into_iter()
+                .map(|row| json!({"id": row.id, "auth": row.auth}))
+                .collect();
+            return Ok(json!({"harnesses": rows}));
+        }
+    }
     // A session that lives on a peer (`peer_forward.rs`).
     if let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
         return reply;
