@@ -206,7 +206,12 @@ impl Fold {
                 Some(line)
             }
             "node" => {
-                let mut line = base("compactor", opt_s(event, "node").unwrap_or_default());
+                let mut line = base(
+                    "compactor",
+                    opt_s(event, "usage_key")
+                        .or_else(|| opt_s(event, "node"))
+                        .unwrap_or_default(),
+                );
                 line.model = opt_s(event, "model");
                 line.status = Some(if event["ok"] == false { "error" } else { "ok" }.to_owned());
                 let timing = event.get("timing").unwrap_or(&Value::Null);
