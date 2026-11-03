@@ -250,20 +250,18 @@ fn main() -> std::process::ExitCode {
         }
         Some(verb @ ("rights" | "audit")) => {
             // The table and the log of this Chief (`--mux-home` or MUX_HOME).
-            let home = flags
-                .value("mux-home")
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(optchat_chief::paths::mux_home);
+            // Read here, not through `Flags`: a bare flag before it
+            // (`--json --mux-home X`) would take X as its value there, and
+            // the change would go to the default home's table.
+            let (home, words) = match optchat_chief::rights::split_mux_home(&args[1..]) {
+                Ok(split) => split,
+                Err(e) => {
+                    eprintln!("optchat-chief {verb}: {e}");
+                    return std::process::ExitCode::from(2);
+                }
+            };
+            let home = home.unwrap_or_else(optchat_chief::paths::mux_home);
             let root = optchat_chief::paths::Paths::new(&home).root;
-            let words: Vec<String> = args[1..]
-                .iter()
-                .scan(false, |skip, w| {
-                    let keep = !*skip && w != "--mux-home";
-                    *skip = w == "--mux-home";
-                    Some(keep.then(|| w.clone()))
-                })
-                .flatten()
-                .collect();
             let owner =
                 std::env::var("OPTCHAT_CHIEF_OWNER").unwrap_or_else(|_| "user_local".to_owned());
             let out = if verb == "rights" {
