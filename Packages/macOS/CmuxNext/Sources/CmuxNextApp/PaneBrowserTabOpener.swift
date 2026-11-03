@@ -199,15 +199,8 @@ extension PaneBrowserTabOpener {
     /// (``BrowserTabSplitCommand``), so LinkOpener never makes it here and moves it: the pane's daemon
     /// makes its browser tabs and serves the split, and the pane is not Home's pinned dock.
     var opensInSplit: Bool { splits && !controller.isOpenPinnedDockPane }
-
-    /// Home's pinned dock alone on its screen, whose daemon makes a split right of it a new column beside it
-    /// (`pinned-dock-alone-v1`): a tab aimed at it opens there in one commit, as a new chat from it does
-    /// (NewChatPlacement), instead of being made in the dock and moved out once the store lists it.
-    var opensBesideDockInSplit: Bool {
-        controller.isPinnedDockPane && controller.daemon.supports(DaemonCapability.pinnedDockAlone.rawValue) && splits
-            && controller.daemon.store.screen(containing: controller.pane.handle)?.columns.count == 1
-    }
-
+    /// Home's dock alone (``DaemonStore/isLonePinnedDock(_:)``): a tab aimed at it opens beside it in one commit, as a new chat does (NewChatPlacement).
+    var opensBesideDockInSplit: Bool { splits && controller.daemon.supports(DaemonCapability.pinnedDockAlone.rawValue) && controller.daemon.store.isLonePinnedDock(controller.pane.handle) }
     private var splits: Bool {
         let daemon = controller.daemon, tabs = controller.services.cache.browserTabs, pane = controller.pane
         let route = BrowserTabRoute(isLocal: daemon.isLocal, connected: daemon.connection != nil, servesTabs: tabs.isAvailable(in: pane))
@@ -222,8 +215,7 @@ extension PaneBrowserTabOpener {
                              profile: String?, notice: String?) {
         let controller = controller, browserTabs = controller.services.cache.browserTabs, model = controller.pane
         let intent = controller.workspace?.beginFocusIntent(), command = BrowserTabSplitCommand(pane: model.handle, direction: split.direction, url: address)
-        // No even sizing beside Home's dock: its daemon makes a column there, not a split of its tree.
-        let layout = controller.isPinnedDockPane ? nil : controller.workspace?.layoutModel
+        let layout = controller.isPinnedDockPane ? nil : controller.workspace?.layoutModel // beside Home's dock it is a column: no even sizing
         let send = BenchSpans.measure("split.intend") { command.intendNow(on: controller.daemon, layout: layout, shown: controller.layoutPaneID) }
         BenchSpans.measure("split.layout") { controller.workspace?.applyCurrent() } // the split draws in the click's frame
         controller.services.registry.trackOrRefuse(Task { // a key press nobody awaits still shows a refused open
