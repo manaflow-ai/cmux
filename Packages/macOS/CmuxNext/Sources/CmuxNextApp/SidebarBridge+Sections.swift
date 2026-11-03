@@ -118,10 +118,10 @@ extension SidebarBridge {
         }
     }
 
-    /// Built-in tooltips and the empty-workspace hint use the same shortcut text as menus.
+    /// Built-in tooltips use the same shortcut text as menus.
     static func builtInShortcuts(_ registry: ActionRegistry) -> [ActionID: String] {
         var shortcuts: [ActionID: String] = [:]
-        for action in Array(builtInActions.values) + ["newTab"] {
+        for action in builtInActions.values {
             if let shortcut = registry.shortcutDisplay(for: action) { shortcuts[action] = shortcut }
         }
         return shortcuts
