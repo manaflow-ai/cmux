@@ -51,7 +51,9 @@ function streamed(step: number): AcpmuxSnapshot {
   return {
     ...first,
     rows,
-    isWorking: step > 0,
+    // Running from the first update on, which the test settles before it watches: the dock's live line
+    // coming in grows the composer stack, and the card over the chat rightly stops above it.
+    isWorking: true,
     summary: { ...first.summary!, usage: { ...first.summary!.usage! } },
     sessions: first.sessions.map((entry) => ({ ...entry })),
   };
