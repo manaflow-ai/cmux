@@ -2228,13 +2228,15 @@ pre.cv-math-source {
     display: block;
     width: 100%;
     overflow: hidden;
-    text-overflow: inherit;
+    /* The words' own ellipsis (the band between them clips): a cut label ends in "…" under the band too. */
+    text-overflow: ellipsis;
     white-space: inherit;
     overflow-wrap: inherit;
     color: var(--cv-row-shimmer-lit);
     animation: cmux-shimmer-lit var(--cv-row-shimmer-period) linear infinite;
   }
-  .cv-tool.is-live .cv-row-shimmer__lit * {
+  /* Marks with their own colour (edit counts, a failure word) keep it inside the band. */
+  .cv-tool.is-live .cv-row-shimmer__lit *:not(.cv-edit-diff__add, .cv-edit-diff__del, .cv-tool__failed) {
     color: inherit;
   }
 }
