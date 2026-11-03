@@ -23,6 +23,7 @@ import { AGENT, systemPrompt } from "./prompts.ts"
 import { handsTools, memoryTools } from "./brain-tools.ts"
 import { handsEntryTool, hasHand } from "./brain-hands.ts"
 import { chiefsTools } from "./brain-chiefs.ts"
+import { readTeleport, type Teleport, teleportError, teleportTools, writeTeleport } from "./brain-teleport.ts"
 import { type ChildStart, childInput, childKey, childObject, childPrompt, childRunId, postReports, readChild, slotCounts, slotEnqueue, slotPump, SPAWN_SCHEMA, CHILD_LOST_MS, archiveAndDrop, childReportText, forwardOutcomes, outcomeWhere, keepMs, turnWhereOf, type AgentOutcome, checkOutcomes, noteAgentCall, postOutcomes, queueOutcome, spawnMax, spawnTool, subagentActivity, takeReport, turnThread } from "./brain-spawn.ts"
 import * as sub from "./brain-sub.ts"
 import * as turnLoop from "./brain-turn.ts"
@@ -92,7 +93,9 @@ const DEFAULT_DAILY_TURNS = 300
 export const brainName = (agent: string, conversation: string) => `${agent}/${conversation}`
 export type Admission = { readonly ok: true; readonly config: BrainConfig } | { readonly ok: false; readonly reason: string }
 
-export type ConfigPatch = Partial<Pick<BrainConfig, "enabled" | "model" | "effort" | "compactor_model" | "role" | "personality" | "instructions" | "chiefs">>
+export type ConfigPatch = Partial<Pick<BrainConfig, "enabled" | "model" | "effort" | "compactor_model" | "role" | "personality" | "instructions" | "chiefs">> & { readonly teleport?: Teleport | null }
+/** The settings object's config as the owner reads it: BrainConfig plus the move request (brain-teleport.ts), which a brain's copy never holds. */
+export type SettingsConfig = BrainConfig & { readonly teleport: Teleport | null }
 
 /** The continuation message after a turn made or found the Chief's first hand (one per run). */
 export const HANDS_CONTINUE = "Your new hand is ready, and the full hands and agent tools are now available. Continue the person's request from where you stopped; do not repeat what you already did."
@@ -167,10 +170,10 @@ export class ChiefBrainDO extends DurableObject<Env> {
     harness: ({ storage, context }) => {
       this.registry.install({
         name: "chief",
-        sections: [section("chief", () => (this.childOf() ? childPrompt(this.childOf()!) : systemPrompt(this.config())), { tag: false })],
+        sections: [section("chief", () => (this.childOf() ? childPrompt(this.childOf()!) : systemPrompt(this.config(), { teleport: true })), { tag: false })],
         // A child (subagent) gets hands only: no memory, no Chief management, no spawn (one level deep).
         // Hands come from the "chief-hands" extension (installHands): full, or a compact entry until a hand exists.
-        tools: this.childOf() ? [] : [...memoryTools(() => this.memory), ...chiefsTools(this.env, () => this.config(), () => this.effectsAuthorized()), spawnTool(this.spawnHost())],
+        tools: this.childOf() ? [] : [...memoryTools(() => this.memory), ...chiefsTools(this.env, () => this.config(), () => this.effectsAuthorized()), ...teleportTools(this.env, () => this.config(), () => this.effectsAuthorized()), spawnTool(this.spawnHost())],
         hooks: [
           hook(GenerationTask, {
             beforeRequest: async ({ messages }, api) => {
@@ -284,6 +287,10 @@ export class ChiefBrainDO extends DurableObject<Env> {
   config(): BrainConfig {
     return readConfig(this.sql, this.defaults())
   }
+  /** The settings object's config with its move request (GET and PUT /v1/chiefs/<agent>/brain). */
+  settingsConfig(): SettingsConfig {
+    return { ...this.config(), teleport: readTeleport(this.sql) }
+  }
 
   /** Holder object (name HOLDER) only: the metered Claude route's sign-in, refreshed in this object's storage; one refresh at a time. */
   async claudeAuth(): Promise<string> {
@@ -335,11 +342,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
   turns = (owner: string) => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(turnsObject(owner)))
 
   /** The owner's settings (the Worker checked the caller owns `agent`). Turning it on needs a live chief that no server runs. */
-  async configure(agent: string, owner: string, patch: ConfigPatch): Promise<{ ok: true; config: BrainConfig } | { ok: false; code: string; message: string }> {
+  async configure(agent: string, owner: string, patch: ConfigPatch): Promise<{ ok: true; config: SettingsConfig } | { ok: false; code: string; message: string }> {
     await this.lifecycle.start()
     const cur = this.config()
     if ((cur.agent !== null && cur.agent !== agent) || (cur.owner !== null && cur.owner !== owner)) return { ok: false, code: "auth.forbidden", message: "this brain belongs to another chief" }
-    const invalid = patchError(patch, validModelName)
+    const invalid = patchError(patch, validModelName) ?? (patch.teleport === undefined ? null : teleportError(patch.teleport))
     if (invalid) return { ok: false, code: "validation.invalid", message: invalid }
     // Claude bills one person's metered account: allowed owners only, and never for background compaction.
     // Turning the brain on (from off) checks the model it would run on (the patch's, else the current one), so an
@@ -358,7 +365,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
     }
     writeConfig(this.sql, { agent, owner, ...(patch.enabled === undefined ? {} : { enabled: patch.enabled ? "1" : "0" }), ...(patch.chiefs === undefined ? {} : { chiefs: patch.chiefs ? "1" : "0" }) })
     writeConfig(this.sql, { model: patch.model, effort: patch.effort, compactor_model: patch.compactor_model, role: patch.role, personality: patch.personality, instructions: patch.instructions })
-    return { ok: true, config: this.config() }
+    if (patch.teleport !== undefined) writeTeleport(this.sql, patch.teleport)
+    return { ok: true, config: this.settingsConfig() }
   }
 
   /** Test-only (chief-fault.ts, CHIEF_FAULT_HOOKS, never staging or production): abort this object as an eviction does. */
@@ -367,10 +375,10 @@ export class ChiefBrainDO extends DurableObject<Env> {
     this.ctx.abort("chief fault hook: evict")
   }
 
-  async status(): Promise<{ config: BrainConfig; turns_today: number }> {
+  async status(): Promise<{ config: SettingsConfig; turns_today: number }> {
     await this.lifecycle.start()
     const day = new Date().toISOString().slice(0, 10)
-    return { config: this.config(), turns_today: Number(this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `turns:${day}`).toArray()[0]?.value ?? 0) }
+    return { config: this.settingsConfig(), turns_today: Number(this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `turns:${day}`).toArray()[0]?.value ?? 0) }
   }
 
   /** The memory copy from a Mac Chief (memory-import.ts): where it stands. */

@@ -71,10 +71,12 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "team_send",
             "team_inbox",
             "team_ack",
+            "github_status",
             "bg_start",
             "bg_list",
             "bg_output",
-            "bg_stop"
+            "bg_stop",
+            "pr_state"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
@@ -106,7 +108,19 @@ fn the_send_schema_keeps_its_first_shape() {
     names.sort_unstable();
     assert_eq!(
         names,
-        ["class", "file", "messages", "pr", "steer", "supersede", "tag", "text", "thread", "to"]
+        [
+            "class",
+            "file",
+            "messages",
+            "notice",
+            "pr",
+            "steer",
+            "supersede",
+            "tag",
+            "text",
+            "thread",
+            "to"
+        ]
     );
     assert!(tools()[0]["inputSchema"].get("required").is_none());
     let item = &props["messages"]["items"]["properties"];
@@ -114,8 +128,10 @@ fn the_send_schema_keeps_its_first_shape() {
     item_keys.sort_unstable();
     assert_eq!(
         item_keys,
-        ["class", "file", "pr", "steer", "supersede", "tag", "text", "thread", "to"]
+        ["class", "file", "notice", "pr", "steer", "supersede", "tag", "text", "thread", "to"]
     );
+    assert_eq!(props["notice"]["required"], json!(["severity", "title"]));
+    assert_eq!(props["notice"]["properties"]["severity"]["enum"], json!(["info", "warn", "fire"]));
     assert_eq!(props["messages"]["maxItems"], json!(send::MAX_MESSAGES));
 }
 
@@ -205,6 +221,76 @@ fn top_level_fields_are_each_items_defaults() {
     let many: Vec<Value> =
         (0..=send::MAX_MESSAGES).map(|_| json!({"to": "a", "text": "x"})).collect();
     assert!(send::items(&json!({"messages": many})).unwrap_err().contains("at most 32"));
+}
+
+/// `notice`: a tool's notice, checked as the daemon checks it, its sender this session's name by
+/// default, its links `{url, label?}` or `--link` strings; the text (optional) is its body.
+#[test]
+fn a_notice_argument_is_checked_and_defaults_its_sender_and_host() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |k: &str| pairs.iter().find(|(key, _)| *key == k).map(|(_, v)| (*v).to_owned())
+    };
+    let given = json!({"severity": "fire", "title": "fast tier failed", "host": "ci-mini-3",
+                       "links": [{"url": "https://x.dev/pull/1", "label": "#1"}, "https://x.dev/run/2=run 2"]});
+    let notice =
+        send::notice_arg(Some(&given), env(&[("ACPMUX_SESSION_NAME", "lane-1")])).unwrap().unwrap();
+    assert_eq!(
+        notice,
+        json!({"sender": "lane-1", "host": "ci-mini-3", "severity": "fire", "title": "fast tier failed",
+               "links": [{"url": "https://x.dev/pull/1", "label": "#1"}, {"url": "https://x.dev/run/2", "label": "run 2"}]})
+    );
+    let named = json!({"sender": "base-red-watch", "severity": "info", "title": "t", "host": "h"});
+    let kept = send::notice_arg(Some(&named), env(&[("ACPMUX_SESSION_NAME", "lane-1")])).unwrap();
+    assert_eq!(kept.unwrap()["sender"], "base-red-watch");
+    assert_eq!(send::notice_arg(None, env(&[])).unwrap(), None);
+    assert_eq!(send::notice_arg(Some(&Value::Null), env(&[])).unwrap(), None);
+    let no_sender = json!({"severity": "info", "title": "t"});
+    assert!(send::notice_arg(Some(&no_sender), env(&[])).unwrap_err().contains("sender"));
+    let loud = json!({"sender": "s", "severity": "loud", "title": "t"});
+    assert!(send::notice_arg(Some(&loud), env(&[])).unwrap_err().contains("severity"));
+    assert!(send::notice_arg(Some(&json!("fire")), env(&[])).is_err());
+
+    // In a call: the item carries it, its body is optional, and the text is the rendered notice.
+    let args = json!({"to": "coord", "notice": {"sender": "s", "host": "h", "severity": "warn", "title": "T"}});
+    let items: Vec<send::Item> =
+        send::items(&args).unwrap().into_iter().map(Result::unwrap).collect();
+    assert_eq!(items[0].notice.as_ref().unwrap()["severity"], "warn");
+    assert_eq!(send::body(&items[0]).unwrap(), "[notice from s on h · WARN] T");
+    let bad = json!({"to": "coord", "text": "x", "notice": {"sender": "s", "severity": "fire"}});
+    let errors: Vec<String> =
+        send::items(&bad).unwrap().into_iter().map(Result::unwrap_err).collect();
+    assert!(errors[0].contains("title"), "{errors:?}");
+}
+
+/// A notice sent with the tool reaches the receiver as one: its `user_message` carries the notice
+/// provenance and the rendered text.
+#[tokio::test]
+async fn a_notice_sent_with_the_tool_is_recorded_as_a_notice() {
+    let (hub, client, _dir) = daemon().await;
+    let coord = session(&client, "notice-coord").await;
+    let args = json!({"to": "notice-coord", "text": "3 PRs red", "notice": {
+        "sender": "base-red-watch", "host": "ci-mini-3", "severity": "fire", "title": "fast tier failed"}});
+    let r = call(&client, &tool("send", args)).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(received(&hub, &coord, "fast tier failed").await, "never received");
+    let events = hub.events(&coord, 0, 1000).unwrap();
+    let message = events
+        .iter()
+        .filter(|e| e.kind == "user_message" || e.kind == "inbox")
+        .find(|e| e.msg.to_string().contains("fast tier failed"))
+        .expect("its record");
+    let provenance = &message.msg["_meta"]["provenance"];
+    assert_eq!(provenance["kind"], "notice", "{}", message.msg);
+    assert_eq!(provenance["fromName"], "base-red-watch", "{}", message.msg);
+    assert_eq!(provenance["notice"]["severity"], "fire", "{}", message.msg);
+    assert!(
+        message
+            .msg
+            .to_string()
+            .contains("[notice from base-red-watch on ci-mini-3 · FIRE] fast tier failed"),
+        "{}",
+        message.msg
+    );
 }
 
 /// `file`: the message is the file's contents, read from a file of the caller's, bounded.
@@ -615,7 +701,7 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
     let big = "x".repeat(4000);
     let mut sessions: Vec<Value> = (0..3000)
         .map(|i| {
-            json!({"name": format!("old-{i}"), "status": "closed", "title": "done", "peer": "big-red",
+            json!({"name": format!("old-{i}"), "status": "closed", "title": "done", "peer": "peer-a",
                 "sessionId": format!("c{i}"), "updatedAt": i, "lastPrompt": big, "sessionReceipt": big})
         })
         .collect();
@@ -653,7 +739,14 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
     );
     let r = ls_result(&all, &json!({"status": "closed", "limit": 5}));
     assert_eq!(r["structuredContent"]["sessions"].as_array().unwrap().len(), 5);
-    assert!(text(&r).starts_with("big-red/old-2999  [closed]"), "{}", text(&r));
+    assert!(text(&r).starts_with("peer-a/old-2999  [closed]"), "{}", text(&r));
+    assert!(text(&r).contains("raise limit (up to 500)"), "{}", text(&r));
+
+    // A closed session is found by query once status asks for closed ones, and only then.
+    let r = ls_result(&all, &json!({"query": "old-42", "status": "closed"}));
+    assert!(text(&r).lines().any(|l| l.starts_with("peer-a/old-42  [closed]")), "{}", text(&r));
+    let r = ls_result(&all, &json!({"query": "old-42"}));
+    assert_eq!(text(&r), "No sessions.", "{r}");
 }
 
 #[tokio::test]
@@ -784,4 +877,20 @@ fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
     let chief = allowed(all.clone(), Some(crate::agent_tools::CHIEF_TURN_TOOLS));
     assert_eq!(names(&chief), ["send", "inbox_read", "inbox_reply", "ls", "last", "info"]);
     assert!(names(&allowed(all, Some("render,agents_wait"))).is_empty());
+}
+
+/// Every chat's `acpmux` server lists `github_status` and tells the agent when to call it, and a
+/// Chief turn's allowlist (which does not name it) leaves it out like any other tool.
+#[test]
+fn github_status_is_listed_with_its_instruction() {
+    let all = tools_with_artifacts(false);
+    assert!(crate::mcp_hint::names(&all).any(|n| n == crate::github_status::TOOL));
+    let text = instructions(&all).unwrap();
+    assert!(text.contains("call github_status"), "{text}");
+    assert!(text.contains("bg_start"), "{text}");
+    let scoped = allowed(all.clone(), Some("acpmux_github_status"));
+    assert_eq!(crate::mcp_hint::names(&scoped).collect::<Vec<_>>(), ["github_status"]);
+    assert_eq!(instructions(&scoped).unwrap(), crate::github_status::STEER);
+    let chief = allowed(all, Some(crate::agent_tools::CHIEF_TURN_TOOLS));
+    assert!(!crate::mcp_hint::names(&chief).any(|n| n == crate::github_status::TOOL));
 }

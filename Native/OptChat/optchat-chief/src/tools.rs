@@ -6,8 +6,8 @@
 
 // The tool limits the schemas name are the kernel's (chief-kernel tools.rs).
 pub use chief_kernel::tools::{
-    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, MAX_SEND_ATTACHMENTS, PLACES, SLEEP_MAX_SECONDS,
-    SLEEP_MIN_SECONDS, WATCH_DEFAULT_SECONDS, WATCH_MAX_SECONDS, WATCH_MIN_SECONDS, WATCHES_KEPT,
+    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, PLACES, SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS,
+    WATCH_DEFAULT_SECONDS, WATCH_MAX_SECONDS, WATCH_MIN_SECONDS, WATCHES_KEPT,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -270,11 +270,6 @@ impl SendCall {
             Some(Value::String(one)) if !one.trim().is_empty() => vec![one.trim().to_owned()],
             Some(_) => return Err("send: `attachments` must be a list of paths or URLs".into()),
         };
-        if attachments.len() > MAX_SEND_ATTACHMENTS {
-            return Err(format!(
-                "send: at most {MAX_SEND_ATTACHMENTS} attachments per message"
-            ));
-        }
         if text.is_none() && attachments.is_empty() {
             return Err("send: give `text`, `attachments` or both".into());
         }
@@ -911,14 +906,12 @@ impl Call {
                     .filter(|e| !e.is_empty())
                     .map(str::to_owned);
                 if let Some(p) = place.as_deref()
-                    && !PLACES.contains(&p)
-                    && !p
-                        .strip_prefix("cloud:")
-                        .is_some_and(|s| crate::subagents::SIZES.contains(&s))
+                    && let Some(size) = p.strip_prefix("cloud:")
+                    && !crate::subagents::SIZES.contains(&size)
                 {
                     return Err(format!(
-                        "spawn: no place {p}; one of {}, or cloud:small|medium|large",
-                        PLACES.join(", ")
+                        "spawn: no Cloud size {size}; one of {}",
+                        crate::subagents::SIZES.join(", ")
                     ));
                 }
                 let harness = args
@@ -1251,6 +1244,8 @@ pub enum ControlRequest {
     /// chief.stop {restart: [ids]}: those subagents go on (Restart on the
     /// stop-all toast).
     Restart(Vec<String>),
+    /// The turn session's tool hook (rights.rs): answers the hook's JSON.
+    RightsHook { phase: String, payload: Value },
 }
 
 /// What the tools socket serves: the memory, the subagent tools when the
@@ -1377,6 +1372,28 @@ fn connection(conn: UnixStream, served: &Served) {
                     }
                     continue;
                 }
+                // The turn session's tool hook (`optchat-chief rights-hook`):
+                // only a caller under one of this Chief's turn sessions gets
+                // a decision; anyone else gets none (their own policy holds).
+                if tool == "rights_hook" {
+                    let phase = req.get("phase").and_then(Value::as_str).unwrap_or("");
+                    let answer = match (control, role(), phase) {
+                        (Some(control), crate::turn_caller::Role::Turn, "pre" | "post") => {
+                            match control(ControlRequest::RightsHook {
+                                phase: phase.to_owned(),
+                                payload: req.get("payload").cloned().unwrap_or(Value::Null),
+                            }) {
+                                Ok(text) => json!({"text": text}),
+                                Err(e) => json!({"error": e}),
+                            }
+                        }
+                        _ => json!({"text": "{}"}),
+                    };
+                    if writeln!(out, "{answer}").is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 // Not a model tool: the `browse` command asks the live host.
                 if tool == "settings" || tool == "spawn_policy" {
                     let ask = match req.get("key").and_then(Value::as_str) {
@@ -1458,6 +1475,7 @@ fn connection(conn: UnixStream, served: &Served) {
                                 compactor_speed: field("compactor_speed"),
                                 compactor_harness: field("compactor_harness"),
                                 compactor_model: field("compactor_model"),
+                                turn_routing: field("turn_routing"),
                                 reactions: Box::new(crate::brain::ReactionFields {
                                     classifier_harness: field("classifier_harness"),
                                     classifier_model: field("classifier_model"),
@@ -1808,6 +1826,14 @@ pub fn ask_settings(path: &Path, set: Option<(&str, &str)>) -> Result<String, St
 pub fn ask_spawn_policy(path: &Path) -> Result<Option<String>, String> {
     let text = ask_json(path, &json!({"tool": "spawn_policy"}))?;
     Ok((!text.is_empty()).then_some(text))
+}
+
+/// The turn hook's answer from the live host (the JSON the hook prints).
+pub fn ask_rights_hook(path: &Path, phase: &str, payload: Value) -> Result<String, String> {
+    ask_json(
+        path,
+        &json!({"tool": "rights_hook", "phase": phase, "payload": payload}),
+    )
 }
 
 /// The browse page from the live host; Err when no host answers on `path`.

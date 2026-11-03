@@ -52,6 +52,8 @@ extension SidebarViewComponents {
         /// Whether a joined line runs out of its header's bar (`SidebarGroupLine.joinsBar`, the band header style)
         /// or starts after the cut: its frame moves, so the list lays out again.
         var groupLineJoinsBar: Bool
+        /// Where leading glyphs sit in the icon column (`sidebar.leadingColumn`): every row lays out again.
+        var leadingColumn: SidebarLeadingColumnLook
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
@@ -82,6 +84,7 @@ extension SidebarViewComponents {
             groupLineLayout = SidebarGroupLineLayout.tunable.value
             groupChromeShape = SidebarStyle.groupChromeShape
             groupLineJoinsBar = SidebarGroupLine.joinsBar
+            leadingColumn = SidebarLeadingColumnLook.tunable.value
         }
     }
     func observe() {
@@ -104,7 +107,7 @@ extension SidebarViewComponents {
     func render(_ state: RenderState) {
         guard state != lastState else { return }
         let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
-            || lastState?.titlebarHeight != state.titlebarHeight
+            || lastState?.titlebarHeight != state.titlebarHeight || lastState?.leadingColumn != state.leadingColumn
         let profileChanged = lastState?.activeProfile != state.activeProfile
         let profilesChanged = lastState?.profiles != state.profiles || profileChanged
             || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo
