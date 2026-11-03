@@ -67,6 +67,10 @@ export type TurnActions = {
   /// Continue a turn the reader stopped (the last turn's footer, when `resumable`): sends
   /// `CONTINUE_PROMPT` through the composer's send path, so it queues and shows as a prompt.
   resume?: () => Promise<void>;
+  /// Answer a tagged ask (NextStepCard.tsx): sends the answer's words through the composer's send
+  /// path, so it shows as the reader's prompt and starts the next turn. Absent where the pane cannot
+  /// send (View Only, a read-only pane); the card then draws no buttons.
+  answer?: (text: string) => Promise<void>;
   /// Compact the chat (a context-full failure's Compact): sends the harness's own `/compact` through
   /// the composer's send path. Only where the agent lists `compact` among its slash commands.
   compact?: () => Promise<void>;
@@ -125,6 +129,16 @@ export const CONTINUE_PROMPT = "Continue";
 export const resumeThrough =
   (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) => (): Promise<void> =>
     callNative("chat.send", { text: CONTINUE_PROMPT }).then(
+      () => undefined,
+      () => undefined,
+    );
+
+/// A tagged ask's answer (NextStepCard.tsx) through the composer's send (`chat.send`), as Continue
+/// sends its prompt. Settles once the send does; a send that fails says so on its own row.
+export const answerThrough =
+  (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) =>
+  (text: string): Promise<void> =>
+    callNative("chat.send", { text }).then(
       () => undefined,
       () => undefined,
     );

@@ -17,6 +17,7 @@ import { showsTimestamp, type TurnTimes } from "./timestamps";
 import { isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
 import { QUESTION_RECORD } from "../question/record";
+import { chosenAnswer, nextStepAsk } from "./nextStepAsk";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
@@ -62,6 +63,10 @@ export const PREVIEW = "preview";
 /// A row added for each render call of an ended turn (renderCall.ts), above its answer: the
 /// render card, with the call as its one item.
 export const RENDER = "render";
+/// A row added for an ended turn whose answer ends on one tagged ask (nextStepAsk.ts): the ask as a
+/// card with its answers as buttons (NextStepCard.tsx), right under the answer, which drops the
+/// ask's lines. Its `nextStep` carries the ask and, once a prompt follows the turn, the answer.
+export const NEXT_STEP = "nextStep";
 /// Activity rows shown inside an open disclosure are copies under this suffix, so the
 /// edited-files card after the answer keeps the original id.
 const FOLDED = ":fold";
@@ -543,6 +548,10 @@ function shapedTurn(
     if (user.queued) Object.assign(line, { queued: user.queued, untimed: true });
     shaped = [...date, ...drawnUser, line];
   } else {
+    // The person's prompt after the turn, which answers a tagged ask its answer ended on: one sent
+    // and still held in the turn, else the prompt that opens the next turn.
+    const next = held[0] ?? rows[end];
+    const reply = next?.kind === "user" && !next.incoming && next.text ? next.text : undefined;
     const shapedBody = shapeTurn(
       user,
       turn,
@@ -556,6 +565,7 @@ function shapedTurn(
       sessionStatus,
       lineBelow,
       agentFamily,
+      reply,
     );
     // Where its runs fold, a run of them that carries messages between agents folds under one line
     // (messageRuns.ts; Leo, 2026-11-01: "this should be collapsible").
@@ -702,6 +712,7 @@ function shapeTurn(
   sessionStatus = false,
   lineBelow = false,
   agentFamily?: string,
+  reply?: string,
 ): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
   // A turn still running shows its work as it happens, under its live status; one without a
@@ -725,6 +736,12 @@ function shapeTurn(
   if (isVisiblyEmptyMessage(user) && body.length === 0 && summary.status === "completed") return [];
   const final = answerAt(body);
   const answer = final >= 0 ? body[final] : undefined;
+  // A tagged ask the answer ends on (nextStepAsk.ts) draws as a card under it: waiting while this is
+  // the last turn and nothing follows it, answered once a prompt does. Read once per ended turn,
+  // never while the turn runs. A turn that stopped or failed, or that another agent's message
+  // follows, keeps the ask in its prose.
+  const ask = !live && summary.status === "completed" ? nextStepAsk(answer?.text) : undefined;
+  const nextStep = ask && (reply !== undefined || retryable) ? ask : undefined;
   const shaped: AcpmuxRow[] = [];
   // A derived row's version must change whenever what it draws does: the memoized rows and the
   // height cache compare versions only. Answer versions stay far below VERSION_SPAN.
@@ -815,7 +832,18 @@ function shapeTurn(
     const outside = (rows: readonly AcpmuxRow[]) =>
       rows.flatMap((row) => (out(row) ? [endedPlan(row)] : dialogue ? [row] : renderRows([row], version)));
     shaped.push(...outside(before));
-    if (said) shaped.push(said);
+    if (said && nextStep && said === answer) {
+      // The answer without the ask's lines, which the card draws; a new version, so its memo redraws.
+      if (nextStep.rest) shaped.push({ ...said, text: nextStep.rest, version: said.version * 2 + 1 });
+      const answered = reply === undefined ? undefined : chosenAnswer(nextStep, reply);
+      shaped.push({
+        id: `${NEXT_STEP}-${segment.anchor.id}`,
+        version: version * 2 + (answered === undefined ? 0 : 1),
+        at: said.at,
+        kind: NEXT_STEP,
+        nextStep: { ask: nextStep, ...(answered !== undefined && { answer: answered }) },
+      });
+    } else if (said) shaped.push(said);
     shaped.push(...outside(after));
     if (taskLine && taskLook === "after-reply") shaped.push(taskLine);
   }
