@@ -9,6 +9,7 @@
 //              second, as a busy daemon does when it re-sends the list;
 //   presence   acpmux repeats the same empty presence for the open chat, RATE a second.
 // A pane at rest costs about nothing; a repeat that changes nothing must cost about as little.
+// RESTS=n sits through n rest windows first, so work that grows with the time the pane is open shows.
 //   bun bench/agent-pane-idle.bench.ts [turns=300] [others=200] [phaseMs=5000] [rate=20]
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -23,7 +24,8 @@ const TURNS = Number(process.argv[2] ?? 300);
 const OTHERS = Number(process.argv[3] ?? 200);
 const PHASE_MS = Number(process.argv[4] ?? 5000);
 const RATE = Number(process.argv[5] ?? 20);
-for (const value of [TURNS, OTHERS, PHASE_MS, RATE])
+const RESTS = Number(process.env.RESTS ?? 1);
+for (const value of [TURNS, OTHERS, PHASE_MS, RATE, RESTS])
   if (!Number.isInteger(value) || value < 0) {
     console.error("usage: bun bench/agent-pane-idle.bench.ts [turns=300] [others=200] [phaseMs=5000] [rate=20]");
     process.exit(2);
@@ -143,7 +145,7 @@ try {
     return () => clearInterval(timer);
   };
   const phases: Phase[] = [
-    { name: "rest" },
+    ...Array.from({ length: RESTS }, (_, index) => ({ name: index === 0 ? "rest" : `rest${index + 1}` })),
     {
       name: "echo",
       start: repeat((tick) =>
@@ -169,7 +171,13 @@ try {
     console.log(
       `${phase.name} | ${msPerSecond.toFixed(1)} | ${(quiet!.wakeups / seconds).toFixed(1)} | ${quiet!.sources.slice(0, 6).join("; ")}`,
     );
-    perfRow({ name: `agent_pane_idle.${phase.name}.cpu_ms_per_s`, p50: msPerSecond, p95: msPerSecond, target: 5, floor: 2 });
+    perfRow({
+      name: `agent_pane_idle.${phase.name}.cpu_ms_per_s`,
+      p50: msPerSecond,
+      p95: msPerSecond,
+      target: 5,
+      floor: 2,
+    });
     // Let the last repeat's frame land before the next phase.
     await page.waitForTimeout(500);
   }
