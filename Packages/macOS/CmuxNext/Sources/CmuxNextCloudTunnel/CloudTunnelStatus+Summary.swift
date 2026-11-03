@@ -47,3 +47,10 @@ extension CloudTunnelStatus {
                bundle: .module)
     }
 }
+
+extension CloudTunnelStatus {
+    /// When the tunnel came up, in seconds since 1970, for the CLI's `connected_since`; else `nil`.
+    public var connectedSinceSeconds: Int? {
+        if case .connected(let since?) = self { Int(since.timeIntervalSince1970) } else { nil }
+    }
+}

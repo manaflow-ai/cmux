@@ -286,4 +286,48 @@ import Testing
         #expect(off == .off, "not the earlier failure")
         #expect(manager.calls.suffix(2) == ["stop", "remove"])
     }
+
+    @Test func anAgentCannotTurnItOnAndNothingChanges() async {
+        let tunnel = controller()
+        await #expect(throws: CloudTunnelRefusal(message: CloudTunnelStatus.agentRefusal)) {
+            try await tunnel.change(on: true, byPerson: false, settingIsOn: false) { _ in Issue.record("no setting write") }
+        }
+        #expect(activator.requests.isEmpty)
+        #expect(tunnel.status == .off)
+    }
+
+    @Test func anAgentCanTurnItOff() async throws {
+        let tunnel = controller()
+        var writes: [Bool] = []
+        let status = try await tunnel.change(on: false, byPerson: false, settingIsOn: true) { writes.append($0) }
+        #expect(writes == [false])
+        #expect(status == .off)
+    }
+
+    @Test func thePersonTurnsItOnThroughTheSettingAndGetsTheSettledStatus() async throws {
+        activator.holdOpen = true
+        activator.script = [.needsApproval]
+        let tunnel = controller()
+        var writes: [Bool] = []
+        let status = try await tunnel.change(on: true, byPerson: true, settingIsOn: false) { writes.append($0) }
+        #expect(writes == [true], "the setting is written once")
+        #expect(status == .awaitingApproval)
+        let again = try await tunnel.change(on: true, byPerson: true, settingIsOn: true) { writes.append($0) }
+        #expect(writes == [true], "an equal setting is not written again")
+        #expect(again == .awaitingApproval)
+        #expect(activator.requests.count == 1)
+    }
+
+    @Test func anUnavailableBuildRefusesWithItsReason() async {
+        let tunnel = controller(.unavailable("No extension."))
+        await #expect(throws: CloudTunnelRefusal(message: "No extension.")) {
+            try await tunnel.change(on: false, byPerson: true, settingIsOn: nil) { _ in }
+        }
+    }
+
+    @Test func connectedSinceIsInSecondsOnlyWhenConnected() {
+        #expect(CloudTunnelStatus.connected(since: Date(timeIntervalSince1970: 42)).connectedSinceSeconds == 42)
+        #expect(CloudTunnelStatus.connected(since: nil).connectedSinceSeconds == nil)
+        #expect(CloudTunnelStatus.off.connectedSinceSeconds == nil)
+    }
 }
