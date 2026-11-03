@@ -548,12 +548,14 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         }
         await page.setViewportSize({ width: 300, height: 560 });
 
-        const clickTargets = await page.evaluate(() => {
+        await page.evaluate(() => {
           const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
           const rows = [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
           const noStop = rows.find((row) => !row.querySelector(".acpmux-agent-line__stop-slot > button"));
           const withStop = rows.find((row) => row.querySelector(".acpmux-agent-line__stop-slot > button"));
           if (!noStop || !withStop) throw new Error("missing stop and no-stop rows");
+          noStop.dataset.testTarget = "no-stop";
+          withStop.dataset.testTarget = "stop";
           const clicks = window as typeof window & { __trayClicks?: string[] };
           clicks.__trayClicks = [];
           noStop
@@ -562,22 +564,29 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           withStop
             .querySelector(".acpmux-agent-line__stop-slot > button")
             ?.addEventListener("click", () => clicks.__trayClicks?.push("stop"));
-          const center = (node: HTMLElement) => {
+        });
+        // The open list is newest first and scrolls (#33364): the row with no Stop can sit below the
+        // list's fold, so each target is scrolled into the list's view before its point is read.
+        const clickPoint = (target: "no-stop" | "stop") =>
+          page.evaluate((target) => {
+            const row = document.querySelector<HTMLElement>(`[data-test-target="${target}"]`)!;
+            row.scrollIntoView({ block: "nearest" });
+            // The empty slot's own center, where it lies over the row's button: the click must reach the row.
+            const node = row.querySelector<HTMLElement>(
+              target === "stop" ? ".acpmux-agent-line__stop-slot > button" : ".acpmux-agent-line__stop-slot",
+            );
+            if (!node || node.getBoundingClientRect().width === 0)
+              throw new Error(`the ${target} row has no sized stop slot`);
             const box = node.getBoundingClientRect();
             return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
-          };
-          // The empty slot's own center, where it lies over the row's button: the click must reach the row.
-          const slot = noStop.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot");
-          const stop = withStop.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot > button");
-          if (!slot || slot.getBoundingClientRect().width === 0)
-            throw new Error("the no-stop row has no sized stop slot");
-          return { noStop: center(slot), stop: center(stop!) };
-        });
-        await page.mouse.click(clickTargets.noStop.x, clickTargets.noStop.y);
+          }, target);
+        const noStopPoint = await clickPoint("no-stop");
+        await page.mouse.click(noStopPoint.x, noStopPoint.y);
         expect(await page.evaluate(() => (window as typeof window & { __trayClicks?: string[] }).__trayClicks)).toEqual(
           ["open"],
         );
-        await page.mouse.click(clickTargets.stop.x, clickTargets.stop.y);
+        const stopPoint = await clickPoint("stop");
+        await page.mouse.click(stopPoint.x, stopPoint.y);
         expect(await page.evaluate(() => (window as typeof window & { __trayClicks?: string[] }).__trayClicks)).toEqual(
           ["open", "stop"],
         );
