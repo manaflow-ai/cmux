@@ -74,6 +74,24 @@ import Testing
         #expect(Self.descendants(of: chrome).compactMap { $0 as? FindBarView }.count == 1, "a second show reuses it")
     }
 
+    /// Review of #32967: the find pill made on its first show still gets its hole in a child-window page in
+    /// the same layout pass. Its glass is two levels down, so the chrome's layout read a zero glass frame and
+    /// the page window drew over the pill until something else updated the holes.
+    @Test func theFirstFindPillGetsItsHoleInThePageInOneLayoutPass() throws {
+        let tab = Self.tab()
+        let chrome = BrowserChromeView(tab: tab)
+        let window = Self.window(chrome)
+        defer {
+            window.close()
+            BrowserPageRetirement(tab: tab, chrome: chrome).retire()
+        }
+        chrome.perform(.findInPage)
+        chrome.layoutSubtreeIfNeeded()
+        let hole = try #require(tab.roundedOcclusions.first, "the shown find pill left no hole in the page")
+        #expect(hole.rect.width > 0 && hole.rect.height > 0, "the hole is the pill's glass, not an empty rect: \(hole.rect)")
+        #expect(tab.contentView.bounds.contains(hole.rect), "inside the page: \(hole.rect)")
+    }
+
     @Test func aLoadErrorShowsTheErrorPage() async throws {
         let tab = Self.tab()
         let chrome = BrowserChromeView(tab: tab)
