@@ -28,6 +28,7 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
     { entry: "agent-pane.received-messages", variant: "level-2" },
     { entry: "agent-pane.transcript-spacing-table", variant: "shipped" },
     { entry: "agent-pane.transcript-spacing-table", variant: "peer-lines" },
+    { entry: "agent-pane.transcript-chevron-after-label", variant: "chatgpt" },
   ];
   const WIDTHS = [760, 420];
 

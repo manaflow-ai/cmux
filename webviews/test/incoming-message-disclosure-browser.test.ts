@@ -417,8 +417,10 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
   });
 
   // Leo, 2026-10-29: "this ui is all quite inconsistent". A delivered message and one that waits
-  // are one row: their chevrons end on one x, one plate under the line, actions only on hover.
-  test("a delivered message and a waiting one draw the same line: one chevron column, actions on hover", async () => {
+  // are one row: each chevron right after its words (Leo, 2026-11-03: "this how chatgpt does their
+  // chevrons"; this test pinned one chevron x at the line's end before), one plate under the line,
+  // actions only on hover.
+  test("a delivered message and a waiting one draw the same line: chevron after the words, actions on hover", async () => {
     const page = await openChat(
       [
         ...turn(1),
@@ -444,9 +446,11 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
         all.map((row) => {
           const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
           const chevron = line.querySelector<HTMLElement>(".cv-rotor")!.getBoundingClientRect();
+          const words = line.querySelector<HTMLElement>(".cv-received__preview")!.getBoundingClientRect();
           const hover = line.querySelector<HTMLElement>(".cv-received__hover");
           return {
             right: Math.round(chevron.right),
+            after: chevron.left - words.right,
             open: Boolean(line.querySelector(".cv-disclosure__open")),
             groups: line.querySelectorAll(".cv-received-actions").length,
             hidden: hover ? getComputedStyle(hover).opacity : "missing",
@@ -454,8 +458,9 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
         }),
       );
       expect(lines).toHaveLength(2);
-      expect(lines[0]!.right).toBe(lines[1]!.right);
       for (const line of lines) {
+        expect(line.after).toBeGreaterThanOrEqual(-0.5);
+        expect(line.after).toBeLessThanOrEqual(8.5);
         expect(line.open).toBe(false);
         expect(line.groups).toBe(1);
         expect(line.hidden).toBe("0");
