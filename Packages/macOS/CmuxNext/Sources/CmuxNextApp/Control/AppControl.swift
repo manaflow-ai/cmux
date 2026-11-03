@@ -282,6 +282,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(debugCEFPagesReport(services))
             },
+            // A DevTools method on one of cmux's own Chromium pages by browser id (bench_power.py idle-chats).
+            .async("debug.cef_page_devtools") { [weak services] call in
+                guard let services else { return .null }
+                return await debugCEFPageDevTools(call.params, services)
+            }.withDeadline(.fixed(.seconds(30))),
             // Chromium process failures, restart state, crash reports.
             .mainActor("debug.crashes") { [weak services] _ in
                 guard let services else { return .value(.null) }

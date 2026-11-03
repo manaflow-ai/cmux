@@ -249,13 +249,6 @@ extension PageWebView {
         return true
     }
 
-    /// Runs DevTools `method` on this page in Chromium and returns its JSON reply (`debug.agent_pane
-    /// devtools`: the idle bench's CPU profile and page metrics). Nil on a WebKit page.
-    public func debugDevTools(_ method: String, params: [String: any Sendable]) async throws -> String? {
-        guard let page = chromiumSession?.page else { return nil }
-        return try await page.devTools(method, params: params)
-    }
-
     /// The next file input this page opens in WebKit takes `files` instead of showing the panel.
     public func debugQueueFiles(_ files: [URL]) { fileChooser?.debugAnswer = files }
 

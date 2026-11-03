@@ -217,20 +217,6 @@ enum DebugAgentPane {
         if action == "set_files" {
             return .object(["pane": .string(pane), "error": await view.debugSetFiles(selector: params["selector"]?.stringValue ?? ".acpmux-attach-input", paths: params["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []).map(JSONValue.string) ?? .null]) }
         if action == "hover" { return await DebugAgentPaneClick.hover(params, pane: pane, view: view) }
-        if action == "devtools" {
-            // A DevTools method on the chat's Chromium page (the idle bench's Profiler and Performance reads).
-            guard let method = params["method"]?.stringValue else { return .object(["pane": .string(pane), "error": .string("no method")]) }
-            var arguments: [String: any Sendable] = [:]
-            for (key, value) in params["params"]?.objectValue ?? [:] { arguments[key] = sendable(value) }
-            do {
-                guard let reply = try await view.debugDevTools(method, params: arguments) else {
-                    return .object(["pane": .string(pane), "error": .string("the chat does not show in Chromium")])
-                }
-                return .object(["pane": .string(pane), "result": .string(reply)])
-            } catch {
-                return .object(["pane": .string(pane), "error": .string(String(describing: error))])
-            }
-        }
         if action == "pacer" { return .object(["pane": .string(pane), "pacer": JSONValue(foundation: view.debugPacerState) ?? .null]) }
         if action == "inspector" { return await view.debugToggleInspector(open: params["open"]?.boolValue, pane: pane) }
         if action == "session_info_action" { return view.debugSessionInfoAction(params, pane: pane) }
@@ -240,7 +226,7 @@ enum DebugAgentPane {
             }
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, devtools, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state, session_info_action or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state, session_info_action or inspector")])
         }
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": arguments(action, params)])
@@ -263,18 +249,6 @@ enum DebugAgentPane {
         guard let method = class_getInstanceMethod(WKWebView.self, selector) else { return }
         typealias SetEnabled = @convention(c) (AnyObject, Selector, Bool) -> Void
         unsafeBitCast(method_getImplementation(method), to: SetEnabled.self)(webView, selector, false)
-    }
-
-    /// A JSON parameter as the Foundation value a DevTools call takes.
-    private static func sendable(_ value: JSONValue) -> any Sendable {
-        switch value {
-        case .null: return NSNull()
-        case .bool(let bool): return bool
-        case .number(let number): return number.rounded() == number && abs(number) < 1e15 ? Int(number) as any Sendable : number
-        case .string(let string): return string
-        case .array(let items): return items.map(sendable)
-        case .object(let members): return members.mapValues(sendable)
-        }
     }
 
     /// The page function's positional arguments, as Foundation values.

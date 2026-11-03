@@ -527,9 +527,9 @@ def idle_cost_markdown(result: dict, budget: float) -> tuple[str, dict]:
     return "\n".join(lines) + "\n", verdict
 
 
-def devtools(sock: str, method: str, params: dict | None = None):
-    """A DevTools method on the shown chat's Chromium page (`debug.agent_pane devtools`): its reply, parsed."""
-    reply = rpc(sock, "debug.agent_pane", {"action": "devtools", "method": method, "params": params or {}}, timeout=60)
+def devtools(sock: str, browser: int, method: str, params: dict | None = None):
+    """A DevTools method on cmux's own Chromium page `browser` (`debug.cef_page_devtools`): its reply, parsed."""
+    reply = rpc(sock, "debug.cef_page_devtools", {"browser": browser, "method": method, "params": params or {}}, timeout=60)
     if reply.get("error") or not isinstance(reply.get("result"), str):
         return {"error": reply.get("error") or "no reply"}
     try:
@@ -558,31 +558,39 @@ def profile_summary(profile: dict, top: int = 25) -> dict:
     return {"total_ms": round(total / 1000, 1), "self_ms": [[key, round(micros / 1000, 1)] for key, micros in busiest]}
 
 
-def idle_profile(sock: str, seconds: float) -> dict:
-    """What the shown chat's renderer main thread runs while nobody touches it: Chromium's page
-    metrics (script, style, layout time and counts) per second over `seconds`, and a V8 CPU
-    profile of the same window by function. The profiler and the metrics are off again after."""
-    def metrics():
-        reply = devtools(sock, "Performance.getMetrics")
+def idle_profile(sock: str, pages: list[dict], seconds: float) -> list[dict]:
+    """What each shown cmux page's renderer main thread runs while nobody touches it, all in one
+    window of `seconds`: Chromium's page metrics (task, script, style and layout time, counts) per
+    second, and a V8 CPU profile by function. The profilers and the metrics are off again after."""
+    shown = [page for page in pages if not page.get("hidden") and str(page.get("origin", "")).startswith("cmux-page://")]
+    def metrics(browser):
+        reply = devtools(sock, browser, "Performance.getMetrics")
         return {m["name"]: m["value"] for m in reply.get("metrics", [])} if "metrics" in reply else reply
-    out = {"seconds": seconds}
-    out["enable"] = [devtools(sock, "Performance.enable"), devtools(sock, "Profiler.enable"),
-                     devtools(sock, "Profiler.setSamplingInterval", {"interval": 500}), devtools(sock, "Profiler.start")]
-    before = metrics()
+    for page in shown:
+        for method, params in (("Performance.enable", None), ("Profiler.enable", None),
+                               ("Profiler.setSamplingInterval", {"interval": 500}), ("Profiler.start", None)):
+            devtools(sock, page["browser"], method, params)
+    before = {page["browser"]: metrics(page["browser"]) for page in shown}
     time.sleep(seconds)  # test script: the profiled idle window
-    after = metrics()
-    stopped = devtools(sock, "Profiler.stop")
-    devtools(sock, "Profiler.disable")
-    devtools(sock, "Performance.disable")
-    if isinstance(before, dict) and isinstance(after, dict) and "error" not in before and "error" not in after:
-        keys = ("TaskDuration", "ScriptDuration", "LayoutDuration", "RecalcStyleDuration", "LayoutCount",
-                "RecalcStyleCount", "JSHeapUsedSize", "Nodes", "JSEventListeners", "Frames")
-        out["metrics_per_s"] = {key: round((after.get(key, 0) - before.get(key, 0)) / seconds, 4) for key in keys if key in after}
-        out["heap_mb"] = round(after.get("JSHeapUsedSize", 0) / MB, 1)
-        out["nodes"] = after.get("Nodes")
-    else:
-        out["metrics_error"] = [before, after]
-    out["profile"] = profile_summary(stopped["profile"]) if "profile" in stopped else stopped
+    after = {page["browser"]: metrics(page["browser"]) for page in shown}
+    out = []
+    for page in shown:
+        browser = page["browser"]
+        stopped = devtools(sock, browser, "Profiler.stop")
+        devtools(sock, browser, "Profiler.disable")
+        devtools(sock, browser, "Performance.disable")
+        entry = {"browser": browser, "origin": page.get("origin"), "path": page.get("path"),
+                 "renderer_clients": page.get("renderer_clients"), "seconds": seconds}
+        first, last = before[browser], after[browser]
+        if "error" not in first and "error" not in last:
+            keys = ("TaskDuration", "ScriptDuration", "LayoutDuration", "RecalcStyleDuration", "LayoutCount", "RecalcStyleCount")
+            entry["metrics_per_s"] = {key: round((last.get(key, 0) - first.get(key, 0)) / seconds, 4) for key in keys if key in last}
+            entry["heap_mb"] = round(last.get("JSHeapUsedSize", 0) / MB, 1)
+            entry["nodes"] = last.get("Nodes")
+        else:
+            entry["metrics_error"] = [first, last]
+        entry["profile"] = profile_summary(stopped["profile"]) if "profile" in stopped else stopped
+        out.append(entry)
     return out
 
 
@@ -625,7 +633,9 @@ def run_loaded(args):
             probe = rpc(sock, "debug.agent_pane", {"action": "idle_probe", "ms": 3500}, timeout=20)
             result["idle_probe"] = probe
             print(f"PERF-IDLE-PROBE {json.dumps(probe)[:20000]}", flush=True)
-            result["idle_profile"] = idle_profile(sock, 10)
+            pages_now = (rpc(sock, "debug.cef_pages") or {}).get("pages") or []
+            result["pages"] = pages_now
+            result["idle_profile"] = idle_profile(sock, pages_now, 10)
             print(f"PERF-IDLE-PROFILE {json.dumps(result['idle_profile'])[:20000]}", flush=True)
         result["renderer_roles"] = "debug.cef_pages" if pages is not None else "none (a build without debug.* methods)"
         sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True).stdout.strip()
