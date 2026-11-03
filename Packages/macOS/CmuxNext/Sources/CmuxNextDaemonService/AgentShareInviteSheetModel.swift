@@ -1,6 +1,6 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import Foundation
-import Observation
+public import Observation
 
 /// The Invite People sheet's state (design chat-multiplayer.md 2, "Invite people"): who is invited to
 /// one chat, an account field and a role, and the work the sheet runs. Invite and Remove are the same
