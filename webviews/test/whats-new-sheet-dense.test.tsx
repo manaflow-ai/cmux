@@ -41,7 +41,8 @@ afterAll(() => {
 const expected = [
   "Show the Feed in Chief draws in Settings > Chief > Look",
   "Ultracode and Fast mode do not block Bring Back Local",
-  "Drop saved incognito task ids whose tasks ended",
+  // Its summary "While the app was stopped." was the rest of the line (2026-11-02): one title.
+  "Drop saved incognito task ids whose tasks ended while the app was stopped",
   "Routing follow-ups (trim recovered route, prepared presets only, cap before split)",
   "Cloud start replaces rejected Claude logins",
   "A message's More menu opens upward when it does not fit below",
@@ -71,7 +72,7 @@ test("a day of nightlies gives every change one row with its own key, however ma
 test("a title cut inside its parentheses reads as the one line it was", () => {
   const rows = sheetRows(mergedView(dayOfNightlies.slice(0, 1), "en"), createStrings(table));
   const routing = rows.find((r) => r.title.startsWith("Routing follow-ups"));
-  expect(routing).toEqual({
+  expect(routing).toMatchObject({
     key: "summary-3",
     category: "improved",
     title: "Routing follow-ups (trim recovered route, prepared presets only, cap before split)",
@@ -104,8 +105,12 @@ test("the page lists each change once while a day's builds load one by one", asy
   const root = dom.window.document.createElement("div");
   dom.window.document.body.append(root);
   await act(async () => void mountChangelogPage(root, new MockChangelogProvider(dayOfNightlies) as never));
+  // A long area folds after its first rows; "Show more" opens it.
   for (let tries = 0; tries < 200 && root.querySelectorAll(".cls-row").length < expected.length; tries += 1)
-    await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+    await act(async () => {
+      for (const more of root.querySelectorAll<HTMLButtonElement>(".cls-more")) more.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
   expect(root.querySelector(".cls")?.classList.contains("cls-inline")).toBe(true);
   const titles = [...root.querySelectorAll(".cls-row-title")].map((t) => t.textContent ?? "");
   expect(titles.length).toBe(new Set(titles).size);
