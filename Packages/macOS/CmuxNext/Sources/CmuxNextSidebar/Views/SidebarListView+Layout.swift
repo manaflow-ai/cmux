@@ -466,12 +466,25 @@ extension SidebarListViewComponents {
     /// Exactly as wide as the visible clip and as tall as the rows or the clip, on every clip resize too (nxdog56),
     /// with views for the rows now in it: the rows load at init, before the clip has a size, and a resize scrolls nothing.
     func fitToClip() {
-        guard let clip = enclosingScrollView?.contentView else { return }
-        if frame.width != clip.bounds.width { setFrameSize(NSSize(width: clip.bounds.width, height: frame.height)) }
+        guard let scroll = enclosingScrollView else { return }
+        let width = Self.rowsWidth(in: scroll)
+        if frame.width != width { setFrameSize(NSSize(width: width, height: frame.height)) }
         // The pool parks two realization rects of rows: a space switch's leaving and returning pages.
         rowPool.limit = SidebarRowViewPool.limit(forHeight: realizationRect().height, rowHeight: metrics.rowHeight)
         updateDocumentHeight()
         realizeVisibleRows()
+    }
+    /// The rows' width in `scroll`: its clip's width with the vertical scroller always counted for its style, never
+    /// whether the scroller shows now. A legacy scroller (macOS "Show scroll bars: Always", or a mouse attached, before
+    /// the overlay style is put back) appears only while the rows overflow, so opening a long group narrowed every row
+    /// and folding it widened them again (Leo 2026-11-03: "why when i collapse/expand the cosmic-gray group do the
+    /// workspace horizontal widths differ?"). An overlay scroller takes no width either way.
+    static func rowsWidth(in scroll: NSScrollView) -> CGFloat {
+        let scroller = scroll.hasVerticalScroller ? scroll.verticalScroller.map { type(of: $0) } ?? NSScroller.self : nil
+        let content = NSScrollView.contentSize(forFrameSize: scroll.frame.size, horizontalScrollerClass: nil,
+                                               verticalScrollerClass: scroller, borderType: scroll.borderType,
+                                               controlSize: .regular, scrollerStyle: scroll.scrollerStyle)
+        return max(0, content.width - scroll.contentInsets.left - scroll.contentInsets.right)
     }
     override func setFrameSize(_ newSize: NSSize) {
         let widthChanged = newSize.width != frame.width

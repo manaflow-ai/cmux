@@ -14,7 +14,8 @@ import { useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
-import { FileDoc, Folder, GitHubMark, Globe } from "../conversation/icons";
+import { Folder, GitHubMark, Globe } from "../conversation/icons";
+import { FileKindIcon } from "./FileKindIcon";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName, textLinks } from "./paths";
@@ -59,7 +60,7 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       draggable
       onClick={() => void callChipHost("link.openPath", { path })}
     >
-      {folder ? <Folder size={16} className="cv-chip__icon" /> : <FileDoc size={16} className="cv-chip__icon" />}
+      {folder ? <Folder size={16} className="cv-chip__icon" /> : <FileKindIcon path={path} className="cv-chip__icon" />}
       <span className="cv-chip__label">{label ?? pathName(path)}</span>
     </button>
   );
@@ -120,7 +121,7 @@ export function ElsewhereChip({ path, host, label }: { path: string; host: strin
       /* tooltip-allow: the chip shows the file's name only; the tooltip says where it is */ title={where}
       aria-label={where}
     >
-      <FileDoc size={16} className="cv-chip__icon" />
+      <FileKindIcon path={path} className="cv-chip__icon" />
       <span className="cv-chip__label">{label ?? pathName(path)}</span>
     </span>
   );
