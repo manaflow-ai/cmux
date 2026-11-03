@@ -1789,6 +1789,27 @@ test("a late steer acpmux queues again gives way to its queued card", async () =
   }
 });
 
+test("a re-queue drops only the late steer with its promptId, not another with the same words", async () => {
+  const steps = lateSteerHistory();
+  steps.splice(4, 0, [
+    "mux",
+    "user_message",
+    { text: "status check from the coordinator", promptId: "p-late-2", turnId: "turn-1", steer: true },
+  ]);
+  const daemon = fakeDaemon(record(steps));
+  const { client, rows } = await connect(daemon);
+  try {
+    daemon.push(record([["mux", "queued", { text: "status check from the coordinator", promptId: "p-late" }]], 8));
+    expect(
+      rows()
+        .filter((row) => row.kind === "user" && row.afterStop)
+        .map((row) => row.promptId),
+    ).toEqual(["p-late-2"]);
+  } finally {
+    client.close();
+  }
+});
+
 test("a steer before the Stop stays in its turn, and an answered Stop marks nothing forced", async () => {
   const daemon = fakeDaemon(
     record([

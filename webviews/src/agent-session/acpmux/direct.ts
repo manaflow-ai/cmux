@@ -6415,7 +6415,9 @@ export class AcpmuxDirectClient {
       if (
         row.kind === "user" &&
         row.afterStop === true &&
-        ((row.promptId !== undefined && row.promptId === promptId) || (row.resend ?? row.text) === text)
+        // Its promptId when it has one; its text only when it has none, so two messages with the same
+        // words but different prompts never both go.
+        (row.promptId !== undefined ? row.promptId === promptId : (row.resend ?? row.text) === text)
       )
         this.rows.delete(row.id);
   }
