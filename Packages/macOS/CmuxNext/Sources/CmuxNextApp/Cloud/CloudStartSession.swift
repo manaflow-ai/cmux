@@ -365,19 +365,21 @@ struct CloudStartSession {
             let origin: CloudLinkOrigin = byPerson ? .user : .script
             if session.machine.status == .paused { session.attach(origin: origin) } else { session.connect(origin: origin) }
         }
+        session.beginLegacyAttempt()
         let daemon = session.daemon
         let up = await CloudWait.holds(within: Self.connectWait, until: {
-            session.resumeFailure != nil || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
+            session.resumeFailure != nil || session.legacyLinkFailure?.definitive == true
+                || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         })
         // A sign-out, team switch or cancellation during the wait is that, not a machine that didn't connect.
         try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
-        guard up, session.resumeFailure == nil else { throw failure() }
+        guard up, session.resumeFailure == nil, daemon.connection != nil else { throw failure() }
     }
 
     /// The machine takes the person's harness login before the session starts, as a composer start's does (+Login).
     /// The login may wait on a confirm: `still` checks the asking account after it, as after every wait.
     func passHarnessLogin(_ session: CloudMachineSession, agent: String, still: () throws -> Void) async throws {
-        _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session)
+        _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session, codexPrompt: false) // a scripted run never waits on a device code
         try still()
     }
     /// How long a machine has to come up (Move to Cloud's own wait).

@@ -23977,6 +23977,138 @@
         }
       }
     },
+    "sidebar.sessionTree.subagentOf": {
+      "comment": "Sidebar row title of a session another session started, when it would repeat its parent's name; %@ is the parent's title.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وكيل فرعي لـ %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podagent od %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Underagent af %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagent von %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagent of %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagente de %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-agent de %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagente di %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のサブエージェント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងាររងរបស់ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 하위 에이전트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Underagent av %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podagent %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagente de %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Субагент %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ย่อยของ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ alt ajanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Субагент %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử con của %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的子代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的子代理"
+          }
+        }
+      }
+    },
     "sidebar.a11y.rollUp.blocked": {
       "extractionState": "manual",
       "localizations": {

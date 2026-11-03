@@ -33,6 +33,13 @@ test("usage keeps the token fallback and disabled restart-with-cap affordance", 
   expect(cap.help).toBe(t("sessionInfo.usage.restartWithCapSoon"));
 });
 
+test("usage shows the prompt cache's read share and cost per call, as the web panel does", () => {
+  const own = stats({ cacheReadShare24h: 0.981, costPerCallUsd24h: 0.3363 });
+  const section = usageSection({ own, sessions: [], open: true }, new NativeInfoActions(), t)!;
+  const trailing = (id: string) => section.rows.find((row) => row.id === id)?.trailing;
+  expect([trailing("own:cache-read"), trailing("own:call-cost")]).toEqual(["98.1%", "$0.34"]);
+});
+
 test("usage preserves harness marks, ranks sessions, and exposes sort and View all actions", async () => {
   const sessions = Array.from({ length: 6 }, (_, index) =>
     session(`s${index}`, stats({ costUsd24h: index + 1, contextTokens: (index + 1) * 100 }), {

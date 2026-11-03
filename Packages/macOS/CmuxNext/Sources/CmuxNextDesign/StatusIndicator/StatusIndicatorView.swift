@@ -39,6 +39,13 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         didSet { if usesStatusColors != oldValue { needsDisplay = true } }
     }
 
+    /// The diameter a dot glyph paints, centered in the view whatever its size
+    /// (``StatusIndicatorLayer/dotDiameter``); nil paints it at its share of the view.
+    public var dotDiameter: CGFloat? {
+        get { indicator.dotDiameter }
+        set { indicator.dotDiameter = newValue }
+    }
+
     /// Where it hears of its window's occlusion (tests post to their own).
     public var notificationCenter: NotificationCenter = .default {
         didSet {

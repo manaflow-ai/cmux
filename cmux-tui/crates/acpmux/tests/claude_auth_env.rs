@@ -259,7 +259,8 @@ async fn a_daemon_inside_a_claude_session_gives_agents_the_login_route() {
 }
 
 /// (a3) The daemon's prompt-cache switches never reach an agent; a harness
-/// that sets one on purpose keeps it. Before: an acpmux client run from an
+/// that sets one on purpose keeps it. The one-hour switch an agent does get
+/// is acpmux's own default (`prompt_cache_env.rs`), not the daemon's. Before: an acpmux client run from an
 /// OptChat turn (whose settings env has DISABLE_PROMPT_CACHING=1) started
 /// the NIGHTLY Chief daemon, and every agent it spawned sent no cache marks
 /// (2026-10-19: 277 of 756 sampled requests read and wrote no cache).
@@ -282,7 +283,12 @@ async fn the_daemons_prompt_cache_switches_never_reach_an_agent() {
         [("CLAUDECODE", "1")].into_iter().chain(switches.iter().copied()).collect();
     for (case, extra) in [("inside a turn", inside.as_slice()), ("own env", switches.as_slice())] {
         for (harness, want) in
-            [("claude", json!({})), ("marks", json!({"DISABLE_PROMPT_CACHING": "1"}))]
+            // acpmux's own default is the one-hour cache (prompt_cache_env.rs), never the
+            // daemon's switches; a profile that turns caching off gets none of it.
+            [
+                ("claude", json!({"ENABLE_PROMPT_CACHING_1H": "1"})),
+                ("marks", json!({"DISABLE_PROMPT_CACHING": "1"})),
+            ]
         {
             let d = start(&dir, harnesses.clone(), extra).await;
             let (reply, _) = ask(&d, harness).await;
