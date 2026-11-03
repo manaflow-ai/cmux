@@ -94,7 +94,8 @@ extension CloudStartChat {
             let transfer = CloudCredentialTransfer(provider: provider, machineID: machineID, teamID: teamID, userID: userID,
                 allowsCreatorTeamGuest: verdict.guestKind == "team" && Self.allowsCreatorTeamGuestHere, openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
             try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID }, currentUserID: { cloud.auth.user?.id },
-                                   confirmed: true, callerOwnsVM: { try await cloud.callerOwnsVM(machineID) })
+                                   confirmed: true, callerOwnsVM: { try await cloud.callerOwnsVM(machineID) },
+                                   stillAllowed: Self.releaseStillAllowed(services))
             decision.outcome = "installed"
             return true
         } catch {

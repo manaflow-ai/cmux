@@ -42,6 +42,18 @@ extension CloudStartChat {
         return answer
     }
 
+    /// The transfer's last check before it writes the login (``CloudCredentialTransfer`` `stillAllowed`):
+    /// in Release, the switch read again and the person's consent still yes. DEV and NIGHTLY: always.
+    static func releaseStillAllowed(_ services: AppServices) -> @Sendable () async -> Bool {
+        guard !DevTools.isEnabled else { return { true } }
+        return { [weak services] in await recheck(services) }
+    }
+
+    @MainActor private static func recheck(_ services: AppServices?) async -> Bool {
+        guard let services, await services.cloud.readHarnessLoginCopySwitch() == true else { return false }
+        return loginCopyConsent(services) == true
+    }
+
     /// Whether a Release turn card may copy the login now (its recovery): the switch read fresh,
     /// then the person's consent, asked once. DEV and NIGHTLY builds answer true (their own gate).
     @MainActor static func releaseCopyAllowed(_ services: AppServices) async -> Bool {
