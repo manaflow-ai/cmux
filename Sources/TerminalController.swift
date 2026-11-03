@@ -10722,8 +10722,13 @@ class TerminalController {
     /// failed copy never leaves a partial file or removes the old one.
     private nonisolated static func v2CopyDownload(from source: URL, to destination: URL) throws {
         let source = source.standardizedFileURL
-        guard source.path != destination.path else { return }
         let fileManager = FileManager.default
+        guard source.path != destination.path else {
+            guard fileManager.fileExists(atPath: source.path) else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENOENT))
+            }
+            return
+        }
         let directory = destination.deletingLastPathComponent()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         // Not named after the destination, which may already be near NAME_MAX.
@@ -10883,7 +10888,7 @@ class TerminalController {
         let lock = NSLock()
         let semaphore = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var finished = false
-        nonisolated(unsafe) var event: [String: Any]?
+        nonisolated(unsafe) var delivered: [String: Any]?
         var observer: NSObjectProtocol?
 
         let finishOnce: ([String: Any]?) -> Void = { value in
@@ -10893,7 +10898,7 @@ class TerminalController {
                 return
             }
             finished = true
-            event = value
+            delivered = value
             lock.unlock()
             semaphore.signal()
         }
@@ -10909,32 +10914,50 @@ class TerminalController {
                   !finishedOnly || self.v2IsTerminalBrowserDownloadEvent(event) else {
                 return
             }
-            guard self.v2MainSync({ self.v2ShouldStoreBrowserDownloadEvent(event, surfaceId: surfaceId) }) else { return }
-            finishOnce(event)
+            // Claimed on main, where the queue lives, so two waits on one
+            // surface can't both take the same download.
+            let claimed = self.v2MainSync { () -> Bool in
+                guard self.v2ShouldStoreBrowserDownloadEvent(event, surfaceId: surfaceId) else { return false }
+                lock.lock()
+                guard !finished else {
+                    lock.unlock()
+                    return false
+                }
+                finished = true
+                delivered = event
+                lock.unlock()
+                self.v2MarkBrowserDownloadEventConsumed(event, surfaceId: surfaceId)
+                return true
+            }
+            if claimed { semaphore.signal() }
         }
 
-        // The observer and this pop both run on main; once a live event has
-        // won, popping would consume a queued download nobody receives.
-        if let queued = v2MainSync({ () -> [String: Any]? in
+        // The observer's claim and this pop both run on main and finish the
+        // wait in the same hop, so neither consumes a download the other won.
+        let tookQueued = v2MainSync { () -> Bool in
             lock.lock()
-            let alreadyFinished = finished
-            lock.unlock()
-            return alreadyFinished ? nil : v2PopBrowserDownloadEvent(surfaceId: surfaceId, finishedOnly: finishedOnly)
-        }) {
-            finishOnce(queued)
+            defer { lock.unlock() }
+            guard !finished,
+                  let queued = v2PopBrowserDownloadEvent(surfaceId: surfaceId, finishedOnly: finishedOnly) else {
+                return false
+            }
+            finished = true
+            delivered = queued
+            return true
         }
+        if tookQueued { semaphore.signal() }
         if semaphore.wait(timeout: .now() + timeout) == .timedOut {
             finishOnce(nil)
         }
         if let observer {
             NotificationCenter.default.removeObserver(observer)
         }
-        if let event {
+        if let delivered {
             v2MainSync {
-                v2MarkBrowserDownloadEventConsumed(event, surfaceId: surfaceId)
+                v2MarkBrowserDownloadEventConsumed(delivered, surfaceId: surfaceId)
             }
         }
-        return event
+        return delivered
     }
 
     private nonisolated func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
