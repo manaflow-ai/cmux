@@ -236,10 +236,32 @@ final class OmnibarFieldEditor: NSTextView {
 /// it (`EditorAlignedTextFieldCell`), so focus moves no pixel of the address: with the bundled
 /// Inter at 14 pt the editor's baseline sits 1 pt below the cell's string drawing (-1 to +3 pt
 /// from 12 to 18 pt).
+///
+/// The editor is made when the field first edits: a new pane's first frame only draws the address
+/// (#32909). Its sink and bench probe wait here until then.
 final class AddressFieldCell: EditorAlignedTextFieldCell {
-    let editor = OmnibarFieldEditor()
+    private(set) var editorIfMade: OmnibarFieldEditor?
+    weak var sink: (any OmnibarFieldEditorSink)? { didSet { editorIfMade?.sink = sink } }
+    var probe: ((String) -> Void)? { didSet { editorIfMade?.probe = probe } }
+
+    var editor: OmnibarFieldEditor {
+        if let editorIfMade { return editorIfMade }
+        let editor = OmnibarFieldEditor()
+        editor.sink = sink
+        editor.probe = probe
+        editorIfMade = editor
+        return editor
+    }
 
     override func fieldEditor(for controlView: NSView) -> NSTextView? { editor }
+
+    /// A new text view's padding (`NSTextContainer`'s default, 5 pt) until the editor exists: the
+    /// one it will have, so the address does not move when the field first edits.
+    override func restLinePadding(for controlView: NSView) -> CGFloat? {
+        editorIfMade?.textContainer?.lineFragmentPadding ?? Self.newEditorLinePadding
+    }
+
+    private static let newEditorLinePadding = NSTextContainer().lineFragmentPadding
 }
 
 extension OmnibarInput.Disposition {

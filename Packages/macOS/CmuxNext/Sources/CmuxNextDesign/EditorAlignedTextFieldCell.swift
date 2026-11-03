@@ -71,9 +71,15 @@ open class EditorAlignedTextFieldCell: NSTextFieldCell {
         guard let text, text.length > 0 else {
             return super.drawInterior(withFrame: cellFrame, in: controlView)
         }
-        let editorPadding = (fieldEditor(for: controlView) ?? controlView.window?.fieldEditor(false, for: controlView) as? NSTextView)?
+        drawLine(text, in: cellFrame, padding: restLinePadding(for: controlView))
+    }
+
+    /// The line fragment padding of the field editor that will edit `controlView`, so the resting
+    /// text sits where the editor draws it. A cell with its own editor made on first use overrides
+    /// this to answer without making it.
+    open func restLinePadding(for controlView: NSView) -> CGFloat? {
+        (fieldEditor(for: controlView) ?? controlView.window?.fieldEditor(false, for: controlView) as? NSTextView)?
             .textContainer?.lineFragmentPadding
-        drawLine(text, in: cellFrame, padding: editorPadding)
     }
 
     /// Lays `text` out as the field editor would and draws it.

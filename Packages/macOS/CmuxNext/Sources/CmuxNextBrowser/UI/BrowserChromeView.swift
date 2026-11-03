@@ -57,8 +57,8 @@ public final class BrowserChromeView: NSView {
 
     /// A click on the focus mode badge: the host leaves focus mode.
     public var onFocusModeBadgePress: (() -> Void)? {
-        get { addressBar.focusModeBadgeView.onPress }
-        set { addressBar.focusModeBadgeView.onPress = newValue }
+        get { addressBar.badges.onFocusModePress }
+        set { addressBar.badges.onFocusModePress = newValue }
     }
 
     private func updateFocusModeBadge() {

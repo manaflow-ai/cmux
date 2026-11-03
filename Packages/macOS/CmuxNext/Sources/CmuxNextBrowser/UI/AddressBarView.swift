@@ -32,19 +32,19 @@ public final class AddressBarView: NSView {
     }
 
     let pill = OmnibarPillView()
-    private let backdrop = OmnibarCardTopView()
+    /// The card's top behind the bar while suggestions show, made when they first show.
+    var backdropIfMade: OmnibarCardTopView?
     let chip = PageInfoChipButton()
     let field = AddressField()
-    private let machineBadgeView = MachineBadgeView()
-    private let profileBadgeView = ProfileBadgeView()
-    let starButton = BookmarkStarButton()
-    /// The trailing badges (browser focus mode, browser profile, machine, bookmark star); hidden ones take no room.
-    let focusModeBadgeView = FocusModeBadgeView()
+    /// The trailing badges (browser focus mode, browser profile, machine, bookmark star), made when one first
+    /// shows; hidden ones take no room.
+    private(set) lazy var badges = OmnibarTrailingBadges { [weak self] stack in self?.installBadges(stack) }
+    var starButton: BookmarkStarButton { badges.star }
+    var focusModeBadgeView: FocusModeBadgeView { badges.focusMode }
     private var focusModeBadgeWanted = false
-    private lazy var badges = NSStackView(views: [focusModeBadgeView, profileBadgeView, machineBadgeView, starButton])
     // Built on first use in init (no IUO).
     private lazy var fieldToEdge = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding)
-    private lazy var fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.textLeading)
+    var fieldToBadge: NSLayoutConstraint?
     let panel = OmniboxSuggestionPanel()
     let density = DensityBinding()
 
@@ -180,33 +180,18 @@ public final class AddressBarView: NSView {
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        for view in [backdrop, pill, chip, field] as [NSView] {
+        for view in [pill, chip, field] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
-        backdrop.isHidden = true
-        addSubview(backdrop)
         addSubview(pill)
         addSubview(chip)
         addSubview(field)
-        machineBadgeView.isHidden = true
-        focusModeBadgeView.isHidden = true
-        profileBadgeView.isHidden = true
-        starButton.isHidden = true
-        badges.orientation = .horizontal
-        badges.spacing = 4
-        badges.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(badges)
         NSLayoutConstraint.activate([
             density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
             pill.leadingAnchor.constraint(equalTo: leadingAnchor),
             pill.trailingAnchor.constraint(equalTo: trailingAnchor),
             pill.topAnchor.constraint(equalTo: topAnchor),
             pill.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            backdrop.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -OmnibarStyle.cardSideOutset),
-            backdrop.trailingAnchor.constraint(equalTo: trailingAnchor, constant: OmnibarStyle.cardSideOutset),
-            backdrop.topAnchor.constraint(equalTo: topAnchor, constant: -OmnibarStyle.cardTopOutset),
-            backdrop.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             chip.leadingAnchor.constraint(equalTo: leadingAnchor, constant: OmnibarStyle.chipLeading),
             chip.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -216,8 +201,6 @@ public final class AddressBarView: NSView {
             field.leadingAnchor.constraint(equalTo: chip.trailingAnchor, constant: OmnibarStyle.textLeading),
             fieldToEdge,
             field.centerYAnchor.constraint(equalTo: centerYAnchor),
-            badges.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.chipLeading - 2),
-            badges.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         panel.onPick = { [weak self] row, flags in
             self?.commitMarkedText()
@@ -254,10 +237,8 @@ public final class AddressBarView: NSView {
         // Called on every render of the chrome; the same badge shows nothing new and moves no layout.
         if let shown = shownMachineBadge, shown.text == text, shown.help == help { return }
         shownMachineBadge = (text, help)
-        if let text {
-            machineBadgeView.show(text: text, help: help ?? text)
-        }
-        machineBadgeView.isHidden = text == nil
+        if let text { badges.machine.show(text: text, help: help ?? text) }
+        badges.machineIfMade?.isHidden = text == nil
         updateBadgeSpace()
     }
 
@@ -267,25 +248,25 @@ public final class AddressBarView: NSView {
     /// The tab's browser profile as a small avatar; nil hides it (one
     /// profile, or an incognito tab).
     public func setProfileBadge(_ badge: BrowserProfileBadge?) {
-        if let badge { profileBadgeView.show(badge) }
-        profileBadgeView.isHidden = badge == nil
+        if let badge { badges.profile.show(badge) }
+        badges.profileIfMade?.isHidden = badge == nil
         updateBadgeSpace()
     }
 
     /// The machine chip's menu (the host's machine actions, cx-2cob).
     public var machineBadgeMenu: (() -> NSMenu?)? {
-        get { machineBadgeView.makeMenu }
-        set { machineBadgeView.makeMenu = newValue }
+        get { badges.machineMenu }
+        set { badges.machineMenu = newValue }
     }
 
     /// The browser profile badge's menu (the host's profile actions).
     public var profileBadgeMenu: (() -> NSMenu?)? {
-        get { profileBadgeView.makeMenu }
-        set { profileBadgeView.makeMenu = newValue }
+        get { badges.profileMenu }
+        set { badges.profileMenu = newValue }
     }
 
     /// The badge shown now, for diagnostics (`debug.browser`).
-    public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.themedToolTip }
+    public var profileBadgeName: String? { badges.profileIfMade.flatMap { $0.isHidden ? nil : $0.themedToolTip } }
 
     /// Browser focus mode's badge: nil hides it, else "Focus Mode" or, once
     /// the first Escape armed the exit, "Esc again to exit". It fades in and
@@ -293,7 +274,7 @@ public final class AddressBarView: NSView {
     public func setFocusModeBadge(armed: Bool?) {
         if let armed { focusModeBadgeView.show(armed: armed) }
         let shown = armed != nil
-        guard focusModeBadgeWanted != shown else { return }
+        guard focusModeBadgeWanted != shown, let focusModeBadgeView = shown ? focusModeBadgeView : badges.focusModeIfMade else { return }
         focusModeBadgeWanted = shown
         // Fades off (the motion switches; Reduce Motion keeps a short fade): the badge appears and goes at once (no animator
         // proxy, whose zero-length group can leave the old alpha until the next commit).
@@ -323,8 +304,8 @@ public final class AddressBarView: NSView {
     public var focusModeBadgeText: String? { showsFocusModeBadge ? focusModeBadgeView.shownText : nil }
 
     func updateBadgeSpace() {
-        let visible = !machineBadgeView.isHidden || !profileBadgeView.isHidden || !starButton.isHidden || !focusModeBadgeView.isHidden
-        guard fieldToBadge.isActive != visible else { return }
+        let visible = badges.anyShown
+        guard let fieldToBadge, fieldToBadge.isActive != visible else { return }
         fieldToEdge.isActive = !visible
         fieldToBadge.isActive = visible
     }
@@ -509,7 +490,7 @@ public final class AddressBarView: NSView {
     /// height. The chip, badges and star keep the arrow and their presses.
     var textArea: NSRect {
         let leading = chip.isHidden ? bounds.minX : chip.frame.maxX
-        let trailing = badges.arrangedSubviews.contains { !$0.isHidden } ? badges.frame.minX : bounds.maxX
+        let trailing = badges.anyShown ? (badges.stackIfMade?.frame.minX ?? bounds.maxX) : bounds.maxX
         return NSRect(x: leading, y: bounds.minY, width: max(0, trailing - leading), height: bounds.height)
     }
 
@@ -583,8 +564,13 @@ public final class AddressBarView: NSView {
             window?.invalidateCursorRects(for: field)
         }
         pill.state = state.isPopupOpen ? .card : (state.hasFocus ? .editing : .idle)
-        backdrop.isHidden = !state.isPopupOpen
-        if state.isPopupOpen { backdrop.opensUpward = toolbarOpensUpward }
+        if state.isPopupOpen {
+            let backdrop = backdropIfMade ?? makeBackdrop()
+            backdrop.isHidden = false
+            backdrop.opensUpward = toolbarOpensUpward
+        } else {
+            backdropIfMade?.isHidden = true
+        }
         let site = PageInfoSite(url: state.pageURL, security: security)
         chip.indicator = PageInfoIndicator.resolve(site: site, chip: OmnibarPresentation(state).chip)
         updateStarVisibility()

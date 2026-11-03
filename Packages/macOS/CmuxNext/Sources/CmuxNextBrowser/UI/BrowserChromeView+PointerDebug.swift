@@ -86,7 +86,7 @@ extension BrowserChromeView {
             let rect = addressBar.convert(addressBar.textArea, to: nil)
             frames["text_area"] = CGRect(x: rect.minX, y: content.bounds.height - rect.maxY, width: rect.width, height: rect.height)
         }
-        record("star", addressBar.starButton)
+        if let star = addressBar.badges.starIfMade { record("star", star) }
         record("chip", addressBar.pageInfoAnchor)
         for button in [backButton, forwardButton, reloadButton] { record(button.accessibilityIdentifier(), button) }
         for button in BrowserToolbarButton.allCases {

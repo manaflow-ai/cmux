@@ -11,11 +11,11 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     /// Show Full URLs", "Manage Search Engines…").
     var extraMenuItems: (() -> [NSMenuItem])?
     weak var sink: (any OmnibarFieldEditorSink)? {
-        didSet { (cell as? AddressFieldCell)?.editor.sink = sink }
+        didSet { (cell as? AddressFieldCell)?.sink = sink }
     }
     /// Bench marks (`debug.omnibar_bench`): nil outside a bench run.
     var probe: ((String) -> Void)? {
-        didSet { (cell as? AddressFieldCell)?.editor.probe = probe }
+        didSet { (cell as? AddressFieldCell)?.probe = probe }
     }
 
     override class var cellClass: AnyClass? {
