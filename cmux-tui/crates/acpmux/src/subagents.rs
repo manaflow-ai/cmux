@@ -845,6 +845,33 @@ mod codex_tests {
         );
     }
 
+    /// A subagent's later progress and end repeat the name and task its spawn gave, so a reader
+    /// whose page starts after the spawn names it by its description, never "Subagent" (Leo,
+    /// 2026-11-03, on "Subagent finished: Subagent" for a background agent an hour old).
+    #[test]
+    fn later_events_repeat_the_spawns_name_and_task() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t1",
+                   "name": "Watch CI", "task": "Watch CI", "prompt": "Wait for the run"}),
+        );
+        let progress = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/t1", "agentId": "a6ab"}),
+        );
+        assert_eq!(progress[0]["name"], "Watch CI");
+        assert_eq!(progress[0]["task"], "Watch CI");
+        assert_eq!(progress[0]["agentId"], "a6ab");
+        assert!(progress[0].get("prompt").is_none());
+        let end = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t1", "state": "completed"}),
+        );
+        assert_eq!(end[0]["name"], "Watch CI");
+        assert_eq!(end[0]["task"], "Watch CI");
+    }
+
     /// Codex runs a `spawnAgent` child in its own thread: it outlives the turn
     /// that spawned it (the model may end its turn without a `wait`), so it is
     /// background work, and a client never ends it at the turn's end.

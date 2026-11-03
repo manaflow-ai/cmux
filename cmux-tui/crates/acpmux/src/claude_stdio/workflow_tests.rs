@@ -345,6 +345,27 @@ async fn a_plain_background_agent_ends_only_with_its_notification() {
     assert_eq!(of_kind(&out, "subagent_state_update")[0]["state"], "completed", "{out:?}");
 }
 
+/// A plain background agent's progress and end say its agent id (its task id), the id a
+/// SendMessage to it names: a "Sent to" row whose Agent call is on an older page still names it
+/// (Leo, 2026-11-03: "Sent to a6ab68f9").
+#[tokio::test]
+async fn a_background_agents_progress_and_end_carry_its_agent_id() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let call = json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_a", "name": "Agent",
+        "input": {"description": "Watch the build", "prompt": "Watch it", "run_in_background": true}}]}});
+    t.inbound(&call).await;
+    t.inbound(&json!({"type": "system", "subtype": "task_started", "task_id": "a6ab68f9e2c41d07b", "tool_use_id": "toolu_a",
+        "is_backgrounded": true}))
+        .await;
+    let progress = json!({"type": "system", "subtype": "task_progress", "task_id": "a6ab68f9e2c41d07b",
+        "tool_use_id": "toolu_a", "summary": "Reading the log", "usage": {"total_tokens": 10}});
+    let out = updates(&t.inbound(&progress).await);
+    assert_eq!(of_kind(&out, "subagent_progress")[0]["agentId"], "a6ab68f9e2c41d07b", "{out:?}");
+    let done = json!({"type": "system", "subtype": "task_notification", "task_id": "a6ab68f9e2c41d07b", "status": "completed"});
+    let out = updates(&t.inbound(&done).await);
+    assert_eq!(of_kind(&out, "subagent_state_update")[0]["agentId"], "a6ab68f9e2c41d07b", "{out:?}");
+}
+
 /// A secret behind a long blank run is masked whole: the preview folds the blanks before it cuts
 /// and masks, so no part of the token reaches the preview.
 #[tokio::test]
