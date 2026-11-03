@@ -618,6 +618,18 @@ while True:
                                                ("sidecar", "3599", False))}
             with open(os.environ["FAKE_CLAUDE_IDLE_CHILDREN"], "w") as f:
                 f.write(json.dumps(pids))
+        # FAKE_CLAUDE_RUN_USER_MCP=<file>: the harness starts each stdio server its user config
+        # ($CLAUDE_CONFIG_DIR/.claude.json mcpServers) names, as Claude Code does, and writes their
+        # pids there.
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_RUN_USER_MCP"):
+            import subprocess
+            with open(os.path.join(os.environ["CLAUDE_CONFIG_DIR"], ".claude.json")) as f:
+                servers = json.load(f).get("mcpServers") or {}
+            pids = [subprocess.Popen([s["command"], *s.get("args", [])], stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).pid
+                    for s in servers.values()]
+            with open(os.environ["FAKE_CLAUDE_RUN_USER_MCP"], "w") as f:
+                f.write("".join(f"{pid}\n" for pid in pids))
         answer = {}
         if request.get("subtype") == "initialize" and SKILLS:
             answer = {"commands": COMMANDS}
