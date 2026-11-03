@@ -65,20 +65,47 @@ public final class CloudTunnelController {
     /// Turns the tunnel on: activation (asking the user when needed), a fresh peer, start.
     /// Returns once the tunnel is starting, waiting for approval, or failed.
     public func enable() async {
-        // Red stub: the start flow lands in the next commit.
+        await start(reuseSaved: false)
     }
 
     /// Applies the saved setting at launch. Off: nothing at all. On: starts the configuration a
     /// previous opt-in saved; when there is none (the user quit before approving), it waits for
     /// an explicit ``enable()`` instead of asking at launch.
     public func restore(enabled: Bool) async {
-        // Red stub: the start flow lands in the next commit.
+        guard enabled, case .available = availability else { return }
+        let saved: Bool
+        do {
+            saved = try await manager.loadSaved()
+        } catch {
+            status = .failed(Self.message(error))
+            return
+        }
+        guard saved else {
+            status = .failed(String(
+                localized: "cloudTunnel.status.finishSetup",
+                defaultValue: "Setup was not finished. Turn the Cloud Tunnel on again.",
+                bundle: .module
+            ))
+            return
+        }
+        await start(reuseSaved: true)
     }
 
     /// Turns the tunnel off and removes its VPN configuration. The extension stays installed
     /// (removing it needs the user's password), idle.
     public func disable() async {
-        // Red stub: the start flow lands in the next commit.
+        wantsUp = false
+        stateWatch?.cancel()
+        stateWatch = nil
+        guard case .available = availability else { return }
+        status = .disconnecting
+        manager.stop()
+        do {
+            try await manager.remove()
+            status = .off
+        } catch {
+            status = .failed(Self.message(error))
+        }
     }
 
     private func start(reuseSaved: Bool) async {
