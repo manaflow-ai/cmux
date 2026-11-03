@@ -22,7 +22,8 @@ public final class HiddenPageCloses<Pane: AnyObject> {
 
     private struct Entry {
         let hide: HiddenTabClose
-        weak var pane: Pane?
+        /// Held: the layout lets go of an emptied pane's controller once its close lands, and the page may still ask.
+        let pane: Pane
         let watch: Task<Void, Never>?
         let timer: DemandTimer
         func end() { watch?.cancel(); timer.cancel() }
@@ -87,19 +88,16 @@ public final class HiddenPageCloses<Pane: AnyObject> {
         guard let entry = entries.removeValue(forKey: id) else { return false }
         entry.end()
         entry.hide.lift()
-        if let pane = entry.pane, !entries.values.contains(where: { $0.pane === pane }),
-           let close = paneCloses.removeValue(forKey: ObjectIdentifier(pane)) {
-            lifted(pane, close)
+        if !entries.values.contains(where: { $0.pane === entry.pane }), let close = paneCloses.removeValue(forKey: ObjectIdentifier(entry.pane)) {
+            lifted(entry.pane, close)
         }
         return true
     }
 
     /// The page of tab `id` neither closed nor asked in time: it closes without asking.
     public func expire(_ id: String) {
-        guard let entry = entries[id] else { return }
-        let pane = entry.pane
-        lift(id) // a pane gone meanwhile still lets go of its hide
-        if let pane { timedOut(pane, id) }
+        guard let pane = entries[id]?.pane, lift(id) else { return }
+        timedOut(pane, id)
     }
 
     /// The page of tab `id` asks the person: the tab comes back at its
@@ -109,7 +107,7 @@ public final class HiddenPageCloses<Pane: AnyObject> {
         guard let entry = entries.removeValue(forKey: id) else { return false }
         entry.end()
         entry.hide.lift()
-        if let pane = entry.pane { restored(pane, paneCloses.removeValue(forKey: ObjectIdentifier(pane)), id) }
+        restored(entry.pane, paneCloses.removeValue(forKey: ObjectIdentifier(entry.pane)), id) // its tab back: the pane is not empty
         return true
     }
 }

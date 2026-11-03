@@ -205,4 +205,42 @@ struct BrowserTabCloseLeavesAtOnceTests {
             #expect(store.liveTreeLists(tab: id) == false)
         }
     }
+
+    /// The emptied pane's close lands (the layout lets go of its controller, at once under Reduce Motion), then the
+    /// page asks: the pane and its tab come back, selected. Review of #32876 at b24bc3a92fe: the hide held its pane
+    /// weakly, so the question was skipped and the pane stayed closed with the page asking behind it.
+    @Test func aPageThatAsksAfterItsPanesCloseLandedBringsThePaneBack() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let window = try #require(services.windows.active)
+            let first = try #require(window.workspaceContent?.panes.values.first?.pane)
+            _ = try await connection.split(first.handle, direction: .right)
+            let screenPanes = { store.workspaces.flatMap(\.screens).first { $0.panes.contains { $0 === first } }?.panes ?? [] }
+            try await PinnedPageTests.until({ screenPanes().count == 2 && screenPanes().allSatisfy { !$0.tabs.isEmpty } && window.workspaceContent?.panes.count == 2 },
+                                            within: .seconds(30), report: { "\(screenPanes().count) panes" })
+            let right = try #require(screenPanes().first { $0 !== first })
+            let page = try await connection.newFrontendBrowserTab(url: "https://example.com/asks", engine: .webkit, in: right.handle, activate: true)
+            try await PinnedPageTests.until({ store.tab(surface: page.surface) != nil })
+            let id = try #require(store.tab(surface: page.surface)).id
+            for tab in right.tabs where tab.id != id {
+                #expect(services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .cli)))
+            }
+            let controller = try #require(services.paneController(for: right))
+            try await PinnedPageTests.until({ controller.orderedIDs.map(\.rawValue) == [id] }, report: { "\(controller.orderedIDs)" })
+            let layout = try #require(controller.workspace?.layoutModel)
+            let paneID = controller.layoutPaneID
+            let undo = try #require(services.closedTabs?.undoToasts)
+            undo.pageDecidesClose = { _, tab in tab.rawValue == id }
+
+            #expect(services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user)))
+            try #require(layout.isClosing(paneID))
+            // The close lands and the layout lets go of the pane's controller; nothing else holds it.
+            try await PinnedPageTests.until({ window.workspaceContent?.panes.count == 1 }, within: .seconds(5),
+                                            report: { "\(window.workspaceContent?.panes.count ?? 0) pane controllers" })
+            #expect(undo.hiddenPages.restore(id))
+            #expect(!layout.isClosing(paneID), "the pane stayed closed while its page asks")
+            try await PinnedPageTests.until({ services.paneController(for: right)?.stripModel.selectedID?.rawValue == id }, within: .seconds(5),
+                                            report: { "the asking tab is not back, selected: \(services.paneController(for: right)?.orderedIDs ?? [])" })
+        }
+    }
 }
