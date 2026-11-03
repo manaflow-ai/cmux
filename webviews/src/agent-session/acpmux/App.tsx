@@ -306,6 +306,7 @@ import { SubagentTray } from "./subagents/SubagentTray";
 import { agentProgressSource } from "./subagents/agentProgressSource";
 import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
 import { BackgroundTasksPanel } from "./backgroundTasks/BackgroundTasksPanel";
+import { isBackgroundPane, openBackgroundPane } from "./backgroundTasks/backgroundPane";
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
 import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.experiment";
 import { settleTrayExit, TRAY_GHOST } from "./subagents/trayMotion";
@@ -669,6 +670,7 @@ import {
   SubagentStopContext,
   running,
 } from "./subagents/SubagentGroup";
+import { useEscapeClosesSubagent } from "./subagents/subagentEscape";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
@@ -5709,7 +5711,12 @@ export function VirtualTranscript({
     restingDock.current.space = dockSpace;
   // A stack not measured since it came (the latch's 0) reads as it is now.
   // Below a floating tab row (`topInset`): the rail centers in the view the row leaves (threadMinimap.css).
-  const railBox = { height: height - topInset, foot: height - topInset - (restingDock.current.space || dockSpace) };
+  // `live` is the stack's top now: the rail's foot and its card stay above it (ThreadMinimap `railBox`).
+  const railBox = {
+    height: height - topInset,
+    foot: height - topInset - (restingDock.current.space || dockSpace),
+    live: height - topInset - dockSpace,
+  };
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
@@ -6453,6 +6460,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     dismissed: ReadonlySet<string>;
   }>();
   if (backgroundPanel && snapshot.sessionId !== backgroundPanel.sessionId) setBackgroundPanel(undefined);
+  /// This page is the chat's Background tasks tab in the right column (a `subagent:` reveal of the
+  /// reserved pane id, backgroundTasks/backgroundPane.ts): it shows the panel alone, filling the tab.
+  const [ownBackgroundPane, setOwnBackgroundPane] = useState(false);
+  if (ownBackgroundPane && !backgroundPanel && snapshot.sessionId)
+    setBackgroundPanel({ sessionId: snapshot.sessionId, expanded: false, dismissed: new Set<string>() });
   const backgroundOpen = backgroundPanel !== undefined;
   const backgroundCache = useRef<TaskCache>(new WeakMap());
   const artifactSession = snapshot.sessionId;
@@ -6622,6 +6634,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     const agent = revealedSubagent(value);
     if (agent === undefined) return void revealTurnWhenShown(value);
+    if (isBackgroundPane(agent)) {
+      setOwnBackgroundPane(true);
+      return;
+    }
     subagentPane.current = true;
     setOwnSubagentPane(true);
     setRequestedSubagent(agent);
@@ -7572,11 +7588,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The Background tasks panel opens from the chat's ⋯ menu and from the running tray's header
   // (SubagentTray.tsx `onOpenPanel`). A workflow's side tab would cover it (a full-height overlay):
   // it closes. Already open, it stays as it is (expanded, cleared and drilled in alike).
+  // It opens as a tab in the chat's right column (Leo, 2026-11-03: "it should be opening up on the
+  // right pane as a tab instead of this"), or focuses the one open there; a host that opens no tab
+  // (the gallery, Quick Chat's panel, an older app) keeps it in this pane's right column.
   const panelSession = snapshot.sessionId;
-  const openBackgroundPanel = useCallback(() => {
+  const backgroundTabTitle = t("backgroundTasks.title");
+  const openBackgroundHere = useCallback(() => {
     clearWorkflowSideTab();
     setBackgroundPanel((panel) => panel ?? { sessionId: panelSession, expanded: false, dismissed: new Set<string>() });
   }, [clearWorkflowSideTab, panelSession]);
+  const openBackgroundPanel = useCallback(() => {
+    if (ownBackgroundPane) return openBackgroundHere();
+    void openBackgroundPane(callNative, backgroundTabTitle).then((opened) => {
+      if (!opened) openBackgroundHere();
+    });
+  }, [ownBackgroundPane, openBackgroundHere, backgroundTabTitle]);
   const closeWorkflowSideTab = useCallback(() => {
     workflowSideTabFocusOnClose.current = true;
     setWorkflowSideTabId(undefined);
@@ -8735,6 +8761,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }),
     [autoOpenSubagents],
   );
+  // Escape closes a subagent's view to the chat's, as its pill's × does (subagents/subagentEscape.ts).
+  useEscapeClosesSubagent(!quick && !!subagentView, () => setSubagentView(undefined));
   // A pane opened on a subagent shows the chat's other subagents in place, and its "Subagent of" pill goes
   // back to the chat: its tab's name follows what it shows (review of #28497 at 995299ff). Not before
   // the subagent it was opened on has shown, or the name the app gave the tab would flash away; and not
@@ -14583,6 +14611,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         className="acpmux-shell"
         data-tab-row={inTabRow ? "" : undefined}
         data-solo-tab={soloTab ? "" : undefined}
+        data-background-pane={ownBackgroundPane ? "" : undefined}
         aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
         style={inTabRow ? tabRowStyle(tabRow) : undefined}
       >
@@ -15172,8 +15201,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               onClearFinished={(ids) =>
                 setBackgroundPanel((panel) => panel && { ...panel, dismissed: new Set([...panel.dismissed, ...ids]) })
               }
-              onExpand={() => setBackgroundPanel((panel) => panel && { ...panel, expanded: !panel.expanded })}
-              onClose={() => setBackgroundPanel(undefined)}
+              // Its own tab has the tab's own close and the whole tab already: no Expand or Close.
+              onExpand={
+                ownBackgroundPane
+                  ? undefined
+                  : () => setBackgroundPanel((panel) => panel && { ...panel, expanded: !panel.expanded })
+              }
+              onClose={ownBackgroundPane ? undefined : () => setBackgroundPanel(undefined)}
               onOpenSession={openOfferChat}
               onOpenCommand={(task) => {
                 const command = panelCommands.find((candidate) => candidate.id === task.id);
