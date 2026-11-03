@@ -14,6 +14,7 @@ struct CloudCredentialTransferTests {
         var logins = 0, stores = 0
         var cached: Data?
         var owner = true
+        var allowed = true
         var preflight: Int = 0
         var team: String? = "team"
         var user: String? = "user"
@@ -21,6 +22,7 @@ struct CloudCredentialTransferTests {
         var onWrite: (() -> Void)?
         var effects: CloudCredentialTransfer.Effects {
             .init(callerOwnsVM: { await MainActor.run { self.owner } },
+                  stillAllowed: { await MainActor.run { self.allowed } },
                   exec: { command in await MainActor.run { self.commands.append(command); return self.preflight } },
                   write: { path, data in await MainActor.run { self.writes.append((path, data)); self.onWrite?() } },
                   load: { await MainActor.run { self.cached } },
@@ -34,6 +36,16 @@ struct CloudCredentialTransferTests {
             try await transfer.run(currentTeamID: { self.team }, currentUserID: { self.user },
                                    confirmed: confirmed, refresh: refresh, effects: effects)
         }
+    }
+
+    /// A Release copy whose switch went off, or whose consent was taken back, during the confirm or
+    /// the sign-in: the last check before the write stops it, and nothing reaches the machine.
+    @Test func aCopyTurnedOffBeforeTheWriteWritesNothing() async {
+        let r = Recorder()
+        r.cached = Self.token
+        r.allowed = false
+        await #expect(throws: CloudCredentialTransfer.Failure.copyTurnedOff) { try await r.run() }
+        #expect(r.writes.isEmpty)
     }
 
     @Test func noConsentHasNoEffects() async {

@@ -1,5 +1,6 @@
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
+import { sameJson } from "./sameJson";
 import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } from "./subagents/retryState";
@@ -102,7 +103,7 @@ import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage, startCancelled } from "./transportErrors";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
-import { isLostConnection, JOURNAL_PARAMS_BYTES, lostPrompt, type LostPrompt } from "./lostPrompt";
+import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isPlumbingCall, showsNothing } from "./hiddenTools";
@@ -4645,6 +4646,18 @@ export class AcpmuxDirectClient {
     if (!session?.sessionId) return;
     this.asks.session(session, typeof params?.kind === "string" ? params.kind : undefined);
     this.sessionPages.changedSession(session);
+    // Another chat's summary sent again unchanged (a busy acpmux re-sends them) changes nothing on
+    // this page: no snapshot, no read-ahead. Each one drew the whole pane, so an idle pane rebuilt its
+    // transcript and list many times a second (Leo, 2026-11-03: "im at 100% cpu rn"). The pane's own
+    // chat, the chat it is waiting to reopen and the chats it started still take every change.
+    if (
+      session.sessionId !== this.selectedSessionId &&
+      session.sessionId !== this.missingSession &&
+      this.sessions.some((item) => item.sessionId === session.sessionId && sameJson(item, session)) &&
+      !this.offerChildIds().includes(session.sessionId) &&
+      !this.isStartedChild(session)
+    )
+      return;
     const added = !this.sessions.some((item) => item.sessionId === session.sessionId);
     this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
     const watch = this.attachWatch?.sessionId === session.sessionId ? this.attachWatch : undefined;
@@ -7131,7 +7144,7 @@ export class AcpmuxDirectClient {
       // The connection went before acpmux took it, on a chat of this Mac's acpmux: the host's prompt
       // journal sends it again, under its promptId, on the pane's next connection (lostPrompt.ts),
       // so its sender waits for it to show there instead of saying "Not sent" at once.
-      if (!taken && isLostConnection(error) && this.journalsPrompts(blocks))
+      if (!taken && isLostConnection(error) && this.journalsPrompts())
         Object.assign(error as object, { lostPrompt: { sessionId, promptId } satisfies LostPrompt });
       // The folder's trust question (the one route); the pane's sender adds the re-send.
       if (here && trustCancellation === this.trustCancellation) this.routeTrustRefusal(error);
@@ -8765,15 +8778,9 @@ export class AcpmuxDirectClient {
     );
   }
   /// Whether the host's prompt journal keeps a prompt of these blocks that this connection lost
-  /// (Swift `AgentPanePromptRelay`): only on a connection to this Mac's acpmux (a chat of another
-  /// Mac it relays included), and for a prompt within the journal's `maximumParamsBytes` (8 MiB).
-  private journalsPrompts(blocks: unknown): boolean {
-    if (!this.localOrigin) return false;
-    try {
-      return JSON.stringify(blocks).length < JOURNAL_PARAMS_BYTES;
-    } catch {
-      return false;
-    }
+  /// (Swift `AgentPanePromptRelay`): only on a connection to this Mac's acpmux.
+  private journalsPrompts(): boolean {
+    return this.localOrigin;
   }
   /// The `awaitResent` waits, with their chat: each settles false once this connection closes or
   /// the pane shows another chat.

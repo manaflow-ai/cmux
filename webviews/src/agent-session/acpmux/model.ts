@@ -24,6 +24,7 @@ import type { ChatPresence, Participant } from "./multiplayer/participants";
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
+import type { NextStepAsk } from "./conversation/nextStepAsk";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
@@ -225,6 +226,8 @@ export type QueuedPrompt = {
   images?: QueuedPromptImage[];
   /// Not acpmux's: the pane holds it until the folder is trusted (trustHeld.ts).
   held?: boolean;
+  /// A held prompt that waits for the chat's Cloud machine to wake instead (cloudWake.ts).
+  waking?: boolean;
   inlineParts?: PromptContentPart[];
   /// Another agent's message waiting here (direct.ts `queuedMessage`): it draws in the transcript
   /// as the message's received card (conversation/queuedMessages.ts), never as a queue row.
@@ -431,6 +434,9 @@ export type AcpmuxRow = {
   permission?: AcpmuxPermission;
   /// A `questionRecord` row's question, answered or cancelled (question/record.ts).
   question?: AgentQuestion;
+  /// A `nextStep` row's tagged ask and, once a prompt answered it, the answer
+  /// (conversation/nextStepAsk.ts, NextStepCard.tsx).
+  nextStep?: { ask: NextStepAsk; answer?: string };
   /// A `permissionRecord` row's answer, its ask in `permission` (permissions/record.ts).
   decision?: PermissionDecision;
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
@@ -1710,6 +1716,18 @@ function fallbackRowHeight(
   // The preview card mounts unloaded: one compact row, and 6px below (PreviewCard.tsx). Once the
   // reader clicks Load preview, the transcript's ResizeObserver measures the head over its frame.
   if (row.kind === PREVIEW) return finish(previewCardHeight(row.text, false));
+  // A tagged ask's card (conversation/NextStepCard.tsx): waiting, 12px padding over the question
+  // and its muted line, then a 36px row of answers; answered, the question over the answer in 8px.
+  if (row.kind === NEXT_STEP && row.nextStep) {
+    const { ask, answer } = row.nextStep;
+    const perLine = Math.max(120, width - 32) / 7.5;
+    const lines = (text: string | undefined) => (text ? Math.max(1, Math.ceil(text.length / perLine)) : 0);
+    return finish(
+      answer === undefined
+        ? 24 + 2 + (lines(ask.question) + lines(ask.detail)) * 20 + 8 + 36
+        : 16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4,
+    );
+  }
   // The render card: its 36px head over the frame before it reports a height, and 6px below.
   if (row.kind === RENDER) return finish(36 + RENDER_FRAME_MIN_HEIGHT + 6);
   // Card padding and border, title, button row.
@@ -2551,6 +2569,7 @@ import {
   DATE,
   isEmptyFooter,
   isFoldedCopy,
+  NEXT_STEP,
   PREVIEW,
   RENDER,
   THINKING,
