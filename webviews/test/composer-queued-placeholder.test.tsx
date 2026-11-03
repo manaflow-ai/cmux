@@ -435,38 +435,38 @@ test("a pending folder choice is a hard stop even for a trust-resend handle", as
 
 for (const authChecking of [false, true])
   test(`auth ${authChecking ? "preflight" : "refusal"} blocks sends without a transient notice`, async () => {
-  const sent: string[] = [];
-  let handle: ComposerHandle | null = null;
-  await render(
-    started(),
-    {},
-    {
-      authBlock: authChecking ? "Checking…" : "Sign in to send",
-      authChecking,
-      handle: (value) => void (handle = value),
-      onSend: (text) => {
-        sent.push(text);
-        return true;
+    const sent: string[] = [];
+    let handle: ComposerHandle | null = null;
+    await render(
+      started(),
+      {},
+      {
+        authBlock: authChecking ? "Checking…" : "Sign in to send",
+        authChecking,
+        handle: (value) => void (handle = value),
+        onSend: (text) => {
+          sent.push(text);
+          return true;
+        },
       },
-    },
-  );
-  await act(async () => handle!.restore("Keep this draft", []));
-  const send = host.querySelector<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)")!;
-  expect(send.disabled).toBe(true);
-  expect(send.title).toBe(authChecking ? "Checking…" : "Sign in to send");
-  expect(host.querySelector(".acpmux-composer-trust-note") !== null).toBe(!authChecking);
-  let accepted: boolean | undefined;
-  await act(async () => {
-    send.click();
-    host
-      .querySelector<HTMLElement>("[role=combobox]")!
-      .dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    accepted = handle!.send();
+    );
+    await act(async () => handle!.restore("Keep this draft", []));
+    const send = host.querySelector<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)")!;
+    expect(send.disabled).toBe(true);
+    expect(send.title).toBe(authChecking ? "Checking…" : "Sign in to send");
+    expect(host.querySelector(".acpmux-composer-trust-note") !== null).toBe(!authChecking);
+    let accepted: boolean | undefined;
+    await act(async () => {
+      send.click();
+      host
+        .querySelector<HTMLElement>("[role=combobox]")!
+        .dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      accepted = handle!.send();
+    });
+    expect(accepted).toBe(false);
+    expect(sent).toEqual([]);
+    expect(host.querySelector("[role=combobox]")!.textContent).toContain("Keep this draft");
   });
-  expect(accepted).toBe(false);
-  expect(sent).toEqual([]);
-  expect(host.querySelector("[role=combobox]")!.textContent).toContain("Keep this draft");
-});
 
 // Leo's nightly (d5829ff): a dictated prompt, the agent working with three prompts queued, and
 // Return added a line instead of sending. macOS Dictation (like an IME) ends its text with the
