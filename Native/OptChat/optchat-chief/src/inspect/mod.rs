@@ -150,6 +150,7 @@ impl Inspector {
             "/api/date" => self.date(q("id")),
             "/api/search" => self.search(q("q").unwrap_or(""), q("limit")),
             "/api/view" => self.view(),
+            ACTIVITY_PATH => Err((503, "the Chief's activity is answered by its brain, through the tools socket".into())),
             "/api/memory/changes" => match &self.editor {
                 Some(editor) => Ok(editor.changes()),
                 None => Ok(json!({"changes": [], "stale": []})),
@@ -301,7 +302,7 @@ pub(crate) fn parse_or<T: std::str::FromStr>(
 
 /// The paths the tools socket's `inspect` tool answers with GET: every
 /// read-only API path, and nothing else (no page, no ticket).
-pub const INSPECT_PATHS: [&str; 9] = [
+pub const INSPECT_PATHS: [&str; 10] = [
     "/api/status",
     "/api/turns",
     "/api/turn",
@@ -311,7 +312,33 @@ pub const INSPECT_PATHS: [&str; 9] = [
     "/api/search",
     "/api/view",
     "/api/memory/changes",
+    ACTIVITY_PATH,
 ];
+
+/// What the Chief has running (its subagents, watches and wakes; brain/activity.rs). The
+/// brain answers it through the tools socket's `inspect` tool (`activity_answer`), not the
+/// memory: `Inspector::answer` (the web fallback) has no brain and says so.
+pub const ACTIVITY_PATH: &str = "/api/activity";
+
+/// The request is the tools socket's `inspect` GET of [`ACTIVITY_PATH`].
+pub fn asks_activity(req: &Value) -> bool {
+    req.get("path").and_then(Value::as_str) == Some(ACTIVITY_PATH)
+        && req.get("method").and_then(Value::as_str).unwrap_or("GET") == "GET"
+}
+
+/// The `inspect` answer of [`ACTIVITY_PATH`]: `{"status": 200, "body": ..}` with the brain's
+/// JSON (`ask`: its `control activity`), or 503 when this host runs no brain (`ask` None) or
+/// the brain is stopping.
+pub fn activity_answer<F: FnOnce() -> Result<String, String>>(ask: Option<F>) -> Value {
+    let Some(ask) = ask else {
+        return json!({"status": 503, "error": "this Chief host runs no subagents"});
+    };
+    match ask().map(|text| serde_json::from_str::<Value>(&text)) {
+        Ok(Ok(body)) => json!({"status": 200, "body": body}),
+        Ok(Err(e)) => json!({"status": 500, "error": format!("the brain's activity is not JSON: {e}")}),
+        Err(e) => json!({"status": 503, "error": e}),
+    }
+}
 
 /// The owner's change paths, POST only, through `tool_answer` with `writes`.
 pub const WRITE_PATHS: [&str; 3] = ["/api/memory/edit", "/api/memory/delete", "/api/memory/undo"];

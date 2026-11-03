@@ -37,7 +37,7 @@ pub(super) const NOT_CONFIGURED: &str = "chief.not_configured";
 /// (the app for a local Chief, the server's brain install script).
 pub(super) const TOOLS_SOCKET_ENV: &str = "CMUX_TUI_CHIEF_TOOLS_SOCKET";
 /// The read paths the brain answers with GET (optchat-chief `inspect::INSPECT_PATHS`).
-const PATHS: [&str; 9] = [
+const PATHS: [&str; 10] = [
     "/api/status",
     "/api/turns",
     "/api/turn",
@@ -47,6 +47,8 @@ const PATHS: [&str; 9] = [
     "/api/search",
     "/api/view",
     "/api/memory/changes",
+    // What the Chief has running: its subagents, watches and wakes (the brain answers it).
+    "/api/activity",
 ];
 /// The owner's change paths, forwarded with POST (optchat-chief `inspect::WRITE_PATHS`).
 const WRITE_PATHS: [&str; 3] = ["/api/memory/edit", "/api/memory/delete", "/api/memory/undo"];

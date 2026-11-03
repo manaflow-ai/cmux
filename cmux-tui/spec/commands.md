@@ -7043,7 +7043,8 @@ unregistered or agent-bound connection is refused with `origin.forbidden`
 before anything is forwarded, and the remote relay never admits it. `path` must
 be a read path, forwarded with `GET` (`/api/status`, `/api/turns`, `/api/turn`,
 `/api/node`, `/api/level`, `/api/date`, `/api/search`, `/api/view`,
-`/api/memory/changes`), or one of the owner's memory change paths, forwarded
+`/api/memory/changes`, and `/api/activity`, what the Chief has running: its
+subagents, watches and wakes), or one of the owner's memory change paths, forwarded
 with `POST` (`/api/memory/edit`, `/api/memory/delete`, `/api/memory/undo`; the
 brain refuses them to the Chief's own turn and subagent sessions). The reserved
 `query` key `chief` names a Chief other than the default (chief-brains-v1): the

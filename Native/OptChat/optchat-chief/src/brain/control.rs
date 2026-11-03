@@ -230,6 +230,10 @@ impl Brain {
         if call.action == "status" && call.id.is_none() {
             return Ok(self.status_all());
         }
+        // The inspector's Running tab (activity.rs): JSON, not a model tool's text.
+        if call.action == "activity" {
+            return Ok(self.activity().to_string());
+        }
         let id = call.id.as_deref().unwrap_or_default();
         let Some((_, sub)) = self.state.sub(id) else {
             return Err(format!("no subagent {id}"));
@@ -441,7 +445,7 @@ impl Brain {
 
     /// The state a subagent is in: its watch's (thinking, running-tool,
     /// waiting, stalled, done) while it runs, else `state_name`.
-    fn state_of(&self, sub: &SubRecord, now: u64) -> &'static str {
+    pub(super) fn state_of(&self, sub: &SubRecord, now: u64) -> &'static str {
         let plain = state_name(sub, now);
         if !matches!(plain, "running" | "quiet") {
             return plain;

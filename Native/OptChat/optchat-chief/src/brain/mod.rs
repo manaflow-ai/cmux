@@ -21,6 +21,7 @@
 //! everything the stopped turn did. A turn that hangs is stopped by
 //! `Settings::turn_limit`.
 
+mod activity;
 mod approvals;
 mod chief_inbox;
 pub use chief_inbox::name as chief_inbox_name;

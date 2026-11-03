@@ -1487,6 +1487,22 @@ fn connection(conn: UnixStream, served: &Served) {
                     }
                     continue;
                 }
+                if tool == "inspect" && crate::inspect::asks_activity(&req) {
+                    // The Running tab (brain/activity.rs): the brain answers, not the memory.
+                    let orchestrator = served.orchestrator.clone();
+                    let answer = crate::inspect::activity_answer(orchestrator.map(|o| {
+                        move || {
+                            o.control(ControlCall {
+                                action: "activity".to_owned(),
+                                ..ControlCall::default()
+                            })
+                        }
+                    }));
+                    if writeln!(out, "{answer}").is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 if tool == "inspect" {
                     let answer = match &served.inspector {
                         // Changes only from a caller that is none of the
