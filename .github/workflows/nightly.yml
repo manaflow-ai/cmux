@@ -1798,11 +1798,7 @@ jobs:
         timeout-minutes: 1
         env:
           OWNED: ${{ steps.pick.outputs.owned }}
-        run: |
-          marker="$RUNNER_TEMP/owned-pool-watch/nightly-build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          mkdir -p "${marker%/*}"
-          printf '%s\n' "$OWNED" > "$marker"
-          echo "path=$marker" >> "$GITHUB_OUTPUT"
+        run: bash -e .publish-tooling/scripts/ci/nightly-steps/pick-build-runner-watch-marker.sh
 
       - &upload-the-owned-pool-watch-ma
         name: Upload the owned-pool watch marker
@@ -3021,9 +3017,15 @@ jobs:
         run: bash scripts/ci/nightly-steps/put-llvm-lipo-on-path.sh
 
 
-      # download-artifact reads each blob over one connection. Fetch all three
-      # signing inputs over ranged HTTP concurrently, while retaining the
-      # action downloads as per-artifact fallbacks if a ranged request fails.
+      # A build tree older than this workflow lacks the step scripts it added (an unsigned
+      # resume of an older run): check out only those, from the workflow commit.
+      - &older-tree-step-scripts
+        name: Add the workflow commit's new step scripts to an older build tree
+        if: (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && hashFiles('scripts/ci/nightly-steps/prepare-thin-bundle.sh') == ''
+        run: |
+          git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA"
+          git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- scripts/ci/nightly-steps | while read -r f; do git checkout FETCH_HEAD -- "$f"; done
+
       - &download-signing-inputs-paralle
         name: Download signing inputs (parallel)
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
@@ -3031,41 +3033,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set +e
-          mkdir -p nightly-inputs/app nightly-inputs/ghostty remote-daemon-assets
-          python3 scripts/ci/download-run-artifact.py \
-            --name cmux-nightly-unsigned-app --out nightly-inputs/app \
-            --connections 64 \
-            >"$RUNNER_TEMP/nightly-app-download.log" 2>&1 &
-          app_pid=$!
-          python3 scripts/ci/download-run-artifact.py \
-            --name cmux-nightly-remote-daemon --out remote-daemon-assets \
-            >"$RUNNER_TEMP/nightly-daemon-download.log" 2>&1 &
-          daemon_pid=$!
-          python3 scripts/ci/download-run-artifact.py \
-            --name cmux-nightly-ghostty-cli-helper --out nightly-inputs/ghostty \
-            >"$RUNNER_TEMP/nightly-helper-download.log" 2>&1 &
-          helper_pid=$!
-          wait "$app_pid"; app_status=$?
-          wait "$daemon_pid"; daemon_status=$?
-          wait "$helper_pid"; helper_status=$?
-          for log in \
-            "$RUNNER_TEMP/nightly-app-download.log" \
-            "$RUNNER_TEMP/nightly-daemon-download.log" \
-            "$RUNNER_TEMP/nightly-helper-download.log"; do
-            cat "$log"
-          done
-          app_ok=false; daemon_ok=false; helper_ok=false
-          [ "$app_status" -eq 0 ] && app_ok=true
-          [ "$daemon_status" -eq 0 ] && daemon_ok=true
-          [ "$helper_status" -eq 0 ] && helper_ok=true
-          {
-            echo "app_ok=$app_ok"
-            echo "daemon_ok=$daemon_ok"
-            echo "helper_ok=$helper_ok"
-          } >> "$GITHUB_OUTPUT"
-          exit 0
+        run: bash -e scripts/ci/nightly-steps/prepare-download-signing-inputs.sh
 
 
       - &download-unsigned-nightly-app
@@ -3111,18 +3079,7 @@ jobs:
       - &restore-unsigned-nightly-produ
         name: Restore unsigned nightly products
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
-        run: |
-          set -euo pipefail
-          products="build-universal/Build/Products/Release"
-          mkdir -p "$products"
-          # The Mac's tar records extended attributes GNU tar does not restore.
-          # On an owned Mac (the outage fallback) the Mac's own tar restores them,
-          # as this job did before it moved to Linux (#25885).
-          if [ "$RUNNER_OS" = Linux ]; then
-            tar --warning=no-unknown-keyword -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
-          else
-            tar -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
-          fi
+        run: bash scripts/ci/nightly-steps/prepare-restore-unsigned-products.sh
 
       # The cx-f58x browser-data scan (browser-data-proof-start.sh) normally runs in
       # build-nightly-app, beside the unsigned-app upload, on the same bundle this job
@@ -3141,61 +3098,21 @@ jobs:
       - &inject-universal-ghostty-cli-he
         name: Inject universal Ghostty CLI helper
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
-        run: |
-          set -euo pipefail
-          APP_DIR="build-universal/Build/Products/Release/cmux.app"
-          if [ ! -d "$APP_DIR" ]; then
-            echo "Built app not found at $APP_DIR" >&2
-            exit 1
-          fi
-          DEST="$APP_DIR/Contents/Resources/bin/ghostty"
-          mkdir -p "$(dirname "$DEST")"
-          install -m 755 nightly-inputs/ghostty/ghostty "$DEST"
-          echo "Injected Ghostty CLI helper architectures: $(lipo -archs "$DEST")"
+        run: bash scripts/ci/nightly-steps/prepare-inject-ghostty-cli-helper.sh
 
 
-      # The Ghostty dependency license tree (collect-ghostty-licenses.py, checked
-      # by verify-ghostty-license-bundle.py) ships in the app, with the MPL-2.0
-      # source offer that names this release's cmux-next source archive and tag.
       - &inject-nightly-ghostty-licenses
         name: Inject the Ghostty dependency licenses (cmux-next)
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true') }}
-        run: |
-          set -euo pipefail
-          APP_DIR="build-universal/Build/Products/Release/cmux.app"
-          tree="nightly-inputs/license-trees/ghostty-licenses"
-          python3 cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py \
-            --root "$tree" --revision "$(git rev-parse HEAD:ghostty)"
-          rm -rf "$APP_DIR/Contents/Resources/ghostty-licenses"
-          cp -R "$tree" "$APP_DIR/Contents/Resources/ghostty-licenses"
-          # bin/cmux's libghostty-vt: the submodule ghostty-vt-sys's build.rs
-          # selects, at this commit's gitlink (the resolved cmux-tui client
-          # commit has the same cmux-tui tree and gitlinks: pin-cmux-tui.sh key).
-          # Today: Contents/Resources/ghostty-next-licenses.
-          vt="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source | sed -n 's/^libghostty-vt source: //p')"
-          vt_name="${vt%% *}" vt_revision="${vt##* }"
-          if [[ "$vt_name" != ghostty ]]; then
-            next_tree="nightly-inputs/license-trees/$vt_name-licenses"
-            python3 cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py \
-              --root "$next_tree" --revision "$vt_revision"
-            rm -rf "$APP_DIR/Contents/Resources/$vt_name-licenses"
-            cp -R "$next_tree" "$APP_DIR/Contents/Resources/$vt_name-licenses"
-          fi
+        run: bash scripts/ci/nightly-steps/prepare-inject-ghostty-licenses.sh
 
 
-      # build-nightly-app installed, stripped and probed the client (the one
-      # commit resolve-nightly-cmux-tui-client chose); an unsigned app saved
-      # before that move has none, and is refused here.
       - &require-the-cmux-tui-client-bu
         name: Require the cmux-tui client build-nightly-app bundled
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.fast_build != 'true') }}
         env:
           CMUX_TUI_CLIENT_COMMIT: ${{ needs.build-nightly-app.outputs.cmux_tui_commit || needs.resolve-nightly-cmux-tui-client.outputs.commit }}
-        run: |
-          set -euo pipefail
-          version="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-tui.version"
-          [ -f "$version" ] || { echo "the unsigned app has no bundled cmux-tui client (saved before build-nightly-app installed it)" >&2; exit 1; }
-          grep -Fxq "commit=$CMUX_TUI_CLIENT_COMMIT" "$version" || { echo "bundled cmux-tui is not $CMUX_TUI_CLIENT_COMMIT:" >&2; cat "$version" >&2; exit 1; }
+        run: bash scripts/ci/nightly-steps/prepare-require-cmux-tui-client.sh
 
 
       - &thin-bundle-to-the-variant-arch
@@ -3206,109 +3123,34 @@ jobs:
         # engine artifact is arm64 only: an x86_64 variant drops it first and
         # reports the browser unavailable.
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (matrix.variant != 'universal') }}
-        run: |
-          set -euo pipefail
-          ./scripts/cmux-next/drop-cef-without-arch.sh build-universal/Build/Products/Release/cmux.app "$NIGHTLY_VARIANT"
-          ./scripts/thin-app-bundle.sh build-universal/Build/Products/Release/cmux.app "$NIGHTLY_VARIANT"
+        run: bash scripts/ci/nightly-steps/prepare-thin-bundle.sh
 
 
-      # GNU libintl is LGPL-2.1-or-later. GhosttyKit and the ghostty CLI helper
-      # are built with -Di18n=false, so no shipped Mach-O may define a libintl
-      # symbol unless the channel release carries gettext-0.24.tar.gz and
-      # COPYING.LIB (the prune step keeps those names, they carry no build number).
       - &verify-shipped-libintl-has-its
         name: Verify shipped libintl has its source
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          args=(build-universal/Build/Products/Release/cmux.app)
-          if [ -n "${CHANNEL_RELEASE_TAG:-}" ]; then
-            args+=(--release-repo "$GITHUB_REPOSITORY" --release-tag "$CHANNEL_RELEASE_TAG")
-          fi
-          python3 scripts/verify_app_libintl.py "${args[@]}"
+        run: bash scripts/ci/nightly-steps/prepare-verify-libintl-source.sh
 
 
       - &verify-nightly-binary-archs
         name: Verify nightly binary architectures
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
-        run: |
-          set -euo pipefail
-          APP="build-universal/Build/Products/Release/cmux.app"
-          for binary in \
-            "$APP/Contents/MacOS/cmux" \
-            "$APP/Contents/Resources/bin/cmux" \
-            "$APP/Contents/Resources/bin/ghostty" \
-            "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
-            "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
-          do
-            archs="$(lipo -archs "$binary")"
-            echo "$binary: $archs"
-            if [ "$NIGHTLY_VARIANT" = "universal" ]; then
-              [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
-            else
-              [ "$archs" = "$NIGHTLY_VARIANT" ]
-            fi
-          done
-          # The cmux-next nightly carries the OptChat Chief with the app's slices.
-          if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
-            for helper in optchat-chief cmux-mobile-host; do
-              binary="$APP/Contents/Resources/bin/$helper"
-              [ -x "$binary" ] || { echo "nightly-next is missing bin/$helper" >&2; exit 1; }
-              archs="$(lipo -archs "$binary")"
-              echo "$binary: $archs"
-              if [ "$NIGHTLY_VARIANT" = "universal" ]; then
-                [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
-              else
-                [ "$archs" = "$NIGHTLY_VARIANT" ]
-              fi
-            done
-          fi
-          # bin/cmux is the cmux-tui binary; cmux-tui and acpmux are symlinks to it.
-          for alias in cmux-tui acpmux; do
-            [ "$(readlink "$APP/Contents/Resources/bin/$alias")" = cmux ] || {
-              echo "bin/$alias is not a symlink to cmux" >&2; exit 1; }
-          done
-          if [ "$NIGHTLY_VARIANT" != "universal" ]; then
-            # No fat Mach-O may survive thinning anywhere in the bundle.
-            # Only files with a Mach-O or fat magic reach `file` (one process
-            # each); the per-file scan of the whole bundle took 90 s. A missing or failing
-            # `file` fails the check rather than reading as "no fat file".
-            command -v file >/dev/null || { [ "$RUNNER_OS" = Linux ] && sudo apt-get install -y -qq file >/dev/null; } || true
-            command -v file >/dev/null || { echo "file(1) is missing; cannot check for fat Mach-O" >&2; exit 1; }
-            fat="$(find "$APP" -type f -print0 | python3 scripts/list-macho-candidates.py \
-              | xargs -0 sh -c 'for f do k="$(file -b "$f")" || exit 255; case "$k" in *"Mach-O universal"*) echo "$f";; esac; done' sh)"
-            if [ -n "$fat" ]; then
-              echo "Fat Mach-O files remain after thinning:" >&2
-              echo "$fat" >&2
-              exit 1
-            fi
-          fi
-          # The diff sidecar's static Mach-O checks and its
-          # handshake run on the signed app in verify-signed-nightly.
+        run: bash scripts/ci/nightly-steps/prepare-verify-binary-architectures.sh
 
       - &package-prepared-app-for-signi
         name: Package prepared app for signing
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
-        run: |
-          set -euo pipefail
-          mkdir -p prepared-app-handoff
-          tar -C build-universal/Build/Products/Release -czf prepared-app-handoff/cmux-prepared-app.tar.gz cmux.app
+        run: bash scripts/ci/nightly-steps/prepare-package-app.sh
 
-      # nightly-sign.yml (run from main) reads this annotation of this job
-      # through the checks API and refuses a tarball with another sha256.
       - &record-prepared-app-digest
         name: Record prepared app digest
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         env:
           PREPARED_APP_ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           NIGHTLY_SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
-        run: |
-          set -euo pipefail
-          digest="$(shasum -a 256 prepared-app-handoff/cmux-prepared-app.tar.gz | awk '{print $1}')"
-          [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "no sha256 for the prepared app" >&2; exit 1; }
-          echo "::notice title=nightly-prepared-app::variant=${NIGHTLY_VARIANT} artifact=${PREPARED_APP_ARTIFACT} sha256=${digest} publish=${NIGHTLY_SHOULD_PUBLISH} fast=${NIGHTLY_FAST_BUILD}"
+        run: bash scripts/ci/nightly-steps/prepare-record-app-digest.sh
 
       - &finish-the-browser-data-import
         name: Finish the browser-data import proof
@@ -3393,6 +3235,7 @@ jobs:
       - *put-llvm-lipo-on-path-as-lipo
 
 
+      - *older-tree-step-scripts
       # download-artifact reads each blob over one connection. Fetch all three
       # signing inputs over ranged HTTP concurrently, while retaining the
       # action downloads as per-artifact fallbacks if a ranged request fails.
@@ -3620,8 +3463,6 @@ jobs:
           OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
         run: python3 .publish-tooling/scripts/ci/signing_runner.py owned
 
-      # As pick-nightly-build-runner: a dispatch made with GITHUB_TOKEN, or a re-run, may start no
-      # workflow_run event, so an owned pick there leaves the sweeper's owned-pool-watch marker.
       - name: Write the owned-pool watch marker
         id: marker
         if: (steps.owned.outputs.owned != '' || steps.sign-owned.outputs.owned != '') && (github.event_name != 'push' || github.run_attempt != 1)
@@ -3629,11 +3470,7 @@ jobs:
         timeout-minutes: 1
         env:
           OWNED: ${{ steps.owned.outputs.owned || steps.sign-owned.outputs.owned }}
-        run: |
-          marker="$RUNNER_TEMP/owned-pool-watch/nightly-verify-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          mkdir -p "${marker%/*}"
-          printf '%s\n' "$OWNED" > "$marker"
-          echo "path=$marker" >> "$GITHUB_OUTPUT"
+        run: bash -e .publish-tooling/scripts/ci/nightly-steps/pick-sign-runner-watch-marker.sh
 
       - *upload-the-owned-pool-watch-ma
 
@@ -3787,22 +3624,12 @@ jobs:
           path: remote-daemon-assets
 
       - name: Restore prepared app
-        run: |
-          set -euo pipefail
-          products="build-universal/Build/Products/Release"
-          mkdir -p "$products"
-          tar -C "$products" -xzf prepared-app/cmux-prepared-app.tar.gz
+        run: s=scripts/ci/nightly-steps/sign-restore-prepared-app.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"
 
 
       - name: Refuse a resumed build superseded by a published feed
         if: inputs.nightly_next_unsigned_run != ''
-        run: |
-          set -euo pipefail
-          feeds=()
-          for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
-            feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
-          done
-          python3 scripts/ci/nightly_version.py check-build --build "$NIGHTLY_BUILD" "${feeds[@]}"
+        run: s=scripts/ci/nightly-steps/sign-refuse-superseded-resume.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"
 
       # Provide node/npm explicitly. The build/sign/notarize job can land on a
       # self-hosted macOS runner (the iOS-CI minis match the same label) that has
@@ -3960,19 +3787,7 @@ jobs:
 
 
       - name: Embed verified SSH daemon manifest
-        run: |
-          bundle_args=()
-          if [[ "$BUNDLE_REMOTE_DAEMON_ASSETS" == "true" ]]; then
-            # Unpublished dogfood builds must work without GitHub release URLs.
-            bundle_args+=(--bundle-assets)
-          fi
-          # No --verify-cli here: this job holds signing secrets and runs no
-          # bundle code. verify-signed-nightly runs the bundled-CLI query on the
-          # signed app.
-          python3 scripts/verify_remote_daemon_release.py \
-            --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
-            --assets-dir remote-daemon-assets \
-            --app "$CHANNEL_APP_PATH" --embed "${bundle_args[@]}"
+        run: s=scripts/ci/nightly-steps/sign-embed-ssh-daemon-manifest.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash -e "$s"
 
 
       # Read-only: can this ASC key register nightly-next's own App ID
@@ -4079,32 +3894,13 @@ jobs:
         run: ./scripts/ci/signing-keychain.sh delete
 
 
-      # The read-only checks of the signed app and its two packages run on a
-      # copy of it while Apple notarizes (signed-app-checks.sh): about 2.5 min
-      # that used to stand between Codesign apps and the first submission. The
-      # notarize step changes the app in place, so the copy is taken here.
-      # This job holds signing secrets, so it runs no code from the bundle.
-      # verify-signed-nightly runs every check that executes the app, the CLI,
-      # the helpers or the sidecar, in a job without secrets, on this exact
-      # signed app and on the final DMG (#21024). Notary tests and builds held
-      # by NIGHTLY_NEXT_NOTARY_PAUSED (they carry the browser-data import) never
-      # upload a signed app and publish nothing, so they skip that job. The
-      # unnotarized zip is the Developer ID-signed app for teammates when
-      # Apple's queue is slow; the public repository never gets one from notary
-      # tests or paused builds, and a failed zip never blocks notarization.
       - name: Start the signed-app checks (they run during notarization)
         env:
           CHECK_MINOS: ${{ env.TRACK == 'nightly-next' }}
           PACKAGE_HANDOFF: ${{ needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true' }}
           PACKAGE_UNNOTARIZED_ZIP: ${{ needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true' }}
           VARIANT: ${{ matrix.variant }}
-        run: |
-          set -euo pipefail
-          # An unsigned resume of an older tree may predate this script; its
-          # checks are still the tree's own (the script runs ./scripts/...).
-          checks=scripts/ci/signed-app-checks.sh
-          [ -f "$checks" ] || checks=.nightly-signing-control/scripts/ci/signed-app-checks.sh
-          bash "$checks" start "$CHANNEL_APP_PATH"
+        run: s=scripts/ci/nightly-steps/sign-start-signed-app-checks.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"
 
 
       - name: Stop before notarization (NIGHTLY_NEXT_NOTARY_PAUSED)
@@ -4172,18 +3968,11 @@ jobs:
             "$NIGHTLY_DMG_IMMUTABLE"
 
 
-      # Every Mach-O must load on the declared floor, map to its notices and
-      # pass the load-command check; the verify job's handoff comes from the
-      # same copy. A failure here fails the job, so nothing is published.
       - name: Finish the signed-app checks
         id: signed-app-checks
         if: always()
         timeout-minutes: 15
-        run: |
-          set -euo pipefail
-          checks=scripts/ci/signed-app-checks.sh
-          [ -f "$checks" ] || checks=.nightly-signing-control/scripts/ci/signed-app-checks.sh
-          bash "$checks" finish
+        run: s=scripts/ci/nightly-steps/sign-finish-signed-app-checks.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"
 
 
       - name: Upload signed app for the verify job
@@ -4537,33 +4326,21 @@ jobs:
         if: env.TRACK == 'nightly-next'
         run: ./scripts/cmux-next/check-version-surfaces.sh "$CHANNEL_APP_PATH"
 
-      # Every CLI command that must work from the bundle alone runs from the
-      # signed app on this Mac (a subcommand once exec'd a cmux-vm binary no
-      # bundle shipped). A slice this Mac cannot run is checked by the
-      # variant that can.
+      # The same restore for a job with no prepare reuse step: only the tree's age decides.
+      - &older-tree-step-scripts-plain
+        name: Add the workflow commit's new step scripts to an older build tree
+        if: hashFiles('scripts/ci/nightly-steps/prepare-thin-bundle.sh') == ''
+        run: |
+          git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA"
+          git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- scripts/ci/nightly-steps | while read -r f; do git checkout FETCH_HEAD -- "$f"; done
       - name: Verify bundled CLI commands run from the bundle alone
         if: env.TRACK == 'nightly-next' && hashFiles('scripts/cmux-next/check-bundled-cli-commands.sh') != ''
-        run: |
-          set -euo pipefail
-          archs="$(lipo -archs "$CHANNEL_APP_PATH/Contents/Resources/bin/cmux")"
-          if [[ " $archs " == *" $(uname -m) "* ]]; then
-            ./scripts/cmux-next/check-bundled-cli-commands.sh "$CHANNEL_APP_PATH"
-          else
-            echo "bin/cmux is $archs; this runner is $(uname -m): the matching variant checks it"
-          fi
+        run: bash scripts/ci/nightly-steps/verify-signed-bundled-cli-commands.sh
 
 
 
-      # sign-cmux-bundle.sh ran the static sidecar checks while the keychain
-      # existed. Recheck the signed sidecar's deterministic transport contract
-      # after the keychain is gone; this does not launch the app.
       - name: Verify signed diff sidecar protocol contract
-        run: |
-          set -euo pipefail
-          ./scripts/verify-diff-sidecar-artifact.sh \
-            "$CHANNEL_APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
-            --archs "$(lipo -archs "$CHANNEL_APP_PATH/Contents/MacOS/cmux")" \
-            --require-signed
+        run: bash scripts/ci/nightly-steps/verify-signed-diff-sidecar-contract.sh
 
       # The post-sign checks of sign-cmux-bundle.sh (entitlements, helpers,
       # browser host) on this signed app whichever signer made it, and the
@@ -4579,23 +4356,7 @@ jobs:
 
 
       - name: Verify signed app SSH daemon contract
-        run: |
-          bundle_args=()
-          if [[ "$BUNDLE_REMOTE_DAEMON_ASSETS" == "true" ]]; then
-            bundle_args+=(--require-bundled-assets)
-          fi
-          # cmux-next bundles the Rust CLI (#16174), which has no classic
-          # `remote-daemon-status` command, so nightly-next checks the manifest
-          # and daemon bytes but skips the bundled-CLI query.
-          if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
-            echo "nightly-next: skipping --verify-cli (Rust CLI has no remote-daemon-status)"
-          else
-            bundle_args+=(--verify-cli)
-          fi
-          python3 scripts/verify_remote_daemon_release.py \
-            --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
-            --assets-dir remote-daemon-assets \
-            --app "$CHANNEL_APP_PATH" "${bundle_args[@]}"
+        run: bash -e scripts/ci/nightly-steps/verify-signed-ssh-daemon-contract.sh
 
 
 
@@ -4687,14 +4448,10 @@ jobs:
           NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
         run: bash scripts/ci/nightly-steps/signer-final-dmg-checks.sh
 
-      # A pool-signed build's smoke ran in launch-smoke-nightly on the unsigned DMG: record the final DMG's image
-      # for publish-nightly to match. Any other build (or NIGHTLY_NEXT_PARALLEL_SMOKE=off) is smoked here.
       - name: Read the final DMG's image for the parallel launch smoke
         id: final-image
         if: needs.signer-dmg.result == 'success' && vars.NIGHTLY_NEXT_PARALLEL_SMOKE != 'off' && env.TRACK == 'nightly-next' && matrix.variant == 'arm64'
-        run: |
-          image="$(python3 -I .publish-tooling/scripts/ci/dmg_image_digest.py "final-dmg/${CHANNEL_DMG_PREFIX}-arm64.dmg")"
-          echo "image=$image" >> "$GITHUB_OUTPUT"
+        run: bash -e .publish-tooling/scripts/ci/nightly-steps/verify-final-dmg-read-image.sh
       # Leo, 2026-10-29: "Just don't have that be the downloading thing." The app launched from a fresh
       # home must stay up with Home rendered: a crash fails this job, so publish-nightly puts none of
       # this build on the feed (scripts/ci/nightly-steps/launch-smoke-gate.sh; cannot-run never holds it).
@@ -4975,25 +4732,30 @@ jobs:
       # took a p50 of 133 s for the 355 MB app (hosted Linux: 9 s) and ran out its 5 minutes in 4 of 26
       # runs; run 41478567483 ran out both tries and its tip never published. This reads it in parallel
       # ranges, asks again for a range that stalls, and checks the zip's upload digest. When it fails,
-      # download-artifact below takes over as before.
+      # download-artifact below takes over as before. The SSH daemon assets come down beside it: read
+      # after it in turn they cost 39 s on the feed's critical path (run 41665278171).
       - name: Download the signed app (parallel ranges)
         continue-on-error: true
         timeout-minutes: 5
         # A JavaScript step, so the script gets the job's runtime token for the artifact service in its
         # own environment (download-artifact's route, no GITHUB_TOKEN permission); nothing goes to $GITHUB_ENV
-        # but the flag.
+        # but the flags.
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           ARTIFACT: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           FETCH_DEST: signer-app
         with:
           script: |
-            const run = require('child_process').spawnSync('python3', ['-I', '.publish-tooling/scripts/ci/fetch_run_artifact.py', '--name', process.env.ARTIFACT, '--dest', process.env.FETCH_DEST], {stdio: 'inherit'})
-            if (run.status !== 0) core.setFailed(`fetch_run_artifact.py exited ${run.status ?? run.signal}`)
+            const fetch = (name, dest) => new Promise((done) => require('child_process')
+              .spawn('python3', ['-I', '.publish-tooling/scripts/ci/fetch_run_artifact.py', '--name', name, '--dest', dest], {stdio: 'inherit'})
+              .on('error', (error) => done(error.message)).on('close', (code, signal) => done(code === 0 ? 0 : code ?? signal)))
+            const [app, daemon] = await Promise.all([fetch(process.env.ARTIFACT, process.env.FETCH_DEST),
+              fetch('cmux-nightly-remote-daemon', 'remote-daemon-assets')])
+            if (daemon === 0) core.exportVariable('SIGNER_DAEMON_FETCHED', 'true')
+            if (app !== 0) core.setFailed(`fetch_run_artifact.py exited ${app}`)
             else core.exportVariable('SIGNER_APP_FETCHED', 'true')
       # An env flag, not a step outcome, so the ranged step's result decides.
-      - &signer-download-app
-        name: Download the signed app
+      - name: Download the signed app
         id: signer-download-app
         if: env.SIGNER_APP_FETCHED != 'true'
         continue-on-error: true
@@ -5002,16 +4764,14 @@ jobs:
         with:
           name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-app
-      - &signer-download-app-retry
-        name: Download the signed app (retry)
+      - name: Download the signed app (retry)
         if: steps.signer-download-app.outcome == 'failure'
         timeout-minutes: 5
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-app
-      - &signer-unpack-app
-        name: Unpack the signed app
+      - name: Unpack the signed app
         env:
           APP_SHA256: ${{ needs.signer-app.outputs.sha256 }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/signer-unpack-app.sh
@@ -5021,7 +4781,12 @@ jobs:
           PACKAGE_HANDOFF: "false"
           PACKAGE_UNNOTARIZED_ZIP: "false"
         run: bash scripts/ci/signed-app-checks.sh start "$SIGNER_WORK/$CHANNEL_APP_NAME.app"
-      - *download-ssh-daemon-assets-2
+      - name: Download SSH daemon assets
+        if: env.SIGNER_DAEMON_FETCHED != 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-remote-daemon
+          path: remote-daemon-assets
       - name: Start the verify-signed checks
         env:
           NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
@@ -6043,19 +5808,11 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-upload-appcasts.sh
 
-      # cmux NEXT's critical path (Leo, 2026-10-26: "how are we even spending more than one
-      # minute on uploads?"): the DMG goes to the feed's own R2 base and the feed names it
-      # there, so the feed never waits on GitHub. The release upload spent 13-18 minutes in
-      # secondary rate-limit backoff (runs 40357982361, 40376320918). The GitHub release copy,
-      # its aliases, metadata and tag follow in publish-nightly-next-github, which never holds
-      # the feed. Same bytes, so the item's EdDSA signature is unchanged.
       - name: Keep the live feed's newest Nightly item beside the new build
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
-        run: |
-          read -r -a feeds <<<"$NIGHTLY_FEEDS"
-          bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh "${feeds[@]/#/nightly-out/}"
+        run: bash -e .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-keep-live-nightly-item.sh
 
       - name: Tag the new build's items from the live Dev ring switch
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
@@ -6178,7 +5935,8 @@ jobs:
           DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-readback.sh
 
-      - name: Release the nightly-next publish lease
+      - &release-the-nightly-next-publi
+        name: Release the nightly-next publish lease
         if: always() && steps.lease.outcome != 'skipped'
         env: *next-publish-lease
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-lease.sh unlock
@@ -7290,12 +7048,9 @@ jobs:
           name: cmux-nightly-identity-tested-plist
           path: tested-plist
 
-      # Only the bytes the verify job statically verified are published.
       - name: Refuse a DMG that is not the tested one
         if: steps.order.outputs.skip == 'false' && env.TESTED_SHA256 != ''
-        run: |
-          ./scripts/ci/nightly-next-legacy-tested-digest.sh \
-            "legacy-out/${LEGACY_DMG_PREFIX}${NIGHTLY_BUILD}.dmg" "$TESTED_SHA256" "$SIGNED_SHA256"
+        run: bash -e scripts/ci/nightly-steps/legacy-identity-publish-refuse-untested-dmg.sh
 
       - name: Generate the old feed's appcast
         id: appcast
@@ -7796,16 +7551,11 @@ jobs:
 
       - name: Fetch the published span
         run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next "$PUBLISHED_SHA"
+      - *older-tree-step-scripts-plain
       - name: Comment the build on its PRs
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if [ "$PUBLISHED_SHA" = "$HEAD_SHA" ]; then echo "Empty span."; exit 0; fi
-          python3 scripts/ci/published_in_comments.py --repo "$GITHUB_REPOSITORY" \
-            --since "$PUBLISHED_SHA" --head "$HEAD_SHA" \
-            --name "cmux NEXT nightly $NIGHTLY_VERSION" \
-            --url "https://github.com/$GITHUB_REPOSITORY/releases/tag/nightly-next"
+        run: bash scripts/ci/nightly-steps/published-in-comment-prs.sh
 
   # Keep one open issue per failed publication boundary. A stale channel tag
   # leaves the assets, release metadata, and feeds available, so the incident
@@ -7849,19 +7599,10 @@ jobs:
       # the next one (2026-10-12: 3821558930001 had no notes and its highlights were never shown).
       - *wait-through-github-api-rate-l
 
+      - *older-tree-step-scripts-plain
       - name: Start the span at the newest published notes
         id: span
-        run: |
-          set -euo pipefail
-          since=""
-          index="$(mktemp)"
-          if curl -fsSL -A "cmux-release-notes/1" -o "$index" "$NIGHTLY_NEXT_FEED_BASE/notes/index.json" \
-             && curl -fsSL -A "cmux-release-notes/1" -o "$index.sig" "$NIGHTLY_NEXT_FEED_BASE/notes/index.json.sig" \
-             && python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" "$index"; then
-            since="$(python3 scripts/cmux-next/release-notes.py since --index "$index" --not "$HEAD_SHA")"
-          fi
-          rm -f "$index" "$index.sig"
-          echo "since=${since:-${PUBLISHED_SHA:-}}" >> "$GITHUB_OUTPUT"
+        run: bash scripts/ci/nightly-steps/release-notes-start-span.sh
       - name: Fetch the commits since the newest published notes
         env:
           SPAN_SINCE: ${{ steps.span.outputs.since }}
@@ -7933,10 +7674,7 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: bash .publish-tooling/scripts/ci/nightly-steps/release-notes-upload-to-r2.sh
-      - name: Release the nightly-next publish lease
-        if: always() && steps.lease.outcome != 'skipped'
-        env: *next-publish-lease
-        run: bash .publish-tooling/scripts/ci/nightly-steps/publish-lease.sh unlock
+      - *release-the-nightly-next-publi
 
   # The nightly reel (scripts/cmux-next/media/reel.py): each pull request in this
   # build's signed notes with its tour's "after" clip and a title card, joined
@@ -7969,15 +7707,12 @@ jobs:
       - *wait-through-github-api-rate-l
 
       - *download-artifact-step
+      - *older-tree-step-scripts-plain
       - name: Install ffmpeg
         timeout-minutes: 6
         env:
           DEBIAN_FRONTEND: noninteractive
-        run: |
-          if ! command -v ffmpeg >/dev/null || ! command -v fc-match >/dev/null; then
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq --no-install-recommends ffmpeg fontconfig fonts-dejavu-core >/dev/null
-          fi
+        run: bash -e scripts/ci/nightly-steps/reel-install-ffmpeg.sh
       - name: Build and publish the reel
         uses: ./.github/actions/pr-media-publish
         env:

@@ -22,7 +22,8 @@ public struct HomeDebugActions {
     }
 
     /// Binds `home.saveFlightRecording`, `debug.allThemesPlayground` and, in DEV builds, `home.agentMessagePlayground` (its `style`,
-    /// `expanded` and `team` arguments switch the playground; none opens it as it is).
+    /// `expanded` and `team` arguments switch the playground; none opens it as it is) and
+    /// `home.chiefTeleportPlayground` (its `state` picks the menu shown beside the chips).
     public func bind(into registry: ActionRegistry) {
         let off = flightRecorderOff
         // Both run on the input's turn and finish there (a dump written, a window shown): nothing to wait for.
@@ -42,6 +43,11 @@ public struct HomeDebugActions {
         registry.bindEffect("home.mcpConnectPlayground", effect: { invocation in
             McpConnectCardPlayground.show(style: invocation["style"]?.intValue, fixture: invocation["fixture"]?.intValue,
                                           phase: invocation["phase"]?.intValue)
+            return .done
+        })
+        // Debug > Chief Teleport Playground: the location chip variants in every state, light and dark.
+        registry.bindEffect("home.chiefTeleportPlayground", effect: { invocation in
+            ChiefTeleportPlayground.show(state: invocation["state"]?.intValue)
             return .done
         })
         #endif

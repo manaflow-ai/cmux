@@ -169,6 +169,23 @@ class GroupWeb(unittest.TestCase):
         replaced = [{"name": "coalesce", "conclusion": "cancelled"}, {"name": "web", "conclusion": "skipped"}]
         self.assertEqual(self.coalesced_base(replaced), "passed")
 
+    def test_a_yielded_base_run_leaves_the_comparison_to_an_ancestors_run(self):
+        # web_coalesce.py #33872: a coalesce job that slept yields to a newer push; its run ends success, checks
+        # skipped. It is no web verdict, so it must not read as a green base.
+        item = controller()
+        yielded = {"id": 2, "event": "push", "conclusion": "success", "head_branch": nb.BASE,
+                   "status": "completed", "head_sha": "b" * 40}
+        older = {"id": 3, "event": "push", "conclusion": "failure", "head_branch": nb.BASE, "status": "completed",
+                 "head_sha": "a" * 40}
+        jobs = [{"name": "coalesce", "conclusion": "success"}, {"name": "web", "conclusion": "skipped"},
+                {"name": "web bisect", "conclusion": "skipped"}]
+        item.gh.runs.side_effect = lambda workflow, query: [yielded] if "head_sha=" in query else [yielded, older]
+        item.gh.api.side_effect = lambda path: {"jobs": jobs} if "/runs/2/jobs" in path else {"jobs": []}
+        item.is_ancestor = lambda sha, base: True
+        item.failed_jobs = lambda run_id, detail=False: {1: ["web / react-apps-check: step Check"], 2: [],
+                                                       3: ["web / react-apps-check: step Check"]}[run_id]
+        self.assertEqual(item.judge_web({"id": 1, "conclusion": "failure"}, "b" * 40), "passed")
+
     def test_a_cancelled_base_run_whose_web_job_passed_is_the_base_verdict(self):
         # Cancelled by hand after its web checks passed: that green stands, so the stack's red is its own.
         ran = [{"name": "coalesce", "conclusion": "success"},
