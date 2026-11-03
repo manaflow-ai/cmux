@@ -283,8 +283,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
             "composer gap after a reply and its footer row",
           ).toBeLessThanOrEqual(0.5);
           // Its 16 glyph is centred in the 32 line: 8 + 8 under the reply's line box.
-          const glyphTop =
-            TRANSCRIPT_FOOTER_GAP + (TRANSCRIPT_FOOTER_CONTROL - gridLength("transcript-icon-box")) / 2;
+          const glyphTop = TRANSCRIPT_FOOTER_GAP + (TRANSCRIPT_FOOTER_CONTROL - gridLength("transcript-icon-box")) / 2;
           expect(
             Math.abs(glyph.top - message.bottom - glyphTop),
             "footer glyph top 16 under the message",
