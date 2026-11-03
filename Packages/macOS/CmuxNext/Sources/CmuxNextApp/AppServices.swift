@@ -447,6 +447,7 @@ final class AppServices {
     private(set) lazy var onboarding = OnboardingService(services: self)
     /// Agent permission requests (`permissions.request`): the card, the store and the TCC reads.
     private(set) lazy var agentPermissions = AgentPermissionsService(services: self)
+    private(set) lazy var imessage = AgentPaneIMessageConnector(host: self)
     /// Provider sign-ins and CodeRouter accounts (Settings > Accounts, onboarding).
     private(set) lazy var accounts = AccountsService(services: self)
     /// Agent harness profiles (Settings > Agents, `agent.harness.*`), through acpmux.
@@ -750,7 +751,7 @@ final class AppServices {
         updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
         serverUpdates.start(registry: registry)
         cache.onBrowserReady = { [weak self] key in
-            self?.keyRouter.creationInputCoordinator.holdEnds.pageArrived(key); for controller in self?.windows.controllers ?? [] {
+            self?.keyRouter.creationInputCoordinator.pageArrived(key); for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
             }
         }

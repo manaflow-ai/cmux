@@ -193,6 +193,7 @@ pub(super) async fn wait(
     // Since when each chat's row has said its failed turn's retry is being decided.
     let mut deciding: HashMap<String, tokio::time::Instant> = HashMap::new();
     let mut evaluate = |hub: &Hub| -> (Vec<Value>, Vec<Value>) {
+        hub.wait_evaluations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let now = tokio::time::Instant::now();
         let summaries = hub.session_summaries_of(&ids);
         let mut rows = Vec::new();
@@ -260,7 +261,8 @@ pub(super) async fn wait(
                     r = events.recv() => match r {
                         // Another chat's record changes none of these: the poll still
                         // catches a change that logs no record.
-                        Ok(ev) if !concerns(&ev, &ids) => continue,
+                        // A chunk of streamed output changes no row a wait reads.
+                        Ok(ev) if !concerns(&ev, &ids) || streamed(&ev) => continue,
                         Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => break,
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                             // Daemon shutting down.
@@ -319,6 +321,21 @@ fn holds_for_retry(
 fn concerns(ev: &crate::hub::HubEvent, ids: &[String]) -> bool {
     let row = ev.remote.as_ref().and_then(|r| r.summary.get("sessionId")).and_then(Value::as_str);
     ids.iter().any(|id| *id == ev.session_id || Some(id.as_str()) == row)
+}
+
+/// Whether `ev` is a chunk of a chat's streamed output (its reply, its thinking, a replayed
+/// prompt). It changes none of the fields a wait reads (status, pending permissions, unread, the
+/// running and the last turn, the waited slot): every such change logs a record of its own
+/// (`status`, `turn_result`, `background_turn`, ...), and the 1 s poll reads one that logs none.
+/// So a streaming chat costs its waiters nothing per token (HOT PATH AUDIT area F, row A1).
+// perf-hot: 0.1us acpmux-wait-wake (every record any chat logs, per open wait)
+fn streamed(ev: &crate::hub::HubEvent) -> bool {
+    let kind = ev.record.kind.as_str();
+    ev.remote.is_none()
+        && matches!(
+            kind.strip_suffix(".replay").unwrap_or(kind),
+            "agent_message_chunk" | "agent_thought_chunk" | "user_message_chunk"
+        )
 }
 
 /// One `_acpmux/wait` in `Hub::open_waits` while it lives.
@@ -407,3 +424,7 @@ mod turn_ended_tests {
         assert!(TurnEnded::parse(None).is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "wait_stream_tests.rs"]
+mod wait_stream_tests;

@@ -473,6 +473,20 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 mainMenu: .debug, isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // Debug > MCP Connect Card Playground (plans/cmux-next/mcp-connect-DESIGN.md section 8): the card's
+            // styles for each kind of server, in each phase, light and dark.
+            ActionDescriptor(
+                id: "home.mcpConnectPlayground", title: t("action.home.mcpConnectPlayground", "MCP Connect Card Playground"),
+                keywords: ["home", "chief", "mcp", "connect", "server", "card", "playground", "variants", "debug"],
+                category: .window, symbol: "square.stack.3d.up", surfaces: [.palette, .menu],
+                arguments: [
+                    ActionArgument(name: "style", title: t("argument.home.mcpPlaygroundStyle", "Card Style"), kind: .int(1...6), isRequired: false),
+                    ActionArgument(name: "fixture", title: t("argument.home.mcpPlaygroundServer", "Server"), kind: .int(0...5), isRequired: false),
+                    ActionArgument(name: "phase", title: t("argument.home.mcpPlaygroundPhase", "Phase"), kind: .int(0...6), isRequired: false),
+                ],
+                mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
         ]
         #else
         []
