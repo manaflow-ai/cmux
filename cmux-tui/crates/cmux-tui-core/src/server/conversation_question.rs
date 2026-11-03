@@ -14,6 +14,24 @@ use crate::mux::Mux;
 
 const TIMEOUT: Duration = Duration::from_secs(3);
 
+/// Releases a per-message reservation on success, refusal or unwind. No background task.
+pub(super) struct Reservation<'a> {
+    pub mux: &'a Mux,
+    pub message: &'a str,
+    pub armed: bool,
+}
+impl Drop for Reservation<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let _ = self.mux.with_conversations(|store| {
+            store.release_question_answer(self.message);
+            Ok(())
+        });
+    }
+}
+
 /// Ephemeral only: never part of the persisted answer or idempotency fingerprint.
 #[derive(Deserialize)]
 struct Decision {
@@ -73,6 +91,11 @@ pub(super) fn deliver(
             refuse(match error {
                 LinkError::Timeout => "question.delivery_unknown",
                 LinkError::Closed => "question.agent_gone",
+                LinkError::Rpc(_, data)
+                    if data.get("reason").and_then(Value::as_str) == Some("agent_gone") =>
+                {
+                    "question.agent_gone"
+                }
                 _ => "question.refused",
             })
         })

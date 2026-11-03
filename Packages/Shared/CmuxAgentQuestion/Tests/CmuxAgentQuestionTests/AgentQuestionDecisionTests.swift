@@ -2,7 +2,7 @@ import CmuxAgentQuestion
 import Testing
 
 @Suite struct AgentQuestionDecisionTests {
-    @Test func decisionTravelsWithSelectionsButNeverWithRecordedAnswer() throws {
+    @Test func decisionTravelsWithSelectionsAndOldCallersKeepTheirShape() {
         let decision: AgentQuestionJSON = ["digest": "original", "person_decision": "proof"]
         let answer = AgentQuestionAnswer(selections: ["q0": .init(optionIDs: ["o0"])], decision: decision)
         let forwarded = answer.conversationAnswer

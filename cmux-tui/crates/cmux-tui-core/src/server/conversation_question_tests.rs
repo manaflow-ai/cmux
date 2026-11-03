@@ -129,30 +129,26 @@ fn store() -> (ConversationStore, String, Op) {
 #[test]
 fn delivery_refusal_rolls_back_then_answer_commits_once() {
     let (mut store, conversation, op) = store();
-    let error = store
-        .answer_question(&conversation, "answer-q", LOCAL_USER, &op, |_| {
-            Err(refuse("question.agent_gone"))
-        })
-        .unwrap_err();
+    let error = answer_in_store(&mut store, &conversation, "answer-q", LOCAL_USER, &op, |_| {
+        Err(refuse("question.agent_gone"))
+    })
+    .unwrap_err();
     assert_eq!(error.to_string(), "question.agent_gone");
-    let result = store
-        .answer_question(&conversation, "answer-q", LOCAL_USER, &op, |q| {
-            assert_eq!(q.state, QuestionState::Pending);
-            Ok(())
-        })
-        .unwrap();
+    let result = answer_in_store(&mut store, &conversation, "answer-q", LOCAL_USER, &op, |q| {
+        assert_eq!(q.state, QuestionState::Pending);
+        Ok(())
+    })
+    .unwrap();
     assert!(!result.replayed);
-    let replay = store
-        .answer_question(&conversation, "answer-q", LOCAL_USER, &op, |_| {
-            panic!("replay sent twice")
-        })
-        .unwrap();
+    let replay = answer_in_store(&mut store, &conversation, "answer-q", LOCAL_USER, &op, |_| {
+        panic!("replay sent twice")
+    })
+    .unwrap();
     assert!(replay.replayed);
-    let error = store
-        .answer_question(&conversation, "answer-again", LOCAL_USER, &op, |_| {
-            panic!("closed sent twice")
-        })
-        .unwrap_err();
+    let error = answer_in_store(&mut store, &conversation, "answer-again", LOCAL_USER, &op, |_| {
+        panic!("closed sent twice")
+    })
+    .unwrap_err();
     assert_eq!(error.to_string(), "question_closed");
 }
 
@@ -161,16 +157,14 @@ fn store_rejects_stale_digest_without_committing_or_sending() {
     let (mut store, conversation, op) = store();
     let mut d = decision(&question());
     d["digest"] = json!("0".repeat(64));
-    let error = store
-        .answer_question(&conversation, "stale-answer", LOCAL_USER, &op, |q| {
-            decode(q, Some(&d)).map(|_| ())
-        })
-        .unwrap_err();
+    let error = answer_in_store(&mut store, &conversation, "stale-answer", LOCAL_USER, &op, |q| {
+        decode(q, Some(&d)).map(|_| ())
+    })
+    .unwrap_err();
     assert_eq!(error.to_string(), "question.stale");
     // The failed delivery did not close the question or spend an idempotency key.
     assert!(
-        !store
-            .answer_question(&conversation, "stale-answer", LOCAL_USER, &op, |_| Ok(()))
+        !answer_in_store(&mut store, &conversation, "stale-answer", LOCAL_USER, &op, |_| Ok(()))
             .unwrap()
             .replayed
     );
@@ -180,4 +174,40 @@ fn store_rejects_stale_digest_without_committing_or_sending() {
 fn refusals_use_home_final_rejection_not_indeterminate_retry() {
     let error = refuse("question.agent_gone");
     assert_eq!(super::super::error_code(&error).as_deref(), Some("conversation_rejected"));
+}
+
+fn answer_in_store(
+    store: &mut ConversationStore,
+    conversation: &str,
+    key: &str,
+    actor: &str,
+    op: &Op,
+    deliver: impl FnOnce(&Question) -> anyhow::Result<()>,
+) -> anyhow::Result<crate::conversation_store::OpOutcome> {
+    let prepared = store.prepare_question_answer(conversation, key, actor, op)?;
+    let question = match prepared {
+        Ok(question) => question,
+        Err(replay) => return Ok(replay),
+    };
+    let result = deliver(&question);
+    store.release_question_answer(op.target_message_id().unwrap());
+    result?;
+    store.apply_op(conversation, key, actor, op)
+}
+
+#[test]
+fn reservation_refuses_replacement_but_does_not_lock_other_messages() {
+    let (mut store, conversation, op) = store();
+    assert!(
+        store.prepare_question_answer(&conversation, "answer", LOCAL_USER, &op).unwrap().is_ok()
+    );
+    let retract = Op::MessageRetract { message_id: op.target_message_id().unwrap().to_owned() };
+    assert_eq!(
+        store.apply_op(&conversation, "cancel", "agent_mux", &retract).unwrap_err().to_string(),
+        "question.delivery_pending"
+    );
+    let unrelated: Op = serde_json::from_value(json!({"kind":"message.send","client_msg_id":"other", "parts":[{"type":"text","text":"Unrelated conversation work continues"}]})).unwrap();
+    assert!(!store.apply_op(&conversation, "other", LOCAL_USER, &unrelated).unwrap().replayed);
+    store.release_question_answer(op.target_message_id().unwrap());
+    assert!(!store.apply_op(&conversation, "answer", LOCAL_USER, &op).unwrap().replayed);
 }

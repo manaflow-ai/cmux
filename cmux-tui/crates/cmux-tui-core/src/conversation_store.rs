@@ -9,6 +9,7 @@
 //! only after a method returns, so no event ever describes an uncommitted
 //! write. Typing indicators are never stored.
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -90,6 +91,15 @@ fn rejected(reject: Reject) -> anyhow::Error {
     ConversationRejected(reject).into()
 }
 
+#[derive(Debug)]
+pub(crate) struct QuestionDeliveryBusy;
+impl std::fmt::Display for QuestionDeliveryBusy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("question.delivery_pending")
+    }
+}
+impl std::error::Error for QuestionDeliveryBusy {}
+
 /// The result of a committed op, stored in the idempotency ledger and
 /// returned unchanged to every replay.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -124,6 +134,7 @@ pub(crate) mod attachments;
 
 pub(crate) struct ConversationStore {
     connection: Connection,
+    question_deliveries: HashSet<String>,
     /// Attachment bytes (`attachments/` beside the store) and uploads in flight.
     attachments: attachments::Attachments,
 }
@@ -250,7 +261,7 @@ impl ConversationStore {
             params![SCHEMA_VERSION.to_string()],
         )?;
         transaction.commit()?;
-        Ok(Self { connection, attachments })
+        Ok(Self { connection, attachments, question_deliveries: HashSet::new() })
     }
 
     /// Mints the credential of `participant` (an agent, or a person other than
@@ -439,6 +450,7 @@ impl ConversationStore {
         actor: &str,
         op: &Op,
     ) -> anyhow::Result<OpOutcome> {
+        self.check_question_delivery(op)?;
         let transaction =
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let outcome = apply_op_in(&transaction, conversation, idempotency_key, actor, op)?;
@@ -446,33 +458,45 @@ impl ConversationStore {
         Ok(outcome)
     }
 
-    /// Validate and reserve a question in the same transaction as its answer. Delivery runs
-    /// only after reducer validation and before commit; a refusal rolls the answer back.
-    /// The caller bounds delivery. A successful ledger replay never sends twice.
-    pub(crate) fn answer_question(
+    /// Dry-run reducer validation and reserve just this message. No store lock or SQLite
+    /// transaction is held during ACP delivery. Other conversations remain writable.
+    pub(crate) fn prepare_question_answer(
         &mut self,
         conversation: &str,
         key: &str,
         actor: &str,
         op: &Op,
-        deliver: impl FnOnce(&cmux_conversation::Question) -> anyhow::Result<()>,
-    ) -> anyhow::Result<OpOutcome> {
+    ) -> anyhow::Result<Result<cmux_conversation::Question, OpOutcome>> {
         let Op::QuestionAnswer { message_id, part_index, .. } = op else {
             anyhow::bail!("not a question answer");
         };
+        self.check_question_delivery(op)?;
         let transaction =
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let target = load_message_by_id(&transaction, message_id)?;
         let outcome = apply_op_in(&transaction, conversation, key, actor, op)?;
-        if !outcome.replayed {
-            let question = target.as_ref().and_then(|m| m.parts.get(*part_index as usize));
-            let Some(cmux_conversation::Part::Question(question)) = question else {
-                return Err(rejected(Reject::InvalidPartIndex));
-            };
-            deliver(question)?;
+        transaction.rollback()?;
+        if outcome.replayed {
+            return Ok(Err(outcome));
         }
-        transaction.commit()?;
-        Ok(outcome)
+        let Some(cmux_conversation::Part::Question(question)) =
+            target.as_ref().and_then(|m| m.parts.get(*part_index as usize))
+        else {
+            return Err(rejected(Reject::InvalidPartIndex));
+        };
+        self.question_deliveries.insert(message_id.clone());
+        Ok(Ok(question.clone()))
+    }
+
+    pub(crate) fn release_question_answer(&mut self, message: &str) {
+        self.question_deliveries.remove(message);
+    }
+
+    fn check_question_delivery(&self, op: &Op) -> anyhow::Result<()> {
+        if op.target_message_id().is_some_and(|id| self.question_deliveries.contains(id)) {
+            return Err(QuestionDeliveryBusy.into());
+        }
+        Ok(())
     }
 
     /// Apply every op in one transaction: all commit or none does (pairing a
@@ -481,6 +505,9 @@ impl ConversationStore {
         &mut self,
         ops: &[(String, String, String, Op)],
     ) -> anyhow::Result<Vec<OpOutcome>> {
+        for (_, _, _, op) in ops {
+            self.check_question_delivery(op)?;
+        }
         let transaction =
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut outcomes = Vec::with_capacity(ops.len());
