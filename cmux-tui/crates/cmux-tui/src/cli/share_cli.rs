@@ -214,6 +214,81 @@ mod tests {
     }
 
     #[test]
+    fn invite_and_uninvite_name_the_account_wherever_it_stands() {
+        assert_eq!(
+            action(&words("share invite leo@cmux.com --role view --json")),
+            Some(Ok((
+                "share invite".to_owned(),
+                words("--account=leo@cmux.com --role view --json")
+            )))
+        );
+        assert_eq!(
+            action(&words("share invite --surface 3 @theo --role talk")),
+            Some(Ok(("share invite".to_owned(), words("--account=@theo --surface 3 --role talk"))))
+        );
+        assert_eq!(
+            action(&words("share uninvite @theo --surface=3")),
+            Some(Ok(("share uninvite".to_owned(), words("--account=@theo --surface=3"))))
+        );
+        // No positional account: the flags go on as typed, and the app asks for one.
+        assert_eq!(
+            action(&words("share invite --account leo@cmux.com")),
+            Some(Ok(("share invite".to_owned(), words("--account leo@cmux.com"))))
+        );
+        assert_eq!(action(&words("share invite")), Some(Ok(("share invite".to_owned(), vec![]))));
+    }
+
+    #[test]
+    fn an_invite_names_one_account() {
+        for text in [
+            "share invite a@cmux.com b@cmux.com",
+            "share invite a@cmux.com --account b@cmux.com",
+            "share uninvite a@cmux.com --arg account=b@cmux.com",
+        ] {
+            assert!(matches!(action(&words(text)), Some(Err(_))), "{text}");
+        }
+    }
+
+    /// The rewritten words go through the action parser, and the account and role arrive whole.
+    #[test]
+    fn the_action_parser_reads_the_invite() {
+        let Some(Ok((name, args))) =
+            action(&words("share invite --role view leo@cmux.com --surface 2"))
+        else {
+            panic!("share invite names its account")
+        };
+        let command =
+            super::super::app::run_action(&name, &args, super::super::app::ActionName::Cli)
+                .expect("the rewritten flags parse");
+        let super::super::app::AppCommand::Call { params, timeout, .. } = command else {
+            panic!("share invite is an action call")
+        };
+        assert_eq!(params["action"], "share invite", "{params}");
+        assert_eq!(params["args"]["account"], "leo@cmux.com", "{params}");
+        assert_eq!(params["args"]["role"], "view", "{params}");
+        assert_eq!(params["args"]["surface"], "2", "{params}");
+        // An agent's or script's invite waits for the owner's Allow in the app (#30263).
+        assert_eq!(timeout, Some(super::super::app::PERSON_RUN_TIMEOUT));
+    }
+
+    #[test]
+    fn an_invite_prints_one_line_for_a_person() {
+        let params = json!({"action": "share invite"});
+        let result = json!({"ran": true, "result": {"share_id": "s1", "account": "leo@cmux.com", "role": "view", "state": "invited"}});
+        assert_eq!(
+            human_line(&params, &result).as_deref(),
+            Some("Invited leo@cmux.com (can view)\n")
+        );
+        let talk = json!({"ran": true, "result": {"share_id": "s1", "account": "@theo", "role": "talk", "state": "invited"}});
+        assert_eq!(human_line(&params, &talk).as_deref(), Some("Invited @theo (can talk)\n"));
+        let removed = json!({"ran": true, "result": {"account": "@theo", "state": "removed", "share_ids": ["s1"]}});
+        assert_eq!(
+            human_line(&json!({"action": "share uninvite"}), &removed).as_deref(),
+            Some("Removed @theo\n")
+        );
+    }
+
+    #[test]
     fn share_chat_prints_only_the_link() {
         let params = json!({"action": "share chat", "cli": true});
         let result = json!({"ran": true, "result": {"share_id": "s1", "url": "https://room.example/g/s1#k"}});
