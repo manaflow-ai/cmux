@@ -44,6 +44,7 @@ mod v2_tools;
 mod video_tools;
 mod watch;
 mod workflow;
+mod workflow_tools;
 
 use std::collections::BTreeSet;
 use std::io::{self, BufRead, Read, Write};
@@ -84,6 +85,25 @@ pub(super) fn agent_app(
 /// one code path for the CLI and for MCP tools.
 pub(super) fn cli_backend(global: GlobalArgs) -> impl Backend {
     LiveBackend { global }
+}
+
+pub(super) fn workflow_run(global: GlobalArgs, run_id: String, generation: u64) -> i32 {
+    workflow::run(global, run_id, generation)
+}
+
+pub(super) fn workflow_command(global: GlobalArgs, arguments: Value) -> i32 {
+    let output = global.output;
+    let mut server = Server::new(LiveBackend { global }, None);
+    server.allowed = allowed_tools(std::env::var_os(ALLOWED_TOOLS_ENV));
+    match server.call(&json!({"name":workflow_tools::NAME,"arguments":arguments})) {
+        Ok(result) if result["isError"] == true => {
+            super::wire::print_local_error(&result["structuredContent"]["error"], output, 1)
+        }
+        Ok(result) => super::wire::print_local_success(&result["structuredContent"], output),
+        Err((code, message)) => {
+            super::wire::print_local_error(&json!({"code":code,"message":message}), output, 2)
+        }
+    }
 }
 
 /// A failed owner call as the CLI prints it: the owner's error with its
@@ -735,6 +755,7 @@ impl<B: Backend> Server<B> {
         tools.push(super::agents::snapshot_tool());
         tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
         tools.extend(agent_dispatch_tools::descriptors());
+        tools.push(workflow_tools::descriptor());
         tools.extend(cloud_repo_tools::descriptors());
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
@@ -812,8 +833,13 @@ impl<B: Backend> Server<B> {
             });
             return Ok(tool_error(envelope(error, "not_run", None)));
         }
-        if name == "cmux_workflow" && let Some(operation) = self.workflow_activity.take() {
+        if name == "cmux_workflow"
+            && let Some(operation) = self.workflow_activity.take()
+        {
             return Ok(workflow::internal_call(&self.backend, operation));
+        }
+        if name == workflow_tools::NAME {
+            return Ok(workflow_tools::call(&self.backend, &arguments));
         }
         if name == code_mode::DOCS {
             let tools = self.list();

@@ -11,6 +11,63 @@ use serde_json::{Value, json};
 
 const WORKFLOW_SUFFIX: &str = ".workflow.js";
 
+pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
+    let (global, words) = super::parse_globals(args).ok()?;
+    let (scope, rest) = words.split_first()?;
+    if scope != "workflow" {
+        return None;
+    }
+    if rest.is_empty() || rest.iter().any(|arg| matches!(arg.as_str(), "--help" | "-h")) {
+        println!(
+            "cmux workflow start <file> [--args-json JSON] [--name NAME]\ncmux workflow status [run-id]\ncmux workflow pause|resume <run-id>"
+        );
+        return Some(0);
+    }
+    let invocation = std::env::current_dir()
+        .map_err(|error| error.to_string())
+        .and_then(|cwd| parse(rest, &cwd));
+    Some(match invocation {
+        Ok(Invocation::Run { run_id, generation }) => {
+            super::mcp::workflow_run(global, run_id, generation)
+        }
+        Ok(invocation) => {
+            let mut arguments = serde_json::Map::new();
+            match invocation {
+                Invocation::Start { name, source, args, session_id } => {
+                    arguments.insert("action".into(), json!("start"));
+                    arguments.insert("name".into(), json!(name));
+                    arguments.insert("source".into(), json!(source));
+                    arguments.insert("args".into(), args);
+                    if let Some(session_id) = session_id {
+                        arguments.insert("session_id".into(), json!(session_id));
+                    }
+                }
+                Invocation::Status { run_id } => {
+                    arguments.insert("action".into(), json!("status"));
+                    if let Some(run_id) = run_id {
+                        arguments.insert("run_id".into(), json!(run_id));
+                    }
+                }
+                Invocation::Pause { run_id } => {
+                    arguments.insert("action".into(), json!("pause"));
+                    arguments.insert("run_id".into(), json!(run_id));
+                }
+                Invocation::Resume { run_id } => {
+                    arguments.insert("action".into(), json!("resume"));
+                    arguments.insert("run_id".into(), json!(run_id));
+                }
+                Invocation::Run { .. } => unreachable!(),
+            }
+            super::mcp::workflow_command(global, Value::Object(arguments))
+        }
+        Err(message) => super::wire::print_local_error(
+            &json!({"code":"usage.invalid","message":message}),
+            global.output,
+            2,
+        ),
+    })
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Invocation {
     Start { name: String, source: String, args: Value, session_id: Option<String> },
@@ -43,7 +100,7 @@ fn parse_start(words: &[String], cwd: &Path) -> Result<Invocation, String> {
     if file.starts_with('-') {
         return Err("workflow start needs a file before flags".into());
     }
-    let mut args = json!({});
+    let mut args = json!([]);
     let mut name = None;
     let mut session_id = None;
     let mut index = 1;
@@ -60,9 +117,6 @@ fn parse_start(words: &[String], cwd: &Path) -> Result<Invocation, String> {
             _ => return Err(format!("unknown workflow start option {flag:?}")),
         }
         index += 2;
-    }
-    if !args.is_object() {
-        return Err("--args-json must be a JSON object".into());
     }
     let source_path = resolve_source(cwd, file)?;
     let source = std::fs::read_to_string(&source_path)
@@ -119,7 +173,16 @@ fn resolve_source(cwd: &Path, input: &str) -> Result<PathBuf, String> {
             cwd.join(".cmux/workflows").display()
         )
     })?;
-    let candidate = root.join(input);
+    let supplied = Path::new(input);
+    let candidate = if supplied.is_absolute() {
+        supplied.to_owned()
+    } else if supplied.starts_with(".cmux/workflows") {
+        cwd.join(supplied)
+    } else if supplied.extension().is_none() {
+        root.join(format!("{input}{WORKFLOW_SUFFIX}"))
+    } else {
+        root.join(input)
+    };
     if candidate.extension().and_then(|extension| extension.to_str()) != Some("js")
         || !candidate.to_string_lossy().ends_with(WORKFLOW_SUFFIX)
     {

@@ -87,11 +87,19 @@ fn request(arguments: &Map<String, Value>) -> Result<Map<String, Value>, String>
             if let Some(args) = arguments.get("args") {
                 output.insert("args".into(), args.clone());
             } else {
-                output.insert("args".into(), Value::Object(Map::new()));
+                output.insert("args".into(), json!([]));
             }
             if let Some(session) = text(arguments, "session_id")? {
                 output.insert("sessionId".into(), Value::String(session));
+            } else if let Ok(session) = std::env::var("CMUX_AGENT_SESSION") {
+                if !session.is_empty() {
+                    output.insert("sessionId".into(), json!(session));
+                }
             }
+            output.insert(
+                "cwd".into(),
+                json!(std::env::current_dir().map_err(|error| error.to_string())?),
+            );
         }
         "status" => {
             if let Some(run_id) = text(arguments, "run_id")? {
@@ -120,7 +128,7 @@ fn text(arguments: &Map<String, Value>, name: &str) -> Result<Option<String>, St
                 "action" => 16,
                 _ => MAX_RUN_ID_BYTES,
             };
-            if value.len() > max {
+            if name != "source" && value.len() > max {
                 Err(format!("{NAME}: {name} exceeds {max} bytes"))
             } else {
                 Ok(Some(value.clone()))
@@ -153,7 +161,7 @@ mod tests {
         args.insert("name".into(), json!("nightly"));
         args.insert("source".into(), json!("return await pipeline([], async x => x);"));
         let request = request(&args).unwrap();
-        assert_eq!(request["args"], json!({}));
+        assert_eq!(request["args"], json!([]));
         assert!(request.get("file").is_none());
     }
 
