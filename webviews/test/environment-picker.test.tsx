@@ -1503,3 +1503,25 @@ test("a saved SSH environment's row and control name its machine, not only its f
   await mount(true, { saved: { ...sshSaved.saved, current: "s1" } });
   expect(computerButton()!.getAttribute("aria-label")).toBe(`${t("composer.environment")}: Projects · gpu-box`);
 });
+
+test("a folder pick that is a saved folder-only environment still picks the folder, then the environment", async () => {
+  // Cloud sends the project's folder (NewTabScreen envFolder): the pick must reach `onProject` too.
+  const picks: string[] = [];
+  const calls = await mount(true, {
+    saved: {
+      environments: [{ id: "f1", name: "cmux", kind: "local", folder: "/Users/you/src/cmux", updatedAt: 1 }],
+      onPick: (id: string) => picks.push(id),
+      onClear: () => undefined,
+      onCreate: () => undefined,
+      onEdit: () => undefined,
+    },
+  });
+  const folder = host.querySelector<HTMLButtonElement>(
+    `.acpmux-composer-context button[aria-label="${t("composer.folder")}"]`,
+  )!;
+  await act(async () => folder.click());
+  const item = doc().querySelector<HTMLElement>('.acpmux-location-row[title="/Users/you/src/cmux"]')!;
+  await act(async () => (item.closest<HTMLElement>('[role="option"]') ?? item).click());
+  expect(calls).toEqual([["project", "/Users/you/src/cmux", undefined]]);
+  expect(picks).toEqual(["f1"]);
+});
