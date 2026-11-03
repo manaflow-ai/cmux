@@ -124,3 +124,33 @@ final class FeedCardHost: NSHostingView<AnyView> {
         onResize?()
     }
 }
+
+/// The Feed's request controls for AppKit hosts (Chief Home's Needs you, ``FeedNeedsYouView``): the
+/// same SwiftUI `FeedAnswerControls` and `FeedRequestCard` the Feed list hosts, so an answer goes
+/// through the Feed's own path. Hosted once per request and updated in place, like the list's cards.
+enum FeedAnswerHost {
+    /// A request's one-click answers (Allow, Deny, Sign In, Approve...).
+    static func answers(item: FeedItem, model: FeedModel, colors: FeedColors, reusing last: NSView?,
+                        onResize: @escaping () -> Void) -> NSView {
+        host(AnyView(FeedAnswerControls(item: item, model: model, density: .inline).fixedSize()
+            .environment(\.feedColors, colors).tint(colors.primary)), reusing: last, onResize: onResize)
+    }
+
+    /// The Feed list's whole request card.
+    static func card(item: FeedItem, model: FeedModel, colors: FeedColors, reusing last: NSView?,
+                     onResize: @escaping () -> Void) -> NSView {
+        host(AnyView(FeedRequestCard(item: item, model: model).environment(\.feedColors, colors).tint(colors.primary)),
+             reusing: last, onResize: onResize)
+    }
+
+    private static func host(_ root: AnyView, reusing last: NSView?, onResize: @escaping () -> Void) -> NSView {
+        if let hosting = last as? FeedCardHost {
+            hosting.rootView = root
+            return hosting
+        }
+        let hosting = FeedCardHost(rootView: root)
+        hosting.sizingOptions = [.intrinsicContentSize]
+        hosting.onResize = onResize
+        return hosting
+    }
+}
