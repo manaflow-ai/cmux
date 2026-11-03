@@ -40,7 +40,7 @@ struct MotionFrameAllocationSitesTests {
         for _ in 0..<frames { frame() }
         let samples = AllocSites.stop()
         print("HPA-ALLOC case=\(name) frames=\(frames) allocations=\(samples.count) per_frame=\(String(format: "%.1f", Double(samples.count) / Double(frames))) dropped=\(AllocSites.dropped)")
-        var ours: [String: Int] = [:], callers: [String: Int] = [:], images: [String: Int] = [:]
+        var ours: [String: Int] = [:], callers: [String: Int] = [:], images: [String: Int] = [:], chains: [String: Int] = [:]
         for stack in samples {
             var caller: String?, own: String?, image: String?
             for pc in stack {
@@ -51,6 +51,8 @@ struct MotionFrameAllocationSitesTests {
                 if caller != nil, own != nil { break }
             }
             callers[caller ?? "?", default: 0] += 1
+            let chain = stack.map { name($0).0 }.filter(isOurs).prefix(3).map { String($0.prefix(90)) }.joined(separator: " <- ")
+            chains[chain.isEmpty ? "(no frame of ours)" : chain, default: 0] += 1
             ours[own ?? "(no frame of ours)", default: 0] += 1
             images[image ?? "?", default: 0] += 1
         }
@@ -62,13 +64,14 @@ struct MotionFrameAllocationSitesTests {
         top(images, "image", 8)
         top(ours, "our-frame", 15)
         top(callers, "caller", 15)
+        top(chains, "chain", 15)
     }
 }
 
 /// Records the main thread's allocation stacks (test only).
 @MainActor
 enum AllocSites {
-    nonisolated static let depth = 28
+    nonisolated static let depth = 40
     nonisolated static let capacity = 120_000
     nonisolated(unsafe) static var buffer = UnsafeMutablePointer<UnsafeMutableRawPointer?>.allocate(capacity: capacity * depth)
     nonisolated(unsafe) static var lengths = UnsafeMutablePointer<Int32>.allocate(capacity: capacity)
@@ -132,7 +135,10 @@ enum AllocSites {
         return names.contains { symbol.contains($0) }
     }
 
-    static func isOurs(_ symbol: String) -> Bool { symbol.contains("CmuxNext") }
+    /// A frame of our own code, not a standard library generic specialized for one of our types.
+    static func isOurs(_ symbol: String) -> Bool {
+        symbol.contains("CmuxNext") && !symbol.contains(" of Swift.") && !symbol.hasPrefix("protocol witness for Swift.")
+    }
 }
 
 typealias AllocSiteLogger = @convention(c) (UInt32, UInt, UInt, UInt, UInt, UInt32) -> Void
