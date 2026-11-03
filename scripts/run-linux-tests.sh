@@ -63,20 +63,13 @@ if [ -z "$(gh api "repos/$repo/commits/$sha/branches-where-head" --jq '.[0].name
 fi
 
 dispatch_id="lt-$(date -u +%Y%m%dT%H%M%S)-$$"
-gh workflow run linux-tests.yml --repo "$repo" --ref main \
-  -f ref="$sha" -f files="${files[*]}" -f runner="blacksmith-${runner}vcpu-ubuntu-2404" \
-  -f build_bundles="$bundles" -f file_timeout="$timeout" -f dispatch_id="$dispatch_id" >/dev/null
-
-# The dispatch API returns no run id; the run's name carries dispatch_id. Bounded: about a minute.
-run_id=""
-for _ in $(seq 1 12); do
-  run_id="$(gh api "repos/$repo/actions/workflows/linux-tests.yml/runs?event=workflow_dispatch&per_page=20" \
-    --jq ".workflow_runs[] | select(.display_title | contains(\"$dispatch_id\")) | .id" 2>/dev/null | head -n 1)" || true
-  [ -n "$run_id" ] && break
-  sleep 5
-done
-if [ -z "$run_id" ]; then
-  echo "dispatched $dispatch_id at $sha, but its run did not appear yet: https://github.com/$repo/actions/workflows/linux-tests.yml" >&2
+# return_run_details makes the dispatch answer with the run it created: no run list to poll.
+run_id="$(gh api -X POST "repos/$repo/actions/workflows/linux-tests.yml/dispatches" -f ref=main \
+  -f "inputs[ref]=$sha" -f "inputs[files]=${files[*]}" -f "inputs[runner]=blacksmith-${runner}vcpu-ubuntu-2404" \
+  -f "inputs[build_bundles]=$bundles" -f "inputs[file_timeout]=$timeout" -f "inputs[dispatch_id]=$dispatch_id" \
+  -F return_run_details=true --jq '.workflow_run_id // ""')"
+if ! [[ "$run_id" =~ ^[0-9]+$ ]]; then
+  echo "dispatched $dispatch_id at $sha, but the dispatch returned no run: https://github.com/$repo/actions/workflows/linux-tests.yml" >&2
   exit 1
 fi
 url="https://github.com/$repo/actions/runs/$run_id"

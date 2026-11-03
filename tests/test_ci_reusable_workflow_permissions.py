@@ -471,6 +471,8 @@ MANUAL_REF_RESOLVER = WORKFLOWS_DIR / "resolve-dispatch-ref.yml"
 MANUAL_REF_TARGETS = {
     "ios-screenshots.yml": {
         "screenshots": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+        # The App Store Connect upload uses the Fastfile of the revision captured.
+        "app-store-upload": "ref: ${{ needs.resolve-ref.outputs.sha }}",
     },
     "iroh-release-gate.yml": {
         "tailscale-version-skew": "ref: ${{ needs.resolve-ref.outputs.sha }}",

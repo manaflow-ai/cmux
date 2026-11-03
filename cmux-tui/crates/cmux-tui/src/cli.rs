@@ -11,8 +11,10 @@ mod shorthand;
 mod wire;
 
 use std::borrow::Cow;
+use std::ffi::OsStr;
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use command::{CommandPlan, ParsedCommand};
 
@@ -155,13 +157,82 @@ pub(super) fn canonical_scope(value: &str) -> &str {
     shorthand::scope(value)
 }
 
+/// The name this binary was invoked as. Help, errors, and the version show
+/// it, so a command copied from them runs here: `cmux` through the npm
+/// launcher, `cmux-tui` where the binary is installed under that name.
+pub(crate) fn program_name() -> String {
+    static NAME: OnceLock<String> = OnceLock::new();
+    NAME.get_or_init(|| program_name_from(std::env::args_os().next().as_deref())).clone()
+}
+
+fn program_name_from(argv0: Option<&OsStr>) -> String {
+    argv0
+        .and_then(|argv0| Path::new(argv0).file_name())
+        .map(|name| name.to_string_lossy())
+        .map(|name| strip_exe_suffix(&name).to_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "cmux".to_owned())
+}
+
+/// Windows file names are case-insensitive, so `CMUX-TUI.EXE` names `CMUX-TUI`.
+fn strip_exe_suffix(name: &str) -> &str {
+    name.len()
+        .checked_sub(4)
+        .filter(|&cut| name.is_char_boundary(cut) && name[cut..].eq_ignore_ascii_case(".exe"))
+        .map_or(name, |cut| &name[..cut])
+}
+
+/// Help text spells commands `cmux ...`. Rewrite each command, at the start
+/// of a line (after indentation or a `usage:` label) or in backticks, to the
+/// invoked program name. Prose that mentions cmux is left alone.
+pub(crate) fn with_program_name<'a>(text: &'a str, program: &str) -> Cow<'a, str> {
+    if program == "cmux" {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        let body = line.trim_start();
+        out.push_str(&line[..line.len() - body.len()]);
+        let label = ["USAGE: ", "usage: "]
+            .into_iter()
+            .find(|label| body.starts_with(label))
+            .unwrap_or_default();
+        out.push_str(label);
+        let body = &body[label.len()..];
+        // A command continues with an argument (`tab`, `<scope>`, `[OPTIONS]`,
+        // `--help`) or ends; prose continues with a capitalized word.
+        let command = |rest: &str| {
+            rest.is_empty()
+                || rest.starts_with('\n')
+                || rest
+                    .strip_prefix(' ')
+                    .and_then(|rest| rest.chars().next())
+                    .is_some_and(|next| !next.is_uppercase())
+        };
+        let body = match body.strip_prefix("cmux") {
+            Some(rest) if command(rest) => {
+                out.push_str(program);
+                rest
+            }
+            _ => body,
+        };
+        out.push_str(&body.replace("`cmux ", &format!("`{program} ")));
+    }
+    Cow::Owned(out)
+}
+
+fn write_stdout(text: &str) {
+    let text = with_program_name(text, &program_name());
+    let mut stdout = io::stdout().lock();
+    let _ = stdout.write_all(text.as_bytes());
+    let _ = stdout.flush();
+}
+
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     match parse(args) {
         Ok(ParsedCommand::Help(scope)) => {
             if scope.as_deref() == Some("start") {
-                let mut stdout = io::stdout().lock();
-                let _ = stdout.write_all(startup_usage.as_bytes());
-                let _ = stdout.flush();
+                write_stdout(startup_usage);
             } else {
                 print_scope_help(scope.as_deref());
             }
@@ -180,7 +251,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         },
         Err(failure) => {
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
-                format!("cmux: {}", failure.error)
+                let program = program_name();
+                format!("{program}: {}", with_program_name(&failure.error.0, &program))
             } else {
                 failure.error.to_string()
             };
@@ -234,31 +306,13 @@ fn parse_command(
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
             Some(scope) if PUBLIC_SCOPES.contains(&shorthand::scope(scope)) => {
-                Ok(ParsedCommand::Help(Some(shorthand::scope(scope).to_string())))
+                Ok(ParsedCommand::Help(help_topic(&command_args[1..])))
             }
             Some(scope) => Err(unknown_scope(scope)),
         };
     }
     if has_help_option(&command_args) {
-        let words = command_args
-            .iter()
-            .take_while(|value| value.as_str() != "--")
-            .filter(|value| !value.starts_with('-'))
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        let topic = match words.as_slice() {
-            ["server", action, ..]
-                if matches!(
-                    *action,
-                    "start" | "ensure" | "status" | "stats" | "stop" | "reload-config"
-                ) =>
-            {
-                Some(format!("server {action}"))
-            }
-            [scope, ..] if PUBLIC_SCOPES.contains(scope) => Some((*scope).to_string()),
-            _ => None,
-        };
-        return Ok(ParsedCommand::Help(topic));
+        return Ok(ParsedCommand::Help(help_topic(&command_args)));
     }
     if command_args.first().map(String::as_str) == Some("server")
         && command_args.get(1).map(String::as_str) == Some("start")
@@ -270,6 +324,30 @@ fn parse_command(
     }
     let plan = command::parse(&command_args)?;
     Ok(ParsedCommand::Command { global, plan })
+}
+
+/// Help topic prefix for one action, followed by its catalog path.
+const ACTION_TOPIC: &str = "action:";
+
+/// The most specific help for a command path: a server action's own help,
+/// then the action's flags, then its scope.
+fn help_topic(args: &[String]) -> Option<String> {
+    let words = command::help_words(args);
+    match words.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+        ["server", action, ..]
+            if matches!(
+                *action,
+                "start" | "ensure" | "status" | "stats" | "stop" | "reload-config"
+            ) =>
+        {
+            return Some(format!("server {action}"));
+        }
+        _ => {}
+    }
+    if let Some(path) = command::action_help_topic(&words) {
+        return Some(format!("{ACTION_TOPIC}{path}"));
+    }
+    words.first().filter(|scope| PUBLIC_SCOPES.contains(&scope.as_str())).cloned()
 }
 
 fn unknown_scope(scope: &str) -> UsageError {
@@ -395,11 +473,7 @@ fn option_takes_value(value: &str) -> bool {
     shorthand::short_value_option(value)
         || (value.starts_with("--")
             && !value.contains('=')
-            && !matches!(
-                value,
-                "--help" | "--json" | "--jsonl" | "--quiet" | "--literal" | "--print"
-            )
-            && !command::is_boolean_flag(value.trim_start_matches("--")))
+            && command::flag_takes_value(value.trim_start_matches("--")))
 }
 
 fn has_help_option(args: &[String]) -> bool {
@@ -440,9 +514,7 @@ fn print_scope_help(scope: Option<&str>) {
     let text = scope
         .map(scope_help)
         .unwrap_or_else(|| Cow::Owned(root_help(&crate::localization::catalog().local_server)));
-    let mut stdout = io::stdout().lock();
-    let _ = stdout.write_all(text.as_bytes());
-    let _ = stdout.flush();
+    write_stdout(&text);
 }
 
 fn scope_help(scope: &str) -> Cow<'static, str> {
@@ -453,7 +525,12 @@ fn scope_help_for(
     scope: &str,
     catalog: &'static crate::localization::Catalog,
 ) -> Cow<'static, str> {
-    match scope {
+    if let Some(path) = scope.strip_prefix(ACTION_TOPIC)
+        && let Some(help) = command::action_help(path, "cmux")
+    {
+        return Cow::Owned(help);
+    }
+    let help = match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
@@ -478,8 +555,12 @@ fn scope_help_for(
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
-        _ => Cow::Owned(root_help(&catalog.local_server)),
+        _ => return Cow::Owned(root_help(&catalog.local_server)),
+    };
+    if scope == "server" || !PUBLIC_SCOPES.contains(&scope) {
+        return help;
     }
+    Cow::Owned(format!("{help}\nAdd --help to an action to list its options.\n"))
 }
 
 const ROOT_HELP_PROCESS_PREFIX: &str = "\
@@ -492,12 +573,10 @@ USAGE
   cmux wg hub --config <wg-quick file> --socket <unix socket>
 ";
 
-const ROOT_HELP_PROCESS_SUFFIX: &str = "\
-  cmux machine-agent [OPTIONS]
+const ROOT_HELP_PROCESS_SUFFIX: &str = "  cmux machine-agent [OPTIONS]
 ";
 
-const ROOT_HELP_GLOBALS: &str = "\
-  cmux [GLOBAL OPTIONS] <scope> <action>
+const ROOT_HELP_GLOBALS: &str = "  cmux [GLOBAL OPTIONS] <scope> <action>
 
 GLOBAL OPTIONS
   --socket <path>    Connect to an exact local session socket
@@ -519,8 +598,7 @@ PROCESS HELP
 RESOURCE SCOPES
 ";
 
-const ROOT_HELP_SCOPES_SUFFIX: &str = "\
-  machine       Inspect the local machine and session route
+const ROOT_HELP_SCOPES_SUFFIX: &str = "  machine       Inspect the local machine and session route
   session       Inspect and control a session
   client        Inspect connected clients
   workspace     Create and organize workspaces
@@ -537,7 +615,8 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   provider      Install private provider authority
   raw           Send an explicit low-level operation
 
-Run `cmux <scope> --help` for scope-specific paths.
+Run `cmux <scope> --help` for scope-specific paths, and add --help to an
+action for its options.
 ";
 
 fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
@@ -561,8 +640,7 @@ USAGE
   cmux session <selector> open|show|snapshot|ping|shutdown
 ";
 
-const SESSION_HELP_SUFFIX: &str = "\
-  cmux session <selector> creation <correlation-key> resolve
+const SESSION_HELP_SUFFIX: &str = "  cmux session <selector> creation <correlation-key> resolve
   cmux session <selector> events [--generation <value> --revision <decimal>]
   cmux session <selector> journal subscribe [--from tail|beginning] [FILTERS]
     [--cursor-session <session-id> --sequence <decimal>]
@@ -913,6 +991,97 @@ mod tests {
             parse(&strings(&["help", "start"])).unwrap(),
             ParsedCommand::Help(Some(scope)) if scope == "start"
         ));
+    }
+
+    #[test]
+    fn program_name_is_the_invoked_file_name() {
+        assert_eq!(program_name_from(Some(OsStr::new("/usr/local/bin/cmux-tui"))), "cmux-tui");
+        assert_eq!(program_name_from(Some(OsStr::new("cmux"))), "cmux");
+        assert_eq!(program_name_from(Some(OsStr::new("C:/bin/cmux-tui.exe"))), "cmux-tui");
+        assert_eq!(program_name_from(Some(OsStr::new("C:/bin/CMUX-TUI.EXE"))), "CMUX-TUI");
+        assert_eq!(program_name_from(Some(OsStr::new(""))), "cmux");
+        assert_eq!(program_name_from(None), "cmux");
+    }
+
+    #[test]
+    fn help_commands_use_the_program_name_and_prose_keeps_cmux() {
+        let help = "cmux - terminal multiplexer\n\nUSAGE\n  cmux tab list\n  cmux\n\
+                    USAGE: cmux remote trust\nRun `cmux tab --help`; cmux.protocol/2 and cmux-tui stay.\n\
+                    \x20 cmux Cloud machine prose stays.\n";
+        assert_eq!(
+            with_program_name(help, "cmux-tui"),
+            "cmux-tui - terminal multiplexer\n\nUSAGE\n  cmux-tui tab list\n  cmux-tui\n\
+             USAGE: cmux-tui remote trust\nRun `cmux-tui tab --help`; cmux.protocol/2 and cmux-tui stay.\n\
+             \x20 cmux Cloud machine prose stays.\n"
+        );
+        assert!(matches!(with_program_name(help, "cmux"), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn action_help_topics_resolve_through_shorthand_and_nesting() {
+        for (args, topic) in [
+            (vec!["tab", "create", "terminal", "--help"], "action:tab create terminal"),
+            (
+                vec!["tab", "tab_x", "move", "--pane", "pane_x", "--help"],
+                "action:tab <selector> move",
+            ),
+            (vec!["tab", "move", "--help"], "action:tab <selector> move"),
+            (
+                vec!["ws", "current", "win", "current", "p", "current", "split", "--help"],
+                "action:pane <selector> split",
+            ),
+            (vec!["help", "terminal", "current", "move"], "action:terminal <selector> move"),
+            (vec!["tab", "create", "--help"], "tab"),
+            (vec!["server", "stats", "--help"], "server stats"),
+        ] {
+            let ParsedCommand::Help(Some(found)) = parse(&strings(&args)).unwrap() else {
+                panic!("{args:?} must print help");
+            };
+            assert_eq!(found, topic, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn unknown_flags_are_reported_before_taking_a_value() {
+        for args in [
+            vec!["tab", "create", "terminal", "--bogus"],
+            vec!["tab", "create", "terminal", "--bogus", "1"],
+            vec!["tab", "create", "terminal", "--bogus", "--cwd", "/tmp"],
+        ] {
+            let Err(failure) = parse(&strings(&args)) else { panic!("{args:?} must fail") };
+            assert!(
+                failure.error.0.starts_with("unknown flag --bogus"),
+                "{args:?}: {}",
+                failure.error
+            );
+        }
+    }
+
+    #[test]
+    fn forwarded_server_start_does_not_hide_an_unknown_flag() {
+        let Err(failure) =
+            parse(&strings(&["tab", "create", "terminal", "--name", "server", "start", "--bogus"]))
+        else {
+            panic!("an unknown flag must fail");
+        };
+        assert!(failure.error.0.starts_with("unknown flag --bogus"), "{}", failure.error);
+        let Err(failure) = parse(&strings(&["--term", "xterm-256color", "server", "start"])) else {
+            panic!("startup options before server start must fail");
+        };
+        assert!(failure.error.0.contains("after `server start`"), "{}", failure.error);
+        let Err(failure) = parse(&strings(&[
+            "workspace",
+            "current",
+            "run",
+            "--bogus",
+            "--",
+            "cmux",
+            "server",
+            "start",
+        ])) else {
+            panic!("an unknown flag must fail");
+        };
+        assert!(failure.error.0.starts_with("unknown flag --bogus"), "{}", failure.error);
     }
 
     #[test]

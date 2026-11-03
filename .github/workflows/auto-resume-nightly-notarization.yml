@@ -36,7 +36,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success') &&
       github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       actions: read
       contents: read
@@ -165,7 +165,7 @@ jobs:
     outputs:
       all_accepted: ${{ steps.poll.outputs.all_accepted }}
     environment: release
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 90
     concurrency:
       group: notarization-poll-${{ needs.preflight.outputs.channel }}-${{ needs.preflight.outputs.short_sha }}
@@ -297,7 +297,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 180
     # Secrets and the job token are set only on the steps that use them, so the
     # steps that launch the recovered app do not inherit them.
@@ -532,7 +532,7 @@ jobs:
     outputs:
       decided: ${{ steps.poll.outputs.decided }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A stapled-app DMG is polled until Accepted or its 6 h fallback.
     timeout-minutes: 360
     environment: release
@@ -594,7 +594,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 150
     env:
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
@@ -804,7 +804,7 @@ jobs:
     outputs:
       decided: ${{ steps.poll.outputs.decided }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A stapled-app DMG is polled until Accepted or its 6 h fallback.
     timeout-minutes: 360
     environment: release
@@ -866,7 +866,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
     env:
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
@@ -981,7 +981,7 @@ jobs:
         variant: [arm64, x86_64, universal]
     permissions:
       contents: read
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     env:
       CHANNEL: ${{ needs.preflight.outputs.channel }}
@@ -1043,12 +1043,20 @@ jobs:
       actions: read
       contents: write
       issues: write
-    runs-on: ubuntu-24.04
-    concurrency:
-      group: release-publish-${{ needs.preflight.outputs.release_tag }}
-      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     env:
+      # One writer at a time, newest first, without a concurrency group (a
+      # group replaces a pending publisher): scripts/ci/classic_publish_lease.py.
+      # Publish and republish-deltas of every run share one R2 lease, renewed
+      # by a heartbeat while the holder lives; waiters queue by build.
+      LEASE_KEY: ${{ needs.preflight.outputs.release_tag }}/locks/publish-lease.json
+      CLAIM_KEY: ${{ needs.preflight.outputs.release_tag }}/locks/publish-claim.json
+      LEASE_OWNER: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+      # The newest build waits only for the writer already holding the lease.
+      LEASE_WAIT: "18000"
       GH_TOKEN: ${{ github.token }}
+      # publish-release-assets.py waits through rate limits up to this long (default 600 s).
+      CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
       SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
       SOURCE_BRANCH: ${{ needs.preflight.outputs.source_branch }}
@@ -1065,6 +1073,12 @@ jobs:
           # The stale-continuation guard compares the published SHA with the
           # source SHA. A shallow checkout cannot prove ancestry after fetch.
           fetch-depth: 0
+
+      # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits through a GitHub API
+      # rate limit (until the reset, else 60, 120, 240, then 300 s; at most an hour per job,
+      # shared with the publisher's waits) instead of failing a finished, signed nightly.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
 
       - name: Download all accepted variants
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6.0.0
@@ -1133,6 +1147,15 @@ jobs:
             --manifest "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
             --assets-dir nightly-out
 
+      - name: Take the channel publication lease
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
+        run: python3 scripts/ci/classic_publish_lease.py acquire --build "$NIGHTLY_BUILD"
+
       - name: Reject stale continuation before publication
         run: |
           set -euo pipefail
@@ -1171,6 +1194,22 @@ jobs:
           elif sha:
               print(f"published_sha={sha.group(1)}")
           PY
+          # The live feed is the other order check. The release-body markers
+          # are written last, so a newer run that exposed its feed and then
+          # failed leaves none, and push runs build in parallel: a live build
+          # above this one means a newer build is out, so this one steps aside.
+          # Fail closed: only a 404 (no feed yet, exit 3) lets publication go on unread.
+          live_rc=0
+          live_build="$(python3 scripts/ci/live_appcast_build.py "https://files.cmux.com/${RELEASE_TAG}/appcast-arm64.xml")" || live_rc=$?
+          if (( live_rc != 0 && live_rc != 3 )); then
+            echo "::error::could not read the live $RELEASE_TAG feed; refusing to publish without the order check"
+            exit 1
+          fi
+          if (( live_rc == 0 )) && (( live_build > NIGHTLY_BUILD )) \
+             && ! grep -Fxq 'already_published=true' "$RUNNER_TEMP/publication-guard"; then
+            echo "The live $RELEASE_TAG feed serves build $live_build, above $NIGHTLY_BUILD; not publishing this older build"
+            printf '%s\n' already_published=true published_same_source=false >> "$RUNNER_TEMP/publication-guard"
+          fi
           if grep -Fxq 'already_published=true' "$RUNNER_TEMP/publication-guard"; then
             echo 'ALREADY_PUBLISHED=true' >> "$GITHUB_ENV"
             if grep -Fxq 'published_same_source=true' "$RUNNER_TEMP/publication-guard"; then
@@ -1218,8 +1257,15 @@ jobs:
 
       - name: Publish accepted assets and feeds
         if: env.ALREADY_PUBLISHED != 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
+          python3 scripts/ci/classic_publish_lease.py check
           python3 scripts/prune_nightly_release_assets.py \
             --repo "$GITHUB_REPOSITORY" \
             --release-tag "$RELEASE_TAG" \
@@ -1271,8 +1317,15 @@ jobs:
 
       - name: Publish notes-enriched feeds
         if: env.ALREADY_PUBLISHED != 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
+          python3 scripts/ci/classic_publish_lease.py check
           python3 scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
             --immutable nightly-out/${DMG_PREFIX}-universal-${NIGHTLY_BUILD}.dmg \
@@ -1289,8 +1342,10 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
+          python3 scripts/ci/classic_publish_lease.py check
           for feed in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
             python3 scripts/ci/upload-r2-object.py --file "nightly-out/$feed" --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries --key "${RELEASE_TAG}/$feed" --content-type application/xml --cache-control 'no-cache, no-store, must-revalidate'
           done
@@ -1312,21 +1367,44 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
           GITHUB_TOKEN: ''
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
+          python3 scripts/ci/classic_publish_lease.py check
           args=(--repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --sha "$SOURCE_HEAD_SHA")
           [ "$RELEASE_TAG" = nightly ] || args+=(--allow-non-descendant)
           python3 scripts/ci/update-release-tag.py "${args[@]}"
 
       - name: Record release metadata
         if: env.ALREADY_PUBLISHED != 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
+          python3 scripts/ci/classic_publish_lease.py check
           gh release edit "$RELEASE_TAG" \
             --title "cmux ${CHANNEL} ${NIGHTLY_BUILD}" \
             --notes-file nightly-notes.published.md \
             --draft=false \
             --prerelease
+
+      - name: Release the channel publication lease
+        if: always()
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
+        run: python3 scripts/ci/classic_publish_lease.py release || true
 
       - name: Record publication result
         id: publication-result
@@ -1347,21 +1425,20 @@ jobs:
         env:
           CHANNEL: ${{ needs.preflight.outputs.channel }}
           SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
+          SOURCE_BRANCH: ${{ needs.preflight.outputs.source_branch }}
         with:
+          # Parallel push runs publish in any order: this closes only the
+          # failures this commit includes (scripts/ci/nightly_failure_issue.mjs,
+          # from the trusted main checkout above).
           script: |
             const { owner, repo } = context.repo;
-            const label = `${process.env.CHANNEL}-failure`;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-            const open = await github.rest.issues.listForRepo({ owner, repo, labels: label, state: 'open', per_page: 10 });
-            for (const issue of open.data) {
-              // The issue body keeps the first failed SHA; later failures are comments.
-              // The channel label identifies the one incident that this publication resolves.
-              await github.rest.issues.createComment({
-                owner, repo, issue_number: issue.number,
-                body: `Notarization continuation accepted and published ${process.env.SOURCE_HEAD_SHA}: ${runUrl}`,
-              });
-              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
-            }
+            const channel = process.env.CHANNEL;
+            const incident = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/nightly_failure_issue.mjs`);
+            await incident.close({
+              github, owner, repo, channel, appName: channel === 'rc' ? 'cmux RC' : 'cmux NIGHTLY',
+              ref: process.env.SOURCE_BRANCH, sha: process.env.SOURCE_HEAD_SHA, runUrl, log: core.info,
+            });
 
   generate-deltas:
     # Delta generation remains downstream of the first accepted publication.
@@ -1380,7 +1457,7 @@ jobs:
       fail-fast: false
       matrix:
         variant: [arm64, x86_64, universal]
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}
@@ -1435,7 +1512,13 @@ jobs:
           else
             SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
             export SPARKLE_PRIVATE_KEY
-            SPARKLE_PUBLIC_KEY="$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")"
+            SPARKLE_PUBLIC_KEY="$(
+              printf '%s' "$SPARKLE_PRIVATE_KEY" |
+                env -u SPARKLE_PRIVATE_KEY \
+                  -u SHARED_SPARKLE_PRIVATE_KEY \
+                  -u NIGHTLY_SPARKLE_PRIVATE_KEY \
+                  swift scripts/derive_sparkle_public_key.swift --stdin
+            )"
             export SPARKLE_PUBLIC_KEY
             ./scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh \
               nightly-delta/previous "$SPARKLE_PUBLIC_KEY"
@@ -1460,16 +1543,24 @@ jobs:
     if: >-
       always() && needs.preflight.outputs.ready == 'true' &&
       needs.publish.outputs.published == 'true' && needs.generate-deltas.result == 'success'
-    concurrency:
-      group: release-publish-${{ needs.preflight.outputs.release_tag }}
-      cancel-in-progress: false
+    # No concurrency group: the publish job's lease (LEASE_KEY) serializes it.
     permissions:
       actions: read
       contents: write
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: release
     env:
+      # One writer at a time, newest first, without a concurrency group (a
+      # group replaces a pending publisher): scripts/ci/classic_publish_lease.py.
+      # Publish and republish-deltas of every run share one R2 lease, renewed
+      # by a heartbeat while the holder lives; waiters queue by build.
+      LEASE_KEY: ${{ needs.preflight.outputs.release_tag }}/locks/publish-lease.json
+      CLAIM_KEY: ${{ needs.preflight.outputs.release_tag }}/locks/publish-claim.json
+      LEASE_OWNER: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+      # The newest build waits only for the writer already holding the lease.
+      LEASE_WAIT: "18000"
       GH_TOKEN: ${{ github.token }}
+      CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
       CHANNEL: ${{ needs.preflight.outputs.channel }}
       RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
       DMG_PREFIX: ${{ needs.preflight.outputs.dmg_prefix }}
@@ -1482,6 +1573,12 @@ jobs:
           persist-credentials: false
           ref: refs/heads/main
 
+      # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits through a GitHub API
+      # rate limit (until the reset, else 60, 120, 240, then 300 s; at most an hour per job,
+      # shared with the publisher's waits) instead of failing a finished, signed nightly.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
+
       - name: Download delta results
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6.0.0
         with:
@@ -1489,10 +1586,36 @@ jobs:
           path: nightly-deltas
           merge-multiple: true
 
-      - name: Republish deltas only for the current channel head
-        id: republish
+      # The delta feeds name their own build. Without them nothing is
+      # republished, so no lease is taken.
+      - name: Take the channel publication lease
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
+          if [ ! -f nightly-deltas/appcast-arm64.xml ]; then
+            echo 'DELTAS_SKIP=true' >> "$GITHUB_ENV"
+            exit 0
+          fi
+          python3 scripts/ci/classic_publish_lease.py acquire \
+            --build "$(python3 scripts/ci/live_appcast_build.py nightly-deltas/appcast-arm64.xml)"
+
+      - name: Republish deltas only for the current channel head
+        id: republish
+        if: env.DELTAS_SKIP != 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/classic_publish_lease.py check
           current_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)"
           if [ "$current_sha" != "$SOURCE_HEAD_SHA" ]; then
             echo "Skipping stale delta result: $RELEASE_TAG is at $current_sha"
@@ -1514,6 +1637,16 @@ jobs:
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # The tag can lag the feed (a newer publication that wrote its feed and
+          # failed before moving the tag), so the live feed must serve this build too.
+          own_build="$(python3 scripts/ci/live_appcast_build.py "nightly-deltas/appcast-arm64.xml")"
+          # Fail closed: an unread live feed is not proof that it serves this build.
+          live_build="$(python3 scripts/ci/live_appcast_build.py "https://files.cmux.com/${RELEASE_TAG}/appcast-arm64.xml")" || live_build=""
+          if [ "$live_build" != "$own_build" ]; then
+            echo "Skipping stale delta result: the live $RELEASE_TAG feed serves build ${live_build:-unknown (unreadable)}, not $own_build"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           python3 scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
             "${deltas[@]}" --replace-feeds "${feeds[@]}"
@@ -1526,8 +1659,10 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
+          python3 scripts/ci/classic_publish_lease.py check
           for feed in nightly-deltas/appcast*.xml; do
             [ -f "$feed" ] || continue
             name="$(basename "$feed")"
@@ -1539,3 +1674,13 @@ jobs:
               --content-type application/xml \
               --cache-control 'no-cache, no-store, must-revalidate'
           done
+
+      - name: Release the channel publication lease
+        if: always()
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-binaries
+        run: python3 scripts/ci/classic_publish_lease.py release || true

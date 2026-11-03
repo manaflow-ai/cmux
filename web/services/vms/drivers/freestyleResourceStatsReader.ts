@@ -2,6 +2,7 @@ import { Cache, Clock, Effect } from "effect";
 import type { Freestyle } from "freestyle";
 import { guestResourceSampleCommand } from "../guestResourceReporter";
 import { parseVmResourceUsage, VM_RESOURCE_USAGE_MIN_INTERVAL_MS } from "../resourceUsage";
+import { isProviderMachineGone } from "../providerErrors";
 import type { VMResourceStatsResult } from "./types";
 
 const PROBE_TIMEOUT_MS = 5_000;
@@ -9,6 +10,7 @@ const PROBE_TIMEOUT_MS = 5_000;
 /** Provider deletion raced the read; workflows must reconcile the VM row. */
 export class FreestyleResourceStatsNotFoundError extends Error {
   readonly status = 404;
+  readonly code = "NOT_FOUND";
   constructor() {
     super("resource stats VM not found");
     this.name = "FreestyleResourceStatsNotFoundError";
@@ -31,8 +33,12 @@ export class FreestyleResourceStatsReader {
   }
 
   /** Reuses both successful samples and failures for the minimum reporting interval. */
-  read(vmId: string): Promise<VMResourceStatsResult | null> {
-    return Effect.runPromise(this.cache.get(vmId).pipe(Effect.withClock(this.clock)));
+  async read(vmId: string): Promise<VMResourceStatsResult | null> {
+    // Reject with the not-found error itself, not Effect's wrapper: its status
+    // and code are what retire the machine's row.
+    const result = await Effect.runPromise(Effect.either(this.cache.get(vmId).pipe(Effect.withClock(this.clock))));
+    if (result._tag === "Left") throw result.left;
+    return result.right;
   }
 
   private sample(vmId: string): Effect.Effect<VMResourceStatsResult | null, FreestyleResourceStatsNotFoundError> {
@@ -45,8 +51,14 @@ export class FreestyleResourceStatsReader {
         signal,
         body: JSON.stringify({ command: guestResourceSampleCommand(), timeoutMs: PROBE_TIMEOUT_MS, linuxUser: "nobody" }),
       });
+      // Only Freestyle's explicit answer retires the row; a bare 404 from a
+      // gateway or a moved endpoint is an unavailable sample.
       if (response.status === 404) {
-        throw new FreestyleResourceStatsNotFoundError();
+        const body: unknown = await response.json().catch(() => null);
+        if (isProviderMachineGone({ status: 404, code: body && typeof body === "object" && "code" in body ? body.code : undefined })) {
+          throw new FreestyleResourceStatsNotFoundError();
+        }
+        return null;
       }
       if (response.status !== 200) return null;
       const result: unknown = await response.json();

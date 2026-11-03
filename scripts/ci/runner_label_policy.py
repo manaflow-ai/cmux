@@ -207,6 +207,16 @@ def nightly_runner_reason(label: str) -> str | None:
     return f"`{label}` is not a runner name label (glaeda-runner-<runner name>, lowercase)"
 
 
+# A GitHub-hosted macOS image (macos-15, macos-latest, macos-15-intel, ...). No
+# runner variable may hold one: a variable routes around the workflow guard
+# (tests/test_ci_no_github_hosted_macos.py). Leo, 2026-10-27: "THE GITHUB
+# HOSTED MACS / ARE THE SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER
+# CONSIDERATINO".
+HOSTED_MACOS_LABEL = re.compile(
+    r"(?<![a-z0-9_.-])macos-(?:latest|[0-9]+)(?:-(?:intel|large|xlarge|arm64))?(?![a-z0-9_.-])"
+)
+
+
 def forbidden_reason(label: str) -> str | None:
     """Why this runner label is not allowed, or None when it is fine.
 
@@ -229,6 +239,8 @@ def forbidden_reason(label: str) -> str | None:
         )
     if selfhosted.search(remainder):
         return "targets a self-hosted runner directly"
+    if HOSTED_MACOS_LABEL.search(label.lower()):
+        return "names a GitHub-hosted Mac; route owned first, then Blacksmith"
     return None
 
 

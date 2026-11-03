@@ -9,9 +9,9 @@ name: cmux-next frame pacing
 # starts that one; the bench, its gate and its summary live there.
 
 on:
-  schedule:
-    # 09:37 UTC, 02:37 in San Francisco: the fleet's quietest hour.
-    - cron: "37 9 * * *"
+  # No schedule (Lawrence 2026-10-23: nothing perf-related slows a nightly or a dev build): feat-cmux-next's
+  # perf cron (cmux-next-perf-budgets.yml) starts this at most once in 24 h, only when no nightly or dev build
+  # waits for a Mac. This copy on main is kept so GitHub can dispatch the workflow.
   workflow_dispatch:
     inputs:
       ref:

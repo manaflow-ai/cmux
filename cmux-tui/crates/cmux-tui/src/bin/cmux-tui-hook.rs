@@ -84,6 +84,10 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
         drain_native_payload()?;
         return Ok(());
     }
+    if inherited_route_is_untrusted(&args.source, |name| env::var_os(name)) {
+        drain_native_payload()?;
+        return Ok(());
+    }
     let (socket, terminal) = match session_route() {
         Some(route) => route,
         None => {
@@ -108,6 +112,26 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
             bail!("journal request handoff was not confirmed within {} ms", handoff.as_millis())
         }
     }
+}
+
+/// Set to `launch` by a hook command that carries its own route (the Codex
+/// wrapper's per-launch hooks), as opposed to one inherited from a process
+/// environment.
+pub(crate) const HOOK_ROUTE_ENV: &str = "CMUX_TUI_HOOK_ROUTE";
+
+/// Codex 0.162 runs hooks in a shared app-server daemon that keeps the
+/// environment of whichever shell started it. An installed hook there would
+/// read that shell's `CMUX_TUI_*` (or `TMUX`) values and post every Codex
+/// session's events, from any terminal or none, to that one cmux terminal, so
+/// it posts nothing. The wrapper's hooks name their own terminal and still
+/// route.
+fn inherited_route_is_untrusted(
+    source: &str,
+    getenv: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> bool {
+    source == "codex"
+        && getenv(HOOK_ROUTE_ENV).is_none_or(|value| value != "launch")
+        && cmux_tui_core::platform::descends_from_codex_app_server_daemon()
 }
 
 /// The session socket and terminal that receive this event: the terminal's
@@ -518,6 +542,12 @@ fn append_once(
     on_sent: &dyn Fn(),
 ) -> Result<(), AppendAttemptError> {
     let mut stream = connect_before(socket, deadline)?;
+    // Bound the receipt read now, while the peer is surely still connected:
+    // once a server has answered and closed, macOS refuses SO_RCVTIMEO with
+    // EINVAL although the answer is still readable.
+    stream
+        .set_read_timeout(Some(remaining_before(deadline)?))
+        .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
     write_before(&mut *stream, encoded, deadline)?;
     on_sent();
     let response = read_before(stream, deadline)?;
@@ -638,9 +668,10 @@ fn write_before(
         }
     }
     loop {
-        stream
-            .set_write_timeout(Some(remaining_before(deadline)?))
-            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        // The request is fully written. A fast server may already have
+        // answered and closed, which makes macOS refuse the option; the
+        // timeout set for the writes still bounds the flush.
+        let _ = stream.set_write_timeout(Some(remaining_before(deadline)?));
         match stream.flush() {
             Ok(()) => return Ok(()),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
@@ -656,10 +687,10 @@ fn read_before(
     let mut reader = BufReader::new(stream);
     let mut response = Vec::new();
     loop {
-        reader
-            .get_ref()
-            .set_read_timeout(Some(remaining_before(deadline)?))
-            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        // Shrink the bound toward the deadline. A refusal means the server
+        // already closed (macOS EINVAL), so the read cannot block; the
+        // timeout set before the request was written still applies.
+        let _ = reader.get_ref().set_read_timeout(Some(remaining_before(deadline)?));
         let available =
             reader.fill_buf().map_err(|error| AppendAttemptError::Retryable(error.into()))?;
         if available.is_empty() {
@@ -967,6 +998,25 @@ fn random_identifiers() -> anyhow::Result<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A server may answer and close before the hook child reads. macOS then
+    /// refuses `setsockopt(SO_RCVTIMEO)` with EINVAL although the receipt is
+    /// still readable; treating that as a failed attempt re-sent the event,
+    /// so the journal received it twice and out of order.
+    #[cfg(unix)]
+    #[test]
+    fn codex_hook_receipt_from_a_server_that_already_closed_is_still_read() {
+        let (client, mut server) = std::os::unix::net::UnixStream::pair().unwrap();
+        server.write_all(b"{\"type\":\"response\"}\n").unwrap();
+        drop(server);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        match read_before(Box::new(client), deadline) {
+            Ok(response) => assert_eq!(response, b"{\"type\":\"response\"}\n"),
+            Err(AppendAttemptError::Retryable(error) | AppendAttemptError::Fatal(error)) => {
+                panic!("the written receipt was not read: {error:#}")
+            }
+        }
+    }
 
     fn cmux_environ(pid: u32) -> Option<std::collections::HashMap<String, String>> {
         let environment = |terminal: &str| {

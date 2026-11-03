@@ -18,8 +18,10 @@ writers in this repository:
 Text files are read directly; images, GIF frames and one video frame per
 second go through Apple Vision (``pr_media_ocr.swift``, compiled once and
 cached by ``ocr_binary()``). Without Vision (Linux) media are skipped and left
-to the scan below. A hit in an agent's or a bot's file refuses the upload; a
-hit in a teammate's file is reported and the upload goes ahead.
+to the scan below. Any hit refuses the upload, whoever's pull request it is
+(Leo, 2026-10-22: "1 ok"), and nothing refused is uploaded. The message names
+the hit's category (``KIND_LABELS``, e.g. "fleet host name") and how to fix it,
+never the matched text.
 
 After the push (no subcommand), ``.github/workflows/pr-media-privacy.yml``
 diffs the last scanned commit (``refs/pr-media-privacy/scanned``) against the
@@ -39,8 +41,7 @@ when its author is listed in ``PR_MEDIA_AGENT_AUTHORS``; ``nightly-next/`` and
 ``fuzz/`` are bots' own output. With ``--apply`` the scan removes agent-owned
 hits in one ordinary commit on top of the tip (never a history rewrite). A
 teammate's file, any other folder, or an author that cannot be looked up is
-reported and kept (before the push, an unknown author refuses instead, and so
-does every PR folder's hit when no agent list is set). Private terms shorter
+reported and kept (before the push every hit refuses, as above). Private terms shorter
 than ``MIN_TERM_LENGTH`` are ignored: with digit look-alikes a two-letter term
 would match ordinary text such as ``10``. The
 scan fails whenever anything was found, so the hit stays visible on the run
@@ -49,8 +50,8 @@ page even after its removal.
 The scan's first run, with no marker, scans nothing and only records the tip:
 the branch's existing files are not flagged wholesale.
 
-Exit status: 0 clean (or, for ``check``, only reported), 1 something was found
-(the scan) or refused (``check``), 2 bad input.
+Exit status: 0 clean, 1 something was found (the scan) or refused (``check``),
+2 bad input.
 """
 
 from __future__ import annotations
@@ -134,6 +135,26 @@ EMAIL = re.compile(r"(?<![a-z0-9._%+-])[a-z0-9._%+-]+@([a-z0-9-]+(?:\.[a-z0-9-]+
 PUBLIC_EMAIL_DOMAINS = ("example.com", "example.org", "example.net", "test", "users.noreply.github.com")
 
 
+# The category a refusal names for each kind, so whoever captured the media knows what to change;
+# the matched text itself is never printed.
+KIND_LABELS = {
+    "mini-name": "fleet Mac mini name",
+    "mini-host": "fleet host name",
+    "fleet-host": "fleet host name",
+    "shell-prompt": "fleet shell prompt",
+    "capture-account": "capture account path",
+    "private-term": "personal machine or account name",
+    "email": "personal email address",
+    "unreadable": "unreadable file",
+}
+FIX = ("Show fixture names in the scene instead (the sample hosts, users and paths the scenes and tours use), "
+       "then recapture.")
+
+
+def kind_labels(kinds: Iterable[str]) -> str:
+    return ", ".join(dict.fromkeys(KIND_LABELS.get(kind, kind) for kind in kinds))
+
+
 class BadInput(Exception):
     pass
 
@@ -143,9 +164,9 @@ class Refused(Exception):
 
     def __init__(self, report: dict) -> None:
         refused = [item for item in report["files"] if item["action"] == "refuse"]
-        listed = "; ".join(f"{item['path']} ({', '.join(item['kinds'])}: {item['reason']})" for item in refused)
+        listed = "; ".join(f"{item['path']} ({kind_labels(item['kinds'])})" for item in refused)
         super().__init__(f"refused {len(refused)} file(s) that show private names: {listed}. "
-                         "Crop or retake them; nothing refused was uploaded.")
+                         f"Nothing was uploaded. {FIX}")
         self.report = report
 
 
@@ -450,14 +471,13 @@ def removable(hits: dict[str, list[dict]], agents: frozenset[str], lookup) -> di
 
 
 def check_files(items: Iterable[tuple[str, Path]], patterns: list[tuple[str, re.Pattern[str]]],
-                ocr: str | Callable[[Path], list[str]] | None, lookup, agents: frozenset[str]) -> dict:
+                ocr: str | Callable[[Path], list[str]] | None) -> dict:
     """Check local files before they are pushed to pr-media.
 
     items are (path on the branch, local file) pairs. ocr is a compiled
     pr_media_ocr.swift, a callable from a local file to its lines, or None, which
     skips media (the scan after the push reads them). A file that shows a
-    private name, or could not be read, is refused when it is an agent's or a
-    bot's, or when its PR author cannot be looked up; a teammate's is reported.
+    private name, or could not be read, is refused, whoever's folder it is.
     Returns {"files": [{path, kinds, action, reason}], "skipped": [...], "refused": bool}.
     """
     report: dict = {"files": [], "skipped": [], "refused": False}
@@ -479,13 +499,11 @@ def check_files(items: Iterable[tuple[str, Path]], patterns: list[tuple[str, re.
         kinds = sorted({hit["kind"] for hit in findings(lines, patterns)})
         if kinds:
             hits[remote] = kinds
-    decisions = classify(hits, agents, lookup) if hits else {}
     for remote in sorted(hits):
-        whose, why = decisions[remote]
-        action = "report" if whose == "teammate" else "refuse"
-        report["files"].append({"path": remote, "kinds": hits[remote], "action": action,
-                                "reason": why + ("; held until it can be looked up" if why == "PR author unknown" else "")})
-    report["refused"] = any(item["action"] == "refuse" for item in report["files"])
+        why = "could not be read, so it is held like a hit" if hits[remote] == ["unreadable"] else \
+            "private names are refused in every pull request's media"
+        report["files"].append({"path": remote, "kinds": hits[remote], "action": "refuse", "reason": why})
+    report["refused"] = bool(report["files"])
     return report
 
 
@@ -493,9 +511,10 @@ def report_lines(report: dict) -> list[str]:
     """What a writer prints: paths and kinds only, never the matched text."""
     lines = []
     for item in report["files"]:
-        shows = "could not be read" if item["kinds"] == ["unreadable"] else f"shows {', '.join(item['kinds'])}"
-        verdict = "refused" if item["action"] == "refuse" else "reported, uploading anyway"
-        lines.append(f"{item['path']} {shows}; {verdict} ({item['reason']})")
+        shows = "could not be read" if item["kinds"] == ["unreadable"] else f"shows a {kind_labels(item['kinds'])}"
+        lines.append(f"{item['path']} {shows}; refused ({item['reason']})")
+    if report["files"]:
+        lines.append(f"nothing was uploaded. {FIX}")
     if report["skipped"]:
         lines.append(f"{len(report['skipped'])} file(s) not read here (media need Apple Vision); "
                      "pr-media-privacy.yml scans them after the push")
@@ -510,25 +529,20 @@ def check_upload(items: Iterable[tuple[str, Path | str]], repository: str = REPO
                  out: TextIO | None = None) -> dict:
     """The pre-push check every pr-media writer runs: raises Refused, else returns the report.
 
-    Terms come from load_private_terms(), agents from load_agent_authors(), and
-    the PR authors from GitHub only when a PR folder has a hit.
+    Terms come from load_private_terms(). Any hit refuses, so no PR author is looked up;
+    repository and lookup are accepted for the writers that still pass them.
     """
     out = out or sys.stderr
     items = [(remote, Path(local)) for remote, local in items]
     terms, source = load_private_terms(env)
-    agents = load_agent_authors(env)
     if ocr is _AUTO:
         needs_ocr = any(local.suffix.lower() in MEDIA_SUFFIXES for _remote, local in items)
         ocr = ocr_binary(env, out) if needs_ocr else None
-    if lookup is None:
-        lookup = lambda numbers: github_authors(numbers, repository)  # noqa: E731
-    report = check_files(items, [*GENERIC_PATTERNS, *term_patterns(terms)], ocr, lookup, agents)
+    report = check_files(items, [*GENERIC_PATTERNS, *term_patterns(terms)], ocr)
     report["terms"] = source
     lines = report_lines(report)
     if not terms:
         lines.append(f"generic patterns only: {source}")
-    if not agents and report["files"]:
-        lines.append("no PR_MEDIA_AGENT_AUTHORS list, so a hit in a PR folder refuses")
     for line in lines:
         print(f"pr-media privacy: {line}", file=out, flush=True)
     if report["refused"]:
@@ -675,7 +689,7 @@ def check_main(argv: list[str], lookup=None) -> int:
     parser.add_argument("--path-prefix", required=True,
                         help="folder on pr-media the files land in, e.g. 15277 or fuzz/<digest>")
     parser.add_argument("--repository", default=os.environ.get("REPOSITORY") or REPOSITORY,
-                        help="looks up the PR author of a numeric folder")
+                        help="the repository the files are for (no PR author is looked up)")
     parser.add_argument("files", nargs="+", type=Path, metavar="FILE")
     args = parser.parse_args(argv)
     prefix = args.path_prefix.strip("/")

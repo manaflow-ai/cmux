@@ -126,46 +126,24 @@ request_id="${commit:0:12}-$(date +%s)-$$"
 run_title="cmux-tui $mode $request_id @ $commit"
 
 echo "Dispatching $mode verification for $commit"
-gh workflow run "$WORKFLOW" \
-  --repo "$REPO" \
-  --ref "$remote_branch" \
-  -f "commit=$commit" \
-  -f "mode=$mode" \
-  -f "test_filter=$test_filter" \
-  -f "request_id=$request_id"
+# return_run_details makes the dispatch answer with the run it created, so
+# there is no run list to poll for it.
+run_id="$(gh api -X POST "repos/$REPO/actions/workflows/$WORKFLOW/dispatches" \
+  -f "ref=$remote_branch" \
+  -f "inputs[commit]=$commit" \
+  -f "inputs[mode]=$mode" \
+  -f "inputs[test_filter]=$test_filter" \
+  -f "inputs[request_id]=$request_id" \
+  -F return_run_details=true \
+  --jq '.workflow_run_id // ""')"
 
-run_id=""
-# The dispatch command does not return a run ID. Poll only until the uniquely
-# titled run appears, and then let GitHub CLI watch the run state.
-for _ in $(seq 1 60); do
-  run_query=""
-  if run_query="$(
-    gh run list \
-      --repo "$REPO" \
-      --workflow "$WORKFLOW" \
-      --branch "$remote_branch" \
-      --event workflow_dispatch \
-      --limit 100 \
-      --json databaseId,displayTitle,headSha \
-      --jq ".[] | select(.displayTitle == \"$run_title\" and .headSha == \"$commit\") | .databaseId"
-  )"; then
-    run_id="$(printf '%s\n' "$run_query" | sed -n '1p')"
-  else
-    echo "warning: run discovery query failed; retrying" >&2
-  fi
-  if [[ -n "$run_id" ]]; then
-    break
-  fi
-  sleep 2
-done
-
-if [[ -z "$run_id" ]]; then
-  echo "error: the dispatched workflow did not appear within 120 seconds" >&2
+if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
+  echo "error: the workflow dispatch returned no run id" >&2
   exit 1
 fi
 
-# The list query is only a discovery hint. Re-read the run before accepting it
-# so a branch/ref race cannot make us watch a run for a different revision.
+# Re-read the run before accepting it so a branch/ref race cannot make us
+# watch a run for a different revision.
 run_identity="$(gh run view --repo "$REPO" "$run_id" \
   --json headSha,headBranch,event,displayTitle \
   --jq '[.headSha, .headBranch, .event, .displayTitle] | @tsv')"
@@ -232,52 +210,51 @@ exec 3<> "$watch_result_fifo"
   trap stop_watch_owner HUP TERM INT
   trap stop_gh_child EXIT
 
-  while true; do
-    set +e
-    gh run watch \
-      --repo "$REPO" \
-      "$run_id" \
-      --exit-status \
-      --interval 10 >&2 &
-    gh_child_pid=$!
-    wait "$gh_child_pid"
-    gh_child_pid=""
-    set -e
+  # One waiter, no poll loop: glaeda-gh shares one cheap poller per machine;
+  # without it, gh run watch checks once per five minutes. The timed read
+  # below bounds both.
+  set +e
+  if command -v glaeda-gh >/dev/null 2>&1; then
+    glaeda-gh wait run "$REPO/$run_id" --until "done" --timeout "$timeout_seconds" >/dev/null 2>&1 &
+  else
+    gh run watch --repo "$REPO" "$run_id" --interval 300 >/dev/null 2>&1 &
+  fi
+  gh_child_pid=$!
+  wait "$gh_child_pid"
+  gh_child_pid=""
 
-    run_state_file="$temp_dir/run-state"
-    : > "$run_state_file"
-    set +e
-    gh run view \
-      --repo "$REPO" \
-      "$run_id" \
-      --json status,conclusion \
-      --jq '[.status, .conclusion] | @tsv' > "$run_state_file" &
-    gh_child_pid=$!
-    wait "$gh_child_pid"
-    view_status=$?
-    gh_child_pid=""
-    set -e
-    if [[ "$view_status" -eq 0 ]]; then
-      run_state="$(<"$run_state_file")"
-      IFS=$'\t' read -r run_status run_conclusion <<< "$run_state"
-      if [[ "$run_status" == "completed" ]]; then
-        trap - HUP TERM INT EXIT
-        printf '%s\t%s\n' "$run_status" "$run_conclusion" >&3
-        exit 0
-      fi
-    fi
-    sleep 10 &
-    gh_child_pid=$!
-    wait "$gh_child_pid" 2>/dev/null || true
-    gh_child_pid=""
-  done
+  run_state_file="$temp_dir/run-state"
+  : > "$run_state_file"
+  gh run view \
+    --repo "$REPO" \
+    "$run_id" \
+    --json status,conclusion \
+    --jq '[.status, .conclusion] | @tsv' > "$run_state_file" &
+  gh_child_pid=$!
+  wait "$gh_child_pid"
+  view_status=$?
+  gh_child_pid=""
+  set -e
+  run_status="unknown"
+  run_conclusion="unknown"
+  if [[ "$view_status" -eq 0 ]]; then
+    IFS=$'\t' read -r run_status run_conclusion < "$run_state_file" || true
+  fi
+  trap - HUP TERM INT EXIT
+  printf '%s\t%s\n' "$run_status" "$run_conclusion" >&3
+  exit 0
 ) &
 watch_owner_pid=$!
 
+run_finished=false
 if IFS=$'\t' read -r -t "$timeout_seconds" run_status run_conclusion <&3; then
-  wait "$watch_owner_pid"
+  wait "$watch_owner_pid" || true
   watch_owner_pid=""
-else
+  [[ "$run_status" == "completed" ]] && run_finished=true
+fi
+# A deadline, or a waiter that ended (timeout, error) with the run still
+# active, cancels the hosted run so it does not keep the runners.
+if [[ "$run_finished" != true ]]; then
   stop_owned_process watch_owner_pid
 
   cancel_result_fifo="$temp_dir/run-cancel-result"
@@ -315,7 +292,7 @@ else
     fi
   fi
   exec 4>&-
-  echo "error: hosted verification did not complete within ${timeout_seconds}s: $run_url" >&2
+  echo "error: hosted verification did not complete (run ${run_status:-still running}) within the wait of ${timeout_seconds}s: $run_url" >&2
   exit 1
 fi
 exec 3>&-

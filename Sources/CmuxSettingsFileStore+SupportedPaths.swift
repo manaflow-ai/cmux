@@ -24,6 +24,7 @@ extension CmuxSettingsFileStore {
         "app.paneResizeStepPixels",
         "app.focusHistoryIncludesPanesAndTabs",
         "app.equalizeSplitsOnCreate",
+        "app.equalizeSplitsOnDividerDoubleClick",
         "app.preferredEditor",
         "app.defaultWorkspacePath",
         "app.openSupportedFilesInCmux",

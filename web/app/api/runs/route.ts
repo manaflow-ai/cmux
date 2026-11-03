@@ -1,11 +1,11 @@
 import { after } from "next/server";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
-import { withRunRoute, RunHttpError } from "../../../services/runs/http";
-import { createRunRecord, listRunSnapshots, RunAdmissionError, RunIdempotencyConflictError } from "../../../services/runs/repository";
-import { normalizeRunSpec, RunSpecValidationError, runSpecDigest } from "../../../services/runs/spec";
-import { assertFreestyleSource } from "../../../services/runs/sourceVerification";
-import { runReceipt } from "../../../services/runs/view";
-import { processRunQueue } from "../../../services/runs/runner";
+import { withRunRoute, RunHttpError } from "../../../services/runs/legacy/http";
+import { createRunRecord, listRunSnapshots, RunAdmissionError, RunIdempotencyConflictError } from "../../../services/runs/legacy/repository";
+import { normalizeRunSpec, RunSpecValidationError, runSpecDigest } from "../../../services/runs/legacy/spec";
+import { assertFreestyleSource } from "../../../services/runs/legacy/sourceVerification";
+import { runReceipt } from "../../../services/runs/legacy/view";
+import { processRunQueue } from "../../../services/runs/legacy/runner";
 
 function validateSupportedSpec(spec: ReturnType<typeof normalizeRunSpec>) {
       assertFreestyleSource(spec);

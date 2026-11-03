@@ -25,9 +25,13 @@ upload, so a file the tool refuses cannot leave the earlier ones stranded.
 
 Every file goes through the shared privacy check (scripts/ci/pr_media_privacy.py)
 before the first upload, the gif made from an mp4 included: a capture that
-shows a private machine or account name in an agent's pull request is refused
-and nothing is uploaded; in a teammate's it is reported and uploaded.
+shows a private machine or account name is refused, in any pull request, and
+nothing is uploaded; the message names the name's category and how to fix it.
 `put_file()` runs the same check on each file for the tools that import it.
+In GitHub Actions the check refuses unless the step runs inside
+.github/actions/pr-media-publish, the one publishing step: it brings the
+pr-media environment's private-terms list and an OCR tool, so a CI writer
+never falls back to the built-in patterns with its images unread.
 
 Conversion needs ffmpeg. Everything else needs `gh` with push access to the
 repository. `--dry-run` resolves the whole plan and prints it without running
@@ -40,6 +44,7 @@ import argparse
 import base64
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -116,25 +121,48 @@ def privacy_module():
     return _privacy
 
 
+# In GitHub Actions every pr-media write goes through this composite action. It
+# gives the check the pr-media environment's private-terms list and an OCR tool
+# (tesseract on Linux, Vision on macOS) and sets PUBLISH_GATE for its publisher.
+PUBLISH_ACTION = ".github/actions/pr-media-publish"
+PUBLISH_GATE = "PR_MEDIA_PUBLISH_GATE"
+
+
+def require_publish_gate(privacy, items: list[tuple[str, Path]], env, ocr_given: bool) -> None:
+    """In GitHub Actions, refuse unless the publishing action set this step up.
+
+    Off CI the check reads this machine's terms file and names and Vision, as
+    before. In CI a step that skipped the action would check with the built-in
+    patterns only and skip every image, so it writes nothing instead.
+    """
+    if env.get("GITHUB_ACTIONS") != "true":
+        return
+    if env.get(PUBLISH_GATE) != "1":
+        raise PrivacyError(f"in GitHub Actions pr-media is written only through {PUBLISH_ACTION}, "
+                           "which loads the private-terms list and an OCR tool; this step does not use it")
+    if not env.get("PR_MEDIA_PRIVATE_TERMS", "").strip():
+        raise PrivacyError("no private-terms list (PR_MEDIA_PRIVATE_TERMS): the job needs `environment: pr-media`")
+    media = any(Path(remote).suffix.lower() in privacy.MEDIA_SUFFIXES for remote, _local in items)
+    if media and not ocr_given and privacy.ocr_binary(env) is None:
+        raise PrivacyError("no OCR tool, so images would go unread; nothing is uploaded")
+
+
 def check_privacy(items: list[tuple[str, Path]], repo: str, **options) -> None:
     """Run the shared pre-push check on (path on the branch, local file) pairs.
 
     Raises PrivacyError when a file is refused; the message names paths and kinds,
     never the text it matched. options go to check_upload (env, ocr, lookup,
-    out); tests replace this module-level hook.
+    out); tests replace this module-level hook. In GitHub Actions the step must
+    run inside PUBLISH_ACTION (require_publish_gate).
     """
     privacy = privacy_module()
+    require_publish_gate(privacy, items, options.get("env", os.environ), "ocr" in options)
     try:
         privacy.check_upload(items, repo, **options)
     except privacy.Refused as refused:
         raise PrivacyError(str(refused)) from None
     except privacy.BadInput as error:
         raise PrivacyError(f"privacy check: {error}") from None
-
-
-def no_author_lookup(numbers: list[int]) -> dict[int, str]:
-    """A dry run's author lookup: it never calls GitHub, so a hit in a PR folder is held."""
-    raise MediaError("a dry run does not look pull request authors up")
 
 
 @dataclass(frozen=True)
@@ -492,11 +520,9 @@ def main(argv: list[str] | None = None, runner=None) -> int:
             for upload in uploads:
                 if not upload.source_name:
                     warnings.extend(check_size(upload.local, upload.kind))
-            print("privacy check of the files as given (a gif is checked when it is made; "
-                  "PR authors are not looked up, so a hit here is held):")
+            print("privacy check of the files as given (a gif is checked when it is made):")
             check_privacy([(remote_path(args.pr, upload.name), upload.local)
-                           for upload in uploads if not upload.source_name], args.repo,
-                          lookup=no_author_lookup)
+                           for upload in uploads if not upload.source_name], args.repo)
             print()
             print(markdown(uploads, args.pr, args.repo, args.branch), end="")
             report(warnings)

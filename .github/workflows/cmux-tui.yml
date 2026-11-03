@@ -110,6 +110,20 @@ jobs:
       - name: Install Rust 1.91
         run: rustup toolchain install 1.91.0 --profile minimal
 
+      # Keep cargo's registry and the MSRV target dir between runs, as lint and test
+      # do: without it every run checked the whole workspace from an empty target.
+      # The job's own key, with the toolchain in it, so 1.91 artifacts never mix
+      # with the pinned toolchain's.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          # Only main dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          workspaces: cmux-tui -> target
+          key: rust-1.91.0
+
       - name: cargo check with MSRV
         working-directory: cmux-tui
         run: cargo +1.91.0 check --workspace --locked
@@ -510,6 +524,8 @@ jobs:
           key: cmux-tui-source-${{ hashFiles('cmux-tui/**/*.rs', 'cmux-tui/**/Cargo.toml', 'cmux-tui/Cargo.lock') }}
           cache-all-crates: true
           cache-workspace-crates: true
+          # Only main dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Report cargo cache hit rate
@@ -708,6 +724,17 @@ jobs:
           rustup target add x86_64-pc-windows-gnu
           printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
 
+      # Keep cargo's registry and the windows-gnu target dir between runs, as the
+      # Linux and macOS test jobs do. Its own job key: no other job builds this target.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          # Only main dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          workspaces: cmux-tui -> target
+
       - name: Verify LLVM GNU linker
         shell: bash
         run: ld.lld --version
@@ -779,6 +806,20 @@ jobs:
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # Keep cargo's registry and cmux-tui/target between runs, as test and lint do.
+      # Its own job key: test's shared key holds the whole workspace build, and the
+      # first save under a key wins, so a small CDP-only save there would starve test.
+      # cache-bin: false keeps an owned mini's own ~/.cargo/bin (rust-cache's save
+      # cleanup deletes what was there at restore).
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          # Only main dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run configured Chrome CDP smoke
         working-directory: cmux-tui
