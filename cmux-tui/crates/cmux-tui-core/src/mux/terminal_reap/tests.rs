@@ -319,11 +319,11 @@ fn a_reclaim_pass_ends_closed_terminals_waiting_out_the_grace_when_ptys_are_low(
     assert!(mux.reap_unplaced_terminals(&mut schedule, Instant::now()).is_empty());
     assert_eq!(lifecycle(&mux, &closed_id), TerminalLifecycle::Running);
 
-    crate::mux::pty_reclaim::set_pty_usage_for_test(Some((500, 511)));
-    let mut clock = crate::mux::pty_reclaim::ReclaimClock::default();
+    pty_reclaim::set_pty_usage_for_test(Some((500, 511)));
+    let mut clock = pty_reclaim::ReclaimClock::default();
     mux.note_pty_exhausted();
     let _ = mux.reclaim_ptys_if_low(&mut clock);
-    crate::mux::pty_reclaim::set_pty_usage_for_test(None);
+    pty_reclaim::set_pty_usage_for_test(None);
 
     assert_eq!(
         lifecycle(&mux, &closed_id),
