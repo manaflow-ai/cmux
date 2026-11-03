@@ -670,6 +670,13 @@ function useStableCallback<T extends (...args: never[]) => unknown>(callback: T 
 const DISMISS_KEEPERS =
   'dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], .ui-popup';
 
+/// Capture runs before a portalled popup handles its outside press. That press belongs to the
+/// popup alone, even when it lands outside Session Info too. Ignore hidden and leaving layers.
+const hasOpenDismissLayer = (doc: Document) =>
+  [...doc.querySelectorAll(DISMISS_KEEPERS)].some(
+    (layer) => !layer.closest('[hidden], [inert], [aria-hidden="true"], [data-ending-style]'),
+  );
+
 /// Closes Session Info from Esc and gives the keyboard to its header toggle, so focus is
 /// not dropped on the page when the panel it was in leaves. Over a diff in place the header, and the
 /// toggle with it, is hidden and cannot take focus: the page gets it, as before.
@@ -831,6 +838,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     const away = (event: PointerEvent) => {
       const target = event.target as Element | null;
       if (target?.closest?.(`${SESSION_INFO_TOGGLE}, ${DISMISS_KEEPERS}`)) return;
+      if (hasOpenDismissLayer(doc)) return;
       onSuppress();
     };
     doc.addEventListener("pointerdown", away, true);
@@ -1185,6 +1193,7 @@ export function SessionInfoPanel({
       if (!target || typeof target.closest !== "function") return;
       if (frame.current?.contains(target)) return;
       if (target.closest(`${SESSION_INFO_TOGGLE}, ${DISMISS_KEEPERS}`)) return;
+      if (hasOpenDismissLayer(doc)) return;
       onDismiss();
     };
     doc.addEventListener("pointerdown", away, true);
@@ -1590,7 +1599,9 @@ export function SessionInfo({
       meta={value(
         reconnect > 0
           ? t("sessionInfo.connectors.reconnect", { count: reconnect })
-          : t("rail.connected", { count: mcp.filter((server) => server.status === "connected").length }),
+          : t("rail.connected", {
+              count: mcp.filter((server) => server.status === "connected").length,
+            }),
       )}
     >
       <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} />
