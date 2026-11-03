@@ -47,7 +47,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     }
 
     let events: AsyncStream<TerminalIOEvent>
-    private let driver: TerminalAttachDriver<TerminalAttachment>
+    let driver: TerminalAttachDriver<TerminalAttachment> // internal: tests read the live link's counters
     private let creatingInput: CreatingTerminalInput?
     /// The target's surface id for the typing probe (0: not resolved at init, a terminal still being made).
     private let probeSurface: UInt64

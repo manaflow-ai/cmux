@@ -2,33 +2,35 @@ import AppKit
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+@testable import CmuxNextTerminal
 import CmuxNextWakeups
 import Foundation
 import Testing
 
 /// SWITCH FRAMES warm-set gate (lead 2026-11-03, "batch hidden output"): a warm hidden terminal costs the app process
 /// wakeups that the person cannot see. On cmux24 with 24 busy hidden terminals at a warm cap of 25, the app woke 181.8
-/// times a second against 76.9 at a cap of 8: about 6.5 wakeups a second for each live hidden terminal, none of them on
-/// the main thread (debug.wakeups was equal on both arms). Chrome throttles a background tab's work; a hidden terminal is
-/// that case. A live hidden terminal costs (1) no wakeups while idle (Ghostty's cursor blink timer stops while hidden)
-/// and (2) one wakeup chain per output batch, not per chunk.
+/// times a second against 76.9 at a cap of 8, none of it on the main thread. Chrome throttles a background tab's work; a
+/// hidden terminal is that case. Its output path (the attach reader thread, the session's consumer task, the output
+/// lane) runs once per output batch, not once per chunk, and not at all while the terminal is idle.
 ///
-/// Measured as differences on one app process, so what does not depend on the hidden terminals being live (the daemon's
-/// tree events for busy terminals, the app's own timers) cancels: the same terminals live and hidden, then evicted.
+/// Exact counts per hidden terminal, not wakeups (a whole-process wakeup count moved by up to 346 in 6 s between two
+/// windows of one app with nothing changed: STATUS 9985 follow-up). The whole-process figure stays the fleet A/B gate.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(4)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct HiddenTerminalWakeupsTests {
-    static let terminals = 6
-    static let window: Duration = .seconds(6)
+    static let terminals = 4
 
-    /// Whole-process wakeups (package idle exits plus interrupt wakeups) during `window`.
-    static func wakeups(during window: Duration) async throws -> Double {
-        let before = try #require(ProcessUsage.sample(getpid()))
-        try await Task.sleep(for: window)
-        let after = try #require(ProcessUsage.sample(getpid()))
-        return Double(after.wakeups &- before.wakeups)
+    /// One hidden terminal's output-path work so far: reader-thread reads, consumer passes, lane blocks.
+    struct Work: CustomStringConvertible {
+        var reads: UInt64, passes: UInt64, blocks: UInt64
+        static func of(_ entry: TerminalEntry) -> Work? {
+            guard let reads = entry.io.driver.machine.liveLink?.transportReads, let lane = entry.session.surfaceView.lane else { return nil }
+            return Work(reads: reads, passes: entry.session.frameChanges.generation, blocks: lane.blocks)
+        }
+        static func - (a: Work, b: Work) -> Work { Work(reads: a.reads &- b.reads, passes: a.passes &- b.passes, blocks: a.blocks &- b.blocks) }
+        var description: String { "\(reads) reads, \(passes) consumer passes, \(blocks) lane blocks" }
     }
 
-    @Test func aLiveHiddenTerminalWakesTheAppOncePerOutputBatchAndNeverWhileIdle() async throws {
+    @Test func aHiddenTerminalsOutputPathRunsOncePerBatchAndNeverWhileIdle() async throws {
         try await PinnedPageTests.withApp { services, connection in
             try await PinnedPageTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
             let controller = try #require(services.windows.active)
@@ -37,7 +39,7 @@ struct HiddenTerminalWakeupsTests {
             services.cache.setWarmBudget(WarmSetBudget(terminalCapacity: Self.terminals + 4))
             defer { services.cache.setWarmBudget(budget) }
 
-            // Terminals, each shown once (its session is made), then hidden behind another workspace: warm and paused.
+            // Terminals, each shown once (its session is made), then hidden behind another workspace: live and hidden.
             var shells: [(tab: String, surface: SurfaceID)] = []
             for _ in 0..<Self.terminals {
                 let id = try #require(await services.windows.createWorkspace(into: controller.state.id))
@@ -59,49 +61,47 @@ struct HiddenTerminalWakeupsTests {
                 let ready = try? await connection.request(WaitForTextRequest(surface: shell.surface, pattern: "ready9", timeoutMs: 20_000), timeout: .seconds(25))
                 try #require(ready?.matched == true, "the shell of \(shell.tab) never answered")
             }
-            try await PinnedPageTests.until({ shells.allSatisfy { services.cache.terminals[$0.tab]?.session.isRenderingSuspended == true } },
+            try await PinnedPageTests.until({ shells.allSatisfy { services.cache.terminals[$0.tab]?.session.diagnostics.drawing == false } },
                                             report: { "the hidden terminals are not live and paused" })
-
-            // 64 KiB per terminal in about 4 s, as a busy program prints: 400 lines of 160 bytes, 10 ms apart.
-            @MainActor func printSixtyFourKiB(_ round: String) async throws {
-                for shell in shells {
-                    try await connection.send(shell.surface, text: "for i in $(seq 1 400); do printf '%0159d\\n' $i; sleep 0.01; done; echo done-\(round)$((2*3))\r")
+            @MainActor func work() throws -> [Work] {
+                try shells.map { shell in
+                    let entry = try #require(services.cache.terminals[shell.tab], "\(shell.tab) is not live")
+                    return try #require(Work.of(entry), "\(shell.tab) has no live attach link or lane")
                 }
             }
-            @MainActor func waitPrinted(_ round: String) async throws {
-                for shell in shells {
-                    let done = try? await connection.request(WaitForTextRequest(surface: shell.surface, pattern: "done-\(round)6", timeoutMs: 30_000), timeout: .seconds(35))
-                    try #require(done?.matched == true, "\(shell.tab) never finished printing (\(round))")
-                }
+            try await Task.sleep(for: .seconds(3)) // the echo's batch and its digest land
+
+            // Idle: a hidden terminal with no output does no output-path work.
+            let idleStart = try work()
+            try await Task.sleep(for: .seconds(6))
+            let idle = zip(try work(), idleStart).map { $0 - $1 }
+
+            // 64 KiB each, as a busy program prints: 400 lines of 160 bytes, 10 ms apart.
+            let outputStart = try work()
+            let began = ContinuousClock.now
+            for shell in shells {
+                try await connection.send(shell.surface, text: "for i in $(seq 1 400); do printf '%0159d\\n' $i; sleep 0.01; done; echo done$((2*3))\r")
             }
+            for shell in shells {
+                let done = try? await connection.request(WaitForTextRequest(surface: shell.surface, pattern: "done6", timeoutMs: 30_000), timeout: .seconds(35))
+                try #require(done?.matched == true, "\(shell.tab) never finished printing")
+            }
+            let printed = ContinuousClock.now - began
+            try await Task.sleep(for: .milliseconds(2500)) // the last batch (once per wall-clock second) lands
+            let output = zip(try work(), outputStart).map { $0 - $1 }
 
-            try await Task.sleep(for: .milliseconds(1500))
-            let idleLive = try await Self.wakeups(during: Self.window)
-            try await printSixtyFourKiB("live")
-            let outputLive = try await Self.wakeups(during: Self.window)
-            try await waitPrinted("live")
-
-            // The same terminals evicted (no live session in the app): what remains is not the hidden terminals' cost.
-            services.cache.setWarmBudget(WarmSetBudget(terminalCapacity: 0))
-            try await PinnedPageTests.until({ shells.allSatisfy { !services.cache.hasContent(for: $0.tab) } },
-                                            report: { "the warm set kept a hidden terminal" })
-            try await Task.sleep(for: .milliseconds(1500))
-            let idleEvicted = try await Self.wakeups(during: Self.window)
-            try await printSixtyFourKiB("gone")
-            let outputEvicted = try await Self.wakeups(during: Self.window)
-            try await waitPrinted("gone")
-
-            let seconds = Double(Self.window.components.seconds)
-            let idlePerTerminal = (idleLive - idleEvicted) / Double(Self.terminals) / seconds
-            let outputPerTerminal = ((outputLive - idleLive) - (outputEvicted - idleEvicted)) / Double(Self.terminals)
-            let numbers = "per live hidden terminal: idle \(idlePerTerminal) wakeups/s, \(outputPerTerminal) wakeups per 64 KiB"
-                + " (raw over \(seconds) s: idle live \(idleLive), output live \(outputLive), idle evicted \(idleEvicted), output evicted \(outputEvicted))"
-            print("hidden-terminal-wakeups: " + numbers)
-            // Idle: no timer runs for a terminal the person cannot see (Ghostty's cursor blink: 600 ms, about 1.7/s).
-            #expect(idlePerTerminal <= 0.2, "an idle live hidden terminal wakes the app: \(numbers)")
-            // Output: the daemon sends a hidden view one batch per wall-clock second (about 5 for this output); each batch
-            // may wake the app once. Bound: one wakeup per second of output plus one.
-            #expect(outputPerTerminal <= 6, "a live hidden terminal wakes the app more than once per output batch: \(numbers)")
+            // A hidden viewer's output comes once per wall-clock second (the daemon's hidden batch): one consumer pass and
+            // one lane block per batch, and a batch may take a few reads of the socket.
+            let batches = UInt64(printed.components.seconds) + 2
+            let report = "printed in \(printed), at most \(batches) batches; idle \(idle); per 64 KiB \(output)"
+            print("hidden-terminal-work: " + report)
+            for (index, work) in idle.enumerated() {
+                #expect(work.passes == 0 && work.blocks == 0 && work.reads <= 1, "idle hidden terminal \(index) did output-path work: \(work); \(report)")
+            }
+            for (index, work) in output.enumerated() {
+                #expect(work.passes <= batches && work.blocks <= batches && work.reads <= 3 * batches,
+                        "hidden terminal \(index) ran its output path more than once per batch: \(work); \(report)")
+            }
         }
     }
 }

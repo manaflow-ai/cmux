@@ -428,6 +428,11 @@ final class LineTransport: Sendable {
         }
     }
 
+    /// `read` calls that returned bytes (each is one wake of the reader thread): exact, for the hidden-terminal cost
+    /// (SWITCH FRAMES warm set: a hidden view's output path wakes once per daemon batch, not once per chunk).
+    private let readCount = Atomic<UInt64>(0)
+    public var reads: UInt64 { readCount.load(ordering: .relaxed) }
+
     private func readLoop(fd: Int32, onEvent: EventHandler, onClose: CloseHandler) {
         let decoder = JSONDecoder()
         var lines = LineSplitter()
@@ -442,6 +447,7 @@ final class LineTransport: Sendable {
                 closeDetail = "read: \(String(cString: strerror(errno)))"
                 break
             }
+            _ = readCount.add(1, ordering: .relaxed)
             lines.append(chunk.prefix(count)) { route($0, decoder: decoder, onEvent: onEvent) }
             if lines.pending.count > Self.maxLineBytes {
                 closeDetail = "line exceeds \(Self.maxLineBytes) bytes"

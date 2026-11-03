@@ -137,6 +137,8 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     /// Output bytes waiting for the consumer (diagnostics, tests).
     public nonisolated var bufferedOutputBytes: Int { queue.bufferedOutputBytes }
+    /// The attach connection's reader-thread reads so far (``LineTransport/reads``).
+    public nonisolated var transportReads: UInt64 { transport.reads }
 
     private func open(target: Target, size: CellSize, claimGeometry: Bool, snapshotVersion: UInt16?,
                       localHistory: Bool, images: Bool, clientName: String,

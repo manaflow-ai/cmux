@@ -54,8 +54,13 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// Bytes queued but not parsed yet.
     var pendingBytes: Int { backlog.withLock { $0.bytes } }
 
+    /// Output blocks queued on the lane so far (each is one wake of its thread): exact, for the hidden-terminal cost.
+    private let outputBlocks = Atomic<UInt64>(0)
+    var blocks: UInt64 { outputBlocks.load(ordering: .relaxed) }
+
     func processOutput(_ data: Data) {
         guard !data.isEmpty else { return }
+        _ = outputBlocks.add(1, ordering: .relaxed)
         backlog.withLock { $0.bytes += data.count }
         queue.async { [self] in
             defer { parsed(data.count) }
