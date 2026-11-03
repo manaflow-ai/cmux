@@ -138,7 +138,9 @@ final class TerminalFramePresenter {
                 watched[id] = nil
             case GHOSTTY_HOST_FRAME_READY:
                 // Its bounds already have the host size (they were given without a present): the frame fits them.
+                CATransaction.lock()
                 _ = view.hostFrame(present: true)
+                CATransaction.unlock()
             default:
                 var next = watch
                 next.ticks += 1
@@ -187,6 +189,8 @@ final class TerminalFramePresenter {
             CATransaction.lock()
             let shown = view.hostFrame(present: true)
             let presented = shown == GHOSTTY_HOST_FRAME_PRESENTED || shown == GHOSTTY_HOST_FRAME_SHOWN
+            // Cleared before the frame changes: a request the new frame makes for this view stays.
+            if presented { requests[id] = nil }
             let followUp = presented ? view.landRequestedFrame() : false
             CATransaction.unlock()
             if presented {
@@ -213,11 +217,11 @@ final class TerminalFramePresenter {
     /// The view takes the size its shown frame has; one that wants another size since asks for it now (a new
     /// request, presented from the next turn).
     private func land(_ view: TerminalSurfaceView, id: ObjectIdentifier, watch: Bool) {
+        requests[id] = nil
         landed(view, id: id, watch: watch, followUp: view.landRequestedFrame())
     }
 
     private func landed(_ view: TerminalSurfaceView, id: ObjectIdentifier, watch: Bool, followUp: Bool) {
-        requests[id] = nil
         if watch { watched[id] = Watch(view: view) } else { commits[id] = Watch(view: view) }
         if followUp { view.requestWantedFrame() }
     }
