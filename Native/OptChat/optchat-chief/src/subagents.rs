@@ -49,8 +49,9 @@ use crate::workspaces::Workspaces;
 /// subagent (`a<N>`).
 pub const SPAWN_TAG: &str = "optchat.spawn";
 pub const SUBAGENT_TAG: &str = "optchat.subagent";
-/// Most tasks one spawn starts.
-pub const MAX_TASKS: usize = 8;
+/// Most tasks one spawn starts (Leo, 2026-11-02: eight made a fan-out take
+/// a second call).
+pub const MAX_TASKS: usize = 24;
 /// The environment variable that caps how many subagents work at once
 /// (`live_limit`). Unset, empty or `0`: no cap.
 pub const MAX_LIVE_ENV: &str = "OPTCHAT_MAX_LIVE_SUBAGENTS";
