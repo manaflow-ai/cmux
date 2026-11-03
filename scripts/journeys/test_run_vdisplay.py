@@ -248,7 +248,7 @@ class VirtualDisplay(Harness):
                          ({"hz": 120, "scale": 2}, 8.334, "3024x1964"))
         self.assertTrue(any("driver.py" in s for s in self.scripts))
         stop = [s for s in self.scripts if "pkill" in s]
-        self.assertTrue(stop and all("/tmp/fake-root/journeys/VD.app/" in s for s in stop), stop)
+        self.assertTrue(stop and all("/tmp/fake-root/journeys/VD\\.app/" in s for s in stop), stop)
         self.assertIn("release slot-cmux99-abc", self.calls())
 
     def test_a_virtual_display_that_is_not_the_main_display_is_not_run(self):

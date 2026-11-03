@@ -94,8 +94,12 @@ STAMP = "%Y-%m-%dT%H:%M:%SZ"
 # --vdisplay HZxSCALE: the asked rate (whole Hz) and pixel density, and how far the measured link interval may be from
 # 1000/HZ (the kits' video_start tolerance, which judges the same display from inside the app).
 VDISPLAY = re.compile(r"([1-9][0-9]{0,2})x([12])")
+VDISPLAY_MIN_HZ = 24   # the measurement counts link ticks in 1 s; no journey asks for less than film rate
 VDISPLAY_MAX_HZ = 240
 VDISPLAY_TOLERANCE_MS = 0.35
+# vdisplay120.m's two lines, read whole: a line of another form is no measurement.
+VD_READY = re.compile(r"ready (\d+) (\d+\.\d+)")
+VD_MAIN = re.compile(r"main (\d+) mode (\d+)x(\d+) pixels (\d+)x(\d+) refresh (\d+\.\d+) interval (\d+\.\d+) displays (\d+)")
 # What kit_tar packs to the mini and what judges a round: a result counts only when these are committed and unchanged.
 HARNESS_PATHS = ("scripts/journeys", "scripts/cmux-next/build_names.py", "scripts/ci/pr_media_ocr.swift")
 
@@ -106,6 +110,11 @@ def log(message):
 
 def q(text):
     return "'" + str(text).replace("'", "'\"'\"'") + "'"
+
+
+def ere_literal(text):
+    """TEXT as a POSIX extended regular expression that matches only itself (for pkill -f)."""
+    return re.sub(r"([.\[\]()*+?{}|^$\\])", r"\\\1", str(text))
 
 
 def run(argv, *, input=None, timeout=None, check=True):
@@ -152,11 +161,16 @@ def validate(spec):
     if not isinstance(spec.get("budget_seconds"), (int, float)) or not 0 < spec["budget_seconds"] <= JOURNEY_SECONDS:
         problems.append(f"budget_seconds must be in (0, {JOURNEY_SECONDS}] (one lease)")
     kinds = set()
-    for where, item in [("the journey", spec)] + [(f"step {i}", st) for i, st in enumerate(spec.get("steps") or [], 1)]:
-        hz = item.get("require_hz") if isinstance(item, dict) else None
-        if isinstance(item, dict) and "require_hz" in item and not (
-                type(hz) is int and 1 <= hz <= VDISPLAY_MAX_HZ):
-            problems.append(f"{where}: require_hz must be a whole number of Hz in [1, {VDISPLAY_MAX_HZ}], not {hz!r}")
+    rates = set()
+    for where, hz in require_hz_values(spec):
+        if type(hz) is int and VDISPLAY_MIN_HZ <= hz <= VDISPLAY_MAX_HZ:
+            rates.add(hz)
+        else:
+            problems.append(f"{where}: require_hz must be a whole number of Hz in [{VDISPLAY_MIN_HZ}, {VDISPLAY_MAX_HZ}], "
+                            f"not {hz!r}")
+    if len(rates) > 1:
+        problems.append(f"require_hz: the journey needs {len(rates)} rates ({', '.join(map(str, sorted(rates)))}); one "
+                        "journey runs on one display")
     for index, step in enumerate(spec.get("steps") or [], 1):
         if step.get("do") not in STEP_NAMES:
             problems.append(f"step {index}: unknown do {step.get('do')!r} (one of {', '.join(sorted(STEP_NAMES))})")
@@ -183,17 +197,30 @@ def select(specs, opts):
     return [s for s in specs if s["priority"] == opts.priority]
 
 
+def require_hz_values(item, where="the journey"):
+    """(place, value) of every `require_hz` in a journey spec, at any depth: on the journey, a step, or a step inside
+    a step group (the kits' px_film plays its own `steps`), as a step's option."""
+    if isinstance(item, dict):
+        for key, value in item.items():
+            if key == "require_hz":
+                yield where, value
+            else:
+                yield from require_hz_values(value, f"{where}.{key}")
+    elif isinstance(item, list):
+        for index, value in enumerate(item):
+            yield from require_hz_values(value, f"{where}[{index}]")
+
+
 def required_hz(spec):
-    """The display rate a journey needs (`require_hz` on the journey, or the highest on its steps), or None."""
-    rates = [spec.get("require_hz")] + [st.get("require_hz") for st in spec.get("steps") or [] if isinstance(st, dict)]
-    rates = [r for r in rates if type(r) is int]
+    """The display rate a journey needs (its one `require_hz`, at any depth; --check refuses two), or None."""
+    rates = [hz for _, hz in require_hz_values(spec) if type(hz) is int]
     return max(rates) if rates else None
 
 
 def parse_vdisplay(text):
     """--vdisplay HZxSCALE as (hz, scale), or None when it is not one (HZ a whole number in [1, 240], SCALE 1 or 2)."""
     m = VDISPLAY.fullmatch(text or "")
-    if not m or not 1 <= int(m.group(1)) <= VDISPLAY_MAX_HZ:
+    if not m or not VDISPLAY_MIN_HZ <= int(m.group(1)) <= VDISPLAY_MAX_HZ:
         return None
     return int(m.group(1)), int(m.group(2))
 
@@ -205,8 +232,8 @@ def display_refusal(spec, vdisplay):
     if hz is None:
         return None
     if vdisplay is None:
-        return (f"needs --vdisplay {hz}x1 or {hz}x2 (the journey needs a {hz} Hz display; the minis' own displays run at "
-                "60 Hz, so it runs only on the lease's own virtual display, with --whole-host)")
+        return (f"needs --vdisplay {hz}x1 or {hz}x2 (the journey needs a measured {hz} Hz display, which only the lease's "
+                "own virtual display gives, with --whole-host)")
     if vdisplay[0] != hz:
         return f"needs a {hz} Hz display, but --vdisplay gives {vdisplay[0]} Hz: pass --vdisplay {hz}x{vdisplay[1]}"
     return None
@@ -586,32 +613,42 @@ def start_vdisplay(host, work, mode, hold, out, timeout):
                         f"open --stdout \"$PWD/vd.out\" --stderr \"$PWD/vd.err\" VD.app --args {hz} {scale} 0 0 {int(hold)}; "
                         f"for i in $(seq 25); do grep -q '^ready\\|^error' vd.out 2>/dev/null && break; sleep 1; done; "
                         f"cat vd.out; sleep 1; VD.app/Contents/MacOS/VD check", timeout=timeout).stdout.decode()
-    ready = next((l.split() for l in text.splitlines() if l.startswith("ready ")), None)
-    main = next((l.split() for l in text.splitlines() if l.startswith("main ")), None)
+    lines = [l.strip() for l in text.splitlines()]
+    error = next((l for l in lines if l.startswith("error")), None)
+    ready = next((m for m in map(VD_READY.fullmatch, lines) if m), None)
+    main = next((m for m in map(VD_MAIN.fullmatch, lines) if m), None)
     facts = {"asked": {"hz": hz, "scale": scale}, "host": host, "at": time.strftime(STAMP, time.gmtime()),
              "raw": text.strip()[-600:]}
-    try:
-        if ready and main:
-            facts.update({"display_id": int(ready[1]), "made_interval_ms": float(ready[2]), "main_id": int(main[1]),
-                          "mode": main[3], "pixels": main[5], "refresh": float(main[7]), "main_interval_ms": float(main[9]),
-                          "displays": int(main[11])})
-    except (IndexError, ValueError):
-        ready = None
+    if ready:
+        facts.update({"display_id": int(ready.group(1)), "made_interval_ms": float(ready.group(2))})
+    if main:
+        facts.update({"main_id": int(main.group(1)), "mode": f"{main.group(2)}x{main.group(3)}",
+                      "pixels": f"{main.group(4)}x{main.group(5)}", "refresh": float(main.group(6)),
+                      "main_interval_ms": float(main.group(7)), "displays": int(main.group(8))})
     # display.json: this lease's measurement (the name the films' readers use); displays.jsonl: every lease's.
     (out / "display.json").write_text(json.dumps(facts, indent=1) + "\n")
     with open(out / "displays.jsonl", "a") as f:
         f.write(json.dumps(facts) + "\n")
-    if not ready or not main or facts["main_id"] != facts["display_id"]:
-        raise RuntimeError(f"--vdisplay {mode}: the virtual display is not the main display: {text.strip()[-300:]}")
+    raw = text.strip()[-300:]
+    # Each check in its passing form: anything it cannot read is a failure, never a pass.
+    if error:
+        raise RuntimeError(f"--vdisplay {mode}: the display helper failed: {error[:200]} ({raw})")
+    if not ready:
+        raise RuntimeError(f"--vdisplay {mode}: the display helper printed no ready line ({raw})")
+    if not main:
+        raise RuntimeError(f"--vdisplay {mode}: the display check printed no main line of the expected form ({raw})")
+    if facts["main_id"] != facts["display_id"]:
+        raise RuntimeError(f"--vdisplay {mode}: the virtual display ({facts['display_id']}) is not the main display "
+                           f"({facts['main_id']}) ({raw})")
+    points = [int(main.group(2)), int(main.group(3))]
+    pixels = [int(main.group(4)), int(main.group(5))]
+    if not all(v > 0 for v in points):
+        raise RuntimeError(f"--vdisplay {mode}: the main display reports {facts['mode']} points (no mode)")
     # What the app will run at: the main display's link, measured by a fresh process (not the mode's nominal rate).
-    if abs(facts["main_interval_ms"] - 1000.0 / hz) > VDISPLAY_TOLERANCE_MS:
+    if not abs(facts["main_interval_ms"] - 1000.0 / hz) <= VDISPLAY_TOLERANCE_MS:
         raise RuntimeError(f"--vdisplay {mode}: the main display's link runs at {facts['main_interval_ms']} ms a frame, "
                            f"not {1000.0 / hz:.3f} ms ({hz} Hz)")
-    try:
-        points, pixels = [int(v) for v in facts["mode"].split("x")], [int(v) for v in facts["pixels"].split("x")]
-    except ValueError:
-        points, pixels = None, None
-    if not points or pixels != [scale * v for v in points]:
+    if not pixels == [scale * v for v in points]:
         raise RuntimeError(f"--vdisplay {mode}: the main display is {facts['mode']} points at {facts['pixels']} pixels, "
                            f"not {scale}x")
     return facts
@@ -662,7 +699,8 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
             if not whole_host:
                 raise RuntimeError("--vdisplay needs --whole-host (a slot shares the mini's screen)")
             vd_started = True  # before the call: a call that times out after the display began still stops it
-            shown = start_vdisplay(host, work, vdisplay, LEASE_SECONDS, out, left(90))
+            # It ends by itself 30 s before the lease (the hog's margin): a stop that fails cannot outlive the lease.
+            shown = start_vdisplay(host, work, vdisplay, int(left(LEASE_SECONDS) - 30), out, left(90))
             log(f"virtual display on {host}: {shown.get('mode')} pixels {shown.get('pixels')} refresh "
                 f"{shown.get('refresh')} Hz, measured {shown.get('main_interval_ms')} ms, main {shown.get('main_id')}")
         if hog_swap_gb > 0:
@@ -747,8 +785,8 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         # must not kill the release; a stop that came meanwhile is raised when the mask is restored, after it.
         signal.pthread_sigmask(signal.SIG_BLOCK, STOP_SIGNALS)
         if vd_started and host:
-            try:  # our own display process only, by its path under this lease's root
-                remote(host, f"pkill -f {q(work + '/VD.app/')} ; true", timeout=30, check=False)
+            try:  # our own display process only, by its path under this lease's root (an exact pattern)
+                remote(host, f"pkill -f {q(ere_literal(work + '/VD.app/'))} ; true", timeout=30, check=False)
             except (RuntimeError, subprocess.TimeoutExpired) as error:
                 log(f"stopping the virtual display on {host} failed ({error}); it ends by itself at its hold")
         if hog_started and host:

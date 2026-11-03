@@ -28,7 +28,8 @@ python3 scripts/journeys/run.py --list     # id, priority, file, title
 python3 scripts/journeys/run.py --check    # validate the journey files (no fleet)
 ```
 
-A journey that needs a display rate says `"require_hz": 120` (on the journey, or on one of its steps).
+A journey that needs a display rate says `"require_hz": 120` (on the journey, a step, or a step inside a step group;
+one rate per journey, a whole number of Hz in [24, 240]).
 The minis' own displays run at 60 Hz, so it runs only on the lease's own virtual display:
 `--whole-host --vdisplay 120x1` (1x pixels) or `--vdisplay 120x2` (2x, a Retina laptop's density). The lease
 makes that display the main display before the app launches and measures it with a fresh process; a display
