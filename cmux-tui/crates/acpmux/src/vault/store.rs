@@ -77,16 +77,7 @@ impl SecretStore for OsStore {
         if !self.available() {
             return Err(UNAVAILABLE);
         }
-        let encoded =
-            Zeroizing::new(base64::engine::general_purpose::STANDARD.encode(value.as_bytes()));
-        let cmd = crate::cli::harness_secret::store_item(
-            Self::os(),
-            SERVICE,
-            &account(name),
-            &format!("cmux vault {name}"),
-            &encoded,
-        )
-        .map_err(|_| "vault.env_value_refused")?;
+        let cmd = put_command(Self::os(), name, value)?;
         crate::cli::harness_secret::run_store(&cmd).map_err(|_| "vault.secret_store_write_failed")
     }
 
@@ -200,7 +191,39 @@ pub fn drain(pipe: Option<impl std::io::Read>) -> Zeroizing<Vec<u8>> {
     out
 }
 
-fn decode(encoded: &str) -> Option<Zeroizing<String>> {
+/// Marks an item's encoding. The item is never empty (the store commands
+/// refuse an empty secret), so an empty value is stored as just the marker.
+const ITEM_PREFIX: &str = "v1:";
+
+/// The item text of `value`: the marker, then base64, one printable word.
+pub fn encode(value: &str) -> Zeroizing<String> {
+    let mut out =
+        Zeroizing::new(String::with_capacity(ITEM_PREFIX.len() + value.len() * 4 / 3 + 4));
+    out.push_str(ITEM_PREFIX);
+    base64::engine::general_purpose::STANDARD.encode_string(value.as_bytes(), &mut *out);
+    out
+}
+
+/// The store command for one value on `os` (`macos` or another unix): the
+/// value goes to its stdin, encoded, never to argv.
+pub fn put_command(
+    os: &str,
+    name: &str,
+    value: &str,
+) -> Result<crate::cli::harness_secret::StoreCommand, &'static str> {
+    crate::cli::harness_secret::store_item(
+        os,
+        SERVICE,
+        &account(name),
+        &format!("cmux vault {name}"),
+        &encode(value),
+    )
+    .map_err(|_| "vault.env_value_refused")
+}
+
+/// The value of an item text [`encode`] made.
+pub fn decode(item: &str) -> Option<Zeroizing<String>> {
+    let encoded = item.strip_prefix(ITEM_PREFIX)?;
     let bytes = Zeroizing::new(base64::engine::general_purpose::STANDARD.decode(encoded).ok()?);
     let text = std::str::from_utf8(&bytes).ok()?;
     Some(Zeroizing::new(text.to_owned()))

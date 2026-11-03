@@ -39,6 +39,11 @@ pub struct State {
     /// Random per machine, so a fingerprint is never a plain hash of a value.
     #[serde(default)]
     pub salt: String,
+    /// The salted fingerprint of the machine credential the entries were
+    /// pulled with: the daemon gives them to agents only while that credential
+    /// is still this machine's and not revoked.
+    #[serde(default)]
+    pub credential: String,
     /// Entries this machine may give agents.
     #[serde(default)]
     pub env: BTreeMap<String, EnvRecord>,
@@ -74,12 +79,40 @@ impl State {
         h.finalize().iter().map(|b| format!("{b:02x}")).collect()
     }
 
+    /// Whether the entries may be given to agents under the machine's
+    /// credential now (`current`: the stored credential and whether it is
+    /// revoked).
+    pub fn delivers_under(&self, current: Option<(&str, bool)>) -> bool {
+        !self.credential.is_empty()
+            && current.is_some_and(|(credential, revoked)| {
+                !revoked && self.fingerprint("\0credential", credential) == self.credential
+            })
+    }
+
+    /// Bind the state to `credential` (empty: bound to none).
+    pub fn bind(&mut self, credential: &str) {
+        self.credential = if credential.is_empty() {
+            String::new()
+        } else {
+            self.fingerprint("\0credential", credential)
+        };
+    }
+
+    /// No entry may be delivered: every one becomes a cleanup record.
+    pub fn unbind_all(&mut self) {
+        let names: Vec<String> = self.env.keys().cloned().collect();
+        self.pending_delete.extend(names);
+        self.env.clear();
+        self.credential.clear();
+    }
+
     /// Names and revisions, in order: the daemon reloads its values when this
     /// changes.
     pub fn signature(&self) -> String {
         self.env
             .iter()
             .map(|(name, r)| format!("{name}={}:{}", r.revision, r.fingerprint))
+            .chain(std::iter::once(format!("credential={}", self.credential)))
             .collect::<Vec<_>>()
             .join(",")
     }

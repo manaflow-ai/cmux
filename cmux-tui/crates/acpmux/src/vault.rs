@@ -61,6 +61,8 @@ struct Loaded {
     /// `Some(None)` read while there was no file.
     seen: Option<Option<Stamp>>,
     signature: String,
+    /// The state the values came from, for its credential binding.
+    state: Option<State>,
     vars: Vec<(String, Zeroizing<String>)>,
     /// Some entries could not be read (a locked Keychain): when, so they are
     /// read again after [`RETRY_INCOMPLETE`] without a state change.
@@ -162,6 +164,7 @@ fn refresh_at(path: &std::path::Path, store: &dyn SecretStore, at: std::time::In
     let mut loaded = LOADED.write().unwrap_or_else(|e| e.into_inner());
     loaded.seen = Some(now);
     loaded.signature = signature;
+    loaded.state = Some(state);
     loaded.vars = vars;
     loaded.incomplete_at = (!skipped.is_empty()).then_some(at);
 }
@@ -180,13 +183,20 @@ pub fn env_for_children() -> Vec<(String, String)> {
         return Vec::new();
     }
     refresh(&store::OsStore);
-    LOADED
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .vars
-        .iter()
-        .map(|(k, v)| (k.clone(), v.as_str().to_owned()))
-        .collect()
+    delivered(pull::current_credential())
+}
+
+/// The loaded values, given only while the credential they were pulled with
+/// is still this machine's and not revoked (`current`).
+fn delivered(current: Option<(String, bool)>) -> Vec<(String, String)> {
+    let loaded = LOADED.read().unwrap_or_else(|e| e.into_inner());
+    let bound = loaded.state.as_ref().is_some_and(|state| {
+        state.delivers_under(current.as_ref().map(|(c, revoked)| (c.as_str(), *revoked)))
+    });
+    if !bound {
+        return Vec::new();
+    }
+    loaded.vars.iter().map(|(k, v)| (k.clone(), v.as_str().to_owned())).collect()
 }
 
 /// Start the daemon's pull loop once: a pull at start when the machine is

@@ -11,6 +11,12 @@ use super::wire::{self, Answer, EnvItem};
 
 const SECRET_A: &str = "sk-synthetic-AAAA-1111";
 const SECRET_B: &str = "multi\nline 'quoted' \"value\" $HOME";
+const CRED: &str = "cmm_synthetic-live";
+
+/// The machine credential is still `CRED`.
+fn live() -> Option<(String, bool)> {
+    Some((CRED.to_owned(), false))
+}
 
 fn b64(value: &str) -> String {
     base64::engine::general_purpose::STANDARD.encode(value)
@@ -143,7 +149,8 @@ fn settle_stores_values_and_the_state_file_is_private_and_holds_no_value() {
         env: vec![active("OPENAI_API_KEY", 2, SECRET_A), active("MULTI", 1, SECRET_B)],
         refused: 0,
     };
-    let outcome = pull::settle(home.path(), "https://hub.test", answer, &store, 42).unwrap();
+    let outcome =
+        pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 42).unwrap();
     assert_eq!(outcome.state, "ok");
     assert_eq!(outcome.env, ["MULTI", "OPENAI_API_KEY"]);
     assert_eq!(outcome.stored, ["OPENAI_API_KEY", "MULTI"]);
@@ -182,7 +189,8 @@ fn settle_stores_values_and_the_state_file_is_private_and_holds_no_value() {
         ],
         refused: 0,
     };
-    let outcome = pull::settle(home.path(), "https://hub.test", again, &store, 43).unwrap();
+    let outcome =
+        pull::settle(home.path(), "https://hub.test", CRED, again, &store, &live, 43).unwrap();
     assert!(outcome.stored.is_empty());
     assert_eq!(outcome.deleted, ["MULTI"]);
     assert_eq!(outcome.env, ["OPENAI_API_KEY"]);
@@ -190,7 +198,8 @@ fn settle_stores_values_and_the_state_file_is_private_and_holds_no_value() {
 
     // Not granted any more: every entry goes, and that is not an error.
     let outcome =
-        pull::settle(home.path(), "https://hub.test", Answer::NotGranted, &store, 44).unwrap();
+        pull::settle(home.path(), "https://hub.test", CRED, Answer::NotGranted, &store, &live, 44)
+            .unwrap();
     assert_eq!(outcome.state, "not_granted");
     assert!(outcome.env.is_empty());
     assert!(store.items.lock().unwrap().is_empty());
@@ -202,7 +211,8 @@ fn no_secret_store_refuses_env_storage_and_writes_no_file_value() {
     let home = tempfile::tempdir().unwrap();
     let store = MemoryStore { unavailable: true, ..MemoryStore::default() };
     let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
-    let error = pull::settle(home.path(), "https://hub.test", answer, &store, 1).unwrap_err();
+    let error =
+        pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap_err();
     assert_eq!(error.code, UNAVAILABLE);
     let text = std::fs::read_to_string(pull::state_path(home.path())).unwrap();
     assert_no_value(&text);
@@ -217,15 +227,16 @@ fn a_revoked_credential_removes_the_entries_and_forget_clears_state() {
     let home = tempfile::tempdir().unwrap();
     let store = MemoryStore::default();
     let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
-    pull::settle(home.path(), "https://hub.test", answer, &store, 1).unwrap();
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
     let error =
-        pull::settle(home.path(), "https://hub.test", Answer::Revoked, &store, 2).unwrap_err();
+        pull::settle(home.path(), "https://hub.test", CRED, Answer::Revoked, &store, &live, 2)
+            .unwrap_err();
     assert_eq!(error.code, "vault.revoked");
     assert_eq!(error.deleted, ["API_TOKEN"]);
     assert!(store.items.lock().unwrap().is_empty());
 
     let answer = Answer::Granted { env: vec![active("API_TOKEN", 3, SECRET_A)], refused: 0 };
-    pull::settle(home.path(), "https://hub.test", answer, &store, 3).unwrap();
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 3).unwrap();
     let outcome = pull::forget(home.path(), &store).unwrap();
     assert_eq!(outcome.deleted, ["API_TOKEN"]);
     assert!(store.items.lock().unwrap().is_empty());
@@ -344,12 +355,13 @@ fn a_failed_delete_stops_delivery_at_once_and_is_retried() {
     let home = tempfile::tempdir().unwrap();
     let store = MemoryStore::default();
     let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
-    pull::settle(home.path(), "https://hub.test", answer, &store, 1).unwrap();
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
 
     // Not granted any more, and the keychain refuses the delete.
     store.fail_delete.store(true, Ordering::SeqCst);
     let error =
-        pull::settle(home.path(), "https://hub.test", Answer::NotGranted, &store, 2).unwrap_err();
+        pull::settle(home.path(), "https://hub.test", CRED, Answer::NotGranted, &store, &live, 2)
+            .unwrap_err();
     assert_eq!(error.code, pull::PARTIAL);
     let outcome = error.outcome.unwrap();
     assert_eq!(outcome.state, "not_granted");
@@ -364,7 +376,8 @@ fn a_failed_delete_stops_delivery_at_once_and_is_retried() {
     // The next pull deletes it, even with an empty answer.
     store.fail_delete.store(false, Ordering::SeqCst);
     let answer = Answer::Granted { env: Vec::new(), refused: 0 };
-    let outcome = pull::settle(home.path(), "https://hub.test", answer, &store, 3).unwrap();
+    let outcome =
+        pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 3).unwrap();
     assert_eq!(outcome.deleted, ["API_TOKEN"]);
     assert!(pull::read_state(home.path()).pending_delete.is_empty());
     assert!(store.get("API_TOKEN").unwrap().is_none());
@@ -377,10 +390,11 @@ fn a_revoked_credential_with_a_failed_delete_keeps_only_a_cleanup_record() {
     let home = tempfile::tempdir().unwrap();
     let store = MemoryStore::default();
     let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
-    pull::settle(home.path(), "https://hub.test", answer, &store, 1).unwrap();
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
     store.fail_delete.store(true, Ordering::SeqCst);
     let error =
-        pull::settle(home.path(), "https://hub.test", Answer::Revoked, &store, 2).unwrap_err();
+        pull::settle(home.path(), "https://hub.test", CRED, Answer::Revoked, &store, &live, 2)
+            .unwrap_err();
     assert_eq!(error.code, "vault.revoked");
     let state = pull::read_state(home.path());
     assert!(state.env.is_empty());
@@ -412,7 +426,7 @@ fn forget_without_a_store_fails_and_keeps_its_cleanup_records() {
     let home = tempfile::tempdir().unwrap();
     let store = MemoryStore::default();
     let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
-    pull::settle(home.path(), "https://hub.test", answer, &store, 1).unwrap();
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
     // A shell without the desktop session's bus: the item cannot be reached.
     let away = MemoryStore { unavailable: true, ..MemoryStore::default() };
     assert_eq!(away.delete("API_TOKEN"), Err(UNAVAILABLE));
@@ -437,7 +451,8 @@ fn a_failed_write_fails_the_pull_and_keeps_the_rest() {
         env: vec![active("GOOD", 1, SECRET_A), active("BROKEN", 1, SECRET_B)],
         refused: 0,
     };
-    let error = pull::settle(home.path(), "https://hub.test", answer, &store, 1).unwrap_err();
+    let error =
+        pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap_err();
     assert_eq!(error.code, pull::PARTIAL);
     let outcome = error.outcome.unwrap();
     assert_eq!(outcome.state, "partial");
@@ -458,7 +473,7 @@ fn an_incomplete_load_is_read_again_without_a_state_change() {
     let home = tempfile::tempdir().unwrap();
     let store = MemoryStore::default();
     let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
-    pull::settle(home.path(), "https://hub.test", answer, &store, 1).unwrap();
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
     let path = pull::state_path(home.path());
     let start = std::time::Instant::now();
     store.fail_get.store(true, Ordering::SeqCst); // a locked keychain
@@ -469,9 +484,15 @@ fn an_incomplete_load_is_read_again_without_a_state_change() {
     assert!(super::loaded_names().is_empty(), "no store read per spawn");
     super::refresh_at(&path, &store, start + super::RETRY_INCOMPLETE);
     assert_eq!(super::loaded_names(), ["API_TOKEN"]);
+    let given = super::delivered(live());
+    assert_eq!(given.len(), 1);
+    assert_eq!(given[0].1, SECRET_A);
+    assert!(super::delivered(Some(("cmm_replaced".into(), false))).is_empty());
+    assert!(super::delivered(Some((CRED.into(), true))).is_empty());
 
     // Revoked: dropped from memory on the next spawn's check.
-    pull::settle(home.path(), "https://hub.test", Answer::NotGranted, &store, 2).unwrap();
+    pull::settle(home.path(), "https://hub.test", CRED, Answer::NotGranted, &store, &live, 2)
+        .unwrap();
     super::refresh_at(&path, &store, start + super::RETRY_INCOMPLETE);
     assert!(super::loaded_names().is_empty());
 }
@@ -486,4 +507,141 @@ fn the_store_command_output_is_read_while_it_runs() {
     let (status, out) = super::store::capture(cmd, false).unwrap();
     assert!(status.success());
     assert_eq!(out.len(), 400_000);
+}
+
+#[test]
+#[cfg(unix)]
+fn with_no_secret_store_removals_still_leave_the_delivered_set() {
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = Answer::Granted { env: vec![active("REVOKE_ME", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    // Over ssh with no session bus: a new value cannot be stored, and the old one is revoked.
+    let away = MemoryStore { unavailable: true, ..MemoryStore::default() };
+    let answer = Answer::Granted {
+        env: vec![
+            EnvItem { name: "REVOKE_ME".into(), revision: 2, value: None },
+            active("NEW_KEY", 1, SECRET_B),
+        ],
+        refused: 0,
+    };
+    let error =
+        pull::settle(home.path(), "https://hub.test", CRED, answer, &away, &live, 2).unwrap_err();
+    assert_eq!(error.code, UNAVAILABLE);
+    let state = pull::read_state(home.path());
+    assert!(state.env.is_empty(), "the revoked key is no longer delivered");
+    assert!(state.pending_delete.contains("REVOKE_ME"));
+    assert!(!state.env.contains_key("NEW_KEY"));
+    assert_no_value(&std::fs::read_to_string(pull::state_path(home.path())).unwrap());
+}
+
+/// A store whose writes wait until the test lets them through.
+struct GatedStore {
+    inner: MemoryStore,
+    entered: std::sync::mpsc::SyncSender<()>,
+    gate: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl SecretStore for GatedStore {
+    fn kind(&self) -> &'static str {
+        "memory"
+    }
+    fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
+        self.entered.send(()).unwrap();
+        self.gate.lock().unwrap().recv().unwrap();
+        self.inner.put(name, value)
+    }
+    fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, &'static str> {
+        self.inner.get(name)
+    }
+    fn delete(&self, name: &str) -> Result<(), &'static str> {
+        self.inner.delete(name)
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn a_credential_replaced_during_a_blocked_store_write_gets_nothing() {
+    use std::sync::{Arc, Mutex, mpsc};
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().to_path_buf();
+    let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+    let (gate_tx, gate_rx) = mpsc::channel();
+    let store = Arc::new(GatedStore {
+        inner: MemoryStore::default(),
+        entered: entered_tx,
+        gate: Mutex::new(gate_rx),
+    });
+    let credential = Arc::new(Mutex::new((CRED.to_owned(), false)));
+    let (worker_store, worker_cred) = (store.clone(), credential.clone());
+    let worker = std::thread::spawn(move || {
+        let current = move || Some(worker_cred.lock().unwrap().clone());
+        let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+        pull::settle(&path, "https://hub.test", CRED, answer, worker_store.as_ref(), &current, 1)
+    });
+    // The write is in progress: `machine join --replace` lands now.
+    entered_rx.recv().unwrap();
+    *credential.lock().unwrap() = ("cmm_synthetic-replacement".to_owned(), false);
+    gate_tx.send(()).unwrap();
+    let error = worker.join().unwrap().unwrap_err();
+    assert_eq!(error.code, pull::CREDENTIAL_CHANGED);
+    let state = pull::read_state(home.path());
+    assert!(state.env.is_empty(), "nothing of the old answer is published");
+    assert!(state.pending_delete.contains("API_TOKEN"), "what it stored is cleaned up");
+    assert!(!state.delivers_under(Some(("cmm_synthetic-replacement", false))));
+}
+
+#[test]
+#[cfg(unix)]
+fn delivery_follows_the_credential_the_state_was_pulled_with() {
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    let state = pull::read_state(home.path());
+    assert!(state.delivers_under(Some((CRED, false))));
+    assert!(!state.delivers_under(Some((CRED, true))), "revoked after the pull");
+    assert!(!state.delivers_under(Some(("cmm_other", false))), "replaced after the pull");
+    assert!(!state.delivers_under(None), "unjoined after the pull");
+    assert!(!std::fs::read_to_string(pull::state_path(home.path())).unwrap().contains(CRED));
+    // An answer asked with a credential that is no longer current is not applied at all.
+    let gone = || Some(("cmm_other".to_owned(), false));
+    let answer = Answer::Granted { env: vec![active("OTHER", 1, SECRET_B)], refused: 0 };
+    let error =
+        pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &gone, 2).unwrap_err();
+    assert_eq!(error.code, pull::CREDENTIAL_CHANGED);
+    assert!(store.get("OTHER").unwrap().is_none());
+}
+
+#[test]
+fn empty_and_multiline_values_go_through_the_real_store_commands() {
+    for value in ["", SECRET_A, SECRET_B, "ünïcødé"] {
+        let item = super::store::encode(value);
+        assert!(!item.is_empty() && !item.contains(['\n', '\r', '\0']));
+        assert_eq!(super::store::decode(&item).unwrap().as_str(), value);
+        for os in ["macos", "linux"] {
+            let cmd = super::store::put_command(os, "API_TOKEN", value).unwrap();
+            let argv = cmd.argv.join(" ");
+            assert!(argv.is_empty() || !argv.contains(item.as_str()), "the item is not in argv");
+            if !value.is_empty() {
+                assert!(!argv.contains(value));
+                assert!(!cmd.stdin.contains(value), "only the encoded value reaches stdin");
+            }
+            assert!(cmd.stdin.contains(item.as_str()));
+            assert_no_value(&format!("{cmd:?}"));
+        }
+        // What `security find-generic-password -g` prints for the item reads back.
+        let stderr = format!("keychain: \"x\"\npassword: \"{}\"\n", item.as_str());
+        let read = crate::config::profiles::parse_security_password(&stderr).unwrap();
+        assert_eq!(super::store::decode(&read).unwrap().as_str(), value);
+    }
+    assert!(super::store::decode("plain-without-marker").is_none());
+    let answer = wire::parse(
+        200,
+        &body(
+            json!({"env": [{"name": "EMPTY", "revision": 1, "state": "active", "valueBase64": ""}]}),
+        ),
+    );
+    let env = granted(answer);
+    assert_eq!(env[0].value.as_deref().map(String::as_str), Some(""));
 }

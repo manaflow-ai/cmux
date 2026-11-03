@@ -185,24 +185,51 @@ fn random_salt() -> [u8; 16] {
     salt
 }
 
-/// Plan and apply one answer under the lock. Blocking (the store runs commands).
+/// The machine credential now: the stored bearer and whether it is revoked.
+pub type CurrentCredential<'a> = &'a (dyn Fn() -> Option<(String, bool)> + Sync);
+
+/// The machine's credential as the join store has it now.
+pub fn current_credential() -> Option<(String, bool)> {
+    crate::cli::cloud_join::machine_credential()
+        .ok()
+        .flatten()
+        .map(|record| (record.credential, record.revoked))
+}
+
+fn is_current(used: &str, current: CurrentCredential) -> bool {
+    let now = current();
+    still_current(used, now.as_ref().map(|(c, revoked)| (c.as_str(), *revoked)))
+}
+
+/// Plan and apply one answer, asked with `credential`, under the lock.
+/// Blocking (the store runs commands). `current` reads the machine credential
+/// as it is now: an answer for a credential replaced or revoked before the
+/// state is saved is not published, and the state it saves is bound to
+/// `credential`, so a change after the save stops delivery too.
 pub fn settle(
     home: &Path,
     hub: &str,
+    credential: &str,
     answer: Answer,
     store: &dyn SecretStore,
+    current: CurrentCredential,
     now_ms: u64,
 ) -> Result<Outcome, Failure> {
     let mut state = read_state(home);
     state.ensure_salt(random_salt);
+    let granted = matches!(answer, Answer::Granted { .. });
+    if granted && !is_current(credential, current) {
+        return Err(Failure::code(CREDENTIAL_CHANGED));
+    }
+    let mut unavailable = false;
     let (steps, result, refused) = match answer {
         Answer::Granted { env, refused } => {
-            let steps = plan::plan(&state, env);
+            let mut steps = plan::plan(&state, env);
             if !store.available() && steps.iter().any(|s| matches!(s, Step::Store { .. })) {
-                // No file fallback: nothing is written, and the state says why.
-                state.last_result = Some(UNAVAILABLE.to_owned());
-                let _ = write_state(home, &state);
-                return Err(Failure::code(UNAVAILABLE));
+                // No file fallback: nothing is stored. Removals still leave the
+                // delivered set now, kept as cleanup records.
+                steps.retain(|s| !matches!(s, Step::Store { .. }));
+                unavailable = true;
             }
             (steps, "ok", refused)
         }
@@ -211,6 +238,7 @@ pub fn settle(
         Answer::Revoked => {
             let steps = plan::wipe(&state);
             let (_, deleted, _) = apply(&mut state, steps, store);
+            state.unbind_all();
             state.last_result = Some("vault.revoked".to_owned());
             state.hub = hub.to_owned();
             let _ = write_state(home, &state);
@@ -224,9 +252,23 @@ pub fn settle(
         }
     };
     let (stored, deleted, failed) = apply(&mut state, steps, store);
+    // The store writes can take seconds: a credential replaced or revoked
+    // meanwhile gets nothing of this answer. What it stored is cleaned up.
+    if !is_current(credential, current) {
+        state.unbind_all();
+        state.last_result = Some(CREDENTIAL_CHANGED.to_owned());
+        let _ = write_state(home, &state);
+        return Err(Failure::code(CREDENTIAL_CHANGED));
+    }
+    state.bind(credential);
+    state.hub = hub.to_owned();
+    if unavailable {
+        state.last_result = Some(UNAVAILABLE.to_owned());
+        write_state(home, &state).map_err(Failure::code)?;
+        return Err(Failure { code: UNAVAILABLE.to_owned(), deleted, outcome: None });
+    }
     // A pull that could not store or delete everything fails, keeping what it did.
     let result = if !failed.is_empty() && result == "ok" { "partial" } else { result };
-    state.hub = hub.to_owned();
     state.pulled_at = Some(now_ms);
     state.last_result =
         Some(if failed.is_empty() { result.to_owned() } else { PARTIAL.to_owned() });
@@ -246,6 +288,9 @@ pub fn settle(
         Err(Failure { code: PARTIAL.to_owned(), deleted: Vec::new(), outcome: Some(outcome) })
     }
 }
+
+/// The code of an answer dropped because the machine credential changed.
+pub const CREDENTIAL_CHANGED: &str = "vault.credential_changed";
 
 /// Whether the credential an answer was asked with is still this machine's
 /// live one (`now`: the stored credential and whether it is revoked).
@@ -281,19 +326,18 @@ pub async fn pull(
         }
         answer
     };
-    // A `machine join --replace` while the request ran: this answer was for the old one.
-    let current = crate::cli::cloud_join::machine_credential().ok().flatten();
-    if !matches!(answer, Answer::Revoked)
-        && !still_current(
-            &record.credential,
-            current.as_ref().map(|c| (c.credential.as_str(), c.revoked)),
-        )
-    {
-        return Err(Failure::code("vault.credential_changed"));
-    }
+    let used = record.credential.clone();
     tokio::task::spawn_blocking(move || {
         let _held = held;
-        settle(&home, &hub, answer, store.as_ref(), crate::store::now_ms())
+        settle(
+            &home,
+            &hub,
+            &used,
+            answer,
+            store.as_ref(),
+            &current_credential,
+            crate::store::now_ms(),
+        )
     })
     .await
     .map_err(|_| Failure::code("vault.internal"))?
