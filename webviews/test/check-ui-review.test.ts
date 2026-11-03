@@ -211,9 +211,10 @@ describe("cross-surface UI review lint", () => {
     expect(failureCount(classifyFindings([liveFinding], kept))).toBe(0);
   });
 
+  // A full-tree scan parses every source file; bun's 5 s default is too short for it.
   test("today's tree passes the failing rules against the committed allowlist", () => {
     expect(failureCount(scanTree())).toBe(0);
-  });
+  }, 120_000);
 
   test("keeps every existing exception owned and explained", () => {
     const entries = loadAllowlist();

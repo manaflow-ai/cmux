@@ -76,7 +76,7 @@ describe("design token ratchet", () => {
     ["animation-duration", "0s", undefined],
     ["animation-timing-function", "cubic-bezier(0.2, 0.8, 0.2, 1)", "easing"],
     ["transition", "transform var(--cmux-motion-standard) linear", undefined],
-  ] as const)("token literal %s: %s -> %s", (property, value, kind) => {
+  ] as const)("token literal %s: %s", (property, value, kind) => {
     expect(tokenLiteralKind(property, value)).toBe(kind);
   });
 
