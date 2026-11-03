@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+"""Why busy HIDDEN terminals wake the main thread through the Chromium message pump (HOT PATH AUDIT browser).
+
+SWITCH FRAMES (STATUS 9946, cmux24) saw the CEF pump wake the main thread about 8, 74 and 104 times/s as busy hidden
+terminals went 0, 8 and 24, with no browser tab. Each busy terminal there printed 20 lines/s with `echo ... $(date)`
+and `sleep`, so each one also spawned 40 processes/s. This bench separates the causes:
+
+  print   one long-lived process per terminal prints 20 lines/s (no process spawn)
+  spawn   a shell loop spawns `/usr/bin/true` and `sleep` 20 times/s and prints nothing
+  both    the SWITCH FRAMES loop (prints 20 lines/s and spawns 40 processes/s)
+
+For each kind, one app launch (no browser tab is ever opened): N busy terminals in N workspaces (N = 0, 8, 24), a
+quiet workspace shown, then a `--window` s measurement with no calls into the app: the wakeup ledger's CEFMessagePump
+rows (`debug.wakeups`; bench and DEBUG builds name the requesting Chromium thread and immediate/delayed) and the pump's
+counters (`debug.cef` pump: passes, work ms, requests).
+
+`--trace`: the `both` launch also records a Chromium trace (`--trace-startup`, categories toplevel,ipc,mojom) and
+prints, per window, the tasks run on Chromium's UI thread (cmux's main thread) by the code location that posted them.
+
+Prints CEF-PUMP-WAKES lines and writes --json. Measures only: no gate. A DEBUG development build (reload.sh), because
+extra Chromium switches are accepted only there.
+
+  cef-pump-wakes-bench.py --app "<cmux DEV tag.app>" --out DIR [--kinds print,spawn,both] [--counts 0,8,24] [--trace]
+"""
+import argparse, collections, json, os, sys, time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from bench_launch import BenchApp, LaunchError  # noqa: E402
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--app", required=True)
+parser.add_argument("--out", required=True)
+parser.add_argument("--json")
+parser.add_argument("--kinds", default="print,spawn,both")
+parser.add_argument("--counts", default="0,8,24")
+parser.add_argument("--hz", type=float, default=20)
+parser.add_argument("--window", type=float, default=20)
+parser.add_argument("--settle", type=float, default=8)
+parser.add_argument("--trace", action="store_true")
+opts = parser.parse_args()
+os.makedirs(opts.out, exist_ok=True)
+PERIOD = 1.0 / opts.hz
+LOOPS = {
+    "print": "/usr/bin/python3 -I -c 'import time\nn=0\nwhile True:\n n+=1\n print(\"busy line\", n, flush=True)\n time.sleep(%s)'" % PERIOD,
+    "spawn": "/bin/sh -c 'while :; do /usr/bin/true; sleep %s; done'" % PERIOD,
+    "both": "/bin/sh -c 'i=0; while :; do i=$((i+1)); echo \"busy line $i $(date +%%s)\"; sleep %s; done'" % PERIOD,
+}
+RESULT = {"hz": opts.hz, "window_s": opts.window, "kinds": {}}
+
+
+def uptime_us():
+    return time.clock_gettime(time.CLOCK_UPTIME_RAW) * 1e6
+
+
+def pump_rows(ledger):
+    rows = {}
+    for entry in (ledger or {}).get("ledger") or []:
+        if isinstance(entry, dict) and entry.get("owner") == "CEFMessagePump":
+            rows[entry.get("reason", "?")] = entry.get("count", 0)
+    return rows
+
+
+def pump_counters(app):
+    return ((app.rpc("debug.cef") or {}).get("pump") or {})
+
+
+def new_workspace(app, name, command, focus):
+    reply = app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": focus, "command": command}})
+    if isinstance(reply, dict) and reply.get("error"):
+        raise RuntimeError("newTab %s: %s" % (name, reply["error"]))
+
+
+def run_kind(kind):
+    env = {}
+    trace_file = None
+    if opts.trace and kind == "both":
+        trace_file = os.path.join(opts.out, "chromium-trace.json")
+        counts = [int(c) for c in opts.counts.split(",")]
+        duration = int(30 + len(counts) * (opts.settle + opts.window + 2 + max(counts) * 0.7))
+        env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = ":".join([
+            "trace-startup=toplevel,ipc,mojom", "trace-startup-file=" + trace_file,
+            "trace-startup-duration=%d" % duration, "trace-startup-record-mode=record-continuously"])
+    app = BenchApp(opts.app, out=os.path.join(opts.out, kind), env=env)
+    rows, windows = [], []
+    try:
+        app.launch()
+        deadline = time.time() + 60
+        while time.time() < deadline and (app.rpc("debug.cef") or {}).get("state") != "ready":
+            time.sleep(0.5)  # test harness: Chromium starts once (its cmux pages)
+        made = 0
+        for count in sorted({int(c) for c in opts.counts.split(",")}):
+            while made < count:
+                made += 1
+                new_workspace(app, "busy-%s-%d" % (kind, made), LOOPS[kind], True)
+                time.sleep(0.5)  # test harness: the loop starts while its workspace shows
+            new_workspace(app, "quiet-%s-%d" % (kind, count), "/bin/sh -c 'exec sleep 3600'", True)
+            time.sleep(opts.settle)  # test harness: the switch settles before the window
+            app.rpc("debug.wakeups", {"reset": True})
+            before, start = pump_counters(app), uptime_us()
+            time.sleep(opts.window)  # the measured window: no calls into the app
+            end = uptime_us()
+            after, ledger = pump_counters(app), app.rpc("debug.wakeups", {}) or {}
+            wakes = pump_rows(ledger)
+            row = {"kind": kind, "busy_hidden": count,
+                   "pump_wakes_per_s": round(sum(wakes.values()) / opts.window, 1),
+                   "by_thread": {reason: round(n / opts.window, 1) for reason, n in sorted(wakes.items(), key=lambda kv: -kv[1])},
+                   "pump_per_s": {k: round(((after.get(k) or 0) - (before.get(k) or 0)) / opts.window, 2)
+                                  for k in ("work_runs", "work_ms", "immediate_requests", "delayed_requests")}}
+            rows.append(row)
+            windows.append((count, start, end))
+            print("CEF-PUMP-WAKES " + json.dumps(row), flush=True)
+        if trace_file:
+            wait = time.time() + 240
+            while time.time() < wait and not (os.path.exists(trace_file) and os.path.getsize(trace_file) > 0):
+                time.sleep(2)  # test harness: Chromium writes the trace when its duration ends
+            RESULT.setdefault("trace", summarize_trace(trace_file, windows))
+    except LaunchError as error:
+        rows.append({"kind": kind, "error": error.reason})
+    finally:
+        app.stop()
+    RESULT["kinds"][kind] = rows
+
+
+def summarize_trace(path, windows):
+    """Per window: the tasks run on CrBrowserMain (Chromium's UI thread, cmux's main thread), by posting location."""
+    try:
+        doc = json.load(open(path))
+    except (OSError, ValueError) as error:
+        return {"error": "%s: %s" % (type(error).__name__, error)}
+    events = doc.get("traceEvents", doc) if isinstance(doc, dict) else doc
+    names = {(e.get("pid"), e.get("tid")): (e.get("args") or {}).get("name") for e in events
+             if e.get("ph") == "M" and e.get("name") == "thread_name"}
+    out = {}
+    for count, start, end in windows:
+        seen = collections.Counter()
+        for e in events:
+            ts = e.get("ts")
+            if e.get("ph") not in ("X", "B") or not isinstance(ts, (int, float)) or not start <= ts <= end:
+                continue
+            if names.get((e.get("pid"), e.get("tid"))) != "CrBrowserMain":
+                continue
+            args = e.get("args") or {}
+            src = args.get("src_func") or args.get("src") or (args.get("task") or {}).get("posted_from") or ""
+            src_file = args.get("src_file") or ""
+            seen["%s %s %s" % (e.get("name"), src_file, src)] += 1
+        span = max((end - start) / 1e6, 1e-3)
+        out[str(count)] = [{"task": key, "per_s": round(n / span, 2)} for key, n in seen.most_common(15)]
+        print("CEF-PUMP-WAKES-TRACE %d %s" % (count, json.dumps(out[str(count)])), flush=True)
+    return out
+
+
+for kind in [k for k in opts.kinds.split(",") if k]:
+    run_kind(kind)
+for path in filter(None, [os.path.join(opts.out, "cef-pump-wakes.json"), opts.json]):
+    with open(path, "w") as handle:
+        json.dump(RESULT, handle, indent=1)
+print("CEF-PUMP-WAKES-REPORT " + json.dumps({k: [{x: r.get(x) for x in ("busy_hidden", "pump_wakes_per_s")} for r in v]
+                                            for k, v in RESULT["kinds"].items()}), flush=True)

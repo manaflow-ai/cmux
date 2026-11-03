@@ -1,5 +1,8 @@
 import CmuxNextCompat
 import CmuxNextWakeups
+#if DEBUG || CMUX_BENCH_HOOKS
+import Darwin
+#endif
 
 /// Decides, on the thread that calls it, whether a CEF `OnScheduleMessagePumpWork` request from a
 /// Chromium thread must wake the main thread (``CEFMessagePump``).
@@ -73,9 +76,24 @@ nonisolated final class CEFPumpCrossThreadGate: Sendable {
                 return false
             }
         }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // Which Chromium thread asks, and for now or later (bench builds): names the cause of a wake (HOT PATH AUDIT
+        // browser: the pump woke main 8 -> 104 times/s as busy hidden terminals went 0 -> 24, STATUS 9946).
+        ledger.record("CEFMessagePump", reason: "cross-thread request (\(Self.threadName()), \(delayMilliseconds > 0 ? "delayed" : "immediate"))")
+        #else
         ledger.record("CEFMessagePump", reason: "cross-thread request")
+        #endif
         return true
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The calling thread's name (Chromium names its threads: `ThreadPoolBackgroundWorker`, `Chrome_IOThread`...).
+    private static func threadName() -> String {
+        var buffer = [CChar](repeating: 0, count: 64)
+        guard pthread_getname_np(pthread_self(), &buffer, buffer.count) == 0, buffer[0] != 0 else { return "unnamed" }
+        return String(cString: buffer)
+    }
+    #endif
 
     /// Delayed cross-thread requests kept with no main wake because an earlier fire was armed.
     var kept: UInt64 { keptRequests.load(ordering: .relaxed) }
