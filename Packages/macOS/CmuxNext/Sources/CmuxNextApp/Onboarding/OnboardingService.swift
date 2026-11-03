@@ -133,7 +133,13 @@ final class OnboardingService {
     /// `importTarget` names the cmux browser profile they go into (the
     /// browser-data offer: into the tab's profile); without kinds the step
     /// makes one profile per source.
-    func show(step: OnboardingModel.Step, importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
+    func show(step: OnboardingModel.Step, history: Bool = false, importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
+        // The same single importData step hosts history as a web page. Browser import keeps
+        // its existing standalone tool; it is never substituted by the history action.
+        if step == .importData, history {
+            _ = services.registry.perform(ChiefMemoryImportHandlers.actionID, invocation: ActionInvocation(origin: .user))
+            return
+        }
         // `browser.import.enabled` off: the import window does not open, whoever asks.
         if step == .importData, !services.browserImportEnabled { return }
         presenter.show(step: step) { model, reused in
@@ -144,6 +150,21 @@ final class OnboardingService {
             }
         }
     }
+
+    /// First-run routing only: remember the presentation per app channel, including existing
+    /// installations, so an upgrade never turns an existing workspace into onboarding.
+    func showHistoryAtFirstRun(isFirstRun: Bool) {
+        let defaults = UserDefaults.standard
+        let key = "home.firstRun.historyImportShown"
+        guard !defaults.bool(forKey: key) else { return }
+        defaults.set(true, forKey: key)
+        if isFirstRun { show(step: .importData, history: true) }
+    }
+
+    func historyImportFinished() {
+        UserDefaults.standard.set(true, forKey: HomeHostView.memoryOfferUsedKey)
+    }
+
 }
 
 extension SavingImportDestination {
