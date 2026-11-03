@@ -26,7 +26,7 @@ import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.exper
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
-import { trayPanelLook, trayRowLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
+import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
@@ -34,6 +34,7 @@ import { traySurfaceLook } from "../agent-session/acpmux/subagents/traySurface.e
 import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment";
 import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
+import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
 import type { Experiment } from "./experiment";
 
@@ -67,6 +68,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   liveLineTokens,
   trayPanelLook,
   trayRowLook,
+  trayStopLook,
   trayMotionLook,
   trayHeadLook,
   trayFoldHeadLook,
@@ -74,6 +76,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chatSwitchMotion,
   liveBackground,
   composerPlusCommands,
+  promptSuggestionLook,
 ];
 
 export function experimentById(id: string): Experiment | undefined {
