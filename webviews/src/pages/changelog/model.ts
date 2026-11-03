@@ -190,7 +190,15 @@ function readableItem(item: ReleaseItem, changes: ChangeItem[], machine: boolean
   if (tail && !tail.includes("\n") && openParens(full) > 0 && openParens(`${full} ${tail}`) === 0) {
     full = `${full}, ${uncapitalized(tail).replace(/[\s.]+$/u, "")}`;
     itemSummary = "";
-  } else if (machine && tail && !tail.includes("\n") && isFragment(tail)) {
+  } else if (
+    machine &&
+    tail &&
+    !tail.includes("\n") &&
+    isFragment(tail) &&
+    // A line that says the title again is not its rest ("When you close a pane" / "When you close a
+    // pane, its terminal keeps running…"): the echo rule below makes it the title.
+    !echoKey(tail).startsWith(echoKey(full))
+  ) {
     full = joinFragment(full, withoutWorkCodes(tail.replace(REF_TAIL, "")));
     itemSummary = "";
   }

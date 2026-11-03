@@ -59,6 +59,18 @@ test("the reported rows read as whole changes", () => {
   expect(rows().length).toBe(12);
 });
 
+test("a line that says its title again becomes the title, never joined to it", () => {
+  const notes = structuredClone(lowDensityDay.slice(0, 1));
+  notes[0]!.whatsNew!.entries.push({
+    id: "summary-99",
+    category: "improved",
+    title: { en: "When you close a pane" },
+    summary: { en: "When you close a pane, its terminal keeps running until the animation ends." },
+  } as never);
+  const titles = sheetRows(mergedView(notes, "en"), createStrings(table)).map((r) => r.title);
+  expect(titles.some((t) => /when you close a pane, when you close a pane/i.test(t))).toBe(false);
+});
+
 test("rows do not all carry the same icon", () => {
   const kinds = new Set(rows().map((r) => r.category));
   expect(kinds.size).toBeGreaterThanOrEqual(3);
