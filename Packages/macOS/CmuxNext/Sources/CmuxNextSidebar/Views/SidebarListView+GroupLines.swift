@@ -39,7 +39,7 @@ extension SidebarListViewComponents {
 
 extension SidebarGroupLine {
     /// Every open group in `rows` with shown members: its line from its header to the last member row's bottom,
-    /// Chrome's shape (Leo 2026-10-19): 2 pt (`SidebarStyle.groupBarWidth`), flat ends, a cut
+    /// Chrome's shape (Leo 2026-10-19): 2 pt (`SidebarStyle.groupBarWidth`), one capsule (`SidebarGroupLineShape`), a cut
     /// (`SidebarStyle.groupLineCut`, never past the top of the row under the header) below the bar, or out of the bar's square corner when `joined` under the solid
     /// band (`joinsBar`); just left of the members' rows (`SidebarStyle.groupLineX`), so no row fill covers it
     /// (cx-q5jw: straight and unbroken, Edge style). `frame` places a row.

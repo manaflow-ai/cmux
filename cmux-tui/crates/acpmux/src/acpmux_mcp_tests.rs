@@ -71,6 +71,7 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "team_send",
             "team_inbox",
             "team_ack",
+            "github_status",
             "bg_start",
             "bg_list",
             "bg_output",
@@ -699,7 +700,7 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
     let big = "x".repeat(4000);
     let mut sessions: Vec<Value> = (0..3000)
         .map(|i| {
-            json!({"name": format!("old-{i}"), "status": "closed", "title": "done", "peer": "big-red",
+            json!({"name": format!("old-{i}"), "status": "closed", "title": "done", "peer": "peer-a",
                 "sessionId": format!("c{i}"), "updatedAt": i, "lastPrompt": big, "sessionReceipt": big})
         })
         .collect();
@@ -737,7 +738,14 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
     );
     let r = ls_result(&all, &json!({"status": "closed", "limit": 5}));
     assert_eq!(r["structuredContent"]["sessions"].as_array().unwrap().len(), 5);
-    assert!(text(&r).starts_with("big-red/old-2999  [closed]"), "{}", text(&r));
+    assert!(text(&r).starts_with("peer-a/old-2999  [closed]"), "{}", text(&r));
+    assert!(text(&r).contains("raise limit (up to 500)"), "{}", text(&r));
+
+    // A closed session is found by query once status asks for closed ones, and only then.
+    let r = ls_result(&all, &json!({"query": "old-42", "status": "closed"}));
+    assert!(text(&r).lines().any(|l| l.starts_with("peer-a/old-42  [closed]")), "{}", text(&r));
+    let r = ls_result(&all, &json!({"query": "old-42"}));
+    assert_eq!(text(&r), "No sessions.", "{r}");
 }
 
 #[tokio::test]
@@ -868,4 +876,20 @@ fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
     let chief = allowed(all.clone(), Some(crate::agent_tools::CHIEF_TURN_TOOLS));
     assert_eq!(names(&chief), ["send", "inbox_read", "inbox_reply", "ls", "last", "info"]);
     assert!(names(&allowed(all, Some("render,agents_wait"))).is_empty());
+}
+
+/// Every chat's `acpmux` server lists `github_status` and tells the agent when to call it, and a
+/// Chief turn's allowlist (which does not name it) leaves it out like any other tool.
+#[test]
+fn github_status_is_listed_with_its_instruction() {
+    let all = tools_with_artifacts(false);
+    assert!(crate::mcp_hint::names(&all).any(|n| n == crate::github_status::TOOL));
+    let text = instructions(&all).unwrap();
+    assert!(text.contains("call github_status"), "{text}");
+    assert!(text.contains("bg_start"), "{text}");
+    let scoped = allowed(all.clone(), Some("acpmux_github_status"));
+    assert_eq!(crate::mcp_hint::names(&scoped).collect::<Vec<_>>(), ["github_status"]);
+    assert_eq!(instructions(&scoped).unwrap(), crate::github_status::STEER);
+    let chief = allowed(all, Some(crate::agent_tools::CHIEF_TURN_TOOLS));
+    assert!(!crate::mcp_hint::names(&chief).any(|n| n == crate::github_status::TOOL));
 }
