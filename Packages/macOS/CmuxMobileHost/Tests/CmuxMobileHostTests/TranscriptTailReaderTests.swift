@@ -53,6 +53,40 @@ struct TranscriptTailReaderTests {
         #expect(String(decoding: reader.data(in: window.trailingFragment), as: UTF8.self) == "partial")
     }
 
+    @Test("the trailing fragment is charged to the byte budget")
+    func fragmentChargedToBudget() throws {
+        let url = try makeFile("aaaa\nbbbb\npartial")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let reader = try #require(TranscriptTailReader(path: url.path))
+        let limits = TranscriptTailLimits(maxLines: 10, maxBytes: 12, maxRecordBytes: 100)
+        let window = try reader.scan(limits: limits)
+        // 7 fragment bytes leave room for "bbbb" but not "aaaa".
+        #expect(window.firstLine == 1)
+        #expect(decodedLines(reader, window, maxRecordBytes: 100) == ["bbbb"])
+    }
+
+    @Test("an oversized trailing fragment costs no budget")
+    func oversizedFragmentCostsNothing() throws {
+        let url = try makeFile("aaaa\nbbbb\n\(String(repeating: "p", count: 50))")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let reader = try #require(TranscriptTailReader(path: url.path))
+        let limits = TranscriptTailLimits(maxLines: 10, maxBytes: 8, maxRecordBytes: 10)
+        let window = try reader.scan(limits: limits)
+        #expect(window.firstLine == 0)
+    }
+
+    @Test("a zero line limit yields an empty window")
+    func zeroLineLimit() throws {
+        let url = try makeFile("a\nb\n")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let reader = try #require(TranscriptTailReader(path: url.path))
+        let limits = TranscriptTailLimits(maxLines: 0, maxBytes: 100, maxRecordBytes: 100)
+        let window = try reader.scan(limits: limits)
+        #expect(window.completeLineCount == 2)
+        #expect(window.firstLine == 2)
+        #expect(window.lineRanges.isEmpty)
+    }
+
     @Test("an empty file has an empty window")
     func emptyFile() throws {
         let url = try makeFile("")
@@ -363,5 +397,12 @@ struct TranscriptLineAssemblerTests {
             return Data()
         })
         #expect(discarded.consume(data("tail\nnext\n")) == [.oversized, .record("next")])
+    }
+}
+
+extension AgentChatArtifactIndex {
+    /// Requests waiting on any build, so a test can act once they have joined.
+    var waitingRequestCount: Int {
+        builds.values.reduce(0) { $0 + $1.waiterCount }
     }
 }

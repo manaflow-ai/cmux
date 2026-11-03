@@ -49,14 +49,14 @@ public actor AgentChatArtifactIndex {
     }
 
     /// What must match for two requests to share a build.
-    private struct BuildIdentity: Sendable, Hashable {
+    struct BuildIdentity: Sendable, Hashable {
         let sessionID: String
         let transcriptPath: String
         let workingDirectory: String?
     }
 
     /// A snapshot being built, shared by every request with the same identity.
-    private struct InFlightBuild: Sendable {
+    struct InFlightBuild: Sendable {
         let id = UUID()
         let key: CacheKey
         let task: Task<Snapshot, any Error>
@@ -72,14 +72,9 @@ public actor AgentChatArtifactIndex {
     )
 
     private var cacheBySessionID = ChatArtifactLRUCache<String, CacheEntry>(capacity: 8)
-    private var builds: [BuildIdentity: InFlightBuild] = [:]
+    private(set) var builds: [BuildIdentity: InFlightBuild] = [:]
     /// Builds started since creation; concurrent misses must share one.
     private(set) var startedBuildCount = 0
-
-    /// Requests waiting on any build, so a test can act once they have joined.
-    var waitingRequestCount: Int {
-        builds.values.reduce(0) { $0 + $1.waiterCount }
-    }
 
     public func snapshot(
         sessionID: String,

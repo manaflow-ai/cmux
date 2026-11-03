@@ -56,7 +56,10 @@ final class TranscriptTailReader {
     ///
     /// A line over `maxRecordBytes` stays in the window, costs no budget and is
     /// listed in `oversizedLines`, so one huge record can't hide its neighbors.
-    /// The window ends where the next older line would exceed `maxBytes`.
+    /// The trailing fragment, which a caller may decode as a last record, is
+    /// charged first unless it exceeds `maxRecordBytes`. The window ends where
+    /// the next older line would exceed `maxBytes`, and holds at most
+    /// `maxLines` lines.
     ///
     /// - Throws: `CancellationError` when the task is cancelled, or the read
     ///   error from the file.
@@ -94,10 +97,11 @@ final class TranscriptTailReader {
         // Newest to oldest, stopping at the first line the budget can't hold.
         let oldestRetained = completeLines - min(completeLines, capacity)
         var firstLine = completeLines
-        var usedBytes = 0
+        let fragmentLength = Int(clamping: offset - currentStart)
+        var usedBytes = fragmentLength > limits.maxRecordBytes ? 0 : fragmentLength
         var oversizedNewestFirst: [Int] = []
         var line = completeLines - 1
-        while line >= oldestRetained {
+        while line >= oldestRetained, completeLines - line <= limits.maxLines {
             let start = lineStarts[line % capacity]
             let end = line + 1 < completeLines ? lineStarts[(line + 1) % capacity] : currentStart
             let length = Int(clamping: end - 1 - start)
