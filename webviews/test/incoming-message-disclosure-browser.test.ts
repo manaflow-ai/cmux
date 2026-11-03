@@ -457,10 +457,11 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
         all.map((row) => {
           const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
           const chevron = line.querySelector<HTMLElement>(".cv-rotor")!.getBoundingClientRect();
-          // Stacked, the line's last words are the sender's; its first line is under it.
-          const words = line
-            .querySelector<HTMLElement>(".cv-received__preview, .cv-received__from")!
-            .getBoundingClientRect();
+          // Stacked, the line's last words are the sender's (its text, not its padded box); its first
+          // line is under it.
+          const range = document.createRange();
+          range.selectNodeContents(line.querySelector(".cv-received__preview, .cv-received__from")!);
+          const words = range.getBoundingClientRect();
           const hover = line.querySelector<HTMLElement>(".cv-received__hover");
           return {
             right: Math.round(chevron.right),
