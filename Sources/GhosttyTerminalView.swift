@@ -9796,7 +9796,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let mouseState = rememberGhosttyMouseState(from: event)
         var contextMenuSession: GhosttyMouseSessionLedger.Session?
         var ghosttyConsumedPress = false
-        if sendsTerminalPointerEvent {
+        // Control-click always opens the cmux menu, as in upstream Ghostty.
+        // Ghostty runs right-click-action on every right press, so a
+        // control-click sends one only for the context-menu action, whose
+        // word selection the menu acts on. Otherwise paste or copy would run
+        // and the menu would open too.
+        let sendsRightPress = sendsTerminalPointerEvent
+            && (event.type == .rightMouseDown || GhosttyApp.shared.rightClickActionOpensContextMenu)
+        if sendsRightPress {
             ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
             ghosttyConsumedPress = sendGhosttyMouseButton(
                 surface,
@@ -9811,7 +9818,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
         // Ghostty ran a right-click-action other than context-menu; mouse-up releases the press.
-        if ghosttyConsumedPress, event.type == .rightMouseDown {
+        if ghosttyConsumedPress {
             return nil
         }
 
