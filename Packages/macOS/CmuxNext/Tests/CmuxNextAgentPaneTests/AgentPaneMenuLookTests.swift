@@ -114,10 +114,14 @@ struct AgentPaneMenuLookTests {
         var jumped = 0
         func menu(tabShown: Bool) -> NSMenu {
             let menu = Self.webKitMenu(MenuLookWebKitTarget())
-            AgentPaneContextMenu.rebuild(menu, target: AgentPaneMessageTarget(text: "", part: AgentPaneMenuPart(session: "child")), devTools: false,
-                                         scope: ThemeScope.app.fullStrength,
-                                         actions: .init(copy: { _ in }, fork: { _ in }, openSession: { session, _ in opened.append(session) },
-                                                        goToSession: { _, _ in tabShown ? { jumped += 1 } : nil }))
+            let jump: @MainActor () -> Void = { jumped += 1 }
+            let goTo: (String, Bool) -> (@MainActor () -> Void)? = { _, _ in tabShown ? jump : nil }
+            let open: (String, Bool) -> Void = { session, _ in opened.append(session) }
+            var actions = AgentPaneContextMenu.Actions(copy: { _ in }, fork: { _ in })
+            actions.openSession = open
+            actions.goToSession = goTo
+            let target = AgentPaneMessageTarget(text: "", part: AgentPaneMenuPart(session: "child"))
+            AgentPaneContextMenu.rebuild(menu, target: target, devTools: false, scope: ThemeScope.app.fullStrength, actions: actions)
             return menu
         }
         #expect(!menu(tabShown: false).items.contains { $0.title == AgentPaneMenuStrings.goToChat })
