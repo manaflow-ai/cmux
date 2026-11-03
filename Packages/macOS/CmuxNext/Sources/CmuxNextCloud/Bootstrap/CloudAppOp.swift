@@ -36,7 +36,8 @@ public typealias CloudAppOp = @Sendable (_ op: String, _ args: JSONValue, _ key:
 /// the classic `/api/vm`, which cannot reach a CloudDO machine. CloudDO answers once the provider call landed, so a
 /// pause's answer means its active slot is free; a call longer than CloudDO's wait answers `mutation.indeterminate`,
 /// asked again with the same key (it joins the call in flight), at most `attempts` times in all.
-public nonisolated enum CloudMachinePower {
+public nonisolated struct CloudMachinePower {
+    public nonisolated init() {}
     public static let indeterminate = "cmux.cloud.indeterminate"
 
     public static func run(_ op: String, machine: String, attempts: Int = 3, ops: CloudAppOp) async throws {
