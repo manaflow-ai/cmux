@@ -112,7 +112,14 @@ impl Drop for Bridge {
     }
 }
 
-/// `scheme://host[:port]` of `raw`: https, or http on a loopback host; no path, query or user.
+/// A room's origin (`origin`), in bytes: a share keeps it with its host token.
+pub(super) const MAX_ROOM_URL_BYTES: usize = 300;
+/// A room's host token, in bytes (the room mints 43). A share keeps it, so its size is bounded
+/// like the rest of the shares file (`fits`); a longer one is a bad answer.
+pub(super) const MAX_HOST_TOKEN_BYTES: usize = 256;
+
+/// `scheme://host[:port]` of `raw`: https, or http on a loopback host; no path, query or user;
+/// at most [`MAX_ROOM_URL_BYTES`].
 fn origin(raw: &str) -> Option<String> {
     let url = url::Url::parse(raw.trim()).ok()?;
     let loopback = match url.host()? {
@@ -122,7 +129,9 @@ fn origin(raw: &str) -> Option<String> {
     };
     let scheme = url.scheme() == "https" || (url.scheme() == "http" && loopback);
     let bare = url.path() == "/" && url.query().is_none() && url.username().is_empty();
-    (scheme && bare && url.fragment().is_none()).then(|| url.origin().ascii_serialization())
+    let origin = url.origin().ascii_serialization();
+    (scheme && bare && url.fragment().is_none() && origin.len() <= MAX_ROOM_URL_BYTES)
+        .then_some(origin)
 }
 
 impl Bridge {
@@ -367,7 +376,10 @@ async fn put(room: &Room, share_id: &str, token: &str, body: &Value) -> Put {
             body.get("host_token").and_then(Value::as_str),
             body.get("url_base").and_then(Value::as_str),
         ) {
-            (Some(token), Some(base)) if !token.is_empty() && valid_url_base(room, base) => {
+            (Some(token), Some(base))
+                if (1..=MAX_HOST_TOKEN_BYTES).contains(&token.len())
+                    && valid_url_base(room, base) =>
+            {
                 Put::Done { host_token: token.into(), url_base: base.into() }
             }
             _ => Put::Unreachable,
