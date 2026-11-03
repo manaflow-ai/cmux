@@ -524,6 +524,7 @@ impl Hub {
     pub(super) fn rebuild_processes(&self, session: &Session) {
         let table = self.read_processes(session);
         *session.processes.lock().unwrap_or_else(|e| e.into_inner()) = table;
+        self.refresh_work_below(session);
     }
 
     /// A logged `background_task_update` (`tap.rs`), the session's own or a
@@ -555,14 +556,20 @@ impl Hub {
         };
         if let Some(process) = changed {
             self.append(session, "mux", "process_update", json!({"process": process}));
+            // A command that starts or ends past the turn changes the work below it.
+            self.refresh_work_below(session);
         }
     }
 
     /// The harness is gone: every process still running is `lost`.
     pub(super) fn processes_lost(&self, session: &Session, reason: &str) {
         let lost = self.process_table(session).lose_running(now_ms(), reason, true);
+        let any = !lost.is_empty();
         for process in lost {
             self.append(session, "mux", "process_update", json!({"process": process}));
+        }
+        if any {
+            self.refresh_work_below(session);
         }
     }
 
