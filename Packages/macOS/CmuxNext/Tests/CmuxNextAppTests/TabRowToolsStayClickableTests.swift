@@ -147,6 +147,7 @@ import Testing
         let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("t0"), title: "Chat")]), reveal: LaunchReveal(deadline: .zero))
         pane.frame = window.contentLayoutRect
         window.contentView = pane
+        pane.toolbar = PaneToolbar(registry: { nil }, newTabMenu: { nil })
         let chat = RowChat(need: 220, takesLoneTab: true)
         let fill = ThemeRGB(hex: 0x282938).cgColor
         chat.tabRowHoleFill = fill

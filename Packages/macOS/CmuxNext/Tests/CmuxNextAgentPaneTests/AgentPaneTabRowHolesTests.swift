@@ -103,14 +103,28 @@ struct AgentPaneTabRowHolesTests {
         view.model.tabRow.tabsShown = false
         AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
         let surface = view.performWithTheme { AgentPaneTheme.pageBackground(view.themeTokens, surface: .agentPane) }
-        #expect(view.tabRowHoleFill == (surface.alpha > 0 ? surface.cgColor : nil))
+        #expect(view.model.tabRow.holeFill == (surface.alpha > 0 ? surface.cgColor : nil))
 
         view.model.tabRow.tabsShown = true
         AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
-        #expect(view.tabRowHoleFill == nil)
+        #expect(view.model.tabRow.holeFill == nil)
         view.model.tabRow.tabsShown = false
         AgentPaneTabRow.offer(points: 0, trailingInset: 0, to: view)
-        #expect(view.tabRowHoleFill == nil)
+        #expect(view.model.tabRow.holeFill == nil)
+    }
+
+    /// A shared page host on WebKit: the page is under the toolbar and already paints there, so a translucent
+    /// surface would darken twice under a fill (review of #33407).
+    @Test func aLoneWebKitChatPaintsNoToolbarHole() throws {
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true, testRoot: true, chromium: nil))
+        view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        view.layoutSubtreeIfNeeded()
+        #expect(view.chromiumPage == nil)
+        view.model.tabRow.report(width: 120)
+        view.model.tabRow.tabsShown = false
+        AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
+        #expect(view.model.tabRow.holeFill == nil)
     }
 
     @Test func aChatOutOfTheRowCoversNothing() async throws {
