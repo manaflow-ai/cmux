@@ -100,6 +100,7 @@ import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
 import { inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
+import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage, startCancelled } from "./transportErrors";
@@ -5922,6 +5923,22 @@ export class AcpmuxDirectClient {
             failover: { from: msg.from, to: msg.to },
           });
         }
+      } else if (event.kind === "recap") {
+        // The person came back after 5+ minutes away (`hub/away_recap.rs`): Claude Code's recap
+        // of where the chat stands. A record without text, or one the person dismissed on this
+        // device, is skipped; never a turn of its own. Its key names the chat too: seqs repeat
+        // across chats.
+        const key = `${this.selectedSessionId ?? ""}:${event.seq}`;
+        if (typeof msg.text === "string" && msg.text.trim() && !recapDismissed(key)) {
+          const id = `recap-${event.seq}`;
+          this.rows.set(id, {
+            id,
+            version: 1,
+            at: event.at,
+            kind: "recap",
+            recap: { key, text: msg.text.trim(), awayMs: typeof msg.awayMs === "number" ? msg.awayMs : undefined },
+          });
+        }
       } else if (event.kind === BACKGROUND_TURN_KIND) {
         this.reduceBackgroundTurn(event, msg);
       } else if (event.kind === "host_notice") {
@@ -9190,6 +9207,14 @@ export class AcpmuxDirectClient {
     this.rows.set(id, { id, version: 1, at, kind: "notice", text });
     this.emit();
     return id;
+  }
+  /// The recap's ×: it stays dismissed on this device, and its row goes.
+  dismissRecap(rowId: string): void {
+    const recap = this.rows.get(rowId)?.recap;
+    if (!recap) return;
+    rememberRecapDismissed(recap.key);
+    this.rows.delete(rowId);
+    this.emit();
   }
   /// Takes out a line `notice` put in (a lost prompt's "Not sent" once the host sent it after all).
   dismissNotice(id: string): void {

@@ -1821,6 +1821,7 @@ name = "cmux-tui-core"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "base64",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
