@@ -34,7 +34,7 @@ final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
     let model: AgentShareInviteSheetModel
     let field = ThemedTextField(string: "")
     let rolePopup = ThemedPopUpButton(frame: .zero, pullsDown: false)
-    private(set) var inviteButton: CmuxDialogButtonView!
+    let inviteButton: CmuxDialogButtonView
     let status = ThemedLabel(wrappingLabelWithString: "")
     let empty = ThemedLabel(wrappingLabelWithString: "")
     let rowStack = NSStackView()
@@ -46,9 +46,10 @@ final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
 
     init(model: AgentShareInviteSheetModel) {
         self.model = model
-        super.init(frame: .zero)
         inviteButton = CmuxDialogButtonView(standalone: CmuxDialogButton(id: "invite", title: model.inviteTitle, role: .default),
-                                            target: self, action: #selector(invitePressed))
+                                            target: nil, action: #selector(invitePressed))
+        super.init(frame: .zero)
+        inviteButton.target = self
         inviteButton.identifier = NSUserInterfaceItemIdentifier("cmux.agentShare.invites.invite")
         let content = build()
         let size = content.fittingSize

@@ -9,14 +9,17 @@ final class AgentShareInviteRowView: NSView {
 
     let account: ThemedLabel
     let detail: ThemedLabel
-    private(set) var removeButton: CmuxDialogButtonView!
+    let removeButton: CmuxDialogButtonView
     private let onRemove: () -> Void
 
     init(account: String, detail: String, removeTitle: String, isRemoving: Bool, onRemove: @escaping () -> Void) {
         self.account = ThemedLabel(labelWithString: account)
         self.detail = ThemedLabel(labelWithString: detail)
         self.onRemove = onRemove
+        removeButton = CmuxDialogButtonView(CmuxDialogButton(id: "remove", title: removeTitle, role: .destructive), hint: nil, quiet: true,
+                                            target: nil, action: #selector(removePressed))
         super.init(frame: .zero)
+        removeButton.target = self
         translatesAutoresizingMaskIntoConstraints = false
         self.account.font = Typography.body
         self.account.lineBreakMode = .byTruncatingMiddle
@@ -27,8 +30,6 @@ final class AgentShareInviteRowView: NSView {
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = 1
-        removeButton = CmuxDialogButtonView(CmuxDialogButton(id: "remove", title: removeTitle, role: .destructive), hint: nil, quiet: true,
-                                            target: self, action: #selector(removePressed))
         removeButton.identifier = NSUserInterfaceItemIdentifier("cmux.agentShare.invites.remove")
         removeButton.isEnabled = !isRemoving
         removeButton.setContentHuggingPriority(.required, for: .horizontal)
