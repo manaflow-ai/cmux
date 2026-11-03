@@ -1,0 +1,351 @@
+{
+ "id": "page-unhandled-cmd-b-pagekey",
+ "priority": "P0",
+ "title": "Cmd-B, Shift-Cmd-E and Cmd-F through debug.key with the plain Chromium page window made key (key_window page): does the page-first unhandled-key path run them; values recorded",
+ "why": "reopen-f4 unhandled-key (after page-unhandled-cmd-b, STATUS 8229): with the shell window key the router runs Cmd-B at once and the page-first path never runs; on a person's Mac the page window is key (#32789). This makes the page window key the app's own way (DebugKey+Sequence makeKey) and posts the keys to the app's event queue.",
+ "source": "REOPEN VIDEO for reopen-f4 (unhandled-key sub-agent a7ef7985776024ba0)",
+ "budget_seconds": 220,
+ "steps": [
+  {
+   "do": "require_whole_host"
+  },
+  {
+   "do": "wait",
+   "seconds": 5,
+   "title": "set-up: Home finishes its first load"
+  },
+  {
+   "do": "key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "focused_terminal",
+   "as": "term"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo t-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "t"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the terminal works",
+   "since": "t",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "t-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "key_state",
+   "name": "term-before",
+   "title": "control: the terminal has the keyboard; sidebar state, key window"
+  },
+  {
+   "do": "hid_key",
+   "key": "b",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "term-cmdb",
+   "title": "control: a real HID Cmd-B in the terminal"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "key_state",
+   "name": "term-after",
+   "title": "control: sidebar state after Cmd-B, action_budget rows"
+  },
+  {
+   "do": "expect",
+   "title": "control: the real Cmd-B toggled the sidebar from the terminal (the HID key path works)",
+   "timeout": 5,
+   "all": [
+    {
+     "sidebar_changed": {
+      "from": "term-before"
+     }
+    }
+   ]
+  },
+  {
+   "do": "hid_key",
+   "key": "b",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "term-cmdb2",
+   "title": "control: a second real Cmd-B puts the sidebar back"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "key_state",
+   "name": "term-restored",
+   "budget": false
+  },
+  {
+   "do": "page_server",
+   "var": "page_url",
+   "lines": [
+    "<!doctype html><title>plain</title><body><p>plainpagezq no handlers</p></body>"
+   ],
+   "title": "a plain local page with no key handlers"
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "bar",
+   "title": "Cmd-Shift-L opens a browser tab from the terminal"
+  },
+  {
+   "do": "expect",
+   "title": "the address bar takes the keys",
+   "since": "bar",
+   "timeout": 15,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "addressBar"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "${page_url}",
+   "mark": "url"
+  },
+  {
+   "do": "key",
+   "key": "return",
+   "modifiers": [],
+   "mark": "loaded"
+  },
+  {
+   "do": "expect",
+   "title": "the plain page loaded and has the keyboard",
+   "since": "loaded",
+   "timeout": 20,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    },
+    {
+     "frame_text": "plainpagezq"
+    }
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "key_state",
+   "name": "page-before",
+   "title": "TEST A: sidebar state with the page focused"
+  },
+  {
+   "do": "rpc_try",
+   "method": "debug.key",
+   "params": {
+    "sequence": [
+     {
+      "key_code": 55,
+      "down": true
+     },
+     {
+      "key_code": 11,
+      "down": true
+     },
+     {
+      "key_code": 11,
+      "down": false
+     },
+     {
+      "key_code": 55,
+      "down": false
+     }
+    ],
+    "key_window": "page"
+   },
+   "title": "TEST A2 Cmd-B: debug.key sequence with key_window page (makeKey on the page window, CGEvents through nextEvent/sendEvent)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "key_state",
+   "name": "page-after-cmdb2",
+   "title": "TEST A2 Cmd-B: key window, sidebar, action_budget rows"
+  },
+  {
+   "do": "rpc_try",
+   "method": "debug.key",
+   "params": {
+    "last": true
+   },
+   "title": "TEST A2 Cmd-B: debug.key last (the router's last interception)"
+  },
+  {
+   "do": "rpc_try",
+   "method": "debug.key",
+   "params": {
+    "sequence": [
+     {
+      "key_code": 55,
+      "down": true
+     },
+     {
+      "key_code": 56,
+      "down": true
+     },
+     {
+      "key_code": 14,
+      "down": true
+     },
+     {
+      "key_code": 14,
+      "down": false
+     },
+     {
+      "key_code": 56,
+      "down": false
+     },
+     {
+      "key_code": 55,
+      "down": false
+     }
+    ],
+    "key_window": "page"
+   },
+   "title": "TEST B2 Shift-Cmd-E: debug.key sequence with key_window page (makeKey on the page window, CGEvents through nextEvent/sendEvent)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "key_state",
+   "name": "page-after-cmdshifte2",
+   "title": "TEST B2 Shift-Cmd-E: key window, sidebar, action_budget rows"
+  },
+  {
+   "do": "rpc_try",
+   "method": "debug.key",
+   "params": {
+    "last": true
+   },
+   "title": "TEST B2 Shift-Cmd-E: debug.key last (the router's last interception)"
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "title": "Escape (leaves any field or panel the last key opened)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "key_state",
+   "name": "page-before-cmdf",
+   "budget": false
+  },
+  {
+   "do": "rpc_try",
+   "method": "debug.key",
+   "params": {
+    "sequence": [
+     {
+      "key_code": 55,
+      "down": true
+     },
+     {
+      "key_code": 3,
+      "down": true
+     },
+     {
+      "key_code": 3,
+      "down": false
+     },
+     {
+      "key_code": 55,
+      "down": false
+     }
+    ],
+    "key_window": "page"
+   },
+   "title": "CONTROL Cmd-F: debug.key sequence with key_window page (makeKey on the page window, CGEvents through nextEvent/sendEvent)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "key_state",
+   "name": "page-after-cmdf",
+   "title": "CONTROL Cmd-F: key window, sidebar, action_budget rows"
+  },
+  {
+   "do": "rpc_try",
+   "method": "debug.key",
+   "params": {
+    "last": true
+   },
+   "title": "CONTROL Cmd-F: debug.key last (the router's last interception)"
+  }
+ ],
+ "finally": [
+  {
+   "do": "input_journal",
+   "name": "inputjournal",
+   "last": 400
+  },
+  {
+   "do": "key_state",
+   "name": "final",
+   "budget": false
+  }
+ ]
+}
