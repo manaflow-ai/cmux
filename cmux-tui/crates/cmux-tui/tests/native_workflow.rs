@@ -141,6 +141,32 @@ impl Machine {
 
 impl Drop for Machine {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            for run in self.runs().list().unwrap_or_default() {
+                eprintln!("failed workflow record: {run:?}");
+                let config = acpmux::config::Config::default();
+                if let Ok(logs) =
+                    acpmux::store::open(&config.store, &self.dir.path().join("acpmux"))
+                {
+                    let mut seen = BTreeSet::new();
+                    for activity in run.activities.values() {
+                        if let Child::Agent { session_id, .. } = &activity.child
+                            && seen.insert(session_id)
+                        {
+                            let mut tail = std::collections::VecDeque::new();
+                            let _ = logs.scan_strict(session_id, 0, &mut |event| {
+                                tail.push_back(format!("{event:?}"));
+                                if tail.len() > 30 {
+                                    tail.pop_front();
+                                }
+                                true
+                            });
+                            eprintln!("failed workflow child {session_id}: {tail:#?}");
+                        }
+                    }
+                }
+            }
+        }
         let _ = self.command(&["acp", "daemon", "shutdown", "--end-agents"]).output();
     }
 }
