@@ -150,13 +150,14 @@ if ! awk '
   in_prepare && /runs-on: \$\{\{ github\.repository_owner/ { saw_matrix_runner=1 }
   in_prepare && /strategy:/ { saw_serial_fallback=1 }
   in_prepare && /PREPARE_FALLBACK/ { saw_runner_matrix=1; saw_primary_tolerated=1 }
-  in_prepare && /blacksmith-(16|32)vcpu-ubuntu-2404/ { saw_blacksmith=1 }
+  # #33340: the job ends in a declared Linux runner pool (4 vCPU), not a literal Blacksmith label.
+  in_prepare && /fromJSON\(vars\.RUNNER_POOLS\)\.linux_[0-9]+/ { saw_linux_pool=1 }
   in_prepare && /env\.PREPARE_FALLBACK == '\''true'\''/ { saw_fallback=1 }
   in_prepare && /actions\/runs\/\$GITHUB_RUN_ID\/artifacts\?name=/ { saw_artifact_probe=1 }
   in_prepare && /steps\.reuse\.outputs\.exists != '\''true'\''/ { saw_reuse_gate=1 }
-  END { exit !(saw_matrix_runner && saw_runner_matrix && saw_serial_fallback && saw_blacksmith && saw_fallback && saw_primary_tolerated && saw_artifact_probe && saw_reuse_gate) }
+  END { exit !(saw_matrix_runner && saw_runner_matrix && saw_serial_fallback && saw_linux_pool && saw_fallback && saw_primary_tolerated && saw_artifact_probe && saw_reuse_gate) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly preparation must run on Blacksmith Linux, keep its fallback, and reuse a successful artifact"
+  echo "FAIL: nightly preparation must run on a declared Linux runner pool, keep its fallback, and reuse a successful artifact"
   exit 1
 fi
 if ! awk '
@@ -476,11 +477,17 @@ if ! grep -Fq 'description: Build one arm64 dogfood DMG without Intel or Sparkle
   exit 1
 fi
 
-# cmux-next ships no Cloud tunnel system extension. It does ship the Computer
-# Use helper (D19; tests/test_nightly_next_computer_use_helper.py). The
-# Chromium engine artifact is arm64 only, so an x86_64 variant drops it before
-# thinning.
-if grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension' "$WORKFLOW_FILE"; then
+# cmux-next ships no legacy Cloud tunnel system extension. The opt-in Cloud
+# Tunnel (plans/cmux-next/cloud-tunnel-DESIGN.md) is handled only by its own
+# "Prepare the Cloud Tunnel extension" step, which signs or removes it, so that
+# step is left out of this check. It does ship the Computer Use helper (D19;
+# tests/test_nightly_next_computer_use_helper.py). The Chromium engine artifact
+# is arm64 only, so an x86_64 variant drops it before thinning.
+if awk '
+  /^      - name: Prepare the Cloud Tunnel extension$/ { skip=1; next }
+  skip && /^      - name:/ { skip=0 }
+  !skip
+' "$WORKFLOW_FILE" | grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension'; then
   echo "FAIL: nightly still handles the legacy tunnel extension"
   exit 1
 fi

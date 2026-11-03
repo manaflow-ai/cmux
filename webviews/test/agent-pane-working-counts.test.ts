@@ -226,11 +226,11 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     const page = await open(BUSY);
     // The Linter finished and the watcher stopped: neither counts.
     expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(
-      /^Read [^·]+ · 2 subagents · 1 command$/,
+      /^Read [^·]+ · [^·]+ total · 2 subagents · 1 command$/,
     );
     await page.close();
     const plain = await open(QUIET);
-    expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+$/);
+    expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ · [^·]+ total$/);
     await plain.close();
   });
 
@@ -240,14 +240,14 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     await tray.waitFor({ timeout: 5_000 });
     // It starts folded to its header (cmux#28875); the person opens it.
     await openRunningTray(page);
-    // What runs is listed first; the Linter that ended stays as a finished card under it
-    // (49acdd1d589d keeps finished cards mounted in the tray).
+    // What runs is listed first, newest first (#33364: Tester started after Reviewer); the Linter
+    // that ended stays as a finished card under it (49acdd1d589d keeps finished cards mounted in the tray).
     const lines = await tray
       .locator("li:not([data-finished]) .acpmux-agent-line .acpmux-summary-agent__name")
       .allInnerTexts();
-    expect(lines).toEqual(["Reviewer", "Tester", "npm run dev"]);
+    expect(lines).toEqual(["Tester", "Reviewer", "npm run dev"]);
     expect(await tray.locator("li[data-finished] .acpmux-summary-agent__name").allInnerTexts()).toEqual(["Linter"]);
-    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+$/);
+    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ · [^·]+ total$/);
     await page.close();
   });
 

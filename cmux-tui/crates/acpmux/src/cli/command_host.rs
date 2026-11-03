@@ -101,6 +101,13 @@ pub enum PeerCmd {
         #[command(subcommand)]
         cmd: ConsentCmd,
     },
+    /// The person's vault on this joined machine: env vars and API keys kept
+    /// once for every machine, stored in the OS secret store and given to
+    /// every agent here. Never a Claude or Codex subscription login.
+    Vault {
+        #[command(subcommand)]
+        cmd: VaultCmd,
+    },
     /// Install this binary and a daemon on a machine over ssh, then add it as a machine here.
     /// A Linux machine also gets acpmux-update.timer, which keeps its daemon on
     /// the newest feat-cmux-next build (`machine self-update`).
@@ -232,6 +239,19 @@ pub enum PeerCmd {
         #[arg(long)]
         probe: bool,
     },
+}
+
+#[derive(Subcommand)]
+pub enum VaultCmd {
+    /// Pull the vault now with this machine's join credential (the daemon also
+    /// pulls every 15 minutes). Values go to the Keychain or Secret Service only.
+    Pull,
+    /// What this machine holds: names and revisions (never values), the last
+    /// pull, the secret store, and whether Claude and Codex are signed in here.
+    Status,
+    /// Remove this machine's vault env values and its vault state. The daemon
+    /// pulls again while the vault is shared with this machine.
+    Forget,
 }
 
 #[derive(Subcommand)]

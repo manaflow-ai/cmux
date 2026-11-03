@@ -11,7 +11,7 @@ public nonisolated enum WorkspaceIcon: Hashable, Sendable {
     case swatch(GroupColor)
     /// One emoji, drawn as text, on a chip of `chip` when set.
     case emoji(String, chip: GroupColor? = nil)
-    /// The front tab's favicon, drawn as is.
+    /// The front tab's favicon, drawn as `SidebarFaviconStyle` says (a low-contrast mono icon in the label colour).
     case favicon(SidebarFavicon)
 
     /// This icon without the workspace's color (`sidebar.showColors` off): a swatch is no icon, a

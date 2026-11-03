@@ -276,6 +276,10 @@ mod inbound;
 mod logged_bodies;
 pub use logged_bodies::leave_out_bodies;
 mod outbound;
+pub mod prompt_cache;
+pub mod prompt_suggestions;
+#[cfg(test)]
+mod prompt_suggestions_tests;
 // A tool result's images as ACP image blocks (`result_images.rs`).
 mod result_images;
 pub(crate) use result_images::result_images;
@@ -480,6 +484,10 @@ pub struct Translator {
     effort: Mutex<String>,
     /// Claude Code's fast mode (`fastMode`), on or off.
     pub fast: Mutex<bool>,
+    /// The chat's `prompt-suggestions` option (`prompt_suggestions.rs`), on unless set off.
+    pub prompt_suggestions: AtomicBool,
+    /// Whether this process asked Claude Code for prompt suggestions at `initialize`.
+    suggestions_offered: AtomicBool,
     /// This chat's `RECAP_OPTION`: `default`, `on` or `off`.
     recap: Mutex<&'static str>,
     in_turn: AtomicBool,
@@ -549,6 +557,8 @@ pub struct Translator {
     /// The cached context count came from an untagged compaction boundary rather
     /// than a model message. The controller can fence its later result resend.
     context_from_compaction: AtomicBool,
+    /// When the chat's prompt cache expires (`prompt_cache.rs`).
+    cache: prompt_cache::CacheClock,
     /// A compaction just ended: the synthetic user line Claude writes next
     /// is its summary (`compaction_summary`).
     awaiting_summary: AtomicBool,
@@ -634,6 +644,8 @@ enum Pending {
     Background(Vec<String>, Option<std::time::Instant>),
     /// A steer's take-back (`MUX_STEER_WITHDRAW`), answered when claude takes it.
     Withdraw,
+    /// A chat's prompt-suggestions pick (`prompt_suggestions.rs`), answered when claude answers.
+    Suggestions,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -671,6 +683,8 @@ impl Translator {
             model: Mutex::new(model_id(model)),
             effort: Mutex::new(effort_value(effort).to_owned()),
             fast: Mutex::new(false),
+            prompt_suggestions: AtomicBool::new(true),
+            suggestions_offered: AtomicBool::new(false),
             recap: Mutex::new("default"),
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
@@ -696,6 +710,7 @@ impl Translator {
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
             context_from_compaction: AtomicBool::new(false),
+            cache: Default::default(),
             awaiting_summary: AtomicBool::new(false),
             compacting: AtomicBool::new(false),
             cancelled_compaction: AtomicBool::new(false),
@@ -866,7 +881,7 @@ impl Translator {
 
     pub async fn config_options_value(&self) -> Value {
         let effort = self.effort.lock().await.clone();
-        json!([
+        let mut options = json!([
             {"id": "model", "name": "Model", "type": "select", "category": "model", "currentValue": *self.model.lock().await,
              "options": models().iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
             {"id": "mode", "name": "Permission mode", "type": "select", "category": "mode", "currentValue": *self.mode.lock().await,
@@ -892,7 +907,11 @@ impl Translator {
                  {"value": "on", "name": "On", "description": RECAP_COST},
                  {"value": "off", "name": "Off", "description": "No recap when you come back"},
              ]},
-        ])
+        ]);
+        if let (Some(list), Some(option)) = (options.as_array_mut(), self.suggestion_option()) {
+            list.push(option);
+        }
+        options
     }
 }
 
