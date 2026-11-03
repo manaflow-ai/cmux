@@ -19,7 +19,7 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
         return vec![];
     };
     let mut out = Vec::new();
-    match meta.harness.as_str() {
+    match store_kind(meta) {
         "codex" => {
             // ~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl
             let root = home.join(".codex").join("sessions");
@@ -42,9 +42,52 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
                 }
             }
         }
+        "pi" => {
+            // ~/.pi/agent/sessions/--<cwd-with-dashes>--/<ts>_<session-id>.jsonl
+            let root = home.join(PI_SESSIONS);
+            for p in walk(&root, 1) {
+                let name =
+                    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                if name.ends_with(&format!("_{sid}.jsonl")) {
+                    out.push((PI_LABEL.to_owned(), p));
+                }
+            }
+        }
         _ => {}
     }
     out
+}
+
+/// pi's session folder under the home folder.
+const PI_SESSIONS: &str = ".pi/agent/sessions";
+/// The bundle label of a pi session file.
+const PI_LABEL: &str = "pi-session";
+/// The bundle label of OpenCode's export of a session (`opencode export ID`): OpenCode keeps
+/// its sessions in a SQLite database, so the session travels as its export and is imported on
+/// the target ([`import_opencode`]), never copied as a file of the home folder.
+pub const OPENCODE_EXPORT: &str = "opencode-export";
+
+/// The agent store the chat's agent keeps: its family when it is one this file knows, since a
+/// profile such as `codex-acp`, `claude-sr` or `opencode-v2` runs the same agent with the same
+/// store; else its profile. `cmux-harness` keeps its own state (`hub/transfer.rs`).
+fn store_kind(meta: &SessionMeta) -> &str {
+    const KNOWN: [&str; 4] = ["claude", "codex", "pi", "opencode"];
+    if meta.harness == "cmux-harness" {
+        return "cmux-harness";
+    }
+    [meta.family.as_deref(), Some(meta.harness.as_str())]
+        .into_iter()
+        .flatten()
+        .find(|k| KNOWN.contains(k))
+        .unwrap_or(meta.harness.as_str())
+}
+
+/// pi's session folder name for a cwd: `--<cwd without its leading slash, each / \\ or : a
+/// dash>--`, as pi names it.
+fn pi_session_dir(cwd: &Path) -> String {
+    let cwd = cwd.to_string_lossy();
+    let trimmed = cwd.strip_prefix(['/', '\\']).unwrap_or(&cwd);
+    format!("--{}--", trimmed.replace(['/', '\\', ':'], "-"))
 }
 
 /// Regular files under `root`, at most `depth` directories down. Symlinks
@@ -117,7 +160,7 @@ fn restore_target(meta: &SessionMeta, label: &str, rel: &Path) -> Option<PathBuf
         return None;
     }
     let name = rel.file_name()?.to_string_lossy().into_owned();
-    match (meta.harness.as_str(), label) {
+    match (store_kind(meta), label) {
         ("claude", "claude-project")
             if rel.starts_with(".claude/projects") && name == format!("{sid}.jsonl") =>
         {
@@ -131,6 +174,13 @@ fn restore_target(meta: &SessionMeta, label: &str, rel: &Path) -> Option<PathBuf
                 && name.contains(sid) =>
         {
             Some(rel.to_path_buf())
+        }
+        ("pi", PI_LABEL)
+            if rel.starts_with(PI_SESSIONS) && name.ends_with(&format!("_{sid}.jsonl")) =>
+        {
+            // pi finds a session by the id in its file's first line, in any folder; the
+            // target's own cwd folder keeps `pi --continue` there working too.
+            Some(Path::new(PI_SESSIONS).join(pi_session_dir(&meta.cwd)).join(name))
         }
         _ => None,
     }
@@ -154,6 +204,10 @@ pub fn restore_in(bundle: &Path, meta: &SessionMeta, home: &Path) -> Result<usiz
     };
     for label in labels.flatten() {
         let label_name = label.file_name().to_string_lossy().into_owned();
+        if label_name == OPENCODE_EXPORT {
+            // Imported by `import_opencode`, not a file of the home folder.
+            continue;
+        }
         for file in walk(&label.path(), 8) {
             let rel = file.strip_prefix(label.path()).unwrap_or(&file);
             let Some(target) = restore_target(meta, &label_name, rel) else {
@@ -191,6 +245,22 @@ pub fn guarded_plan(bundle: &Path, meta: &SessionMeta) -> Result<Vec<(PathBuf, P
     let (mut plan, mut total) = (Vec::new(), 0u64);
     for label in labels.flatten() {
         let label_name = label.file_name().to_string_lossy().into_owned();
+        if label_name == OPENCODE_EXPORT {
+            // Not a home file: `import_opencode` imports it. Only this chat's own export.
+            for file in walk(&label.path(), 0) {
+                let own = store_kind(meta) == "opencode"
+                    && sid.is_some_and(|sid| {
+                        file.file_name() == Some(opencode_export_name(sid).as_ref())
+                    });
+                if !own {
+                    return Err(format!(
+                        "{label_name}/{} is not this chat's agent file",
+                        file.display()
+                    ));
+                }
+            }
+            continue;
+        }
         for file in walk(&label.path(), 8) {
             let rel = file.strip_prefix(label.path()).unwrap_or(&file);
             let target = sid.and_then(|sid| guarded_target(meta, sid, &label_name, rel));
@@ -214,7 +284,7 @@ fn guarded_target(meta: &SessionMeta, sid: &str, label: &str, rel: &Path) -> Opt
         return None;
     }
     let name = rel.file_name()?.to_str()?;
-    match (meta.harness.as_str(), label) {
+    match (store_kind(meta), label) {
         ("claude", "claude-project")
             if rel.starts_with(".claude/projects")
                 && rel.components().count() == 4
@@ -228,6 +298,13 @@ fn guarded_target(meta: &SessionMeta, sid: &str, label: &str, rel: &Path) -> Opt
                 && name.ends_with(&format!("-{sid}.jsonl")) =>
         {
             Some(rel.to_path_buf())
+        }
+        ("pi", PI_LABEL)
+            if rel.starts_with(PI_SESSIONS)
+                && rel.components().count() == 5
+                && name.ends_with(&format!("_{sid}.jsonl")) =>
+        {
+            Some(Path::new(PI_SESSIONS).join(pi_session_dir(&meta.cwd)).join(name))
         }
         _ => None,
     }
@@ -317,16 +394,144 @@ fn without_mode(line: &[u8]) -> Option<Vec<u8>> {
     serde_json::to_vec(&v).ok()
 }
 
-/// Writes OpenCode's export of the chat's session under `native_dir`; answers its path there.
-pub fn export_opencode_with(
-    _cli: &Path,
-    _meta: &SessionMeta,
-    _native_dir: &Path,
-) -> Result<Option<String>> {
-    Ok(None)
+/// The file name of a session's OpenCode export in a bundle.
+fn opencode_export_name(sid: &str) -> String {
+    format!("{sid}.json")
 }
 
-/// Imports a bundle's OpenCode export with `cli`, in the chat's folder; answers whether it did.
-pub fn import_opencode_with(_cli: &Path, _bundle: &Path, _meta: &SessionMeta) -> Result<bool> {
-    Ok(false)
+/// An agent session id plain enough to pass to a CLI and to name a file.
+fn plain_sid(meta: &SessionMeta) -> Option<&str> {
+    meta.agent_session_id.as_deref().filter(|s| {
+        (8..=128).contains(&s.len())
+            && !s.starts_with('-')
+            && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    })
+}
+
+/// How long an `opencode export` or `import` may take.
+const OPENCODE_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// The `opencode` CLI on this machine: on the PATH, else where its installers put it.
+fn opencode_cli() -> Option<PathBuf> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    std::env::split_paths(&path)
+        .chain([".bun/bin", ".opencode/bin", ".local/bin"].map(|d| home.join(d)))
+        .chain([PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/usr/local/bin")])
+        .map(|d| d.join("opencode"))
+        .find(|p| p.is_file())
+}
+
+/// Runs `cmd` with its stdout captured and its stderr dropped (it may echo transcript text),
+/// for at most [`OPENCODE_WAIT`]; answers its stdout once it exits 0.
+fn run_cli(mut cmd: std::process::Command) -> Result<Vec<u8>> {
+    use std::io::Read as _;
+    use std::process::Stdio;
+    let mut child =
+        cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
+    let mut stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout"))?;
+    let reader = std::thread::spawn(move || {
+        let mut out = Vec::new();
+        stdout.read_to_end(&mut out).map(|_| out)
+    });
+    let deadline = std::time::Instant::now() + OPENCODE_WAIT;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            anyhow::bail!("timed out after {}s", OPENCODE_WAIT.as_secs());
+        }
+        // A child process has no async exit signal in this synchronous export path; a short
+        // bounded wait between checks, ended by the deadline above.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    let out = reader.join().map_err(|_| anyhow::anyhow!("stdout reader panicked"))??;
+    if !status.success() {
+        anyhow::bail!("exited with {status}");
+    }
+    Ok(out)
+}
+
+/// The session id an OpenCode export holds (`info.id`).
+fn opencode_export_id(bytes: &[u8]) -> Option<String> {
+    let start = bytes.iter().position(|b| *b == b'{')?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes[start..]).ok()?;
+    v.pointer("/info/id").and_then(serde_json::Value::as_str).map(str::to_owned)
+}
+
+/// [`export_opencode_with`] with this machine's `opencode`, for an OpenCode chat; None for any
+/// other chat, or when OpenCode is not installed here.
+pub fn export_opencode(meta: &SessionMeta, native_dir: &Path) -> Result<Option<String>> {
+    if store_kind(meta) != "opencode" {
+        return Ok(None);
+    }
+    match opencode_cli() {
+        Some(cli) => export_opencode_with(&cli, meta, native_dir),
+        None => Ok(None),
+    }
+}
+
+/// Writes OpenCode's export of the chat's session (`cli export ID`) under `native_dir` as
+/// `opencode-export/<id>.json` (0600: it is the whole transcript); answers that path. An export
+/// of another session, or a failed one, is an error and writes nothing.
+pub fn export_opencode_with(
+    cli: &Path,
+    meta: &SessionMeta,
+    native_dir: &Path,
+) -> Result<Option<String>> {
+    let Some(sid) = plain_sid(meta) else {
+        return Ok(None);
+    };
+    let mut cmd = std::process::Command::new(cli);
+    cmd.arg("export").arg(sid);
+    cmd.current_dir(if meta.cwd.is_dir() { meta.cwd.clone() } else { std::env::temp_dir() });
+    let out = run_cli(cmd).map_err(|e| anyhow::anyhow!("opencode export: {e}"))?;
+    let start = out.iter().position(|b| *b == b'{').unwrap_or(out.len());
+    if opencode_export_id(&out).as_deref() != Some(sid) {
+        anyhow::bail!("opencode export did not answer session {sid}");
+    }
+    let dir = native_dir.join(OPENCODE_EXPORT);
+    std::fs::create_dir_all(&dir)?;
+    let name = opencode_export_name(sid);
+    crate::agent_login::write_private(&dir.join(&name), &out[start..])?;
+    Ok(Some(format!("{OPENCODE_EXPORT}/{name}")))
+}
+
+/// [`import_opencode_with`] with this machine's `opencode`. A bundle with an export and no
+/// OpenCode here is an error: the chat then resumes from acpmux's history only.
+pub fn import_opencode(bundle: &Path, meta: &SessionMeta) -> Result<bool> {
+    let has = plain_sid(meta).is_some_and(|sid| {
+        bundle.join("native").join(OPENCODE_EXPORT).join(opencode_export_name(sid)).is_file()
+    });
+    if store_kind(meta) != "opencode" || !has {
+        return Ok(false);
+    }
+    let cli = opencode_cli().ok_or_else(|| anyhow::anyhow!("opencode is not installed here"))?;
+    import_opencode_with(&cli, bundle, meta)
+}
+
+/// Imports the bundle's OpenCode export of the chat's session with `cli import FILE`, run in the
+/// chat's folder: OpenCode keeps the session id and files it under the folder it runs in.
+/// Answers false when the bundle has no export for this session.
+pub fn import_opencode_with(cli: &Path, bundle: &Path, meta: &SessionMeta) -> Result<bool> {
+    let Some(sid) = plain_sid(meta) else {
+        return Ok(false);
+    };
+    let file = bundle.join("native").join(OPENCODE_EXPORT).join(opencode_export_name(sid));
+    if !file.is_file() {
+        return Ok(false);
+    }
+    if opencode_export_id(&std::fs::read(&file)?).as_deref() != Some(sid) {
+        anyhow::bail!("the bundle's OpenCode export is not session {sid}");
+    }
+    if !meta.cwd.is_dir() {
+        anyhow::bail!("{} is not a folder here", meta.cwd.display());
+    }
+    let mut cmd = std::process::Command::new(cli);
+    cmd.arg("import").arg(&file).current_dir(&meta.cwd);
+    run_cli(cmd).map_err(|e| anyhow::anyhow!("opencode import: {e}"))?;
+    Ok(true)
 }
