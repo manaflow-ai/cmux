@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextBridge
 @testable import CmuxNextLayout
-import CmuxNextTerminal
+@testable import CmuxNextTerminal
 import CmuxNextTestSupport
 import Testing
 
