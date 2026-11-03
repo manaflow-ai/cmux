@@ -117,7 +117,7 @@ struct AgentPaneAttachDroppedTests {
         let record = AgentPaneDroppedPaths(now: { 1000 }, wall: { 1000 })
         record.stash(urls, kind: .drop)
         let paths = try #require(record.take(.drop, names: names))
-        #expect(paths.map(\.path) == expected.map(\.path))
+        #expect(paths.map { Array($0.path.utf8) } == expected.map { Array($0.path.utf8) })
         #expect(record.take(.drop, names: names) == nil)
         record.stashSource(urls, items: urls.count, claimed: nil, kind: .drop)
         #expect(record.source(.drop, names: names, gestureAt: 1000)?.urls == expected)
@@ -126,7 +126,7 @@ struct AgentPaneAttachDroppedTests {
             read.append(url)
             return .screenshot
         }
-        #expect(read.map(\.path) == expected.map(\.path))
+        #expect(read.map { Array($0.path.utf8) } == expected.map { Array($0.path.utf8) })
         #expect(sources.count == names.count && sources.allSatisfy { $0 == .screenshot })
     }
 
