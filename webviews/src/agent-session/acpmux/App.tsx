@@ -7880,9 +7880,16 @@ function AcpmuxPane() {
       ? ((owner: string, target: NonNullable<typeof shownSubagentTarget>) => (message: string) => {
           if (!restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession))
             return Promise.reject(new Error(translate("error.notOpen")));
+          // A steer: while the chat's turn runs (the usual case while its subagent works), its agent
+          // reads it at its next step instead of after the turn. A refusal the chat keeps as a row
+          // of its own (Retry, Edit) stays there, never also back in this composer.
           return callNative("chat.send", {
             text: subagentRelayPrompt(target, message, translate),
             expectedSessionId: owner,
+            steer: true,
+          }).catch((error: unknown) => {
+            if (keptInChat(error)) return;
+            throw error;
           });
         })(subagentRelayChat, shownSubagentTarget)
       : undefined;

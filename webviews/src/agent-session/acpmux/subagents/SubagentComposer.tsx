@@ -5,7 +5,8 @@
 // names the chat, so a prompt never goes anywhere the composer does not say. It is the one composer
 // box (ComposerBox.tsx) with the prompt and Send only: the chat's queue, pull request bar, model and
 // mode chips are the chat's, and drawing them here sent edits to the chat (Leo 2026-10-20).
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { inlineToken, type ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import { ComposerBox } from "../ComposerBox";
 import { ArrowUpIcon } from "../ComposerPickers";
@@ -20,21 +21,45 @@ export function SubagentComposer({
   /// The chat that takes the prompt and passes it on.
   chat: string;
   /// Sends the typed message; unset while the chat takes no prompts (not connected, View Only).
+  /// It resolves when the chat kept a refused message itself (its failed row), never put back here.
   onSend?: (message: string) => Promise<unknown>;
 }) {
   const t = useT();
   const [text, setText] = useState("");
   const [failed, setFailed] = useState<string>();
-  const ready = Boolean(onSend) && text.trim().length > 0;
+  // A huge paste is a Pasted text chip (composer/pastedChips.ts); its text goes with the message, in
+  // its place, since the relay is text only.
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  const draft = () => {
+    let message = text;
+    const loose: string[] = [];
+    for (const chip of attachmentsRef.current) {
+      const pasted = chip.kind === "pasted" ? (chip.text ?? "") : "";
+      const token = inlineToken(chip.id);
+      if (message.includes(token)) message = message.split(token).join(pasted);
+      else if (pasted) loose.push(pasted);
+    }
+    return [message, ...loose]
+      .filter((part) => part.trim())
+      .join("\n\n")
+      .trim();
+  };
+  const ready = Boolean(onSend) && (text.trim().length > 0 || attachments.length > 0);
   const submit = () => {
-    const message = text.trim();
+    const message = draft();
     if (!onSend || !message) return;
+    const typed = text;
+    const held = attachmentsRef.current;
     setText("");
+    setAttachments([]);
     setFailed(undefined);
-    onSend(message).catch((error: unknown) => {
+    onSend(message).catch(() => {
       // The message comes back to the prompt, unless something new was typed meanwhile.
-      setText((current) => (current ? current : message));
-      setFailed(error instanceof Error && error.message ? error.message : t("subagents.messageFailed"));
+      setText((current) => (current ? current : typed));
+      setAttachments((current) => (current.length > 0 ? current : held));
+      setFailed(t("subagents.messageFailed"));
     });
   };
   return (
@@ -61,9 +86,10 @@ export function SubagentComposer({
           onChange: (markdown) => setText(markdown),
           onSubmit: () => submit(),
         }}
-        attachments={[]}
-        setAttachments={() => undefined}
-        onRemoveAttachment={() => undefined}
+        attachments={attachments}
+        setAttachments={(update) => setAttachments((current) => (attachmentsRef.current = update(current)))}
+        attachmentsRef={attachmentsRef}
+        onRemoveAttachment={(id) => setAttachments((current) => current.filter((chip) => chip.id !== id))}
         fieldMenu={[]}
         chromeItems={[]}
         trailing={

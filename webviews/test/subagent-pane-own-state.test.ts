@@ -240,6 +240,8 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     expect(sent).toContain("SendMessage");
     expect(sent).toContain("a39e817af38ddf5e7");
     expect(sent).toContain("Reviewer");
+    // A steer: the chat's running turn reads it at its next step, not after the turn.
+    expect(sent).toContain('"steer":true');
     await page.close();
   });
 });
