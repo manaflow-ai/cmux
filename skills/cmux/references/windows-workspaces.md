@@ -32,4 +32,4 @@ cmux workspace-action --action pin
 cmux workspace-action --action clear-color
 ```
 
-Other actions: `unpin`, `clear-name`, `clear-description`, `mark-read`/`mark-unread`, `move-up`/`move-down`/`move-top`, `close-others`/`close-above`/`close-below`. Named colors: Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua, Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal. `set-color` tints a single workspace (stored as workspace state); the `workspaceColors` block in `cmux.json` defines the shared palette and selection/badge colors, not per-workspace assignments.
+Other actions: `unpin`, `clear-name`, `clear-description`, `mark-read`/`mark-unread`, `move-up`/`move-down`/`move-top`/`move-bottom`, `close-others`/`close-above`/`close-below`. Named colors: Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua, Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal. `set-color` tints a single workspace (stored as workspace state); the `workspaceColors` block in `cmux.json` defines the shared palette and selection/badge colors, not per-workspace assignments.
