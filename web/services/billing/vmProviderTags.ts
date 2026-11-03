@@ -7,6 +7,7 @@ import { getStackServerApp, isStackConfigured } from "../../app/lib/stack";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
   FOUNDERS_PLAN_ID,
+  GO_PLAN_ID,
   isPaidPlanId,
   isPersonalPlanId,
   MAX_PLAN_ID,
@@ -35,12 +36,22 @@ export type VmBillingScope = {
  */
 export type VmPlanSource = "stripe" | "admin-grant" | "none" | "unmatched";
 
+/**
+ * `cmuxBillingCohort` value for a machine funded by an active Plus
+ * subscription at $15 per month. Other plans, other Plus prices (the legacy
+ * $20 Price), other intervals, and trialing or past-due rows get no cohort.
+ */
+export const PLUS_USD15_MONTH_COHORT = "plus-usd15-month";
+
 const productNames = new Map<string, string>();
 const PRODUCT_LOOKUP_TIMEOUT_MS = 5_000;
 
 /**
- * The labels: `cmuxPlanSource` always, and the `stripe*` keys only for a
- * subscription that belongs to the machine's billing scope. A Team-plan
+ * The labels: `cmuxPlanSource`, `cmuxBillingPlan`, and `cmuxBillingCohort`
+ * always (an empty value clears a stale key), and the `stripe*` keys only for
+ * a subscription that belongs to the machine's billing scope. `cmuxBillingPlan`
+ * is the plan of that subscription now; `cmuxPlan` stays the row's plan at
+ * create. A Team-plan
  * machine takes the billing team's subscription and nothing else. A machine on
  * a personal plan (go, pro, max, founders) takes the creator's personal subscription;
  * that query returns personal products only (Go, Pro, Max, Founder's
@@ -52,13 +63,36 @@ export async function vmStripeProviderTags(scope: VmBillingScope): Promise<Recor
   const status = await scopeBillingStatus(scope);
   // Only a row that grants access names the subscription: a canceled row, or
   // a past-due row chosen for the portal beside another active row, does not.
-  if (status?.subscriptionId && isActiveStripeStatus(status.subscriptionStatus)) return { cmuxPlanSource: "stripe", ...(await stripeTags(status)) };
+  if (status?.subscriptionId && isActiveStripeStatus(status.subscriptionStatus)) {
+    return {
+      cmuxPlanSource: "stripe",
+      cmuxBillingPlan: status.subscriptionPlanId ?? "",
+      cmuxBillingCohort: billingCohort(status),
+      ...(await stripeTags(status)),
+    };
+  }
   // Founder's Edition is lifetime Pro: it funds only a Pro or Founder's machine.
   if (status?.hasFoundersEdition && (scope.billingPlanId === FOUNDERS_PLAN_ID || scope.billingPlanId === PRO_PLAN_ID)) {
     // A lifetime purchase has no subscription to name.
-    return { cmuxPlanSource: "stripe", ...(status.customerId ? { stripeCustomerId: status.customerId } : {}) };
+    return {
+      cmuxPlanSource: "stripe",
+      cmuxBillingPlan: FOUNDERS_PLAN_ID,
+      cmuxBillingCohort: "",
+      ...(status.customerId ? { stripeCustomerId: status.customerId } : {}),
+    };
   }
-  return { cmuxPlanSource: await planSourceWithoutSubscription(scope) };
+  return { cmuxPlanSource: await planSourceWithoutSubscription(scope), cmuxBillingPlan: "", cmuxBillingCohort: "" };
+}
+
+/** Plus at $15 per month on a paid (`active`) row; every other subscription has no cohort. */
+function billingCohort(status: StripeBillingStatus): string {
+  const price = status.planPrice;
+  return status.subscriptionStatus === "active" &&
+      status.subscriptionPlanId === GO_PLAN_ID &&
+      price?.amountUsd === 15 &&
+      price.interval === "month"
+    ? PLUS_USD15_MONTH_COHORT
+    : "";
 }
 
 async function scopeBillingStatus(scope: VmBillingScope): Promise<StripeBillingStatus | null> {

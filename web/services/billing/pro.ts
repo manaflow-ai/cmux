@@ -236,6 +236,8 @@ export type StripeBillingStatus = {
   readonly planProduct?: { readonly id: string | null; readonly name: string | null } | null;
   /** What that Price charges, when it is a USD recurring price. */
   readonly planPrice?: SubscriptionPrice | null;
+  /** The mirror row's `plan` (`go`, `pro`, `max`, `team`) behind `subscriptionId`, or null. */
+  readonly subscriptionPlanId?: string | null;
 };
 export type StripeBillingStatusQuery = (
   stackUserId: string,
@@ -819,6 +821,7 @@ export async function stripeBillingStatusForTeam(
       .select({
         id: stripeSubscriptions.id,
         status: stripeSubscriptions.status,
+        plan: stripeSubscriptions.plan,
         raw: stripeSubscriptions.raw,
         cancelAtPeriodEnd: stripeSubscriptions.cancelAtPeriodEnd,
         currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
@@ -992,6 +995,7 @@ function stripeBillingStatusFromRows(
   subscription: {
     readonly id?: string | null;
     readonly status?: string | null;
+    readonly plan?: string | null;
     readonly cancelAtPeriodEnd?: boolean | null;
     readonly raw?: unknown;
   } | undefined,
@@ -1015,6 +1019,7 @@ function stripeBillingStatusFromRows(
     planPriceId: planPriceIdFromRaw(subscription?.raw),
     planProduct: planProductFromRaw(subscription?.raw),
     planPrice: subscriptionPriceFromRaw(subscription?.raw),
+    subscriptionPlanId: subscription?.plan ?? null,
   };
 }
 
