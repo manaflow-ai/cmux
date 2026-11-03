@@ -1224,3 +1224,49 @@ fn a_store_command_crossing_the_deadline_is_stopped_there() {
     assert_eq!(result.err(), Some("vault.secret_store_timeout"));
     assert!(start.elapsed() < std::time::Duration::from_secs(3), "stopped at the deadline");
 }
+
+#[test]
+#[cfg(unix)]
+fn a_store_command_whose_child_keeps_the_pipe_stops_at_the_deadline() {
+    // The command exits at once; the `sleep` it started holds stdout open.
+    let mut cmd = std::process::Command::new("sh");
+    cmd.args(["-c", "sleep 20 & exit 0"]).stdout(std::process::Stdio::piped());
+    let start = std::time::Instant::now();
+    let deadline = start + std::time::Duration::from_millis(300);
+    let result = super::store::capture_until(cmd, false, deadline);
+    assert_eq!(result.err(), Some("vault.secret_store_timeout"));
+    assert!(start.elapsed() < std::time::Duration::from_secs(3), "stopped at the deadline");
+}
+
+#[test]
+#[cfg(unix)]
+fn a_store_command_that_exits_gives_its_whole_output() {
+    let mut cmd = std::process::Command::new("sh");
+    cmd.args(["-c", "printf done"]).stdout(std::process::Stdio::piped());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let (status, out) = super::store::capture_until(cmd, false, deadline).expect("ran");
+    assert!(status.success());
+    assert_eq!(out.as_slice(), b"done");
+}
+
+#[test]
+fn an_older_daemon_is_told_apart_and_the_refusal_says_to_restart_it() {
+    use crate::cli::host_vault::{DAEMON_OUTDATED, method_not_found};
+    let old: anyhow::Error =
+        crate::client::DaemonError(crate::rpc::RpcError::method_not_found("_acpmux/vault_pull"))
+            .into();
+    assert!(method_not_found(&old));
+    let other: anyhow::Error =
+        crate::client::DaemonError(crate::rpc::RpcError::new(-32000, "busy")).into();
+    assert!(!method_not_found(&other));
+    assert!(!method_not_found(&anyhow::anyhow!("connection closed")));
+    let shown = format!(
+        "{:#}",
+        crate::cli::host_vault::failure_for_test(pull::Failure {
+            code: DAEMON_OUTDATED.into(),
+            deleted: Vec::new(),
+            outcome: None,
+        })
+    );
+    assert!(shown.contains("acpmux daemon restart"), "{shown}");
+}

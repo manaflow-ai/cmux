@@ -1345,6 +1345,10 @@ class Controller:
             return {f"{name}: {check}" for check in red_subchecks(log)} or {name}
         if job is None:
             return {name}
+        if why := base_red_excuse.test_reds.lost_runner(job):
+            # A lost runner is infra, not a verdict (test_reds.lost_runner): keyed by this job's id, never a base red,
+            # and named so, since a re-run decides it.
+            return {f"{name}: infra, not a verdict (job {job_id}: {why}; re-run it)"}
         log = self.job_log(job_id)
         if log is None or not log.strip():
             # A test job's unreadable or empty log: nothing can show it is the base's, so it is this job's

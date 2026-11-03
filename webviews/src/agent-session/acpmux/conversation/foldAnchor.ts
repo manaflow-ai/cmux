@@ -5,11 +5,12 @@
 // during the hold moves the offset by however far the line moved, and none of them follows the
 // latest row meanwhile.
 //
-// Tool/work disclosures clicked at or near the end, and any line opened there (`opensBody`, Leo
-// 2026-11-02), instead pin the bottom and move the thread as one stack: what opens pushes the text
-// above it up (App.tsx, Leo 2026-10-31). Other disclosures keep the clicked line even when closing
-// near the end: foldRoomFor prevents a browser clamp, and trimmedFoldRoom releases that room as the
-// reader scrolls up, the rows fill it, or a send/Jump to latest returns to following.
+// Any disclosure clicked with the view at its very end instead pins the bottom and moves the thread
+// as one stack: what opens pushes the text above it up (Leo 2026-11-02), and what closes pulls it
+// down, leaving no blank room under the rows (App.tsx `beginBottomStackFold`, Leo 2026-11-03: "it's
+// weird to collapse and get all that empty space at the bottom"). Away from the end a close keeps
+// the clicked line: foldRoomFor prevents a browser clamp, and trimmedFoldRoom releases that room as
+// the reader scrolls up, the rows fill it, or a send/Jump to latest returns to following.
 import { foldMs } from "./fold";
 
 /// The disclosures a click holds in place: every control that opens or closes something in its row

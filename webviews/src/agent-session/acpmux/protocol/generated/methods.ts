@@ -262,6 +262,7 @@ export interface AcpmuxRequests {
   "_acpmux/pair_redeem": { params: unknown; result: unknown };
   "_acpmux/vault_pull": { params: unknown; result: unknown };
   "_acpmux/vault_forget": { params: unknown; result: unknown };
+  "_acpmux/vault_status": { params: unknown; result: unknown };
   "_acpmux/turn_attestation": { params: unknown; result: unknown };
 }
 
@@ -574,6 +575,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/pair_redeem", kind: "request", acp: false, typed: false },
   { name: "_acpmux/vault_pull", kind: "request", acp: false, typed: false },
   { name: "_acpmux/vault_forget", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/vault_status", kind: "request", acp: false, typed: false },
   { name: "_acpmux/turn_attestation", kind: "request", acp: false, typed: false },
   { name: "_acpmux/event", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/message", kind: "notification", acp: false, typed: true },

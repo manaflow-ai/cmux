@@ -406,6 +406,23 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertIn("postcss.config.mjs", result.stderr)
         self.assertNotIn("still run, from the hook's reviewed copy", result.stderr)
 
+    def test_the_reviewed_copy_runs_nothing_when_a_reason_is_a_symlink(self):
+        # A symlink the push adds inside scripts/cmux-next/ could walk a reviewed check that reads that folder outside
+        # the tree. No code runs that way, but the reviewed copy stays out: any symlink reason keeps every piece out.
+        self.trusted_fixture()
+        outside = self.root / "outside"
+        outside.mkdir()
+        (self.repo / "scripts/cmux-next/media").mkdir(parents=True, exist_ok=True)
+        (self.repo / "scripts/cmux-next/media/away").symlink_to(outside)
+        self.write(self.SWIFT_SOURCE, self.RINGED_FIELD)
+        self.commit("a symlink in scripts/cmux-next and a field with a focus ring")
+
+        result = self.push()
+
+        self.assertIn("webviews: not linted here", result.stderr)
+        self.assertIn("scripts/cmux-next/media/away", result.stderr)
+        self.assertNotIn("still run, from the hook's reviewed copy", result.stderr)
+
     def test_the_reviewed_copy_is_what_runs_never_the_pushed_check_code(self):
         # A pushed module that would shadow the stdlib for a script run from scripts/cmux-next must never load.
         self.trusted_fixture()
@@ -827,6 +844,28 @@ class WebLintPrePushTests(unittest.TestCase):
                 self.git("rm", "--quiet", name)
                 self.commit(f"drop {name}")
                 self.push(CMUX_WEB_LINT_SKIP_REASON="fixture: reset between the nested tool config sub-tests")
+
+    def test_a_nested_lint_config_a_push_carries_is_never_used(self):
+        # oxlint loads a nested .oxlintrc.json (its jsPlugins run as code) from any folder it lints; vite-plus 1.3's
+        # `vp lint` ignores one, but that is the tool's choice, not the hook's. The hook refuses it by name, wherever
+        # it sits in the package, src/ included, whatever runs the lint.
+        for number, name in enumerate(("webviews/src/x/.oxlintrc.json", "webviews/test/oxlint.config.ts",
+                                       "webviews/src/.oxfmtrc.json", "web/app/eslint.config.mjs",
+                                       "web/app/.eslintrc.cjs")):
+            with self.subTest(name=name):
+                self.write(name, '{"jsPlugins": ["./plugin.mjs"]}\n')
+                self.write("webviews/src/app.ts", f"export const app = {90 + number};\n")
+                self.write("web/app/page.tsx", f"export const page = {90 + number};\n")
+                self.commit(f"add {name}")
+
+                result = self.push()
+
+                area = name.split("/")[0]
+                self.assertIn(f"{area}: not linted here", result.stderr)
+                self.assertIn(name, result.stderr)
+                self.git("rm", "--quiet", name)
+                self.commit(f"drop {name}")
+                self.push(CMUX_WEB_LINT_SKIP_REASON="fixture: reset between the nested config sub-tests")
 
     def test_a_symlink_in_executed_code_is_never_followed(self):
         # A symlink already on the base points executed code at a source file, which a push may change.
@@ -2003,6 +2042,21 @@ class TrustBoundaryTests(unittest.TestCase):
                 with lint.tree_of(repo, sha, ["web"]):
                     pass
         self.assertIn("node_modules", str(raised.exception))
+
+    def test_a_lint_config_by_name_anywhere_in_a_package_is_check_code(self):
+        lint = load_lint(SOURCE)
+        webviews = next(p for p in lint.SCRIPT_PACKAGES if p.directory == "webviews")
+        for path in ("webviews/src/a/.oxlintrc.json", "webviews/src/.OXLINTRC.JSON", "webviews/test/oxlint.config.ts",
+                     "webviews/src/b/.oxfmtrc.jsonc", "webviews/src/c/oxfmt.config.mjs", "webviews/src/eslint.config.js",
+                     "webviews/tests/.eslintrc.json"):
+            with self.subTest(path=path):
+                self.assertEqual(lint.executed_changes(webviews, [path]), [path])
+        for path in ("webviews/src/oxlintrc-notes.md", "webviews/src/lint.config.ts", "docs/.oxlintrc.json"):
+            with self.subTest(path=path):
+                self.assertEqual(lint.executed_changes(webviews, [path]), [])
+        web = lint.ESLINT_PACKAGES[0]
+        self.assertEqual(lint.eslint_executed_changes(web, ["web/app/x/eslint.config.mjs", "web/app/page.tsx"]),
+                         ["web/app/x/eslint.config.mjs"])
 
     def test_a_path_that_resolves_elsewhere_in_the_tree_escapes(self):
         lint = load_lint(SOURCE)
