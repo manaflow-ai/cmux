@@ -134,6 +134,39 @@ export type AcpmuxBackgroundTurn = {
   /// A row of its own draws something, so its line opens to it. A turn whose events only update
   /// rows that are not its own (a call an earlier turn started, a subagent's work) has none.
   hasRows?: true;
+  /// What started it, when acpmux knows: the background task that ended and whether that is worth
+  /// a response (acpmux hub/background_cause.rs). A log from before acpmux said so has none.
+  cause?: AcpmuxBackgroundCause;
+  /// Its reply went onto the call that started the task (`AcpmuxBackgroundReaction`), so the
+  /// transcript draws no line for it.
+  attached?: true;
+};
+
+/// How much a background task's end is worth (Leo, 2026-11-03: "there's like... background tasks
+/// worth responding to and not worth responding to"), decided by acpmux from the task's own event
+/// in one table keyed by the task's kind and status: `silent` (an interim stop, a subagent's step,
+/// a stop, a monitor tick), `result` (a final report, a command that exited), `failure`.
+export type AcpmuxBackgroundWeight = "silent" | "result" | "failure";
+
+/// The task a background turn answered: its kind (`subagent`, `subagent_step`, `monitor`,
+/// `shell`, `unknown`), the notification's status, its weight, the tool call that started it
+/// (`origin`) and the notification's own summary.
+export type AcpmuxBackgroundCause = {
+  kind: string;
+  status: string;
+  weight: AcpmuxBackgroundWeight;
+  origin?: string;
+  summary?: string;
+};
+
+/// What a background turn left on the call that started its task: the agent's reply, which the
+/// opened call shows under its output, and `fresh` for a final result the person has not seen
+/// (a small mark at the row's edge until their next prompt).
+export type AcpmuxBackgroundReaction = {
+  turn: string;
+  weight: AcpmuxBackgroundWeight;
+  text?: string;
+  fresh?: true;
 };
 
 /// What a run of background-task notifications' line counts (conversation/backgroundRuns.ts): quiet
@@ -601,6 +634,8 @@ export type AcpmuxActivity = {
     images?: string[];
     /// A shell that went on in the background: running there, then how it ended.
     background?: AcpmuxBackgroundState;
+    /// The agent's reaction to its background task ending (`AcpmuxBackgroundReaction`).
+    reaction?: AcpmuxBackgroundReaction;
     /// The person approved this call's permission ask (Allow, Always allow, or a switch to the
     /// harness's highest mode while its card was open): the row says "Approved" at its edge
     /// instead of a receipt line of its own (direct.ts `markApproved`).

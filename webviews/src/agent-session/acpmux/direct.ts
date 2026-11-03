@@ -20,6 +20,7 @@ import type {
   AcpmuxBackgroundState,
   AcpmuxBackgroundTask,
   AcpmuxBackgroundTurn,
+  AcpmuxBackgroundReaction,
   AcpmuxCompaction,
   AcpmuxContextBreakdown,
   AcpmuxPlanEntry,
@@ -118,6 +119,8 @@ import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
 import { pasteRanges } from "./conversation/promptCollapse";
 import { BACKGROUND_TURN, backgroundTurnRecord, backgroundTurnRowId } from "./conversation/backgroundTurns";
+import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
+import { experimentArm } from "../../experiments/experiment";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
 import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
 import { chatTools, toolApplied, type ToolApplied } from "./summary/chatTools";
@@ -1374,6 +1377,19 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// later) waits in `backgroundEnds`.
   private backgroundSpans: { id: string; from: number; to?: number }[] = [];
   private readonly backgroundEnds = new Map<string, { seq: number; turn: AcpmuxBackgroundTurn }>();
+  /// Each background turn's reply rows, in order (`markBackgroundRows`).
+  private readonly backgroundReplies = new Map<string, string[]>();
+
+  /// What background turn `turn` replied, its messages' words in order; "" for none.
+  backgroundReply(turn: string): string {
+    const words: string[] = [];
+    for (const id of this.backgroundReplies.get(turn) ?? []) {
+      const row = this.get(id);
+      if (row?.kind === "assistant" && row.inBackground === turn && !isVisiblyEmptyMessage(row))
+        words.push(row.text!.trim());
+    }
+    return words.join("\n\n");
+  }
 
   /// A background turn's started record at `seq`: how it ended when its ended record came first,
   /// and whether rows its events made before this record was heard draw something (`hasRows`).
@@ -1390,6 +1406,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       if (!row || row.kind === BACKGROUND_TURN || row.kind === "user" || row.inBackground === id) continue;
       const tagged = { ...row, inBackground: id };
       if (!isVisiblyEmptyMessage(tagged)) hasRows = true;
+      if (row.kind === "assistant") this.backgroundReplies.set(id, [...(this.backgroundReplies.get(id) ?? []), rowId]);
       super.set(rowId, tagged);
       const at = this.orderedIndex.get(rowId);
       if (this.ordered && at !== undefined) this.ordered[at] = tagged;
@@ -1399,8 +1416,14 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     return { ended: ended?.turn, hasRows };
   }
 
-  /// A row of background turn `turn` that draws something: its line opens to it from now on.
+  /// A row of background turn `turn` that draws something: its line opens to it from now on. Its
+  /// replies are kept by id (a few per turn), for the call its reaction goes onto.
   private markBackgroundRows(turn: string, row: AcpmuxRow): void {
+    if (row.kind === "assistant") {
+      const replies = this.backgroundReplies.get(turn);
+      if (!replies) this.backgroundReplies.set(turn, [row.id]);
+      else if (!replies.includes(row.id)) replies.push(row.id);
+    }
     if (isVisiblyEmptyMessage(row)) return;
     const id = backgroundTurnRowId(turn);
     const line = this.get(id);
@@ -2017,6 +2040,11 @@ export class AcpmuxDirectClient {
   private messageRows = new Map<string, string[]>();
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
+  /// The reaction on each call a background task's end went onto (`attachReaction`), and the call
+  /// each background turn's went onto.
+  private reactions = new Map<string, { reaction: AcpmuxBackgroundReaction; row?: string }>();
+  private reactionOrigins = new Map<string, string>();
+  private freshReactions = new Set<string>();
   /// TodoWrite calls a drawn checklist stands for (cx-ncc.80): acpmux sends each one's plan just
   /// before it, so the call and its updates draw no tool row. Plumbing calls (hiddenTools.ts)
   /// draw none either.
@@ -2812,6 +2840,9 @@ export class AcpmuxDirectClient {
     this.offerRows.clear();
     this.receivedOffers.clear();
     this.toolRows.clear();
+    this.reactions.clear();
+    this.reactionOrigins.clear();
+    this.freshReactions.clear();
     this.planCalls.clear();
     this.planRow = undefined;
     this.compactionHeardAt.clear();
@@ -4968,6 +4999,9 @@ export class AcpmuxDirectClient {
     this.receivedOffers.clear();
     this.compactionHeardAt.clear();
     this.toolRows.clear();
+    this.reactions.clear();
+    this.reactionOrigins.clear();
+    this.freshReactions.clear();
     this.planCalls.clear();
     this.subagents = new SubagentFold(this.subagentStops);
     // Replay knows the native harness ids from the session summary, the earlier ones a restart
@@ -5274,24 +5308,110 @@ export class AcpmuxDirectClient {
       // An older page's started record after its ended one: the line keeps how it ended.
       const { ended, hasRows } = this.rows.openBackground(turn.id, event.seq);
       if (existing) return;
+      const attached = this.attachReaction(turn);
       this.rows.set(id, {
         id,
         version: 1,
         at: event.at,
         seq: event.seq,
         kind: BACKGROUND_TURN,
-        background: { ...(ended ?? turn), ...(hasRows && { hasRows: true as const }) },
+        background: {
+          ...turn,
+          ...ended,
+          ...(hasRows && { hasRows: true as const }),
+          ...(attached && { attached: true as const }),
+        },
       });
+      if (ended) this.settleReaction(turn.id);
       return;
     }
     this.rows.closeBackground(event.seq, turn);
     if (!existing) return;
     const hasRows = existing.background?.hasRows;
+    // The started record's cause and where its reply went stay.
     this.rows.set(id, {
       ...existing,
       version: existing.version + 1,
-      background: { ...turn, ...(hasRows && { hasRows }) },
+      background: { ...existing.background, ...turn, ...(hasRows && { hasRows }) },
     });
+    this.settleReaction(turn.id);
+  }
+
+  /// A background turn whose task acpmux weighed (Leo, 2026-11-03: "there's like... background
+  /// tasks worth responding to and not worth responding to"): in the arms that put a task's end on
+  /// its call (backgroundReaction.experiment.ts), a step or interim stop and a final result go onto
+  /// the call that started the task, a result marked new until the person's next prompt. A failure
+  /// always keeps its own line. Whether the call was found, so the turn draws no line of its own.
+  private attachReaction(turn: AcpmuxBackgroundTurn): boolean {
+    const cause = turn.cause;
+    if (!cause?.origin || cause.weight === "failure") return false;
+    if (!reactsOnCall(experimentArm(backgroundReactionLook))) return false;
+    // An older page's result was seen long ago: only a live one is new (ReactionMark.tsx draws it
+    // in the arm that marks it).
+    // A later end of the same call keeps what an earlier one left: its words and its new mark. An
+    // older page's end of a call a newer one already reached leaves the newer one's in place.
+    const prior = this.reactions.get(cause.origin)?.reaction;
+    if (prior && this.foldingBelow !== undefined) {
+      this.reactionOrigins.set(turn.id, cause.origin);
+      return true;
+    }
+    const fresh = prior?.fresh || (cause.weight === "result" && this.foldingBelow === undefined);
+    const reaction: AcpmuxBackgroundReaction = {
+      turn: turn.id,
+      weight: cause.weight,
+      ...(prior?.text && { text: prior.text }),
+      ...(fresh && { fresh: true }),
+    };
+    if (!this.react(cause.origin, reaction)) return false;
+    this.reactionOrigins.set(turn.id, cause.origin);
+    return true;
+  }
+
+  /// A background turn that ended: its reply goes onto the call its reaction is on, when the turn
+  /// folds it (a silent one, or a quiet one); a reply with something to say draws as a message.
+  private settleReaction(turn: string): void {
+    const origin = this.reactionOrigins.get(turn);
+    const reaction = origin === undefined ? undefined : this.reactions.get(origin)?.reaction;
+    if (!origin || reaction?.turn !== turn) return;
+    const line = this.rows.get(backgroundTurnRowId(turn))?.background;
+    if (line?.quiet !== true && reaction.weight !== "silent") return;
+    // An earlier end of the same call left its words (`attachReaction` carried them): these follow.
+    const reply = this.rows.backgroundReply(turn);
+    if (reply) this.react(origin, { ...reaction, text: reaction.text ? `${reaction.text}\n\n${reply}` : reply });
+  }
+
+  /// Puts `reaction` on call `origin`: an activity row's tool call, or the subagent it started
+  /// (its done line). Whether either was found. The row's version moves, so it draws again in
+  /// whichever turn it sits, as `markBackgroundCall` does.
+  private react(origin: string, reaction: AcpmuxBackgroundReaction): boolean {
+    // The call's row as the pane knows it now, else where its reaction went (a prompt forgets
+    // its calls' rows, `toolRows`, but not the rows themselves).
+    const id = this.toolRows.get(origin) ?? this.reactions.get(origin)?.row;
+    const row = id === undefined ? undefined : this.rows.get(id);
+    const index = row?.items?.findIndex((item) => item.tool?.id === origin) ?? -1;
+    if (row && index >= 0) {
+      const items = [...row.items!];
+      const item = items[index]!;
+      items[index] = { ...item, tool: { ...item.tool!, reaction } };
+      this.rows.set(row.id, { ...row, version: row.version + 1, items }, true);
+    } else if (this.subagents.react(origin, reaction)) this.takeSubagentRows();
+    else return false;
+    this.reactions.set(origin, { reaction, ...(row && index >= 0 && { row: row.id }) });
+    if (reaction.fresh) this.freshReactions.add(origin);
+    else this.freshReactions.delete(origin);
+    return true;
+  }
+
+  /// The person's prompt: the results they had not seen are seen.
+  private seeReactions(): void {
+    const fresh = this.freshReactions;
+    this.freshReactions = new Set();
+    for (const origin of fresh) {
+      const reaction = this.reactions.get(origin)?.reaction;
+      if (!reaction?.fresh) continue;
+      const { fresh: _, ...seen } = reaction;
+      this.react(origin, seen);
+    }
   }
 
   private turnStopCause(event: EventRecord): SubagentStopReason | undefined {
@@ -5878,6 +5998,8 @@ export class AcpmuxDirectClient {
                   ? { text: "", incoming }
                   : { text: incoming?.kind === "prompt" ? incoming.text : raw };
         const untyped = taskResult !== undefined || (incoming !== undefined && incoming.kind !== "prompt");
+        // An older page's prompt came before every live result: it sees none of them.
+        if (!untyped && this.foldingBelow === undefined) this.seeReactions();
         // Its queued line, if the result waited, gives way to this prompt's.
         if (received) this.rows.delete(`received-${received.offerId}`);
         if (received) this.receivedOffers.add(received.offerId);
