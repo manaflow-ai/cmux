@@ -9,6 +9,7 @@
 // stops once the bump has reached the pointer (within 0.01 row) and the grow-in has ended, and the
 // next move asks for it again. `leave()` (the pointer leaving the ticks, Reduce Motion, unmount)
 // cancels a pending frame and clears every property it wrote.
+import { reducedMotion } from "./scrollMotion";
 import { ROW_PITCH, waveAmplitude, waveFollow, WAVE_IN_MS, waveProgress, type WaveShape } from "./model";
 
 /// The custom property the bar (and bookmark dot) of each tick in the bump's reach carries: its
@@ -48,6 +49,12 @@ export class HoverWave {
     const list = this.list();
     const rail = this.rail();
     if (!list || !rail) return;
+    // A rail that mounted again (shown again, or back from the full map) under a pointer that never
+    // left: the wave starts over on it rather than writing to the old rail's ticks.
+    if (this.active && !rail.hasAttribute(WAVE_ATTRIBUTE)) this.leave();
+    // Reduce Motion read live as the pointer arrives (the rail's own state updates on the tick's
+    // enter, which comes after this): the stepped fisheye, which switches at once, draws instead.
+    if (!this.active && reducedMotion()) return;
     const box = list.getBoundingClientRect();
     const row = (clientY - box.top + list.scrollTop) / ROW_PITCH;
     this.target = Math.max(0, Math.min(this.rows(), row));

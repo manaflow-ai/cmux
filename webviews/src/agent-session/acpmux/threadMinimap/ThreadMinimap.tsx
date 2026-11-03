@@ -922,12 +922,13 @@ export function ThreadMinimap({
     const went = wasShown.current && !shown;
     wasShown.current = shown;
     if (!went) return;
+    wave?.leave();
     setFocused(undefined);
     setHovered(undefined);
     setCardRow(undefined);
     setReveal(undefined);
     dismiss();
-  }, [shown, dismiss]);
+  }, [shown, dismiss, wave]);
 
   if (full)
     return (
