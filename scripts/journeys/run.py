@@ -112,11 +112,6 @@ def q(text):
     return "'" + str(text).replace("'", "'\"'\"'") + "'"
 
 
-def ere_literal(text):
-    """TEXT as a POSIX extended regular expression that matches only itself (for pkill -f)."""
-    return re.sub(r"([.\[\]()*+?{}|^$\\])", r"\\\1", str(text))
-
-
 def run(argv, *, input=None, timeout=None, check=True):
     done = subprocess.run(argv, input=input, capture_output=True, timeout=timeout)
     if check and done.returncode != 0:
@@ -218,7 +213,7 @@ def required_hz(spec):
 
 
 def parse_vdisplay(text):
-    """--vdisplay HZxSCALE as (hz, scale), or None when it is not one (HZ a whole number in [1, 240], SCALE 1 or 2)."""
+    """--vdisplay HZxSCALE as (hz, scale), or None when it is not one (HZ a whole number in [24, 240], SCALE 1 or 2)."""
     m = VDISPLAY.fullmatch(text or "")
     if not m or not VDISPLAY_MIN_HZ <= int(m.group(1)) <= VDISPLAY_MAX_HZ:
         return None
@@ -660,7 +655,9 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     lease owns the whole mini (`capture-host acquire --slot --exclusive`: no fleet step runs there meanwhile;
     the fleet rule for any result that is evidence, such as the dogfood smoke gate). `run_ident` ({"run_id",
     "run_started_at"}, new_run()): the driver stamps it into each result.json and only results with it count.
-    `vdisplay` (HZxSCALE, whole_host only): start_vdisplay() before the launch; the lease stops it in every case."""
+    `vdisplay` (HZxSCALE, whole_host only): start_vdisplay() before the launch. The display runs from the lease's root,
+    and the release of the lease stops it with every process under that root (capture-host's cap_stop), in every case;
+    it also ends by itself 30 s before the lease would."""
     ch = capture_host()
     ids = [s["id"] for s in specs]
     ident = run_ident or new_run()
@@ -681,7 +678,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     lease, deadline = acquired[-1], time.monotonic() + LEASE_SECONDS
     left = lambda cap: max(10.0, min(cap, deadline - time.monotonic()))
     log(f"leased {lease}")
-    facts, host, hog_started, work, drove, harness, vd_started = {}, None, None, None, None, None, False
+    facts, host, hog_started, work, drove, harness = {}, None, None, None, None, None
     try:
         signal.pthread_sigmask(signal.SIG_SETMASK, mask)  # a stop from here on raises inside the try: finally releases
         set_phase(ch, lease, "download")
@@ -698,7 +695,6 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         if vdisplay:
             if not whole_host:
                 raise RuntimeError("--vdisplay needs --whole-host (a slot shares the mini's screen)")
-            vd_started = True  # before the call: a call that times out after the display began still stops it
             # It ends by itself 30 s before the lease (the hog's margin): a stop that fails cannot outlive the lease.
             shown = start_vdisplay(host, work, vdisplay, int(left(LEASE_SECONDS) - 30), out, left(90))
             log(f"virtual display on {host}: {shown.get('mode')} pixels {shown.get('pixels')} refresh "
@@ -784,11 +780,6 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         # The whole clean-up with stops blocked: a second TERM (^C reaches run.py and fuzz.py, which then sends TERM)
         # must not kill the release; a stop that came meanwhile is raised when the mask is restored, after it.
         signal.pthread_sigmask(signal.SIG_BLOCK, STOP_SIGNALS)
-        if vd_started and host:
-            try:  # our own display process only, by its path under this lease's root (an exact pattern)
-                remote(host, f"pkill -f {q(ere_literal(work + '/VD.app/'))} ; true", timeout=30, check=False)
-            except (RuntimeError, subprocess.TimeoutExpired) as error:
-                log(f"stopping the virtual display on {host} failed ({error}); it ends by itself at its hold")
         if hog_started and host:
             # Our own hog only: the pid it wrote, checked to still be smoke_hog.py (its deadline ends it anyway).
             # A stop that times out must not skip the release below.
@@ -1014,7 +1005,7 @@ def main(argv=None):
         ap.error("name the build under test: --build JOB or --commit SHA")
     vdisplay = parse_vdisplay(opts.vdisplay) if opts.vdisplay is not None else None
     if opts.vdisplay is not None and vdisplay is None:
-        ap.error(f"--vdisplay takes HZxSCALE: HZ a whole number in [1, {VDISPLAY_MAX_HZ}], SCALE 1 or 2 (e.g. 120x1, "
+        ap.error(f"--vdisplay takes HZxSCALE: HZ a whole number in [{VDISPLAY_MIN_HZ}, {VDISPLAY_MAX_HZ}], SCALE 1 or 2 (e.g. 120x1, "
                  f"120x2), not {opts.vdisplay!r}")
     if vdisplay and not opts.whole_host:
         ap.error("--vdisplay needs --whole-host (a slot shares the mini's screen)")

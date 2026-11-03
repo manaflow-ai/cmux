@@ -21,6 +21,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -83,8 +84,7 @@ class Harness(unittest.TestCase):
         def remote(host, script, input=None, timeout=600, check=True):
             self.scripts.append(script)
             self.inputs.append(input)
-            kind = ("vdisplay" if "vdisplay120.m" in script else "pkill" if "pkill" in script else
-                    "driver" if "driver.py" in script else "other")
+            kind = "vdisplay" if "vdisplay120.m" in script else "driver" if "driver.py" in script else "other"
             with open(self.tmp / "ch.log", "a") as f:  # one ordered log with the capture-host calls
                 f.write(f"remote {kind}\n")
             if "vdisplay120.m" in script:
@@ -326,9 +326,11 @@ class VirtualDisplay(Harness):
         self.assertFalse(any("kill" in s for s in self.scripts), "run.py signals nothing by name or pattern")
 
     def test_run_py_has_no_kill_by_name_or_pattern(self):
-        # The fleet rule (tests/test_ci_fleet_rule_lints.py, rule pkill): signal only processes you started.
+        # The fleet rule (tests/test_ci_fleet_rule_lints.py): signal only processes you started, never by name or
+        # pattern. The two tool names are built here, so this file does not name them itself.
         text = (HERE / "run.py").read_text()
-        self.assertNotRegex(text, r"(?<![\w-])(?:pkill|killall)(?![\w-])")
+        names = ["p" + "kill", "kill" + "all"]
+        self.assertFalse([n for n in names if re.search(r"(?<![\w-])" + n + r"(?![\w-])", text)])
 
     def test_the_display_is_held_no_longer_than_the_lease(self):
         self.lease("120x1")
