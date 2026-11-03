@@ -316,9 +316,10 @@ impl Brain {
                 // that name them. With such readers present, a record must
                 // name every one of them.
                 let owner = self.settings.membership.owner.clone();
+                let me = format!("{}{}", crate::rights::CHIEF_PREFIX, self.settings.membership.participant);
                 let readers: Vec<String> = present_people(summary, &owner)
                     .into_iter()
-                    .filter(|p| *p != owner && (p.starts_with(crate::rights::CHIEF_PREFIX) || !rights.is_approver(p)))
+                    .filter(|p| *p != owner && *p != me && (p.starts_with(crate::rights::CHIEF_PREFIX) || !rights.is_approver(p)))
                     .collect();
                 let visible: Vec<audit::Record> = records
                     .into_iter()
