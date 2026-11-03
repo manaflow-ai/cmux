@@ -109,6 +109,83 @@ struct AgentPaneAttachDroppedTests {
         #expect(rig.model.droppedPaths.source(.drop, names: names, gestureAt: 1000) == nil)
     }
 
+    @Test func reorderedDuplicateNamesAndZipAliasesKeepTheirOriginalIdentity() throws {
+        let urls = ["/tmp/one/docs", "/tmp/two/docs.zip", "/tmp/three/docs", "/tmp/four/cafe\u{301}.txt",
+                    "/tmp/five/caf\u{e9}.txt", "/tmp/six/end"].map { URL(fileURLWithPath: $0) }
+        let names = ["end", "docs.zip", "caf\u{e9}.txt", "docs", "docs.zip", "cafe\u{301}.txt"]
+        let expected = [5, 0, 3, 2, 1, 4].map { urls[$0] }
+        let record = AgentPaneDroppedPaths(now: { 1000 }, wall: { 1000 })
+        record.stash(urls, kind: .drop)
+        let paths = try #require(record.take(.drop, names: names))
+        #expect(paths.map(\.path) == expected.map(\.path))
+        #expect(record.take(.drop, names: names) == nil)
+        record.stashSource(urls, items: urls.count, claimed: nil, kind: .drop)
+        #expect(record.source(.drop, names: names, gestureAt: 1000)?.urls == expected)
+        var read: [URL] = []
+        let sources = AgentPaneModel.sources(for: names, urls: urls, claimed: nil) { url in
+            read.append(url)
+            return .screenshot
+        }
+        #expect(read.map(\.path) == expected.map(\.path))
+        #expect(sources.count == names.count && sources.allSatisfy { $0 == .screenshot })
+    }
+
+    @Test func aPartialReorderedMatchNeverReturnsPathsOrSpendsASourceGesture() {
+        let urls = ["/tmp/one/a.txt", "/tmp/two/b.txt", "/tmp/three/a.txt"].map { URL(fileURLWithPath: $0) }
+        let record = AgentPaneDroppedPaths(now: { 1000 }, wall: { 1000 })
+        record.stash(urls, kind: .paste)
+        #expect(record.take(.paste, names: ["b.txt", "a.txt", "missing.txt"]) == nil)
+        #expect(record.take(.paste, names: ["b.txt", "a.txt", "a.txt"]) == nil)
+        record.stashSource(urls, items: 4, claimed: "com.apple.finder", kind: .paste)
+        #expect(record.source(.paste, names: ["b.txt", "a.txt", "missing.txt"], gestureAt: 1000) == nil)
+        #expect(record.source(.paste, names: ["b.txt", "a.txt", "a.txt", "pasted.png"], gestureAt: 999) == nil)
+        #expect(record.source(.paste, names: ["b.txt", "a.txt", "a.txt", "pasted.png"], gestureAt: 1000)?.urls == [urls[1], urls[0], urls[2]])
+        #expect(record.source(.paste, names: ["b.txt", "a.txt", "a.txt"], gestureAt: 1000) == nil)
+        record.stash(urls, kind: .drop)
+        record.stashSource(urls, items: 3, claimed: nil, kind: .drop)
+        record.clearForSessionChange()
+        #expect(record.take(.drop, names: ["a.txt", "b.txt", "a.txt"]) == nil)
+        #expect(record.source(.drop, names: ["a.txt", "b.txt", "a.txt"], gestureAt: 1000) == nil)
+    }
+
+    /// Same native operations before and after the matching change. Values are reported, never a
+    /// timing gate; every measurement checks the exact reordered paths and per-file attribution.
+    @Test(arguments: [1024, 16384])
+    func reorderedNameMatchingBenchmark(count: Int) throws {
+        let urls = (0..<count).map { URL(fileURLWithPath: "/tmp/matching/attachment-\($0).bin") }
+        let expected = Array(urls.reversed())
+        let names = expected.map(\.lastPathComponent)
+        let record = AgentPaneDroppedPaths(now: { 1000 }, wall: { 1000 })
+        func report(_ operation: String, _ start: ContinuousClock.Instant) {
+            let elapsed = start.duration(to: .now).components
+            let milliseconds = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
+            print("ATTACHMENT-MATCH operation=\(operation) entries=\(count) ms=\(String(format: "%.3f", milliseconds))")
+        }
+
+        record.stash(urls, kind: .drop)
+        var start = ContinuousClock.now
+        let paths = record.takeItems(.drop, names: names)
+        report("takeItems", start)
+        #expect(try #require(paths).map(\.url) == expected)
+
+        record.stashSource(urls, items: count, claimed: nil, kind: .drop)
+        start = .now
+        let source = record.source(.drop, names: names, gestureAt: 1000)
+        report("source", start)
+        #expect(try #require(source).urls == expected)
+
+        var read: [URL] = []
+        read.reserveCapacity(count)
+        start = .now
+        let sources = AgentPaneModel.sources(for: names, urls: urls, claimed: nil) { url in
+            read.append(url)
+            return .screenshot
+        }
+        report("sources", start)
+        #expect(read == expected)
+        #expect(sources.count == count && sources.allSatisfy { $0 == .screenshot })
+    }
+
     /// A drop of a folder and a file answers each one's path, and whether it is a folder.
     @Test func answersTheDroppedPathsAndFolders() async throws {
         let (base, folder, file) = try Self.dropped()
