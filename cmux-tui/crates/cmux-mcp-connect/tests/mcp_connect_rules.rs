@@ -543,3 +543,25 @@ fn mcp_connect_live_linear_401_names_its_metadata_and_scopes() {
     );
     assert_eq!(challenge_scopes(challenge), ["read", "write"]);
 }
+
+#[test]
+fn mcp_connect_token_answers_are_checked_and_never_printed() {
+    use cmux_mcp_connect::discovery::{Token, encode_form, refresh_form};
+    let t = Token::parse(r#"{"access_token":"at-123","token_type":"Bearer","refresh_token":"rt-9","expires_in":3600}"#).unwrap();
+    assert_eq!(t.access_token, "at-123");
+    assert_eq!(t.expires_in, Some(3600));
+    let shown = format!("{t:?}");
+    assert!(!shown.contains("at-123") && !shown.contains("rt-9"), "{shown}");
+    assert!(Token::parse(r#"{"access_token":"x","token_type":"mac"}"#).is_err());
+    assert!(Token::parse(r#"{"access_token":"a b","token_type":"bearer"}"#).is_err());
+    assert!(Token::parse("{\"access_token\":\"a\\r\\nX-Evil: 1\"}").is_err());
+    let refused =
+        Token::parse(r#"{"error":"invalid_grant","error_description":"code at-123 used"}"#)
+            .unwrap_err();
+    assert_eq!(refused.0, "the token endpoint refused: invalid_grant");
+    let body = encode_form(&refresh_form("r t&", "c1", "https://mcp.example/mcp"));
+    assert_eq!(
+        body,
+        "grant_type=refresh_token&refresh_token=r+t%26&client_id=c1&resource=https%3A%2F%2Fmcp.example%2Fmcp"
+    );
+}

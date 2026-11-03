@@ -654,7 +654,9 @@ impl Hub {
         // that an answer takes.
         if session.status_changes.load(Ordering::SeqCst) == changes && session.turn().is_none() {
             let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
-            let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
+            let asking = !state.pending.is_empty()
+                || self.secrets.waiting_in(&session.id)
+                || self.mcp_connects.waiting_in(&session.id);
             let status = if asking { SessionStatus::Waiting } else { SessionStatus::Ready };
             self.set_status(session, status);
             drop(state);
@@ -1607,6 +1609,7 @@ impl Hub {
                 if state.pending.is_empty()
                     && s.status() == SessionStatus::Waiting
                     && !hub.secrets.waiting_in(&s.id)
+                    && !hub.mcp_connects.waiting_in(&s.id)
                 {
                     let next = if s.turn().is_some() {
                         SessionStatus::Running

@@ -126,6 +126,11 @@ cmux-vault-egress.workspace = true
 # Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 # same-user checks); the detached start (CreateProcess with a handle list),
 # owner-only ACLs and agent job objects use windows-sys.
+[target.'cfg(target_os = "macos")'.dependencies]
+# MCP connection secrets (`hub/mcp_secrets.rs`): items this binary writes itself, so the
+# Keychain's access list names acpmux, not `/usr/bin/security`. Already in the tree via rustls.
+security-framework = { version = "3.7", default-features = false }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # The login-env watcher's change-only inotify (`login_env/watch.rs` `quiet`); `notify` asks for
 # every open. Already in the tree through `notify`, with its features.
@@ -154,6 +159,8 @@ cmux-unix-socket = { workspace = true, features = ["test-support"] }
 # The deterministic simulation's runtime (tests/sim.rs): hosts on one thread with simulated
 # time, a simulated network, crash and restart.
 turmoil = "0.7.2"
+# The MCP sign-in tests read and build OAuth URLs and forms (`tests/hub_integration/mcp_connections.rs`).
+url.workspace = true
 
 # The deterministic simulation of the daemon (HQ#6740): `cargo test --features sim --test sim`.
 [[test]]

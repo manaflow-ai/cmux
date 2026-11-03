@@ -43,6 +43,12 @@ pub fn tools_list_body(id: u64, cursor: Option<&str>) -> Value {
     }
 }
 
+/// A `tools/call` request for the server's own tool `name`.
+pub fn tools_call_body(id: u64, name: &str, arguments: &Value) -> Value {
+    let arguments = if arguments.is_object() { arguments.clone() } else { json!({}) };
+    json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {"name": name, "arguments": arguments}})
+}
+
 /// The `result` of the reply with `id`, from a JSON body or an event stream. A JSON-RPC error,
 /// a missing reply or a body too large is refused.
 pub fn reply_result(content_type: &str, body: &str, id: u64) -> Result<Value, Refusal> {

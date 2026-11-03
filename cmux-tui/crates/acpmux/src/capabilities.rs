@@ -87,6 +87,23 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "mcp-connect-v1",
         wire: &[method::MUX_MCP_CONNECT_REQUEST, method::MUX_MCP_CONNECT_ANSWER],
     },
+    // Approved MCP connections at work (`hub/mcp_calls.rs`): the proxy's list, call and watch,
+    // and the person's Settings methods. Older daemons answer none.
+    Capability {
+        id: "mcp-connections-v1",
+        wire: &[
+            method::MUX_MCP_TOOLS,
+            method::MUX_MCP_CALL,
+            method::MUX_MCP_WATCH,
+            method::MUX_MCP_CONNECTIONS,
+            method::MUX_MCP_CALL_ANSWER,
+            method::MUX_MCP_POLICY,
+            method::MUX_MCP_SET_KEY,
+            method::MUX_MCP_SIGN_IN,
+            method::MUX_MCP_REMOVE,
+            method::MUX_MCP_AUDIT,
+        ],
+    },
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },

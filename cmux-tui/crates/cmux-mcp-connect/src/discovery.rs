@@ -250,3 +250,78 @@ pub fn choose_scopes(
     }
     supported.iter().filter(|s| !s.to_ascii_lowercase().contains("admin")).cloned().collect()
 }
+
+/// The refresh request form (OAuth 2.1 section 4.3), bound to the same resource (RFC 8707).
+pub fn refresh_form(
+    refresh_token: &str,
+    client_id: &str,
+    resource: &str,
+) -> Vec<(&'static str, String)> {
+    vec![
+        ("grant_type", "refresh_token".to_owned()),
+        ("refresh_token", refresh_token.to_owned()),
+        ("client_id", client_id.to_owned()),
+        ("resource", resource.to_owned()),
+    ]
+}
+
+/// An `application/x-www-form-urlencoded` body of `pairs`.
+pub fn encode_form(pairs: &[(&'static str, String)]) -> String {
+    let mut out = url::form_urlencoded::Serializer::new(String::new());
+    for (k, v) in pairs {
+        out.append_pair(k, v);
+    }
+    out.finish()
+}
+
+/// What a token endpoint answered (RFC 6749 section 5.1).
+#[derive(Clone, Deserialize, PartialEq, Eq)]
+pub struct Token {
+    pub access_token: String,
+    #[serde(default)]
+    pub token_type: String,
+    #[serde(default)]
+    pub refresh_token: Option<String>,
+    #[serde(default)]
+    pub expires_in: Option<u64>,
+}
+
+impl std::fmt::Debug for Token {
+    // Never prints a token.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Token")
+            .field("token_type", &self.token_type)
+            .field("refresh_token", &self.refresh_token.as_ref().map(|_| "<set>"))
+            .field("expires_in", &self.expires_in)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Token {
+    /// Reads a token response: a bearer token (RFC 6750), with no line breaks or spaces that
+    /// would break a header.
+    pub fn parse(text: &str) -> Result<Self, Refusal> {
+        let token: Token = serde_json::from_str(text).map_err(|_| {
+            // The body may hold an error's text, never a token we keep: say only what it is.
+            match serde_json::from_str::<Value>(text).ok().and_then(|v| {
+                v.get("error")
+                    .and_then(Value::as_str)
+                    .map(|e| e.chars().take(60).collect::<String>())
+            }) {
+                Some(e) => Refusal(format!("the token endpoint refused: {e}")),
+                None => Refusal::new("the token endpoint's answer is not a token"),
+            }
+        })?;
+        if !token.token_type.is_empty() && !token.token_type.eq_ignore_ascii_case("bearer") {
+            return Err(Refusal::new("the token is not a bearer token"));
+        }
+        let plain = |t: &str| {
+            !t.is_empty() && t.len() <= 8192 && t.bytes().all(|b| (0x21..=0x7e).contains(&b))
+        };
+        if !plain(&token.access_token) || token.refresh_token.as_deref().is_some_and(|r| !plain(r))
+        {
+            return Err(Refusal::new("the token has characters a header cannot carry"));
+        }
+        Ok(token)
+    }
+}

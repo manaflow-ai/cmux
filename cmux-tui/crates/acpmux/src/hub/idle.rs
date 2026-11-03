@@ -75,6 +75,7 @@ impl Hub {
             && !session.harness_turn.load(Ordering::SeqCst)
             && session.asks_in_flight.load(Ordering::SeqCst) == 0
             && !self.secrets.waiting_in(&session.id)
+            && !self.mcp_connects.waiting_in(&session.id)
             && session.queued() == 0
             && session.pending_permissions().is_empty()
             // A harness's own background process (a dev server, a watcher) ends with the

@@ -587,6 +587,14 @@ fn resolve_with_cua_helper(
             args: acpmux.args_lossy(&["secret-mcp"]),
             env: vec![],
         });
+        // The MCP servers the person connected (`mcp_proxy.rs`): `for_session` gives it the
+        // session, its caller token and this daemon's socket; it holds no key or token.
+        servers.push(McpServer {
+            name: crate::mcp_proxy::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["mcp-proxy"]),
+            env: vec![],
+        });
     }
     if let (true, Some(acpmux)) = (inputs.offers, &inputs.acpmux) {
         // offer_session (`offer_mcp.rs`): `for_session` names the session.
@@ -773,6 +781,7 @@ impl AgentTools {
             }
             let session_env = match server.name.as_str() {
                 crate::secret_mcp::SERVER_NAME => Some(crate::secret_mcp::SESSION_ENV),
+                crate::mcp_proxy::SERVER_NAME => Some(crate::mcp_proxy::SESSION_ENV),
                 crate::offer_mcp::SERVER_NAME => Some(crate::offer_mcp::SESSION_ENV),
                 crate::cloud_repo_mcp::SERVER_NAME => Some(crate::cloud_repo_mcp::SESSION_ENV),
                 _ => None,
@@ -793,6 +802,7 @@ impl AgentTools {
             // The harness already holds the same token in its env; a Claude
             // Code config with it is a 0600 file (`claude_args`).
             if server.name == crate::subsession_mcp::SERVER_NAME
+                || server.name == crate::mcp_proxy::SERVER_NAME
                 || server.name == crate::forum_mcp::SERVER_NAME
                 || server.name == crate::acpmux_mcp::SERVER_NAME
                 || server.name == crate::cloud_repo_mcp::SERVER_NAME
