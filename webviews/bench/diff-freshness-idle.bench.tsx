@@ -53,7 +53,7 @@ const git = async (args: string[], measure = false) => {
   if (code !== 0) throw new Error(`git ${args[0]}: ${stderr}`);
   if (measure) {
     const usage = child.resourceUsage();
-    if (usage) gitCpuMs += usage.cpuTime.total / 1000;
+    if (usage) gitCpuMs += Number(usage.cpuTime.total) / 1000;
     else missingGitUsage = true;
   }
   return stdout;
