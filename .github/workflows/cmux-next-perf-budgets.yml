@@ -233,7 +233,7 @@ jobs:
           IFS=',' read -r -a requested <<<"$PARTS"
           for part in "${requested[@]}"; do
             case "$part" in
-              transcript-scroll) args=(--app-cache --vdisplay=120 --suite=budgets --only=panes) ;;
+              transcript-scroll) args=(--app-cache --vdisplay=120 --suite=budgets --only=acp --raw=acp) ;;
               sidebar) args=(--app-cache --vdisplay=120 --suite=budgets --only=sidebar) ;;
               startup) args=(--app-cache --vdisplay=120 --suite=launch --profile empty --mode warm --runs 5 --timeout 20) ;;
               *) echo "unsupported part: $part" >&2; exit 2 ;;
