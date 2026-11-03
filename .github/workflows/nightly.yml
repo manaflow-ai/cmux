@@ -280,6 +280,8 @@ jobs:
             /scripts/ci/side_lane_placement.py
             /scripts/ci/next_macos_cascade.py
             /scripts/ci/simple_pool_picker.py
+            /scripts/ci/nightly-steps/decide-start-early-linux-admission.sh
+            /scripts/ci/nightly-steps/decide-admit-early-controls.sh
           sparse-checkout-cone-mode: false
 
       - name: Decide whether a nightly build is needed
@@ -2105,9 +2107,12 @@ jobs:
           CMUX_TUI_CLIENT_CACHE: ${{ runner.temp }}/cmux-tui-client
         run: bash scripts/ci/nightly-steps/app-fetch-tree-companions.sh
 
+      # Bundle acpmux only aliases bin/acpmux to bin/cmux; its input file is never copied.
       - name: Stand in for the acpmux companion while the tree publishes
         if: (inputs.nightly_next_unsigned_run == '' && needs.resolve-nightly-cmux-tui-client.outputs.tree_pending == 'true') && steps.nightly-product.outputs.hit != 'true'
-        run: bash -e scripts/ci/nightly-steps/app-stand-in-acpmux-companion.sh
+        run: |
+          f="$RUNNER_TEMP/acpmux-input/acpmux"; mkdir -p "${f%/*}"; rm -f "$f.ref"; echo alias > "$f"
+          echo "CMUX_NEXT_ACPMUX_BIN=$f" >> "$GITHUB_ENV"
 
       - name: Prefetch the cmux-tui client while the tree publishes
         if: (inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true') && steps.nightly-product.outputs.hit != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.tree_pending == 'true'
@@ -2993,6 +2998,15 @@ jobs:
         run: bash scripts/ci/nightly-steps/put-llvm-lipo-on-path.sh
 
 
+      # A build tree older than this workflow lacks the step scripts it added (an unsigned
+      # resume of an older run): check out only those, from the workflow commit.
+      - &older-tree-step-scripts
+        name: Add the workflow commit's new step scripts to an older build tree
+        if: (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && hashFiles('scripts/ci/nightly-steps/prepare-thin-bundle.sh') == ''
+        run: |
+          git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA"
+          git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- scripts/ci/nightly-steps | xargs -r git checkout FETCH_HEAD --
+
       - &download-signing-inputs-paralle
         name: Download signing inputs (parallel)
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
@@ -3202,6 +3216,7 @@ jobs:
       - *put-llvm-lipo-on-path-as-lipo
 
 
+      - *older-tree-step-scripts
       # download-artifact reads each blob over one connection. Fetch all three
       # signing inputs over ranged HTTP concurrently, while retaining the
       # action downloads as per-artifact fallbacks if a ranged request fails.
@@ -4292,33 +4307,15 @@ jobs:
         if: env.TRACK == 'nightly-next'
         run: ./scripts/cmux-next/check-version-surfaces.sh "$CHANNEL_APP_PATH"
 
-      # Every CLI command that must work from the bundle alone runs from the
-      # signed app on this Mac (a subcommand once exec'd a cmux-vm binary no
-      # bundle shipped). A slice this Mac cannot run is checked by the
-      # variant that can.
+      - *older-tree-step-scripts
       - name: Verify bundled CLI commands run from the bundle alone
         if: env.TRACK == 'nightly-next' && hashFiles('scripts/cmux-next/check-bundled-cli-commands.sh') != ''
-        run: |
-          set -euo pipefail
-          archs="$(lipo -archs "$CHANNEL_APP_PATH/Contents/Resources/bin/cmux")"
-          if [[ " $archs " == *" $(uname -m) "* ]]; then
-            ./scripts/cmux-next/check-bundled-cli-commands.sh "$CHANNEL_APP_PATH"
-          else
-            echo "bin/cmux is $archs; this runner is $(uname -m): the matching variant checks it"
-          fi
+        run: bash scripts/ci/nightly-steps/verify-signed-bundled-cli-commands.sh
 
 
 
-      # sign-cmux-bundle.sh ran the static sidecar checks while the keychain
-      # existed. Recheck the signed sidecar's deterministic transport contract
-      # after the keychain is gone; this does not launch the app.
       - name: Verify signed diff sidecar protocol contract
-        run: |
-          set -euo pipefail
-          ./scripts/verify-diff-sidecar-artifact.sh \
-            "$CHANNEL_APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
-            --archs "$(lipo -archs "$CHANNEL_APP_PATH/Contents/MacOS/cmux")" \
-            --require-signed
+        run: bash scripts/ci/nightly-steps/verify-signed-diff-sidecar-contract.sh
 
       # The post-sign checks of sign-cmux-bundle.sh (entitlements, helpers,
       # browser host) on this signed app whichever signer made it, and the
@@ -4334,23 +4331,7 @@ jobs:
 
 
       - name: Verify signed app SSH daemon contract
-        run: |
-          bundle_args=()
-          if [[ "$BUNDLE_REMOTE_DAEMON_ASSETS" == "true" ]]; then
-            bundle_args+=(--require-bundled-assets)
-          fi
-          # cmux-next bundles the Rust CLI (#16174), which has no classic
-          # `remote-daemon-status` command, so nightly-next checks the manifest
-          # and daemon bytes but skips the bundled-CLI query.
-          if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
-            echo "nightly-next: skipping --verify-cli (Rust CLI has no remote-daemon-status)"
-          else
-            bundle_args+=(--verify-cli)
-          fi
-          python3 scripts/verify_remote_daemon_release.py \
-            --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
-            --assets-dir remote-daemon-assets \
-            --app "$CHANNEL_APP_PATH" "${bundle_args[@]}"
+        run: bash -e scripts/ci/nightly-steps/verify-signed-ssh-daemon-contract.sh
 
 
 
@@ -7537,6 +7518,7 @@ jobs:
 
       - name: Fetch the published span
         run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next "$PUBLISHED_SHA"
+      - *older-tree-step-scripts
       - name: Comment the build on its PRs
         env:
           GH_TOKEN: ${{ github.token }}
@@ -7584,6 +7566,7 @@ jobs:
       # the next one (2026-10-12: 3821558930001 had no notes and its highlights were never shown).
       - *wait-through-github-api-rate-l
 
+      - *older-tree-step-scripts
       - name: Start the span at the newest published notes
         id: span
         run: bash scripts/ci/nightly-steps/release-notes-start-span.sh
@@ -7691,6 +7674,7 @@ jobs:
       - *wait-through-github-api-rate-l
 
       - *download-artifact-step
+      - *older-tree-step-scripts
       - name: Install ffmpeg
         timeout-minutes: 6
         env:
