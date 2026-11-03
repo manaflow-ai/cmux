@@ -49,6 +49,7 @@ import WebKit
 /// omitted toggles it and returns `inspector_open`). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
 /// be measured behind the user's windows.
+/// `mcp_connect_ask` (`server`, `reason`, `scope`) opens a real MCP connect card in the chat (DebugAgentPaneMcpConnect).
 /// `session_info_action` (`id`) sends a page-owned native Session Info action through the same
 /// bridge as a native row click (DEBUG capture tours only).
 @MainActor
@@ -214,6 +215,9 @@ enum DebugAgentPane {
         if action == "click" {
             return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
         }
+        if action == "mcp_connect_ask" {
+            return await DebugAgentPaneMcpConnect.ask(params, pane: pane, view: view, services: services)
+        }
         if action == "set_files" {
             return .object(["pane": .string(pane), "error": await view.debugSetFiles(selector: params["selector"]?.stringValue ?? ".acpmux-attach-input", paths: params["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []).map(JSONValue.string) ?? .null]) }
         if action == "hover" { return await DebugAgentPaneClick.hover(params, pane: pane, view: view) }
@@ -226,7 +230,7 @@ enum DebugAgentPane {
             }
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state, session_info_action or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, readiness, cloud_auth, engine, focus_composer, composer_focused, click, mcp_connect_ask, open_subagent, pid, full_rate, gesture_state, session_info_action or inspector")])
         }
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": AgentPaneDebugAutomationArguments(action: action, parameters: params).values])
