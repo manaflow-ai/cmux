@@ -228,6 +228,13 @@ public final class CreationInputBuffer {
     /// Whether a creation of this hold, asked under the person's newest intent `generation`, keeps the window's keyboard.
     public func ownsKeyboard(generation: UInt64) -> Bool { holdsCreation && newestGeneration == generation }
 
+    /// Whether the page the person left keeps no keys (P0 INVERSE-KEY): the focus is on its way to another tab
+    /// (`awaitsOtherTab`) and a creation of this hold, asked under their newest intent `generation`, owns the keyboard.
+    /// The focused tab `focusedTab` is never one this hold makes (a new browser tab's own page takes the keys).
+    public func keepsKeysFromLeftPage(awaitsOtherTab: Bool, generation: UInt64, focusedTab: String?) -> Bool {
+        awaitsOtherTab && ownsKeyboard(generation: generation) && focusedTab.map { !isCreating(tab: $0) } != false
+    }
+
     /// The person acted after asking for this hold's new workspaces (a click, even on the view that already had the focus,
     /// which moves no focus generation; one of their actions): the keys typed from now on are no longer those workspaces'
     /// (review of #32098: they took the new workspace's lane and were dropped when it never showed). Keys held for them

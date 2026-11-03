@@ -489,6 +489,20 @@ impl FocusState {
         self.terminal_tab()
     }
 
+    /// The focus is on its way to a tab other than the focused one (a
+    /// creation's new tab the window does not show yet): the person left the
+    /// focused content, so its page gives the keys back (P0 INVERSE-KEY).
+    /// False when the wait is for the focused tab itself (a dragged tab).
+    pub fn awaits_other_tab(&self) -> bool {
+        match &self.expectation {
+            Some(Expectation { key: ExpectationKey::Tab { id }, .. }) => {
+                self.derived.resolved.tab() != Some(id.as_str())
+            }
+            Some(Expectation { key: ExpectationKey::Surface { .. }, .. }) => true,
+            None => false,
+        }
+    }
+
     /// The focused terminal's tab; none when the focus is not on a terminal.
     pub fn terminal_tab(&self) -> Option<&str> {
         match &self.derived.resolved {
