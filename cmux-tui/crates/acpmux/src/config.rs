@@ -733,6 +733,11 @@ pub struct SessionDefaults {
     /// a router key variable). The profile's own `env` wins on conflicts.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
+    /// `permissionMode`: the permission mode a new chat of this family or
+    /// profile starts in, over the daemon-wide `defaultPermissionMode`
+    /// (`hub/start_mode.rs`): `fullAccess` (alias `yolo`), `standard` or `ask`.
+    #[serde(default, alias = "permission_mode", skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
 }
 
 impl SessionDefaults {
@@ -751,6 +756,9 @@ impl SessionDefaults {
         }
         for (k, v) in &top.env {
             self.env.insert(k.clone(), v.clone());
+        }
+        if top.permission_mode.is_some() {
+            self.permission_mode = top.permission_mode.clone();
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -1392,6 +1400,59 @@ pub struct MachineWakeConfig {
 impl Config {
     /// Set a host-wide session resource setting from the CLI. `default`,
     /// `none`, and `clear` remove an override and restore the computed default.
+    /// `acpmux config --set KEY=VALUE`: a permission-mode key
+    /// (`set_permission_mode`), else a session resource limit
+    /// (`set_session_resource`).
+    pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
+        if self.set_permission_mode(key, value)? {
+            return Ok(());
+        }
+        self.set_session_resource(key, value)
+    }
+
+    /// The permission mode new chats start in: `permissions.default` (also
+    /// `defaultPermissionMode`) for every harness, `permissions.HARNESS` (also
+    /// `defaults.HARNESS.permissionMode`) for one family or profile. Values:
+    /// `yolo` / `fullAccess`, `standard`, `ask`, or `default` to clear.
+    /// `Ok(false)`: not a permission key.
+    pub fn set_permission_mode(&mut self, key: &str, value: &str) -> Result<bool> {
+        let key = key.trim();
+        let harness = if matches!(
+            key,
+            "permissions.default" | "defaultPermissionMode" | "default_permission_mode"
+        ) {
+            None
+        } else if let Some(h) = key.strip_prefix("permissions.") {
+            Some(h)
+        } else if let Some(h) = key.strip_prefix("defaults.").and_then(|r| {
+            r.strip_suffix(".permissionMode").or_else(|| r.strip_suffix(".permission_mode"))
+        }) {
+            Some(h)
+        } else {
+            return Ok(false);
+        };
+        if harness.is_some_and(|h| h.is_empty() || h.contains('.')) {
+            anyhow::bail!("{key}: name one harness, for example permissions.codex");
+        }
+        let mode = match value.trim() {
+            "" | "default" | "none" | "clear" => None,
+            v => Some(normalize_permission_mode(v).ok_or_else(|| {
+                anyhow::anyhow!("{key} must be yolo (fullAccess), standard, ask or default")
+            })?),
+        };
+        match harness {
+            None => self.default_permission_mode = mode.map(str::to_owned),
+            Some(h) => {
+                let entry = self.defaults.entry(h.to_owned()).or_default();
+                entry.permission_mode = mode.map(str::to_owned);
+                if entry.is_empty() {
+                    self.defaults.remove(h);
+                }
+            }
+        }
+        Ok(true)
+    }
+
     pub fn set_session_resource(&mut self, key: &str, value: &str) -> Result<()> {
         let key = key.trim().replace('-', "_").to_ascii_lowercase();
         if matches!(
@@ -1565,8 +1626,7 @@ impl Config {
                 model: p.model.clone(),
                 effort: p.effort.clone(),
                 policy: p.policy,
-                prefer: vec![],
-                env: BTreeMap::new(),
+                ..Default::default()
             });
         }
         d
@@ -1900,3 +1960,20 @@ pub use preset_args::{
 
 #[cfg(test)]
 mod tests;
+
+/// The stored spelling of a permission mode a person typed: `fullAccess`
+/// (also `yolo`, `full-access`, `bypass`, `bypassPermissions`), `standard` or
+/// `ask`; `None` for any other word.
+pub fn normalize_permission_mode(value: &str) -> Option<&'static str> {
+    let folded: String = value
+        .chars()
+        .filter(|c| !matches!(c, '-' | '_' | ' '))
+        .flat_map(char::to_lowercase)
+        .collect();
+    match folded.as_str() {
+        "fullaccess" | "yolo" | "bypass" | "bypasspermissions" => Some("fullAccess"),
+        "standard" => Some("standard"),
+        "ask" => Some("ask"),
+        _ => None,
+    }
+}
