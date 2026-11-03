@@ -529,6 +529,7 @@ import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
 import {
   cloudPageRefusal,
+  cloudRunsHere,
   cloudStartFolder,
   cloudStartToasted,
   newTabProjectPick,
@@ -2393,6 +2394,7 @@ const isStepRow = (row: AcpmuxRow | undefined) =>
     row.kind === "policyUnenforced" ||
     row.kind === "agentPair" ||
     row.kind === "sessionStart" ||
+    row.kind === BACKGROUND_TURN ||
     (row.kind === "activity" && !isEditRow(row)));
 /// A step row by its layout mark: a step row above, or the running turn's line right under one
 /// (model.ts `isLiveStep`, which `layoutConversation` marks MARK_STEP), so the live line and its
@@ -8200,6 +8202,8 @@ function AcpmuxPane() {
   /// A Cloud start is out (the host answers once the chat opens, minutes for a new machine): the
   /// folder default changes nothing meanwhile, so the prompt it holds never turns into a local send.
   const cloudStartPending = useRef(false);
+  /// The cap card answered Run on This Mac (cloudRunsHere): the prompt sends here once the mode switched.
+  const runHereSend = useRef(false);
   /// Counts the Cloud starts that ended, so the folder default looks again once one has.
   const [cloudStartsEnded, setCloudStartsEnded] = useState(0);
   const sandboxModeRows = {
@@ -8245,6 +8249,14 @@ function AcpmuxPane() {
     void started.then((answer) => {
       cloudStartPending.current = false;
       setCloudStartsEnded((count) => count + 1);
+      if (cloudRunsHere(answer)) {
+        // The cap card's Run on This Mac: the prompt still in the composer goes to a chat here once the mode is.
+        setCloudStart((current) => (current?.key === key ? undefined : current));
+        runModePicked.current = true;
+        runHereSend.current = true;
+        sandbox.setMode("persistent");
+        return;
+      }
       setCloudStart((current) => cloudStartEnded(current, key, answer));
       if (!answer.ok && !cloudStartToasted(answer))
         directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
@@ -8272,6 +8284,12 @@ function AcpmuxPane() {
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
     if (sandbox.mode !== "cloud") setCloudStart((current) => (current?.state === "failed" ? undefined : current));
+  }, [sandbox.mode]);
+  /// Run on This Mac from the cap card (runHereSend): the kept prompt sends once the mode is this Mac's.
+  useEffect(() => {
+    if (!runHereSend.current || sandbox.mode !== "persistent") return;
+    runHereSend.current = false;
+    composerHandle.current?.send();
   }, [sandbox.mode]);
   const viewedSandbox = sandboxViewing && snapshot.sessionId ? sandboxView : undefined;
   /// The chat view shows the tab's run as a card (SandboxRunView), which offers its own Check again.

@@ -1248,7 +1248,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextCloudTests",
-            dependencies: ["CmuxNextCloud"],
+            dependencies: ["CmuxNextCloud", "CmuxNextDaemon"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(

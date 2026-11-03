@@ -365,6 +365,15 @@ function pullRequest(value: any): SessionPullRequest | undefined {
   };
 }
 
+/// A raw id where a name should be: a session or thread UUID ("01a18a35-b1e8-7951-ba2f-…"), Claude's
+/// `<session>/<tool call>` or a bare `toolu_…` call id. Never a title the person reads.
+export function isRawId(text: string): boolean {
+  const value = text.trim();
+  return (
+    /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?:\/.*)?$/iu.test(value) || /(?:^|\/)toolu_[0-9A-Za-z]+$/u.test(value)
+  );
+}
+
 /**
  * The title (the agent's title, else the first prompt) when the name was generated (`codex`,
  * `codex-3`, `codex-fork`, after the harness profile or its family), else the name the user gave. A generated
@@ -379,7 +388,8 @@ export function sessionTitle(
   // acpmux names a session `agent` or `agent-N`, and a fork `<name>-fork`, also made unique with `-N`.
   const generatedFrom = (agent: string | undefined) =>
     !!agent && bare.startsWith(agent) && /^(?:-(?:fork|\d+))*$/.test(bare.slice(agent.length));
-  if (name && !generatedFrom(session.harness) && !generatedFrom(session.family)) return name;
+  // A name that is only a raw id (the session's own UUID) is no name: the title reads instead.
+  if (name && !generatedFrom(session.harness) && !generatedFrom(session.family) && !isRawId(bare)) return name;
   return session.title?.trim() || session.lastPrompt?.trim() || t("sidebar.newChat");
 }
 
