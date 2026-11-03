@@ -81,11 +81,7 @@ export default componentEntry<Props>({
   pane: true,
   height: 640,
   widths: { narrow: 320, normal: 420 },
-  covers: [
-    "agent-session/acpmux/session-info/IMessageConnector.tsx",
-    "agent-session/acpmux/session-info/imessage.ts",
-    "agent-session/acpmux/session-info/imessage.css",
-  ],
+  covers: ["agent-session/acpmux/session-info/IMessageConnector.tsx"],
   load: async () => GalleryIMessage,
   variants: {
     "not-connected": {
