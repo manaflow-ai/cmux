@@ -501,8 +501,12 @@ deadline_left() {
 timeout_retried=0
 timeout_retry_spent=0
 : > "$results/retry-passed"
+# Each red file whose retry was due but did not run to its end (a budget, the deadline or the retry cap stopped it):
+# its log holds only the first run, so webviews_test_results.py must not read that run's tally as the retry's (#34017).
+: > "$results/retry-skipped"
 while read -r result file log; do
   if [ "$result" = PASS ] || [ "$retries" -eq 0 ] || { [ "$result" != TIMEOUT ] && [ "$retried" -ge "$retries" ]; }; then
+    if [ "$result" != PASS ] && [ "$retries" -gt 0 ]; then printf '%s\n' "$file" >> "$results/retry-skipped"; fi
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     continue
   fi
@@ -517,9 +521,11 @@ while read -r result file log; do
     left="$(deadline_left)"
     if [ "$left" -lt "$normal_limit" ]; then
       echo "retry deadline (${left}s left) cannot fit $file's ${normal_limit}s limit: keeping TIMEOUT"
+      printf '%s\n' "$file" >> "$results/retry-skipped"
       printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     elif [ "$timeout_remaining" -lt "$normal_limit" ]; then
       echo "timeout retry budget (${timeout_remaining}s left) cannot fit $file's ${normal_limit}s limit: keeping TIMEOUT"
+      printf '%s\n' "$file" >> "$results/retry-skipped"
       printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     else
       echo "RETRY $file after its timeout (its own retry; timeout retry budget ${timeout_remaining}s, hard limit ${normal_limit}s)"
@@ -546,6 +552,7 @@ while read -r result file log; do
   if [ "$left" -lt "$remaining" ]; then remaining="$left"; fi
   if [ "$remaining" -le 0 ]; then
     echo "retry budget exhausted: keeping $result $file"
+    printf '%s\n' "$file" >> "$results/retry-skipped"
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     continue
   fi
@@ -562,6 +569,7 @@ while read -r result file log; do
     # An incomplete retry is not a full-file timeout: keep the first run's actual named
     # failure. Otherwise an old base assertion would become a new file-level head red.
     echo "retry budget exhausted during $file; retaining its first failure"
+    printf '%s\n' "$file" >> "$results/retry-skipped"
     while read -r saved_result saved_file saved_log; do
       if [ "$saved_file" = "$file" ]; then saved_result=FAIL; fi
       printf '%s %s %s\n' "$saved_result" "$saved_file" "$saved_log"
@@ -613,7 +621,8 @@ fi
 
 # Per-test results for webviews-tests-new-reds.sh, which compares them with the base's.
 if [ -n "${CMUX_WEB_TEST_RESULTS:-}" ]; then
-  python3 "$(dirname "$self")/webviews_test_results.py" "$results/summary" "$CMUX_WEB_TEST_RESULTS"
+  CMUX_WEB_TEST_RETRY_SKIPPED="$results/retry-skipped" \
+    python3 "$(dirname "$self")/webviews_test_results.py" "$results/summary" "$CMUX_WEB_TEST_RESULTS"
 fi
 
 echo "### webviews tests: $count files, $failed failed or timed out ($((retried + timeout_retried)) retried alone, $(wc -l < "$results/retry-passed" | tr -d ' ') passed alone)"

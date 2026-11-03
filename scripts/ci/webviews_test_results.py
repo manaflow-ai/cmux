@@ -14,7 +14,9 @@ since the base reruns the file once, alone, too.
 With CMUX_WEB_TEST_STATES set, it also writes {file: {"result": PASS, FAIL or TIMEOUT, "completed": bool}} there:
 "completed" when the file's (last) run reached bun's closing `Ran N tests across M files.` line, so a FAIL that
 names only some tests says the rest passed. The bisect's probes read it (web_coalesce.py), since the results name
-no passing test.
+no passing test. CMUX_WEB_TEST_RETRY_SKIPPED names a file (run-webviews-tests.sh writes it) listing, one a line, the
+red files whose retry was due but never ran to its end (a budget, the deadline or the retry cap stopped it). Such a
+file's log holds only its first run, whose tally says nothing about a retry, so it is never "completed" (#34017).
 """
 from __future__ import annotations
 
@@ -104,8 +106,19 @@ def _completed(log: Path) -> bool:
     return bool(TALLY.search(last))
 
 
+def _retry_skipped() -> set[str]:
+    path = os.environ.get("CMUX_WEB_TEST_RETRY_SKIPPED")
+    if not path:
+        return set()
+    try:
+        return {line for line in Path(path).read_text(encoding="utf-8").splitlines() if line}
+    except OSError:
+        return set()
+
+
 def states(summary: Path) -> dict[str, dict]:
     out: dict[str, dict] = {}
+    skipped = _retry_skipped()
     for line in summary.read_text(encoding="utf-8").splitlines():
         parts = line.split(" ", 2)
         if len(parts) != 3:
@@ -115,6 +128,9 @@ def states(summary: Path) -> dict[str, dict]:
             completed = result == "PASS" or (result == "FAIL" and _completed(Path(log)))
         except OSError:
             completed = False
+        if file in skipped and result != "PASS":
+            out[file] = {"result": result, "completed": False, "retry": "skipped"}
+            continue
         out[file] = {"result": result, "completed": completed}
     return out
 
