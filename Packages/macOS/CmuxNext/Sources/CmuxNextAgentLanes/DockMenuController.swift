@@ -120,10 +120,16 @@ public final class DockMenuController: NSObject {
         guard let host else { return }
         guard host.dockMenuWindow != .closed else {
             // A plain New Chat needs nothing more: a new window comes with its New Tab page.
-            guard action != .newChat(harness: nil, machine: nil) else { return host.dockMenuReopenWindow() }
+            guard action != .newChat(harness: nil, machine: nil) else {
+                waiting = nil
+                return host.dockMenuReopenWindow()
+            }
             // Set before the reopen: a closed window brought back mounts its panes inside it.
             waiting = action
             host.dockMenuReopenWindow()
+            // A chat a tab already shows opens with no pane (a window brought back on a top page
+            // mounts none); else the pick waits for the first pane.
+            if case .open(let chat) = action, (try? host.dockMenuOpenChat(chat)) != nil { waiting = nil }
             windowDidShowContent() // its pane may already show
             return
         }
