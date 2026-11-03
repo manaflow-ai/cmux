@@ -68,14 +68,14 @@ fn a_workspace_without_a_ws_id_is_named_by_its_durable_id() {
 #[test]
 fn a_machine_is_found_by_its_id_target_or_unique_title() {
     let machines = machines();
-    for selector in ["vm-aaa", "machine:vm-aaa", "build-box"] {
+    for selector in ["vm-aaa", "machine:vm-aaa", "build-box", "name:build-box"] {
         let found = find(&machines, selector).unwrap().expect(selector);
         assert_eq!(found["id"], "vm-aaa", "{selector}");
     }
     assert_eq!(find(&machines, "vm-zzz").unwrap(), None);
     assert_eq!(find(&machines, "machine_1111").unwrap(), None, "a catalog id is no Cloud id");
 
-    let mut twins = machines.clone();
+    let mut twins = machines;
     twins[1]["title"] = json!("build-box");
     let ambiguous = find(&twins, "build-box").unwrap_err();
     assert_eq!(ambiguous["code"], "selector.ambiguous");

@@ -219,6 +219,13 @@ pub(super) trait Backend {
         on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
     ) -> Result<(), CallFailure>;
 
+    /// Whether this server's default route is the session the cmux app owns
+    /// (no `--session`, `--socket` or `--machine`), so `workspace_list` adds
+    /// the app's Cloud workspaces.
+    fn app_session(&self) -> bool {
+        true
+    }
+
     /// A `cmux agents chat` verb: the daemon (agent messages, workspaces)
     /// and acpmux (chats) together. A backend without both runs none.
     fn chat(
@@ -281,6 +288,12 @@ impl LiveBackend {
 }
 
 impl Backend for LiveBackend {
+    fn app_session(&self) -> bool {
+        self.global.session.is_none()
+            && self.global.socket.is_none()
+            && self.global.machine.is_none()
+    }
+
     fn cloud_repo(&self, action: &str, args: Value) -> Result<Value, CallFailure> {
         super::cloud_repo::call(&self.global, action, args)
     }
@@ -1249,7 +1262,7 @@ impl<B: Backend> Server<B> {
             }
             Ok(value) if plain_history => success(history_text(value), tool.mutation),
             // The session the app owns lists the app's Cloud workspaces too.
-            Ok(value) if cloud && call_session.is_none() => success(
+            Ok(value) if cloud && call_session.is_none() && self.backend.app_session() => success(
                 {
                     let rows =
                         self.cloud_machines().map(|machines| cloud_workspaces::rows(&machines));

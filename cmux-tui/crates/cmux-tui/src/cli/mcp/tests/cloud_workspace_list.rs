@@ -125,6 +125,12 @@ fn a_named_session_is_listed_alone() {
     let listed = items(&call(&mut server, "workspace_list", json!({"session": "build-box"})));
     assert_eq!(listed.len(), 1);
     assert!(sent_of(&server, "app").is_empty());
+
+    // A server started on another session (`cmux --session X mcp serve`) too.
+    let mut server = Server::new(Fake { other_session: true, ..fake() }, None);
+    let listed = items(&call(&mut server, "workspace_list", json!({})));
+    assert_eq!(listed.len(), 1);
+    assert!(sent_of(&server, "app").is_empty());
 }
 
 #[test]

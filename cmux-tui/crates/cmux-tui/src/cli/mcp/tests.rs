@@ -64,6 +64,8 @@ struct Fake {
     setup_outcome: Option<Value>,
     /// The app's `cloud.machines` answer; an app without it answers `{ran: true}`.
     cloud_machines: Option<Value>,
+    /// The server was started on another session (`--session`, `--socket`).
+    other_session: bool,
     /// `{method, params, thread}` of each request the app caller got.
     app_calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
     sent: RefCell<Vec<Value>>,
@@ -163,6 +165,10 @@ impl Fake {
 }
 
 impl Backend for Fake {
+    fn app_session(&self) -> bool {
+        !self.other_session
+    }
+
     fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
         let status = self.computer_use.clone()?;
         let outcome = self.setup_outcome.clone().unwrap_or_else(|| json!({"outcome": "granted"}));

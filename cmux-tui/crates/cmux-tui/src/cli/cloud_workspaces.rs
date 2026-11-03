@@ -68,6 +68,8 @@ pub(super) fn machine_rows(machine: &Value) -> Vec<Value> {
 /// (`machine:vm-…`) or its exact title. `Ok(None)`: no Cloud machine has it.
 /// A title two machines share is ambiguous: name the machine by its id.
 pub(super) fn find<'a>(machines: &'a [Value], selector: &str) -> Result<Option<&'a Value>, Value> {
+    // `name:` is the CLI's escape for a name that is no plain selector (`build_box`).
+    let selector = selector.strip_prefix("name:").unwrap_or(selector);
     let id = selector.strip_prefix("machine:").unwrap_or(selector);
     if let Some(machine) =
         machines.iter().find(|machine| machine.get("id").and_then(Value::as_str) == Some(id))
@@ -145,8 +147,9 @@ pub(super) fn merge(global: &super::GlobalArgs, result: Value) -> Value {
 }
 
 /// `--machine <Cloud machine> workspace list`: the local daemon has no such
-/// machine (`selector.not_found` on scope `machine`), so the app's rows for
-/// it answer. `None` for any other error or a machine the app does not have.
+/// machine (`selector.not_found`, or `validation.invalid` for a title such as
+/// `build_box`), so the app's rows for it answer. `None` for a machine the
+/// app does not have, whose daemon error then stands.
 pub(super) fn for_machine(
     global: &super::GlobalArgs,
     plan: &super::command::RequestPlan,
@@ -155,8 +158,7 @@ pub(super) fn for_machine(
     use super::command::WireOperation;
     use cmux_tui_core::resource::ResourceOperation;
     if !matches!(plan.operation, WireOperation::Typed(ResourceOperation::WorkspaceList))
-        || error["code"] != "selector.not_found"
-        || error["details"]["scope"] != "machine"
+        || !matches!(error["code"].as_str(), Some("selector.not_found" | "validation.invalid"))
     {
         return None;
     }
