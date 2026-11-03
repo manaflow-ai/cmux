@@ -292,9 +292,11 @@ pub fn outcome(view: &serde_json::Value) -> (String, &'static str) {
     let (verb, end, status) = match s("state") {
         "running" => ("running", String::new(), "running"),
         "stopped" => ("stopped", String::new(), "failed"),
-        "killed" => {
-            ("killed", int("signal").map(|n| format!(" (signal {n})")).unwrap_or_default(), "failed")
-        }
+        "killed" => (
+            "killed",
+            int("signal").map(|n| format!(" (signal {n})")).unwrap_or_default(),
+            "failed",
+        ),
         "lost" => ("lost", " (its runner ended without recording an exit)".to_owned(), "failed"),
         _ => match int("exitCode") {
             Some(0) => ("finished", " (exit 0)".to_owned(), "ok"),
@@ -629,7 +631,8 @@ mod tests {
         let view = |v: serde_json::Value| outcome(&v);
         let ran = view(json!({"state": "running", "command": "make\n  test", "description": " "}));
         assert_eq!(ran, ("Background command running: make test".to_owned(), "running"));
-        let ok = view(json!({"state": "exited", "exitCode": 0, "command": "x", "description": "build"}));
+        let ok =
+            view(json!({"state": "exited", "exitCode": 0, "command": "x", "description": "build"}));
         assert_eq!(ok, ("Background command finished: build (exit 0)".to_owned(), "ok"));
         let bad = view(json!({"state": "exited", "exitCode": 2, "command": "x"}));
         assert_eq!(bad, ("Background command finished: x (exit 2)".to_owned(), "failed"));

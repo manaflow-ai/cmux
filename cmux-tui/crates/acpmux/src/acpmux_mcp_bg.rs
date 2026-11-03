@@ -87,9 +87,8 @@ fn outcome(name: &str, r: &Value) -> (String, &'static str) {
         return crate::bg_run::outcome(r);
     }
     let tasks = r.get("tasks").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-    let count = |status: &str| {
-        tasks.iter().filter(|t| crate::bg_run::outcome(t).1 == status).count()
-    };
+    let count =
+        |status: &str| tasks.iter().filter(|t| crate::bg_run::outcome(t).1 == status).count();
     let (running, ok, failed) = (count("running"), count("ok"), count("failed"));
     if tasks.is_empty() {
         return ("No background tasks.".to_owned(), "ok");
@@ -152,12 +151,16 @@ mod tests {
     /// A list's outcome counts its tasks by status; the list runs while any task runs.
     #[test]
     fn a_lists_outcome_counts_its_tasks() {
-        let task = |state: &str, code: i64| json!({"state": state, "exitCode": code, "command": "c"});
+        let task =
+            |state: &str, code: i64| json!({"state": state, "exitCode": code, "command": "c"});
         let r = json!({"tasks": [task("running", 0), task("exited", 0), task("exited", 1)]});
         let line = "3 background tasks: 1 running, 1 ok, 1 failed".to_owned();
         assert_eq!(outcome("bg_list", &r), (line, "running"));
         let done = json!({"tasks": [task("exited", 0), task("exited", 1)]});
         assert_eq!(outcome("bg_list", &done).1, "failed");
-        assert_eq!(outcome("bg_list", &json!({"tasks": []})), ("No background tasks.".to_owned(), "ok"));
+        assert_eq!(
+            outcome("bg_list", &json!({"tasks": []})),
+            ("No background tasks.".to_owned(), "ok")
+        );
     }
 }
