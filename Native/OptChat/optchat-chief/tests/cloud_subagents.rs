@@ -1298,40 +1298,126 @@ fn a_paired_agent_gets_the_chiefs_subagent_instructions() {
 
 #[test]
 fn remote_launch_uses_the_resolved_profile_whose_login_was_checked() {
-    let mut h = Harness::new(default_script());
-    h.agents.hold(true);
-    {
-        let mut a = h.agents.inner.lock().unwrap();
-        a.machine_status = Some(
-            serde_json::json!({"here": {"os": "macos"}, "peers": [{"name": "mini", "connected": true, "health": {"os": "macos", "pressure": {"ok": true}}}]}),
-        );
-        a.peer_catalogs.insert(
-            "mini".into(),
-            // remote_guard::after removes argv/env and leaves picker metadata.
-            serde_json::json!({"peer": "mini", "harnesses": {"my-direct-login": {
-                "kind": "claude-stdio", "family": "claude",
-                "hasArgs": true, "hasEnv": false, "hasModelsCommand": false,
-                "hasSessions": false
-            }}}),
-        );
-        a.harness_health.insert(
-            "mini".into(),
-            serde_json::json!({"harnesses": [{"id": "my-direct-login", "auth": "signedIn"}]}),
-        );
+    for (profile, row) in [
+        (
+            "my-direct-login",
+            serde_json::json!({
+                "kind": "claude-stdio", "family": "claude", "argv": ["/usr/local/bin/claude"]
+            }),
+        ),
+        // remote_guard::after removes argv/env and leaves picker metadata.
+        (
+            "claude",
+            serde_json::json!({
+                "kind": "claude-stdio", "family": "claude", "hasArgs": true,
+                "hasEnv": false, "hasModelsCommand": false, "hasSessions": false
+            }),
+        ),
+    ] {
+        let mut h = Harness::new(default_script());
+        h.agents.hold(true);
+        {
+            let mut a = h.agents.inner.lock().unwrap();
+            a.machine_status = Some(serde_json::json!({"here": {"os": "macos"},
+                "peers": [{"name": "mini", "connected": true, "health": {"os": "macos"}}]}));
+            a.peer_catalogs.insert(
+                "mini".into(),
+                serde_json::json!({
+                    "peer": "mini", "harnesses": {profile: row}
+                }),
+            );
+            a.harness_health.insert(
+                "mini".into(),
+                serde_json::json!({
+                    "harnesses": [{"id": profile, "auth": "signedIn"}]
+                }),
+            );
+        }
+        let sp = spawner(&h, None);
+        let answer = run(&mut h, move || {
+            sp.spawn_placed(
+                vec!["build a hello iOS view".into()],
+                None,
+                None,
+                Some("mini".into()),
+            )
+        })
+        .unwrap();
+        let specs = subs(&h);
+        assert_eq!(specs.len(), 1, "{answer}");
+        assert_eq!(specs[0].0.harness, profile, "{answer}");
     }
-    let sp = spawner(&h, None);
-    let answer = run(&mut h, move || {
-        sp.spawn_placed(
-            vec!["build a hello iOS view".into()],
-            None,
-            None,
-            Some("mini".into()),
-        )
-    })
-    .unwrap();
-    let specs = subs(&h);
-    assert_eq!(specs.len(), 1, "{answer}");
-    assert_eq!(specs[0].0.harness, "my-direct-login", "{answer}");
+}
+
+#[test]
+fn known_peer_catalog_refusals_prevent_session_creation() {
+    for (requested, harnesses) in [
+        (
+            "claude",
+            serde_json::json!({"claude-sr": {"kind": "claude-stdio", "family": "claude"}}),
+        ),
+        (
+            "claude-sr",
+            serde_json::json!({"claude": {"kind": "claude-stdio", "family": "claude"}}),
+        ),
+        (
+            "claude",
+            serde_json::json!({
+                "one": {"kind": "claude-stdio", "family": "claude"},
+                "two": {"kind": "claude-stdio", "family": "claude"}
+            }),
+        ),
+        (
+            "chief",
+            serde_json::json!({"chief": {"kind": "acp", "family": "chief"}}),
+        ),
+        (
+            "legacy",
+            serde_json::json!({"legacy": {"kind": "acp", "family": "claude"}}),
+        ),
+    ] {
+        let mut h = Harness::new(default_script());
+        h.agents.hold(true);
+        {
+            let mut a = h.agents.inner.lock().unwrap();
+            a.machine_status = Some(serde_json::json!({"here": {"os": "macos"},
+                "peers": [{"name": "mini", "connected": true, "health": {"os": "macos"}}]}));
+            a.peer_catalogs.insert(
+                "mini".into(),
+                serde_json::json!({"peer": "mini", "harnesses": harnesses}),
+            );
+        }
+        let sp = Spawner::new(
+            h.chat.clone(),
+            h.agents.clone(),
+            SubagentSettings {
+                harness: requested.into(),
+                policy: "approve-all".into(),
+                model: None,
+                effort: None,
+                preset: None,
+                cwd: h.dir.path().join("subagent"),
+                prefix: "optchat-sub-h0me".into(),
+                parent: optchat_chief::brain::PARENT.into(),
+                claude_md: None,
+            },
+            h.tx.clone(),
+            Arc::new(|_: &str| {}),
+        );
+        let answer = run(&mut h, move || {
+            sp.spawn_placed(
+                vec!["build a hello iOS view".into()],
+                None,
+                None,
+                Some("mini".into()),
+            )
+        });
+        assert!(
+            subs(&h).is_empty(),
+            "{requested} must not launch: {answer:?}"
+        );
+        assert!(answer.unwrap().contains("did not start"));
+    }
 }
 
 #[test]

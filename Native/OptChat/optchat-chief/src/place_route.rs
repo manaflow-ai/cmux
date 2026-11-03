@@ -281,16 +281,16 @@ mod tests {
     #[test]
     fn sanitized_peer_catalog_admits_claude_by_kind_without_command_details() {
         let catalog = json!({"peer": "mini", "harnesses": {
-            "direct": {"kind": "claude-stdio", "family": "claude",
+            "claude": {"kind": "claude-stdio", "family": "claude",
                 "hasArgs": true, "hasEnv": false, "hasModelsCommand": false, "hasSessions": false},
             "legacy": {"kind": "acp", "family": "claude",
                 "hasArgs": true, "hasEnv": false, "hasModelsCommand": false, "hasSessions": false}
         }});
-        let health = json!({"harnesses": [{"id": "direct", "auth": "signedIn"}]});
+        let health = json!({"harnesses": [{"id": "claude", "auth": "signedIn"}]});
         assert_eq!(unavailable(&catalog, &health, "claude"), None);
         assert_eq!(login_families(&catalog, &health), vec![Family::Claude]);
         assert!(unavailable(&catalog, &health, "legacy").is_some());
-        let expired = json!({"harnesses": [{"id": "direct", "auth": "expired"}]});
+        let expired = json!({"harnesses": [{"id": "claude", "auth": "expired"}]});
         assert!(unavailable(&catalog, &expired, "claude").is_some());
         assert!(login_families(&catalog, &expired).is_empty());
     }
