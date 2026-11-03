@@ -31,8 +31,12 @@ import Testing
         try #require(band.height > 0, "the window has a titlebar band")
         let frameView = try #require(window.contentView?.superview)
         let shown = empty.convert(empty.bounds, to: nil)
-        // The points of the band the empty view takes the press at (the sidebar and the lights take theirs).
-        let points = stride(from: shown.minX + 2, to: shown.maxX - 2, by: 8).map { CGPoint(x: $0, y: band.midY) }
+        // The whole top row, where a tab strip would be: it reaches below the AppKit band, where
+        // the background rule alone keeps the window put. Only the points the empty view takes the
+        // press at (the sidebar and the lights take theirs).
+        let row = max(Metrics.tabStripHeight, Metrics.titlebarHeight)
+        let rows = [band.maxY - 2, band.midY, band.maxY - row + 2]
+        let points = rows.flatMap { y in stride(from: shown.minX + 2, to: shown.maxX - 2, by: 8).map { CGPoint(x: $0, y: y) } }
             .filter { point in frameView.hitTest(frameView.convert(point, from: nil)).map { $0.isDescendant(of: empty) } ?? false }
         try #require(!points.isEmpty, "the empty workspace reaches the top row")
 
