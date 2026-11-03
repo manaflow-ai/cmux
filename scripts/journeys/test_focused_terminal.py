@@ -134,5 +134,35 @@ class FocusedTerminalTests(unittest.TestCase):
         self.assertIn("stand-in", str(caught.exception))
 
 
+class PaneRowResolutionTests(unittest.TestCase):
+    """ext_window's adopt_pane reads the terminal of a pane row the same way (one shared resolver): a stand-in or a
+    workspace's only other terminal is never taken for it."""
+
+    def journey(self, app):
+        out = tempfile.mkdtemp(prefix="focused-terminal-")
+        return D.Journey({"id": "adopt-pane", "steps": []}, app, out, D.now() + 60, 1.0)
+
+    def row(self):
+        return {"pane": PANE, "focused": True, "kind": "terminal", "terminal_id": HOST_ID, "workspace": "ws"}
+
+    def test_a_pane_row_inside_the_standin_has_no_terminal_yet(self):
+        import ext_window
+        app = KeyMadeTerminalApp(standin_reads=1)
+        with self.assertRaises(D.StepError) as caught:
+            ext_window.daemon_terminal_of(self.journey(app), self.row())
+        self.assertIn("stand-in", str(caught.exception))
+
+    def test_a_pane_row_after_the_daemons_tab_resolves_to_its_public_id(self):
+        import ext_window
+        app = KeyMadeTerminalApp(standin_reads=0)
+        self.assertEqual(ext_window.daemon_terminal_of(self.journey(app), self.row()), PUBLIC_ID)
+
+    def test_the_old_selected_tab_is_not_the_pane_rows_terminal(self):
+        import ext_window
+        app = KeyMadeTerminalApp(standin_reads=0, old_tab_reads=1)
+        with self.assertRaises(D.StepError):
+            ext_window.daemon_terminal_of(self.journey(app), self.row())
+
+
 if __name__ == "__main__":
     unittest.main()
