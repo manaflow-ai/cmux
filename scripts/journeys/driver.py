@@ -37,6 +37,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # build_names.py beside it, also under -I
@@ -57,6 +58,8 @@ MAX_FRAMES = 240
 CLIP_WIDTH = 1280
 # Seconds of fresh snapshots a frame check gets once the state it should show holds.
 FRAME_GRACE = 10.0
+# The daemon and app checks whose `lines` can back a frame_screen text that OCR misread (Journey.ocr_unread).
+OCR_BACKED = ("smoke_new_terminals", "smoke_app_lines", "smoke_daemon_lines")
 # Evidence a passing journey must have: the user-visible result seen three independent ways.
 REQUIRED_KINDS = ("app", "daemon", "frame")
 KIND = {"daemon_line": "daemon", "daemon_contains": "daemon", "daemon_prompt": "daemon",
@@ -114,6 +117,50 @@ PLAYED = []
 
 
 # ---- the app: control socket, daemon CLI, process table, frames -----------------------------
+
+def unix_request(path, message, timeout=5.0):
+    """One newline-delimited JSON request on the Unix socket PATH: the first JSON line answering it, or {}."""
+    import socket as socket_mod
+    try:
+        with socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM) as conn:
+            conn.settimeout(timeout)
+            conn.connect(path)
+            conn.sendall((json.dumps(message) + "\n").encode())
+            buf, end = b"", now() + timeout
+            while now() < end:
+                chunk = conn.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    try:
+                        reply = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(reply, dict) and reply.get("id") == message.get("id"):
+                        return reply
+    except OSError:
+        return {}
+    return {}
+
+
+def process_exe(pid):
+    """The executable path of PID (ps comm, the full path on macOS), or ""."""
+    try:
+        return subprocess.run(["ps", "-o", "comm=", "-p", str(int(pid))], capture_output=True, text=True,
+                              timeout=10).stdout.strip()
+    except (ValueError, OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def process_args(pid):
+    try:
+        return subprocess.run(["ps", "-o", "args=", "-p", str(int(pid))], capture_output=True, text=True,
+                              timeout=10).stdout.strip()
+    except (ValueError, OSError, subprocess.TimeoutExpired):
+        return ""
+
 
 class App:
     def __init__(self, sock, bundle, home, ocr):
@@ -226,6 +273,57 @@ class App:
         if isinstance(answer, dict) and answer.get("error"):
             raise StepError(f"cmux {' '.join(args)[:80]}: {answer['error']}")
         return answer.get("value", answer) if isinstance(answer, dict) and "text" not in answer else answer
+
+    def daemon_facts(self):
+        """The build under test (the bundle's `cmux --version --json` build_identity) and, for the cmux-tui owner the
+        app is connected to and the acpmux daemon it runs, each one's pid, executable and build id. Reads only."""
+        facts = {"expected_build": getattr(self, "_expected_build", None), "cmux_tui": None, "acpmux": None, "errors": []}
+        if not facts["expected_build"]:  # the bundle's build does not change: read it once per journey
+            try:
+                done = subprocess.run([self.cli, "--version", "--json"], capture_output=True, text=True, timeout=10,
+                                      env={"HOME": self.home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"})
+                facts["expected_build"] = self._expected_build = (json.loads(done.stdout) or {}).get("build_identity")
+            except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+                facts["errors"].append(f"cmux --version: {error}"[:200])
+        sock = self.daemon_socket()
+        if sock:
+            answer = unix_request(sock, {"id": "journeys-skew", "cmd": "identify"}, timeout=3.0)
+            body = (answer.get("data") or answer.get("result") or answer) if isinstance(answer, dict) else {}
+            if isinstance(body, dict) and body.get("pid"):
+                facts["cmux_tui"] = {"pid": body.get("pid"), "build_id": body.get("build_id"),
+                                     "exe": body.get("cli_path") or process_exe(body.get("pid")),
+                                     "socket": sock}
+            else:
+                facts["errors"].append(f"cmux-tui identify: {json.dumps(answer, default=str)[:200]}")
+        try:
+            acp = self.rpc("agent.acpmux", timeout=5) or {}
+        except (StepError, OSError, ValueError) as error:
+            acp = {}
+            facts["errors"].append(f"agent.acpmux: {error}"[:200])
+        path = acp.get("socket_path") if isinstance(acp, dict) else None
+        if not path:
+            # A build without agent.acpmux: the `acpmux daemon run` process of THIS bundle (each lease has its own
+            # bundle path, so the path is the build); another bundle's acpmux daemon is not this app's.
+            own_bin = os.path.join(self.bundle, "Contents", "Resources", "bin")
+            rows = subprocess.run(["ps", "axo", "pid=,args="], capture_output=True, text=True, timeout=8).stdout
+            for line in rows.splitlines():
+                pid, _, args = line.strip().partition(" ")
+                if args.startswith(own_bin + "/acpmux daemon run") or args.startswith(own_bin + "/cmux acpmux daemon run"):
+                    exe = os.path.join(own_bin, "acpmux")
+                    facts["acpmux"] = {"pid": int(pid), "exe": exe, "build": None, "found_by": "process of this bundle"}
+                    break
+        if path and os.path.exists(path):
+            pids = [int(p) for p in subprocess.run(["/usr/sbin/lsof", "-t", path], capture_output=True, text=True,
+                                                   timeout=8).stdout.split() if p.isdigit()]
+            server = next((p for p in pids if p != os.getpid() and "acpmux" in process_exe(p) + process_args(p)), None)
+            if server:
+                hello = unix_request(path, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+                    "protocolVersion": 1, "clientCapabilities": {},
+                    "clientInfo": {"name": "journeys-skew", "version": "0"}}}, timeout=3.0)
+                meta = (((hello or {}).get("result") or {}).get("_meta") or {}).get("acpmux") or {}
+                facts["acpmux"] = {"pid": server, "exe": process_exe(server), "build": meta.get("build"),
+                                   "socket": path}
+        return facts
 
     def screen(self, term):
         answer = self.cmux("terminal", term, "screen", "read")
@@ -343,16 +441,124 @@ def last_line(text):
     return filled[-1] if filled else ""
 
 
-# Letters text recognition confuses in a monospace terminal font, folded to one form.
+# Letters text recognition confuses in a monospace terminal font, folded to one form. The Won signs: a terminal "w"
+# was read as "\u20a9" on every try of a frame that showed it (STATUS 5811, check-64.png of job 4b39ae9a round 2).
+# "+": a terminal "t" read as "+" (check-80.png of job fc4afadcd821 round 5; tip 3bcae6ca5d46); no journey text has "+".
 OCR_FOLD = str.maketrans({"O": "0", "o": "0", "D": "0", "I": "1", "l": "1", "L": "1", "|": "1", "i": "1", "S": "5", "s": "5",
-                          "B": "8", "Z": "2", "z": "2", "—": "-", "–": "-", "_": "-"})
+                          "B": "8", "Z": "2", "z": "2", "—": "-", "–": "-", "_": "-", "\u20a9": "w", "\uffe6": "w",
+                          "+": "t"})
+
+
+# -- measurement validity: the daemons must be the build under test (lead 01:2xZ, cmux-ad 01:25Z) --
+#
+# The cmux-tui owner and the acpmux daemon outlive the app, so a new app can attach to an older daemon (#27829).
+# Each journey records both daemons' pid, executable and build id next to the app's own build (its bundle's bin/cmux;
+# bin/acpmux is an alias of that multi-call binary), and a pass or a fail whose daemons are another build, or whose
+# cmux-tui owner cannot be verified, is "not run".
+
+
+def daemon_skew(facts, bundle):
+    """Why the round's daemons are not the build under BUNDLE (a reason), or None when they are."""
+    own = os.path.realpath(os.path.join(bundle, "Contents", "Resources", "bin", "cmux"))
+    expected = (facts or {}).get("expected_build")
+    tui = (facts or {}).get("cmux_tui")
+    if not expected or not tui or not tui.get("exe") or not tui.get("build_id"):
+        return (f"cmux-tui owner not verified (expected build {expected!r}, owner "
+                f"{json.dumps(tui, default=str)[:200]})")
+    problems = []
+    if os.path.realpath(tui["exe"]) != own or tui["build_id"] != expected:
+        problems.append(f"cmux-tui owner pid {tui.get('pid')} runs {tui['exe']} build {tui['build_id']}")
+    acp = facts.get("acpmux")
+    if acp:
+        commit = str(expected).split("-dirty")[0]
+        token = str(acp.get("build") or "").split()[0] if acp.get("build") else ""
+        # bin/acpmux of this bundle is the build too: a symlink to bin/cmux, or a hard link or copy of it (review S2).
+        own_acp = os.path.realpath(os.path.join(bundle, "Contents", "Resources", "bin", "acpmux"))
+        if os.path.realpath(str(acp.get("exe") or "")) not in (own, own_acp):
+            problems.append(f"acpmux pid {acp.get('pid')} runs {acp.get('exe')}")
+        elif token and not (commit.startswith(token.split("-")[0].rstrip("+")) or token.startswith(commit[:7])):
+            problems.append(f"acpmux pid {acp.get('pid')} reports build {acp.get('build')}")
+    if problems:
+        return "; ".join(problems) + f" (the app's build is {expected} at {own})"
+    return None
+
+
+def daemon_verdict(samples, bundle):
+    """("skew", reason) when any sample proves another binary or build; ("unverified", reason) when the last sample
+    has no verified cmux-tui owner; None when the daemons are the build under test. Samples are taken after the
+    journey's first step, after each relaunch and at the end (review S1): an early sample with no owner yet (the
+    daemon still starting) is no finding."""
+    for index, facts in enumerate(samples or []):
+        reason = daemon_skew(facts, bundle)
+        if reason and not reason.startswith("cmux-tui owner not verified"):
+            return "skew", f"sample {index + 1} of {len(samples)} ({(facts or {}).get('at', '?')}): {reason}"
+    last = daemon_skew((samples or [None])[-1], bundle) if samples else "cmux-tui owner not verified (no sample)"
+    if last:
+        return "unverified", last
+    return None
+
+
+def apply_daemon_verdict(status, reason, verdict):
+    """(status, reason) after the daemon check (review B1 at 1493aa24d96): proven skew makes a pass or a fail not
+    run; an owner that could not be verified makes a pass not run, but a FAIL stays a FAIL (a daemon that died,
+    hung or quit during the round is the finding), with the facts in the reason."""
+    if not verdict or status not in ("pass", "fail"):
+        return status, reason
+    kind, why = verdict
+    if kind == "skew":
+        return apply_daemon_skew(status, reason, why)
+    if status == "pass":
+        return "not run", f"daemon not verified: {why}; was pass"[:600]
+    return "fail", f"{reason} (daemon not verified at the end: {why})"[:600]
+
+
+def apply_daemon_skew(status, reason, skew):
+    """(status, reason) of a journey after the daemon check: a pass or a fail with SKEW is not run."""
+    if not skew or status not in ("pass", "fail"):
+        return status, reason
+    return "not run", f"daemon build is not the build under test: {skew}; was {status}: {reason}"[:600]
+
+
+def _ocr_fold(text):
+    # Accents first: recognition (en-US) can print a shown digit as an accented look-alike, e.g. "2" as "ź" or "ł"
+    # (run 64ef2a21, STATUS 9303); NFKD plus no combining marks gives "z" (then "2"), and "ł", which has no
+    # decomposition, becomes "l" (then "1": the fold of a clear "1"; ł is never in a journey's text).
+    bare = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+    return re.sub(r"\s+", "", bare.replace("ł", "l").replace("Ł", "L")).translate(OCR_FOLD).lower()
 
 
 def ocr_contains(lines, wanted):
     """Whether OCR'd `lines` show `wanted` (spaces dropped, look-alike letters folded)."""
-    fold = lambda s: re.sub(r"\s+", "", s).translate(OCR_FOLD).lower()
-    target = fold(wanted)
-    return any(target in fold(line) for line in lines) or target in fold("".join(lines))
+    target = _ocr_fold(wanted)
+    return any(target in _ocr_fold(line) for line in lines) or target in _ocr_fold("".join(lines))
+
+
+OCR_NEAR_MIN_LEN = 8    # a misread is excused only in a text this long (a nonce line), never a short word
+
+
+def ocr_near(lines, wanted):
+    """The OCR line that shows `wanted` but for ONE glyph read as a character that is no ASCII letter or digit (after
+    the fold), at the same place, with nothing added or dropped, and whose line just before shows the command that
+    printed it (the text up to its last "-", e.g. "t2-445843-" of "echo t2-445843-$((6*7))") read exactly; else None.
+    The journey's own lines differ from each other in one letter or digit (t1/t2, d1/d2, w2/w3/w4: same nonce, same
+    -42), so a frame that shows ANOTHER of them (a wrong tab, workspace or pane) is never taken for a misread (review
+    BLOCK of fe97166ee14), not even when the glyph where they differ is the one misread (review of 69bf2eb66b4): that
+    line's own command is above it. A blank frame or the echoed command alone has no such line either. The two real
+    misreads: "w" read as "\u20a9", "t" read as "+"."""
+    target = _ocr_fold(wanted)
+    stem = _ocr_fold(wanted.rsplit("-", 1)[0] + "-") if "-" in wanted else ""
+    if len(target) < OCR_NEAR_MIN_LEN or len(stem) < OCR_NEAR_MIN_LEN - 2 or stem == target:
+        return None
+    for n, line in enumerate(lines):
+        if n == 0 or stem not in _ocr_fold(lines[n - 1]):
+            continue
+        text = _ocr_fold(line)
+        for at in range(len(text) - len(target) + 1):
+            part = text[at:at + len(target)]
+            diff = [i for i, (a, b) in enumerate(zip(part, target)) if a != b]
+            if len(diff) == 1 and not re.fullmatch(r"[a-z0-9]", part[diff[0]]):
+                return line
+    return None
 
 
 def negative(name, want):
@@ -886,6 +1092,8 @@ class Journey:
         missing = [t for t in want.get("shows", []) if not ocr_contains(lines, t)]
         present = [t for t in want.get("lacks", []) if ocr_contains(lines, t)]
         detail = {"image": image.name, "text": lines[-12:], "lines": len(lines), "missing": missing, "present": present}
+        near = {t: ocr_near(lines, t) for t in missing}
+        detail["near"] = {t: line for t, line in near.items() if line is not None}
         return bool(want.get("shows")) and not missing and not present, detail
 
     def cond_quit_leftovers(self, want, cache):
@@ -1255,6 +1463,11 @@ class Journey:
                     s["ok"], s["at"] = True, now()
                 elif now() >= frame_until and tries >= 2:
                     break
+        for s in frames:
+            if not s["ok"]:
+                note = self.ocr_unread(s, state)
+                if note:
+                    s["ok"], s["at"], s["detail"] = True, now(), dict(s["detail"], ocr_unread=note)
         failed = []
         for s in state:
             elapsed = None if s["at"] is None else round((s["at"] - t0) * 1000)
@@ -1272,6 +1485,27 @@ class Journey:
         if failed:
             raise StepError("; ".join(failed))
         return result
+
+    def ocr_unread(self, s, state):
+        """The note "OCR could not read it (daemon check passed): ..." when a failed frame_screen only missed `shows`
+        texts that (1) a daemon check of the SAME step names in its `lines` and that check passed, and (2) the frame
+        shows but for one glyph (ocr_near); else None, and the miss stays a failed step (lead 11:1xZ: two false smoke
+        reds from misread glyphs, STATUS 5811 and 6305). A blank frame, a frame without the text, a `lacks` text on
+        screen or a failed or missing daemon check is never excused: the visual check keeps what it adds."""
+        detail = s.get("detail")
+        if s["name"] != "frame_screen" or not isinstance(detail, dict) or detail.get("error"):
+            return None
+        missing, present, near = detail.get("missing") or [], detail.get("present") or [], detail.get("near") or {}
+        if not missing or present:
+            return None
+        said = []
+        for text in missing:
+            backer = next((o["name"] for o in state if o["name"] in OCR_BACKED and o["ok"] and not o["negative"]
+                           and text in (o["cond"][o["name"]].get("lines") or [])), None)
+            if backer is None or text not in near:
+                return None
+            said.append(f"{text!r} read as {near[text]!r}, {backer} passed")
+        return "OCR could not read it (daemon check passed): " + "; ".join(said)
 
     def evaluate(self, name, want, cache):
         """(holds, detail) of one condition; `cache` keeps one read of each source per poll."""
@@ -1489,6 +1723,7 @@ class Journey:
         frames.start()
         status, reason = "pass", ""
         not_judged = []
+        self.known_gaps = []
         try:
             for index, step in enumerate(self.spec["steps"]):
                 if now() > self.deadline:
@@ -1497,13 +1732,23 @@ class Journey:
                 handler = getattr(self, "step_" + step["do"], None)
                 if handler is None:
                     raise StepError(f"unknown step {step['do']!r}")
-                if step["do"] in ("key", "type", "rpc", "new_terminal"):
+                if step["do"] in ("key", "type", "rpc", "new_terminal", "smoke_key", "smoke_type"):
                     # The terminals on screen before an input: `focused_terminal` waits for one not among them.
                     self.known_views |= {p.get("terminal_id") for p in self.app.panes() if p.get("terminal_id")}
                 t = now()
+                evidence_before = len(self.evidence)
+                gap_fallback = None
                 try:
                     record["result"] = handler(step)
                     record["ok"] = True
+                    # Which key path the step's keys took (cmux-ad 13:10Z): "real_hid" (CuaDriver's HID key events,
+                    # a person's keyboard path) or "debug.key" (into the app's key router); none for a step with no key.
+                    path = record["result"].get("key_path") if isinstance(record["result"], dict) else None
+                    if path is None and step["do"] in ("key", "type", "smoke_burst", "smoke_type_now") \
+                            or (step["do"] == "relaunch" and step.get("how", "quit") == "quit"):
+                        path = "debug.key"
+                    if path:
+                        record["key_path"] = path
                     if step.get("as"):
                         # Names the current terminal for later `use` steps and conditions.
                         self.aliases[step["as"]] = {"term": self.need_term(), "pane": self.pane, "host_pid": self.host_pid}
@@ -1512,6 +1757,27 @@ class Journey:
                             self.known_views.add(view["terminal_id"])
                 except StepError as error:
                     record["ok"], record["error"] = False, str(error)[-600:]
+                    if getattr(error, "detail", None) is not None:  # what the step saw when it failed (a journal tail)
+                        record["error_detail"] = error.detail
+                    gap = self.known_gap_of(step, error, self.evidence[evidence_before:])
+                    if not gap:
+                        raise
+                    # A KNOWN GAP (the spec's `known_gap`): this check failed for a reason that is open and named, on
+                    # the key path the gap is about. It is not a result: the step is recorded as the gap (ok None, so
+                    # no later reader takes it as the round's failure), its evidence is set aside, and the journey goes
+                    # on through the gap's fallback steps, so a new failure in any later step is still caught. A
+                    # journey with a gap is never a pass.
+                    text = f"KNOWN GAP: {gap['name']} ({gap['ref']}), not a result"
+                    record["ok"], record["known_gap"] = None, text
+                    for row in self.evidence[evidence_before:]:
+                        row["known_gap"] = text
+                    self.known_gaps.append({"step": index + 1, "title": step.get("title", ""), "text": text,
+                                            "error": str(error)[-300:]})
+                    gap_fallback = gap.get("fallback") or []
+                except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+                    # An app crash, a hung socket or a bad reply: the step's own record names the failure, so the
+                    # round names this step, not a count of records (the gap's fallback adds records).
+                    record["ok"], record["error"] = False, f"{type(error).__name__}: {error}"[-600:]
                     raise
                 except NotRun as error:
                     # A journey with `continue_not_judged` (the dogfood smoke gate) records a check it cannot judge
@@ -1524,15 +1790,47 @@ class Journey:
                 finally:
                     record["seconds"] = round(now() - t, 3)
                     self.steps.append(record)
+                if gap_fallback is not None:
+                    self.run_gap_fallback(gap_fallback, index)
+                if record.get("ok") and step["do"] == "relaunch":
+                    # Not now: later steps measure from the relaunch's own mark (review at 1548fb29ce5 and
+                    # f8de46b2f79). The sample waits until the last step whose `since` is that mark has finished,
+                    # else (no such step) until the step after the relaunch.
+                    mark = step.get("mark")
+                    steps_all = self.spec["steps"]
+                    users = [i for i, st in enumerate(steps_all) if i > index and mark and st.get("since") == mark]
+                    self.relaunch_sample_due = (f"after the relaunch at step {index + 1}",
+                                                users[-1] if users else index + 1)
+                elif getattr(self, "relaunch_sample_due", None) and record.get("ok") is not False \
+                        and index >= self.relaunch_sample_due[1]:
+                    self.sample_daemons(f"{self.relaunch_sample_due[0]}, after step {index + 1} ({step['do']})")
+                    self.relaunch_sample_due = None
+                if record.get("ok") and index == 0:
+                    # Between steps, never inside one: no step's own timing includes the sample (review S1).
+                    self.sample_daemons(f"after step {index + 1} ({step['do']})")
             if not_judged:
-                raise NotRun(f"{len(not_judged)} checks not judged: " + " | ".join(not_judged))
+                gaps = "; ".join(f"step {g['step']}: {g['text']}" for g in self.known_gaps)
+                raise NotRun(f"{len(not_judged)} checks not judged: " + " | ".join(not_judged) + (f"; {gaps}" if gaps else ""))
+            if self.known_gaps:
+                # Every step after the gap ran and passed; the gap itself is open, so this is no pass.
+                raise NotRun("; ".join(f"step {g['step']}: {g['text']}" for g in self.known_gaps)
+                             + "; every later step passed")
         except (Deadline, NotRun) as error:
             status, reason = "not run", str(error)
+            gaps = [f"step {g['step']}: {g['text']}" for g in getattr(self, "known_gaps", []) if g["text"] not in reason]
+            if gaps:
+                reason += " (after " + "; ".join(gaps) + ")"
             earlier = [n for n in not_judged if n not in reason]
             if earlier:
                 reason += f" (and {len(earlier)} checks not judged before it: " + " | ".join(earlier) + ")"
         except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
-            status, reason = "fail", f"step {len(self.steps)} ({self.steps[-1]['do'] if self.steps else '?'}): {error}"
+            failed = next((st for st in reversed(self.steps) if st.get("ok") is False), None)
+            last = self.steps[-1] if self.steps else {}
+            index = (failed or {}).get("index") or last.get("index") or len(self.steps)
+            where = f"step {index}" + (" (the known gap's fallback)" if (failed or last).get("fallback_of") else "")
+            status, reason = "fail", f"{where} ({self.steps[-1]['do'] if self.steps else '?'}): {error}"
+            if self.known_gaps:
+                reason += " (after " + "; ".join(f"step {g['step']}: {g['text']}" for g in self.known_gaps) + ")"
         finally:
             # `finally` steps put the app back for the next journey (leave full screen, close a second
             # window), whatever happened; their errors are recorded and never change the status.
@@ -1556,15 +1854,91 @@ class Journey:
             missing = [k for k in REQUIRED_KINDS if k not in kinds]
             if missing:
                 status, reason = "fail", "not enough evidence: no passing " + ", ".join(missing) + " check"
-            elif not all(e["pass"] for e in self.evidence):
+            elif not all(e["pass"] for e in self.evidence if not e.get("known_gap")):
                 status, reason = "fail", "a check failed"
+        # The daemons this journey ran against (lead 01:2xZ): proven skew in any sample is not run; an owner that
+        # cannot be verified at the end makes a pass not run and keeps a fail (apply_daemon_verdict).
+        self.sample_daemons("end")
+        daemons = self.daemon_samples[-1]
+        verdict = daemon_verdict(self.daemon_samples, self.app.bundle)
+        status, reason = apply_daemon_verdict(status, reason, verdict)
+        skew = verdict[1] if verdict else None
         clip = self.clip_frames()
         result = {"id": self.id, "priority": self.spec.get("priority"), "title": self.spec.get("title"),
                   "status": status, "reason": reason, "started_at": wall, "seconds": round(now() - started, 2),
                   "nonce": self.nonce, "terminal": self.term, "pane": self.pane, "host_pid": self.host_pid,
+                  # run.py's run (--run-id, --run-started-at): run.py takes no result.json without its own (STATUS 1362).
+                  "run_id": RUN["run_id"], "run_started_at": RUN["run_started_at"],
+                  "daemons": dict(daemons, app_build=daemons.get("expected_build"), skew=skew,
+                                  verdict=verdict[0] if verdict else "build under test", samples=self.daemon_samples),
                   "frames": frames.count, "clip_frames": clip, "steps": self.steps, "evidence": self.evidence}
         (self.out / "result.json").write_text(json.dumps(result, indent=1, default=str) + "\n")
         return result
+
+    def known_gap_of(self, step, error, rows):
+        """The step's `known_gap` when it applies to THIS failure, else None. It applies only when all hold:
+          - the step before ran and took the gap's key path (default "real_hid") with exactly the gap's key and
+            modifiers (once KEY SET A or B changes the build's binding, the gap no longer matches and the check is a
+            real result again);
+          - the failure is no TerminalGone;
+          - every failed check of the step is `smoke_same_widths` whose only problem is the gap's own text (default
+            "0 new columns, not 1": the key made nothing). A column made with a changed width, a blank frame or any
+            other fault is a real result."""
+        gap = step.get("known_gap")
+        if not isinstance(gap, dict) or not self.steps or isinstance(error, TerminalGone):
+            return None
+        before = self.steps[-1]
+        result = before.get("result") if isinstance(before.get("result"), dict) else {}
+        if before.get("ok") is not True or before.get("key_path") != gap.get("key_path", "real_hid"):
+            return None
+        if "key" in gap and (result.get("key") != gap["key"]
+                             or sorted(result.get("modifiers") or []) != sorted(gap.get("modifiers") or [])):
+            return None
+        failed = [r for r in rows if not r.get("pass")]
+        want = gap.get("problems", ["0 new columns, not 1"])
+        if not failed or any(r.get("check") != "smoke_same_widths" or not isinstance(r.get("detail"), dict)
+                             or r["detail"].get("problems") != want or r["detail"].get("broke_during_settle")
+                             for r in failed):
+            return None
+        return gap
+
+    def run_gap_fallback(self, steps, gap_index):
+        """The known gap's fallback steps (the app's own action path for what the gap's key could not do), recorded
+        with `fallback_of`. A step marked `optional` (closing what the stray key opened) is recorded and never fails
+        the journey; any other failure is a real result (StepError), and a step that cannot be judged is not run."""
+        for sub in steps:
+            if now() > self.deadline:
+                raise Deadline(f"the lease deadline came during the known gap's fallback at step {gap_index + 1}")
+            record = {"index": gap_index + 1, "do": sub["do"], "title": sub.get("title", ""), "fallback_of": gap_index + 1}
+            t = now()
+            handler = getattr(self, "step_" + sub["do"], None)
+            if handler is None:
+                raise StepError(f"the known gap's fallback names an unknown step {sub['do']!r}")
+            try:
+                record["result"] = handler(sub)
+                record["ok"] = True
+                path = record["result"].get("key_path") if isinstance(record["result"], dict) else None
+                if path:
+                    record["key_path"] = path
+            except (StepError, NotRun) as error:
+                record["ok"], record["error"] = (None if sub.get("optional") else False), str(error)[-600:]
+                if not sub.get("optional"):
+                    self.steps.append(dict(record, seconds=round(now() - t, 3)))
+                    if isinstance(error, (NotRun, TerminalGone)):
+                        raise
+                    raise StepError(f"the known gap's fallback step {sub['do']} ({sub.get('title', '')[:60]}): {error}")
+            record["seconds"] = round(now() - t, 3)
+            self.steps.append(record)
+
+    def sample_daemons(self, at):
+        """One sample of the daemons (App.daemon_facts), kept in self.daemon_samples with where it was taken."""
+        try:
+            facts_of = getattr(self.app, "daemon_facts", None)
+            facts = facts_of() if facts_of else {"errors": ["the app object reads no daemons"]}
+        except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+            facts = {"errors": [str(error)[:200]]}
+        facts["at"] = at
+        self.daemon_samples = getattr(self, "daemon_samples", []) + [facts]
 
     def clip_frames(self):
         """The frames scaled to CLIP_WIDTH (sips, stock macOS) in clip/: what run.py fetches for the clip."""
@@ -1605,6 +1979,8 @@ load_extensions(sys.modules[__name__])
 
 # Whether the app was launched active (capture-host launch --activate, a whole-host lease); main sets it.
 ACTIVATE = False
+# The run.py run these results belong to (--run-id, --run-started-at); main sets it.
+RUN = {"run_id": None, "run_started_at": None}
 
 
 def main(argv=None):
@@ -1619,14 +1995,17 @@ def main(argv=None):
     ap.add_argument("--frame-interval", type=float, default=FRAME_INTERVAL)
     ap.add_argument("--activate", action="store_true",
                     help="the app was launched active (capture-host launch --activate): a relaunch opens it in front")
+    ap.add_argument("--run-id", help="run.py's run id, written into each result.json (run.py refuses any other)")
+    ap.add_argument("--run-started-at", help="run.py's run start (UTC, %%Y-%%m-%%dT%%H:%%M:%%SZ), written beside the run id")
     a = ap.parse_args(argv)
     global ACTIVATE
     ACTIVATE = a.activate
+    RUN.update(run_id=a.run_id, run_started_at=a.run_started_at)
     deadline = now() + a.deadline_seconds
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     app = App(a.socket, a.app, a.home, a.ocr)
-    host = {"host": socket.gethostname().split(".")[0], "macos": subprocess.run(["sw_vers", "-productVersion"],
+    host = {"run_id": a.run_id, "host": socket.gethostname().split(".")[0], "macos": subprocess.run(["sw_vers", "-productVersion"],
             capture_output=True, text=True).stdout.strip(), "identify": app.identity, "sessions": app.sessions}
     (out / "host.json").write_text(json.dumps(host, indent=1, default=str) + "\n")
     # Text recognition loads its models on first use (tens of seconds on a cold mini): warm it up
