@@ -415,7 +415,11 @@ impl Hub {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .iter()
-                .filter(|q| replacement != Some(q.prompt_id.as_str()) && q.run.agent.is_none())
+                .filter(|q| {
+                    expected_prompt.is_none()
+                        && replacement != Some(q.prompt_id.as_str())
+                        && q.run.agent.is_none()
+                })
                 .map(|q| q.prompt_id.clone())
                 .collect();
             for prompt_id in queued {

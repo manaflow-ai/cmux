@@ -110,39 +110,56 @@ impl Hub {
     }
 
     pub async fn workflow_cancel_children(self: &Arc<Self>, run: &RunRecord) -> Result<()> {
+        let mut errors = Vec::new();
         for activity in run.activities.values().filter(|a| a.outcome.is_none()) {
-            match &activity.child {
-                Child::Agent { session_id, prompt_id, host } => {
-                    anyhow::ensure!(
-                        host.as_deref().is_none_or(|host| host == "local"),
-                        "remote workflow agent cancellation is not supported on this route"
-                    );
-                    let session = match self.resolve(session_id) {
-                        Ok(session) => session,
-                        Err(error) if error.code == RpcError::not_found("").code => continue,
-                        Err(error) => return Err(anyhow::anyhow!(error.message)),
-                    };
-                    self.remove_queued(&session, prompt_id);
-                    self.cancel_prompt(&session, prompt_id)
-                        .await
-                        .map_err(|e| anyhow::anyhow!(e.message))?;
+            let result: Result<()> = async {
+                match &activity.child {
+                    Child::Agent { session_id, prompt_id, host } => {
+                        anyhow::ensure!(
+                            host.as_deref().is_none_or(|host| host == "local"),
+                            "remote workflow agent cancellation is not supported on this route"
+                        );
+                        let session = match self.resolve(session_id) {
+                            Ok(session) => session,
+                            Err(error) if error.code == RpcError::not_found("").code => {
+                                return Ok(());
+                            }
+                            Err(error) => return Err(anyhow::anyhow!(error.message)),
+                        };
+                        self.remove_queued(&session, prompt_id);
+                        self.cancel_prompt(&session, prompt_id)
+                            .await
+                            .map_err(|e| anyhow::anyhow!(e.message))?;
+                    }
+                    Child::Machine { session_id, task_id, host } => {
+                        anyhow::ensure!(
+                            host.as_deref().is_none_or(|host| host == "local"),
+                            "remote workflow machine cancellation is not supported on this route"
+                        );
+                        let session = match self.resolve(session_id) {
+                            Ok(session) => session,
+                            Err(error) if error.code == RpcError::not_found("").code => {
+                                return Ok(());
+                            }
+                            Err(error) => return Err(anyhow::anyhow!(error.message)),
+                        };
+                        self.bg_stop(&session, task_id)
+                            .await
+                            .map_err(|e| anyhow::anyhow!(e.message))?;
+                    }
                 }
-                Child::Machine { session_id, task_id, host } => {
-                    anyhow::ensure!(
-                        host.as_deref().is_none_or(|host| host == "local"),
-                        "remote workflow machine cancellation is not supported on this route"
-                    );
-                    let session = match self.resolve(session_id) {
-                        Ok(session) => session,
-                        Err(error) if error.code == RpcError::not_found("").code => continue,
-                        Err(error) => return Err(anyhow::anyhow!(error.message)),
-                    };
-                    self.bg_stop(&session, task_id)
-                        .await
-                        .map_err(|e| anyhow::anyhow!(e.message))?;
-                }
+                Ok(())
+            }
+            .await;
+            if let Err(error) = result {
+                errors.push(format!("{}: {error}", activity.id));
             }
         }
+        anyhow::ensure!(
+            errors.is_empty(),
+            "workflow child cleanup incomplete: {}",
+            errors.join("; ")
+        );
         Ok(())
     }
 
@@ -157,6 +174,21 @@ impl Hub {
         };
         for run in records {
             let _gate = self.workflow_runs.gate(&run.id).lock_owned().await;
+            // Requests may have changed this run while recovery waited for its gate.
+            // Never restart a pause or stop a new generation from the listed snapshot.
+            let current = match self.workflow_runs.store().get(&run.id) {
+                Ok(current)
+                    if current.generation == run.generation && current.state == run.state =>
+                {
+                    current
+                }
+                Ok(_) => continue,
+                Err(error) => {
+                    tracing::warn!(%error,"reload workflow recovery record");
+                    continue;
+                }
+            };
+            let run = current;
             let result = match run.state {
                 State::Pausing => self.workflow_finish_pause(run).await.map(|_| ()),
                 State::Running => {
@@ -165,6 +197,7 @@ impl Hub {
                         Err(error) => Err(error),
                     }
                 }
+                State::Failed => self.workflow_cancel_children(&run).await,
                 _ => Ok(()),
             };
             if let Err(error) = result {
