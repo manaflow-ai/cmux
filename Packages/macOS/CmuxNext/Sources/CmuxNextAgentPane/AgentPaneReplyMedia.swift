@@ -16,8 +16,6 @@ final class AgentPaneMediaGrants {
         "mp4": "video/mp4", "m4v": "video/x-m4v", "mov": "video/quicktime", "webm": "video/webm",
         "mp3": "audio/mpeg", "m4a": "audio/mp4", "aac": "audio/aac", "wav": "audio/wav", "flac": "audio/flac",
     ]
-    /// Most files granted at once; the oldest grant goes first.
-    static let maximumGrants = 256
     static let pathPrefix = "/__media/"
 
     private let cache: AgentPaneMediaCache
@@ -28,7 +26,6 @@ final class AgentPaneMediaGrants {
 
     private var files: [String: URL] = [:]
     private var tokens: [URL: String] = [:]
-    private var order: [String] = []
     /// The URL each web link already plays by.
     private var links: [URL: String] = [:]
 
@@ -53,16 +50,6 @@ final class AgentPaneMediaGrants {
             name = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased() + "." + file.pathExtension.lowercased()
             files[name] = file
             tokens[file] = name
-            order.append(name)
-            if order.count > Self.maximumGrants, let oldest = order.first {
-                order.removeFirst()
-                if let gone = files.removeValue(forKey: oldest) {
-                    tokens[gone] = nil
-                    links = links.filter { !$0.value.hasSuffix("/" + oldest) }
-                    // task-owner: finite eviction; the cache rejects files it does not own.
-                    Task { await cache.remove(gone) }
-                }
-            }
         }
         return "\(AgentPaneSource.bundledScheme)://\(AgentPaneSource.bundledHost)\(Self.pathPrefix)\(name)"
     }
