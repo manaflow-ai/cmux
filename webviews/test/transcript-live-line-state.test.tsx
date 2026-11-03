@@ -59,6 +59,7 @@ const drawn = (line: AcpmuxRow, now: number) =>
         thoughtMs={line.thoughtMs}
         turnTotal={line.turnTotal}
         untimed={line.untimed}
+        quietKey={line.quietKey}
       />,
     ),
   );
