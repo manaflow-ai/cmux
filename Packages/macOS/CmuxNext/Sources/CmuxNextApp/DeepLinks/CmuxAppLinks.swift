@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextLayout
+import CmuxNextPages
 import Foundation
 import CmuxNextWakeups
 import CmuxNextCompat
@@ -21,9 +22,19 @@ enum CmuxAppLinks {
         if let action = settingsAction(for: url, linkScheme: services.linkScheme) {
             return services.registry.perform(action, invocation: ActionInvocation(origin: .user))
         }
+        if let agent = DeepLink.parseAgentWeb(url) { return openAgentWeb(url, agent, services: services) }
         guard let link = link(for: url, linkScheme: services.linkScheme, chiefHost: services.agentTabs.chiefHost),
               let text = link.url(scheme: services.linkScheme)?.absoluteString else { return false }
         return services.registry.perform("link.open", invocation: ActionInvocation(arguments: ["url": .string(text)], origin: .user))
+    }
+
+    /// An agent session link's web form (`https://cmux.com/deeplink/agent?harness=&session=…`)
+    /// clicked in the app opens the chat here, with no question since the person clicked it in cmux;
+    /// only a chat acpmux does not list (not theirs) opens its web page. False with agent links off.
+    @MainActor
+    static func openAgentWeb(_ url: URL, _ link: DeepLink, services: AppServices) -> Bool {
+        let web = { @MainActor in LinkRouter.shared.open(url, in: LinkRouter.shared.target(for: url)) }
+        return (try? DeepLinkNavigator(services: services).openAgentLink(link, .raise, asking: false, notFound: web)) != nil
     }
 
     /// A path link (`file:///…`: Home's form of a path an agent wrote): a file opens in the
