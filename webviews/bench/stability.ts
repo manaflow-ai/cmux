@@ -32,9 +32,19 @@ export type IdleCount = {
   sources: string[];
 };
 
+export type Settled = {
+  /** The last frame (page performance.now()) whose boxes changed. */
+  lastChange: number;
+  /** The first frame `content` matched in, or 0. */
+  firstContent: number;
+  frames: number;
+  /** The gallery play steps' starts (performance.now()), in order. */
+  actionStarts: number[];
+};
+
 type Probe = {
   /** Stops the box sampler; the last frame (performance.now()) whose boxes changed, and the frames sampled. */
-  settled(): { lastChange: number; frames: number; actionStarts: number[] };
+  settled(): Settled;
   startIdle(): void;
   stopIdle(): IdleCount;
 };
@@ -46,7 +56,7 @@ declare global {
 }
 
 /** The init script. Self-contained: Playwright serializes it into the page. */
-export function installStabilityProbe(options: { sampleCap: number; boxes: boolean }): void {
+export function installStabilityProbe(options: { sampleCap: number; boxes: boolean; content?: string }): void {
   const w = window;
   if (w.__cmuxStability) return;
   const raf = w.requestAnimationFrame.bind(w);
@@ -120,11 +130,14 @@ export function installStabilityProbe(options: { sampleCap: number; boxes: boole
   // Off for a bench whose own timings must not pay for it (chat-switch.bench.ts uses the idle window only).
   let sampling = options.boxes;
   let lastChange = 0;
+  // The first frame in which `options.content` matched: the surface's first paint, past any loading placeholder.
+  let firstContent = 0;
   let frames = 0;
   let previous = new Map<Element, [number, number, number, number]>();
   const sample = () => {
     if (!sampling) return;
     frames += 1;
+    if (!firstContent && options.content && document.querySelector(options.content)) firstContent = performance.now();
     const looping = (document.getAnimations?.() ?? [])
       .filter((a) => a.playState === "running" && a.effect?.getTiming().iterations === Infinity)
       .map((a) => (a.effect as KeyframeEffect | null)?.target)
@@ -163,7 +176,7 @@ export function installStabilityProbe(options: { sampleCap: number; boxes: boole
     settled() {
       sampling = false;
       previous = new Map();
-      return { lastChange, frames, actionStarts: [...actionStarts] };
+      return { lastChange, firstContent, frames, actionStarts: [...actionStarts] };
     },
     startIdle() {
       for (const key of Object.keys(counts) as (keyof typeof counts)[]) counts[key] = 0;
@@ -205,13 +218,17 @@ export function installStabilityProbe(options: { sampleCap: number; boxes: boole
   };
 }
 
-/** Adds the probe to every page the context opens; `boxes: false` leaves the box sampler (settled) off. */
-export async function addStabilityProbe(context: BrowserContext, { boxes = true } = {}): Promise<void> {
-  await context.addInitScript(installStabilityProbe, { sampleCap: SAMPLE_CAP, boxes });
+/** Adds the probe to every page the context opens; `boxes: false` leaves the box sampler (settled) off, and
+ *  `content` is the selector whose first match marks the surface's first paint. */
+export async function addStabilityProbe(
+  context: BrowserContext,
+  { boxes = true, content }: { boxes?: boolean; content?: string } = {},
+): Promise<void> {
+  await context.addInitScript(installStabilityProbe, { sampleCap: SAMPLE_CAP, boxes, content });
 }
 
-/** The last frame (page performance.now()) whose boxes changed; stops the sampler. */
-export async function settledAt(page: Page): Promise<{ lastChange: number; frames: number; actionStarts: number[] }> {
+/** Where the page settled (the probe's box sampler); stops the sampler. */
+export async function settledAt(page: Page): Promise<Settled> {
   return await page.evaluate(() => window.__cmuxStability!.settled());
 }
 

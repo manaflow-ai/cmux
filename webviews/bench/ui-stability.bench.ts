@@ -9,7 +9,8 @@
 //          play report's steps (frame/playRunner.ts).
 // The last round's page stays open, and every surface of an engine then sits through one shared IDLE_MS window
 // (each page counts its own wakeups; Chromium's task time is per page's renderer).
-// Rows (bench/perfRow.ts): ui.<surface>[.webkit].settled, .cls, .idle_wakeups, and Chromium's .idle_cpu_ms.
+// Rows (bench/perfRow.ts): ui.<surface>[.webkit].settled, .settle_after_paint (open: first paint to settled),
+// .cls, .idle_wakeups, and Chromium's .idle_cpu_ms.
 //   bun bench/ui-stability.bench.ts [rounds=3] [--only surface,surface]
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -28,7 +29,7 @@ if (!Number.isInteger(ROUNDS) || ROUNDS < 1) {
   process.exit(2);
 }
 
-type Surface = { name: string; entry: string; variant: string; kind: "open" | "play" };
+type Surface = { name: string; entry: string; variant: string; kind: "open" | "play"; width?: number };
 /// One stage per surface Leo holds to the rail's bar (transcript, composer, menus, picker, rail, Session Info,
 /// Home, New Tab). Chat switch and the transcript's cold open in the production pane are chat-switch.bench.ts's.
 const SURFACES: readonly Surface[] = [
@@ -37,7 +38,8 @@ const SURFACES: readonly Surface[] = [
   { name: "chat_rail", entry: "agent-pane.chat-minimap", variant: "at-rest", kind: "open" },
   { name: "new_tab", entry: "agent-pane.new-tab-page", variant: "idle", kind: "open" },
   { name: "home", entry: "pages.home-channels", variant: "normal", kind: "open" },
-  { name: "session_info", entry: "agent-pane.session-info-narrow-pane", variant: "opened", kind: "play" },
+  // At 528 px the pane is too narrow to keep Session Info open beside the chat, so its play clicks the toggle.
+  { name: "session_info", entry: "agent-pane.session-info-narrow-pane", variant: "opened", kind: "play", width: 528 },
   { name: "model_picker", entry: "agent-pane.model-picker", variant: "idle", kind: "play" },
   { name: "quick_model_menu", entry: "new-tab.quick-model-menu", variant: "in-chat", kind: "play" },
   { name: "options_menu", entry: "agent-pane.options-menu", variant: "one-open", kind: "play" },
@@ -52,10 +54,11 @@ const surfaces = SURFACES.filter((surface) => !only || only.includes(surface.nam
 type Step = { action: string; settleMs: number; layoutShift: number; boxShift?: number };
 type Reports = {
   ready: string | undefined;
-  load?: { layoutShift: number; boxShift: number };
+  load?: { layoutShift: number; boxShift: number; shifts: { value: number; sources: string[] }[] };
   play?: { status: string; steps: Step[]; error?: string };
 };
-type Round = { settled: number; cls: number };
+/** settled from navigation (open) or the last step's start (play); afterPaint from the stage's first paint (open). */
+type Round = { settled: number; afterPaint?: number; cls: number; shifted: string[] };
 
 const webviews = path.resolve(import.meta.dir, "..");
 const releases: (() => unknown)[] = [];
@@ -78,8 +81,12 @@ async function round(
   surface: Surface,
   keep: boolean,
 ): Promise<Round & { kept?: { page: Page; cdp: CDPSession | null } }> {
-  const context = await browser.newContext({ viewport: { width: 1200, height: 800 }, colorScheme: "dark" });
-  await addStabilityProbe(context);
+  const context = await browser.newContext({
+    viewport: { width: surface.width ?? 1200, height: 800 },
+    colorScheme: "dark",
+  });
+  // The stage's first paint: its root holds the surface, no longer the "Loading …" placeholder (frame/main.ts).
+  await addStabilityProbe(context, { content: "#root:not(.gallery-frame-loading) > *" });
   const page = await context.newPage();
   const cdp = await cpuSession(page, isChromium);
   try {
@@ -93,7 +100,7 @@ async function round(
     });
     // Ready means the stage held still for 250 ms (frame/main.ts); a second more catches a late move.
     await page.waitForTimeout(1000);
-    const { lastChange, actionStarts } = await settledAt(page);
+    const { lastChange, firstContent, actionStarts } = await settledAt(page);
     const reports = await page.evaluate((): Reports => ({
       ready: document.documentElement.dataset.galleryReady,
       load: (window as unknown as { cmuxGalleryLoadReport?: Reports["load"] }).cmuxGalleryLoadReport,
@@ -105,7 +112,12 @@ async function round(
     let result: Round;
     if (surface.kind === "open") {
       if (!reports.load) throw new Error(`${surface.entry}: no load report`);
-      result = { settled: lastChange, cls: cls(reports.load) };
+      result = {
+        settled: lastChange,
+        afterPaint: firstContent ? Math.max(0, lastChange - firstContent) : lastChange,
+        cls: cls(reports.load),
+        shifted: reports.load.shifts.map((shift) => `${shift.value.toFixed(4)} ${shift.sources.join(" ")}`),
+      };
     } else {
       const steps = reports.play?.steps ?? [];
       const last = steps.findLastIndex((step) => step.action !== "wait");
@@ -116,6 +128,7 @@ async function round(
       result = {
         settled: start === undefined ? steps[last]!.settleMs : Math.max(0, lastChange - start),
         cls: acted.reduce((sum, step) => sum + cls(step), 0),
+        shifted: [],
       };
     }
     if (keep) return { ...result, kept: { page, cdp } };
@@ -191,9 +204,16 @@ try {
           (quiet.pageLoops === null ? "" : ` | page loops ${quiet.pageLoops}`),
       );
       for (const source of quiet.sources.slice(0, 4)) console.log(`  woke: ${source}`);
+      for (const shift of rounds.at(-1)!.shifted.slice(0, 4)) console.log(`  shifted: ${shift}`);
       const name = `ui.${surface.name}${suffix}`;
       const target = surface.kind === "open" ? TARGET_MS.load : TARGET_MS.response;
       perfRow({ name: `${name}.settled`, p50: settled, p95: settled, target });
+      if (surface.kind === "open") {
+        // First paint to settled: 0 when the first frame is the final frame; one frame (17 ms) is noise.
+        const afterPaint = median(rounds.map((r) => r.afterPaint ?? 0));
+        console.log(`  first paint to settled: ${afterPaint.toFixed(0)} ms`);
+        perfRow({ name: `${name}.settle_after_paint`, p50: afterPaint, p95: afterPaint, target: 0, floor: 17 });
+      }
       // A target of zero: a still page shifts nothing and wakes nothing. The floor keeps a rounding-sized change noise.
       perfRow({ name: `${name}.cls`, p50: cls, p95: cls, unit: "score", target: 0, floor: 0.001 });
       perfRow({
