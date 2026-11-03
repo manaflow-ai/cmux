@@ -104,6 +104,13 @@ fn native_cloud_gateway_refuses_changed_tunnel_identity_and_invalid_config() {
     ] {
         let mut config = tunnel();
         config[field] = value;
-        assert!(route(config).is_err(), "{field}");
+        let Err(error) = route(config) else { panic!("{field} must refuse") };
+        // The refusal names the check (it reaches link_route), never the value.
+        let message = error.to_string();
+        assert!(
+            message.starts_with("cloud.native.route_refused: ") && message.contains(field),
+            "{field}: {message}"
+        );
+        assert!(!message.contains("attacker") && !message.contains("PrivateKey"), "{message}");
     }
 }
