@@ -48,8 +48,8 @@ export const rememberJobDestination = (b: ChiefBrainDO, message: string, destina
 /** The final turn reply, once per destination. At-most-once: Slack failure never repeats an effect or delays a turn. */
 export const finishJobDestinations = (b: ChiefBrainDO, turn: string): void => {
   ready(b)
-  const final = b.sql.exec<{ reply: string | null; status: string }>(`SELECT reply, status FROM cb_turn WHERE id = ?`, turn).toArray()[0]
-  if (!final || final.status !== "done" || !final.reply) return
+  const final = b.sql.exec<{ reply: string | null; status: string; post: string }>(`SELECT reply, status, post FROM cb_turn WHERE id = ?`, turn).toArray()[0]
+  if (!final || final.status !== "done" || final.post !== "posted" || !final.reply) return
   const rows = b.sql.exec<{ message: string; destination: string }>(`SELECT d.message, d.destination FROM cb_job_destinations d JOIN cb_inbox i ON i.message = d.message WHERE i.turn = ? AND d.attempted = 0`, turn).toArray()
   const destinations = new Map<string, SlackDestination>()
   for (const row of rows) {
