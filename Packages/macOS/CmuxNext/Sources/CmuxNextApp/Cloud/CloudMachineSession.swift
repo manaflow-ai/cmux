@@ -41,6 +41,10 @@ final class CloudMachineSession {
     /// up, or the last start's failure. Drives the booting and connecting
     /// stages; never set from elapsed time.
     private(set) var linkPhase: CloudLinkPhase = .idle
+    /// The legacy link's last start failure, with the step it stopped at (``CloudLinkStartError``);
+    /// nil once a start comes up, and always nil for the app link. A wait on the machine ends at once
+    /// on a ``CloudLinkStartError/definitive`` one and says the step either way.
+    private(set) var legacyLinkFailure: CloudLinkStartError?
     /// The ticket of the app link's live connect; nil while none is live.
     @ObservationIgnored private var appTicket: UInt64?
     /// An app-link connect hop is queued or running.
@@ -185,7 +189,9 @@ final class CloudMachineSession {
                     await self?.noteLink(.up, since: suspendsBefore)
                     return path
                 } catch {
-                    if !(error is CancellationError) { await self?.noteLink(.failed(CloudStrings.errorText(error)), since: suspendsBefore) }
+                    if !(error is CancellationError) {
+                        await self?.noteLink(.failed(CloudStrings.errorText(error)), since: suspendsBefore, failure: error as? CloudLinkStartError)
+                    }
                     throw error
                 }
             })
@@ -203,7 +209,13 @@ final class CloudMachineSession {
     func attach(origin: CloudLinkOrigin = .user) {
         guard !machine.shownStatus.isChanging else { return }
         if appLink != nil { return connect(origin: origin) }
-        guard machine.shownStatus == .paused, !resuming, !disconnected, let resumer else { return }
+        // A live legacy machine with no connection: its link may be waiting out a backoff after a
+        // failed start (or never started); the attach retries it now instead of doing nothing.
+        if machine.shownStatus != .paused {
+            if machine.status.isLive, daemon.connection == nil, !disconnected { retryNow() }
+            return
+        }
+        guard !resuming, !disconnected, let resumer else { return }
         resuming = true
         resumeFailure = nil
         // task-owner: one resume per attach; a second attach while it runs waits on it
@@ -365,9 +377,10 @@ final class CloudMachineSession {
     /// moved since it began) changes nothing, so a late failure cannot turn
     /// a paused machine into Failed. A failure reads the machine list again
     /// (at most every 30 s): the machine may have been paused behind the app.
-    private func noteLink(_ phase: CloudLinkPhase, since suspendsBefore: Int) {
+    private func noteLink(_ phase: CloudLinkPhase, since suspendsBefore: Int, failure: CloudLinkStartError? = nil) {
         guard !disconnected, suspends == suspendsBefore else { return }
         linkPhase = phase
+        if case .up = phase { legacyLinkFailure = nil } else if let failure { legacyLinkFailure = failure }
         if case .failed = phase, let refresher {
             // task-owner: one throttled list read; the reconcile it runs updates this record
             Task { await refresher(false) }
