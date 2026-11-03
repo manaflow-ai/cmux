@@ -288,15 +288,6 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         declaredCapabilities?.supports(operation) ?? true
     }
 
-    /// Whether New Cloud Workspace with no machine named may open on this machine instead
-    /// of starting (and billing) a new VM: it runs, or the idle timer paused it
-    /// (opening resumes it). A changing, failed, destroyed or person-paused machine is
-    /// never picked until its terminal record arrives (Lawrence msg 1334: Cloud workspaces
-    /// sit in their machine's one group).
-    public var takesUnnamedWorkspaces: Bool {
-        !shownStatus.isChanging && (status.isLive || (status == .paused && pauseReason == .idle))
-    }
-
     /// The machine's name wherever cmux shows one (the sidebar, menus, the Cloud page): the
     /// user's name, else the generated slug (`kind-aqua-sandpiper`); nil when it has neither.
     public var shownName: String? { displayName?.nonEmpty ?? slug?.nonEmpty }

@@ -287,7 +287,8 @@ fn start(
         if let Some(backoff) = backoff {
             std::thread::sleep(backoff);
             let seen = AfterLostStart {
-                daemon_pid: machine_gate::identify(socket).map(|now| now["pid"].as_u64()),
+                daemon_pid: machine_gate::identify(socket)
+                    .map(|now| now.get("pid").and_then(Value::as_u64)),
                 apply_seen: !matches!(super::sync_cli::remote_kind(socket, result), Ok(None)),
                 staged_present: matches!(super::sync_cli::remote_kind(socket, staged), Ok(Some(_))),
             };

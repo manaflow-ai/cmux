@@ -129,7 +129,7 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
         const element = holding(text);
         return element?.closest(`.acpmux-${kind}`) ? (lines(element)[0] ?? null) : null;
       };
-      const inboxes = everyLine("inbox thread").filter((line) =>
+      const inboxes = everyLine("Received ").filter((line) =>
         [...document.querySelectorAll(".acpmux-laneNoticeBatch")].some((row) => {
           const box = row.getBoundingClientRect();
           return line.top >= box.top && line.bottom <= box.bottom;

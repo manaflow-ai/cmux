@@ -28,6 +28,9 @@ import {
   sessionInfoOverChat,
   sessionInfoPushes,
   pushedWidth,
+  PUSH_PANEL_MIN,
+  sessionInfoFits,
+  FLOAT_MARGIN,
   pushes,
   useSessionInfo,
 } from "../src/agent-session/acpmux/session-info/SessionInfo";
@@ -590,11 +593,31 @@ test("it floats while the right gutter holds it, and pushes the chat left where 
   expect(sessionInfoPushes("overlay", { width: 0, height: 0 }, 320)).toBe(false);
   // Settings Push always: even in a wide pane.
   expect(sessionInfoPushes("push", tall(1600), 320)).toBe(true);
-  // Pushed, it narrows to keep a readable chat and its 8px margin, down to its own narrowest width.
+  // Pushed, it narrows to keep a readable chat and its 8px margin, down to PUSH_PANEL_MIN.
   expect(pushedWidth(1200, 320)).toBe(320);
   expect(pushedWidth(720, 320)).toBe(272);
-  expect(pushedWidth(500, 320)).toBe(SESSION_INFO_WIDTH.min);
+  expect(pushedWidth(500, 320)).toBe(PUSH_PANEL_MIN);
   expect(pushedWidth(0, 320)).toBe(320);
+  // cmuxterm-hq#6137: the panel and the chat sit side by side and sum to the pane, at any width; the
+  // panel's left edge is the chat's right edge (Leo, 2026-11-02: "THE FUCKING SESSION INFO NOT FUCKING
+  // PUSH THE LAYOUT LEFT"). At 370px the old 260px floor left the chat about 100px.
+  for (const pane of [180, 370, 528, 740, 1200]) {
+    for (const stored of [SESSION_INFO_WIDTH.min, SESSION_INFO_WIDTH.fallback, SESSION_INFO_WIDTH.max]) {
+      const panelWidth = pushedWidth(pane, stored);
+      const chat = pane - panelWidth - FLOAT_MARGIN;
+      expect(panelWidth).toBeGreaterThanOrEqual(0);
+      expect(chat).toBeGreaterThanOrEqual(FLOAT_MARGIN);
+      expect(chat + panelWidth + FLOAT_MARGIN).toBe(pane);
+    }
+  }
+  expect(pushedWidth(370, 320)).toBe(PUSH_PANEL_MIN);
+  expect(370 - pushedWidth(370, 320) - FLOAT_MARGIN).toBe(162);
+  expect(pushedWidth(528, 320)).toBe(PUSH_PANEL_MIN);
+  expect(pushedWidth(740, 320)).toBe(292);
+  expect(PUSH_PANEL_MIN).toBeLessThan(SESSION_INFO_WIDTH.min);
+  // A pane that cannot hold a readable chat beside the panel at its narrowest does not open it unasked.
+  expect([370, 528, 647, 648, 740].map(sessionInfoFits)).toEqual([false, false, false, true, true]);
+  expect(sessionInfoFits(0)).toBe(true);
 
   const container = installDom(true);
   paneWidth = 1600;
