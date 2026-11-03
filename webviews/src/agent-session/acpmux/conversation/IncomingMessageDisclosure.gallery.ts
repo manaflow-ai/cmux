@@ -92,6 +92,7 @@ const openReport: Play = async (ctx) => {
     row.querySelector(".cv-received__from")?.textContent?.includes("fanout-infra"),
   );
   line?.setAttribute("data-gallery-report", "");
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-received[data-gallery-report] .cv-disclosure__toggle"));
   await ctx.click({ selector: ".cv-received[data-gallery-report] .cv-disclosure__toggle" });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text table") !== null);
 };
