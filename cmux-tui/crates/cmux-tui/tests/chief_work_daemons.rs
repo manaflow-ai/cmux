@@ -10,8 +10,10 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
@@ -54,6 +56,26 @@ fn command(root: &Path) -> Command {
 
 fn start(mut cmd: Command, root: &Path, name: &str, acpmux: bool) -> Daemon {
     let log = root.join(format!("{name}.log"));
+    // The owner deliberately refuses stdin/stdout/stderr as readiness fds.
+    let (ready, inherited) = if acpmux {
+        (None, None)
+    } else {
+        let (read, write) = UnixStream::pair().unwrap();
+        read.set_read_timeout(Some(TIMEOUT)).unwrap();
+        let fd = write.as_raw_fd();
+        cmd.arg("--owner-ready-fd").arg(fd.to_string());
+        // SAFETY: the child changes only its inherited readiness descriptor;
+        // fcntl is async-signal-safe and no allocation happens on success.
+        unsafe {
+            cmd.pre_exec(move || {
+                if libc::fcntl(fd, libc::F_SETFD, 0) == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        (Some(read), Some(write))
+    };
     let mut daemon = Daemon(
         cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -61,6 +83,7 @@ fn start(mut cmd: Command, root: &Path, name: &str, acpmux: bool) -> Daemon {
             .spawn()
             .unwrap(),
     );
+    drop(inherited);
     let mut stdout = daemon.0.stdout.take().unwrap();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -71,7 +94,7 @@ fn start(mut cmd: Command, root: &Path, name: &str, acpmux: bool) -> Daemon {
                 .any(|line| serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ready"] == true))
         } else {
             let mut byte = [0];
-            stdout.read_exact(&mut byte).is_ok() && byte == *b"1"
+            ready.unwrap().read_exact(&mut byte).is_ok() && byte == *b"1"
         };
         let _ = tx.send(ready);
     });
@@ -204,8 +227,6 @@ fn chief_work_channels_reads_real_daemon_sessions_and_harness_commands() {
         .arg("--state")
         .arg(root.join("owner-state"))
         .args([
-            "--owner-ready-fd",
-            "1",
             "--ws",
             "127.0.0.1:0",
             "--ws-token",
