@@ -67,6 +67,9 @@ final class HostView: NSView {
     var headerGlass: HeaderGlassView?
     /// cmux: no header at all (HeaderGlass.swift `useBareTop`): the rows start near the pane's top and fade out there.
     var bareTop = false
+    /// cmux: room kept clear above the oldest row at rest, in the view's points (Home's pinned
+    /// section, ``MessagesLabHomeView/rowsTopClearance``); 0: none.
+    var extraRowsTop: CGFloat = 0
     /// cmux: the chat top's look under the header (HostView+TopFade.swift); nil until Home sets one.
     var topFadeStyle: HomeTopFadeStyle?
     /// cmux: the band of the top fade style, when it draws one of its own (HomeTopFadeView).
@@ -179,9 +182,12 @@ final class HostView: NSView {
         // Below the titlebar (toolbar and name pill accessory): not adjacent
         // to it, so no scroll pocket.
         // cmux: no header (HeaderGlass.swift `useBareTop`): the rows start near the top and fade out there.
-        if bareTop, demo.rowsTopInset != bareRowsTop {
-            demo.rowsTopInset = bareRowsTop
-            demo.topFade = bareRowsTop
+        // cmux: a pinned section under the header keeps the oldest row clear of it (only the top of
+        // the scroll range moves; a chat at rest at its newest message does not).
+        let rowsTop = (bareTop ? bareRowsTop : Fixture.headerHeight + 8) + extraRowsTop / max(contentZoom, 0.01)
+        if demo.rowsTopInset != rowsTop || (bareTop && demo.topFade != bareRowsTop) {
+            demo.rowsTopInset = rowsTop
+            if bareTop { demo.topFade = bareRowsTop }
             demo.setNeedsLayout()
         }
         let top = titlebarHeight
