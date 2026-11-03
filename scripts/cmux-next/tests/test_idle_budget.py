@@ -75,7 +75,7 @@ class IdleBudgetTests(unittest.TestCase):
             opened = ib.build_newtabs(app, 1, limit=1)
         self.assertEqual(opened["keys"], ["tab_new"])
         self.assertEqual([p["action"] for p in app.actions], ["newSurface", "newTab.page", "tab.focus"])
-        self.assertEqual(app.actions[0]["target"], "pane:home")
+        self.assertEqual(app.actions[0]["target"], "tab:tab_home")
         self.assertEqual(app.actions[1]["target"], "pane:main")
         self.assertEqual(app.actions[-1]["target"], "tab:tab_terminal")
         self.assertEqual(ib.newtab_evidence(app, opened)["live_count"], 1)
@@ -98,9 +98,9 @@ class IdleBudgetTests(unittest.TestCase):
 
         app = App()
         with patch.object(ib.time, "monotonic", side_effect=[0, 0, 2]), patch.object(ib.time, "sleep"):
-            with self.assertRaisesRegex(ib.NewTabSetupError, "no stable terminal"):
+            with self.assertRaisesRegex(ib.NewTabSetupError, "stable tab"):
                 ib.build_newtabs(app, 1, limit=1)
-        self.assertEqual(app.actions, ["newSurface"])
+        self.assertEqual(app.actions, [])
 
     def test_newtab_sessions_build_each_page_before_hiding_without_replacing_it(self):
         class App:
