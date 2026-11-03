@@ -15,6 +15,7 @@ extension AgentPaneView {
     /// with no reload.
     func installSessionInfo() {
         model.sessionInfo.onChange = { [weak self] in self?.applySessionInfo() }
+        model.sessionInfo.onOverlays = { [weak self] in self?.applySessionInfoOverlays() }
         // task-owner: lives as long as the view, cancelled in close(); event-driven (Observation)
         model.sessionInfo.hostObservation = Task { [weak self] in
             for await on in ObservationStream({ AgentPaneTunables.nativeSessionInfo.value }) {
@@ -110,7 +111,29 @@ extension AgentPaneView {
                                           width: panel.store.width, zoom: zoom, flipped: isFlipped,
                                           content: { [weak panel] width in panel?.fittingHeight(forWidth: width) ?? .greatestFiniteMagnitude })
         if panel.frame != frame { panel.frame = frame }
+        applySessionInfoOverlays()
+    }
+
+    /// Cuts the page's open popups out of the panel (``AgentPaneSessionInfoOverlay``): the panel steps
+    /// behind each one where they overlap and is whole again when they close.
+    func applySessionInfoOverlays() {
+        guard let panel = model.sessionInfo.panel else { return }
+        let zoom = max(0.25, CGFloat(uiPointerPageZoom))
+        let page = page?.frame ?? webView.frame
+        panel.holes = model.sessionInfo.overlays.compactMap { overlay in
+            let pane = Self.sessionInfoOverlayRect(overlay.rect, page: page, zoom: zoom, flipped: isFlipped)
+            let rect = panel.convert(pane, from: self)
+            return rect.intersects(panel.bounds) ? AgentPaneSessionInfoOverlay(rect: rect, radius: overlay.radius * zoom) : nil
+        }
         applyNativeRects()
+    }
+
+    /// A popup's viewport rect (top-left CSS pixels) in pane coordinates, for a page frame `page`.
+    static func sessionInfoOverlayRect(_ rect: CGRect, page: CGRect, zoom: CGFloat, flipped: Bool) -> CGRect {
+        let scale = max(0.25, zoom)
+        let x = page.minX + rect.minX * scale
+        let y = flipped ? page.minY + rect.minY * scale : page.maxY - rect.maxY * scale
+        return CGRect(x: x, y: y, width: rect.width * scale, height: rect.height * scale)
     }
 
     /// Converts a row anchor from its host view to top-left page CSS pixels in either page engine.
@@ -143,7 +166,10 @@ extension AgentPaneView {
     func applyNativeRects() {
         guard let page else { return }
         var rects = model.tabRow.holes
-        if let panel = model.sessionInfo.panel { rects.append(page.convert(panel.frame, from: self)) }
+        if let panel = model.sessionInfo.panel {
+            // The panel less the page's popups over it, so Chromium draws those whole.
+            rects += panel.uncoveredRects().map { page.convert($0, from: panel) }
+        }
         page.nativeRects = rects
     }
 }

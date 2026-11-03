@@ -756,6 +756,96 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(content.lines.last?.buttons.first?.button.action == "subagents.stop:a1")
     }
 
+    /// Leo, 2026-11-02: "layering issue the context should go over top of the session info". The page
+    /// reports its open popups; the request carries them and refuses bad ones.
+    @Test func overlayReportsDecodeAndBadOnesAreRefused() {
+        let request = AgentPaneRequest(body: ["id": "o", "method": "pane.sessionInfo.overlays", "params": [
+            "rects": [["left": 40, "top": 300, "right": 260, "bottom": 480, "radius": 12]],
+        ]])
+        #expect(request == .sessionInfoOverlays([
+            AgentPaneSessionInfoOverlay(rect: CGRect(x: 40, y: 300, width: 220, height: 180), radius: 12),
+        ]))
+        #expect(String(describing: request) == "sessionInfoOverlays")
+        let closed = AgentPaneRequest(body: ["id": "o", "method": "pane.sessionInfo.overlays", "params": ["rects": []]])
+        #expect(closed == .sessionInfoOverlays([]))
+        let inverted = AgentPaneRequest(body: ["id": "o", "method": "pane.sessionInfo.overlays", "params": [
+            "rects": [["left": 260, "top": 300, "right": 40, "bottom": 480]],
+        ]])
+        #expect(inverted == .unsupported("pane.sessionInfo.overlays"))
+        let tooMany = AgentPaneRequest(body: ["id": "o", "method": "pane.sessionInfo.overlays", "params": [
+            "rects": Array(repeating: ["left": 0, "top": 0, "right": 1, "bottom": 1], count: 17),
+        ]])
+        #expect(tooMany == .unsupported("pane.sessionInfo.overlays"))
+        #expect(AgentPageOps.methods.values.contains("pane.sessionInfo.overlays"))
+    }
+
+    /// A popup's viewport rect lands in pane coordinates in either flip and at the page's zoom.
+    @Test func overlayRectsUsePageCoordinatesAndTheActiveZoom() {
+        let page = CGRect(x: 0, y: 0, width: 1200, height: 900)
+        let css = CGRect(x: 600, y: 120, width: 300, height: 30)
+        #expect(AgentPaneView.sessionInfoOverlayRect(css, page: page, zoom: 1, flipped: true) == css)
+        #expect(AgentPaneView.sessionInfoOverlayRect(css, page: page, zoom: 1, flipped: false)
+            == CGRect(x: 600, y: 750, width: 300, height: 30))
+        #expect(AgentPaneView.sessionInfoOverlayRect(css, page: page, zoom: 1.5, flipped: true)
+            == CGRect(x: 900, y: 180, width: 450, height: 45))
+    }
+
+    /// A reported popup over the panel cuts it out (no drawing, no clicks there, and a Chromium page
+    /// uncovered around it), and the panel is whole again once the popup closes.
+    @Test func aReportedPopupMakesThePanelYieldThereAndRestoresAfter() async throws {
+        Self.enableNative()
+        defer { TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, nil) }
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file)))
+        defer { view.close() }
+        view.frame = CGRect(x: 0, y: 0, width: 900, height: 700)
+        view.layoutSubtreeIfNeeded()
+        _ = await view.model.respond(to: .sessionInfo(try Self.model(Self.info(open: true))))
+        let panel = try #require(view.model.sessionInfo.panel)
+        panel.layoutSubtreeIfNeeded()
+        #expect(panel.holes.isEmpty)
+        #expect(panel.layer?.mask == nil)
+        #expect(panel.uncoveredRects() == [panel.bounds])
+        let inside = view.convert(CGPoint(x: panel.bounds.midX, y: panel.bounds.midY), from: panel)
+        #expect(panel.hitTest(inside) != nil)
+
+        // A card from the composer reaching 80 px into the panel's left side, over its middle.
+        let pageFrame = view.page?.frame ?? view.webView.frame
+        let panelInPage = AgentPaneView.sessionInfoPageRect(panel.frame, bounds: pageFrame, flipped: view.isFlipped, zoom: 1)
+        let card = CGRect(x: panelInPage.minX - 120, y: panelInPage.midY - 50, width: 200, height: 100)
+        _ = await view.model.respond(to: .sessionInfoOverlays([AgentPaneSessionInfoOverlay(rect: card, radius: 10)]))
+        let hole = try #require(panel.holes.first)
+        #expect(panel.holes.count == 1)
+        #expect(abs(hole.rect.width - 200) < 1 && abs(hole.rect.height - 100) < 1)
+        #expect(abs(hole.rect.maxX - 80) < 1)
+        #expect(panel.layer?.mask != nil)
+        let inHole = view.convert(CGPoint(x: 40, y: hole.rect.midY), from: panel)
+        #expect(panel.hitTest(inHole) == nil)
+        let clear = view.convert(CGPoint(x: panel.bounds.maxX - 20, y: hole.rect.midY), from: panel)
+        #expect(panel.hitTest(clear) != nil)
+        let pieces = panel.uncoveredRects()
+        #expect(!pieces.contains { $0.intersects(hole.rect.insetBy(dx: 1, dy: 1)) })
+        #expect(abs(pieces.reduce(0) { $0 + $1.width * $1.height }
+            - (panel.bounds.width * panel.bounds.height - 80 * 100)) < 2)
+
+        _ = await view.model.respond(to: .sessionInfoOverlays([]))
+        #expect(panel.holes.isEmpty)
+        #expect(panel.layer?.mask == nil)
+        #expect(panel.hitTest(inHole) != nil)
+        #expect(panel.uncoveredRects() == [panel.bounds])
+    }
+
+    @Test func subtractingAHoleLeavesTheBandsAroundIt() {
+        let rect = CGRect(x: 0, y: 0, width: 100, height: 100)
+        #expect(AgentPaneSessionInfoPanel.subtract(CGRect(x: 200, y: 0, width: 10, height: 10), from: rect) == [rect])
+        let pieces = AgentPaneSessionInfoPanel.subtract(CGRect(x: -20, y: 40, width: 50, height: 20), from: rect)
+        #expect(pieces == [
+            CGRect(x: 0, y: 0, width: 100, height: 40),
+            CGRect(x: 0, y: 60, width: 100, height: 40),
+            CGRect(x: 30, y: 40, width: 70, height: 20),
+        ])
+    }
+
     /// One structure across the panel (design/grid.md section 3, design/session-info.md's icon
     /// column): every header's and row's icon in one 16 box, every title on one column whether or not
     /// it has an icon, every trailing value on one right edge, a fold row's chevron in the icon column,

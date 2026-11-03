@@ -73,6 +73,75 @@ final class AgentPaneSessionInfoPanel: NSView {
         backing?.frame = bounds
         content.frame = bounds
         edge.frame = CGRect(x: 0, y: 0, width: AgentPaneSessionInfoEdge.width, height: bounds.height)
+        applyHoles()
+    }
+
+    /// The page's open popups over the panel, in its coordinates (AgentPaneView+SessionInfo.swift).
+    /// The panel draws nothing and takes no clicks in them, so the popup the page draws under it shows
+    /// whole and keeps its hover and clicks; with none the panel is untouched.
+    var holes: [AgentPaneSessionInfoOverlay] = [] {
+        didSet { if holes != oldValue { applyHoles() } }
+    }
+
+    private func applyHoles() {
+        let cut = holes.filter { $0.rect.intersects(bounds) }
+        guard !cut.isEmpty else {
+            if layer?.mask != nil { layer?.mask = nil }
+            return
+        }
+        wantsLayer = true
+        let mask = (layer?.mask as? CAShapeLayer) ?? CAShapeLayer()
+        mask.frame = bounds
+        mask.fillRule = .evenOdd
+        mask.path = Self.maskPath(bounds: bounds, holes: cut)
+        // A mask follows the popup at once: no implicit fade between reports.
+        mask.actions = ["path": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        if layer?.mask !== mask { layer?.mask = mask }
+    }
+
+    /// The panel's bounds with each hole (rounded as the popup's corners) left out.
+    static func maskPath(bounds: CGRect, holes: [AgentPaneSessionInfoOverlay]) -> CGPath {
+        let path = CGMutablePath()
+        path.addRect(bounds)
+        for hole in holes {
+            let radius = max(0, min(hole.radius, hole.rect.width / 2, hole.rect.height / 2))
+            path.addRoundedRect(in: hole.rect, cornerWidth: radius, cornerHeight: radius)
+        }
+        return path
+    }
+
+    /// Whether a point in the panel's coordinates is in a popup's hole (its rounded shape, as the mask).
+    func yields(at point: CGPoint) -> Bool {
+        holes.contains { hole in
+            guard hole.rect.contains(point) else { return false }
+            let radius = max(0, min(hole.radius, hole.rect.width / 2, hole.rect.height / 2))
+            return CGPath(roundedRect: hole.rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+                .contains(point)
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // A click or hover in a popup's hole goes on to the page under the panel.
+        if !holes.isEmpty, yields(at: convert(point, from: superview)) { return nil }
+        return super.hitTest(point)
+    }
+
+    /// The panel's bounds less the holes, as rects in its coordinates (a Chromium page's uncovered
+    /// regions, which take rects only).
+    func uncoveredRects() -> [CGRect] {
+        holes.reduce([bounds]) { pieces, hole in pieces.flatMap { Self.subtract(hole.rect, from: $0) } }
+    }
+
+    /// `rect` less `hole`: up to four rects (the bands above and below it, and beside it between).
+    static func subtract(_ hole: CGRect, from rect: CGRect) -> [CGRect] {
+        let cut = rect.intersection(hole)
+        guard !cut.isNull, cut.width > 0, cut.height > 0 else { return [rect] }
+        return [
+            CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: cut.minY - rect.minY),
+            CGRect(x: rect.minX, y: cut.maxY, width: rect.width, height: rect.maxY - cut.maxY),
+            CGRect(x: rect.minX, y: cut.minY, width: cut.minX - rect.minX, height: cut.height),
+            CGRect(x: cut.maxX, y: cut.minY, width: rect.maxX - cut.maxX, height: cut.height),
+        ].filter { $0.width > 0 && $0.height > 0 }
     }
 
     /// Esc from inside the panel closes it, as the page's did.
