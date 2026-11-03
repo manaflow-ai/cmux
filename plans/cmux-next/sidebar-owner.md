@@ -1201,6 +1201,16 @@ An empty group now keeps only its header at rest. The header's existing + appear
   the + pinned (chosen) and overflow with the + riding the end of the dots, each at rest, pointer in the row and over
   the +, light/dark at 2x. Test: `ProfileBarPlusPlacementTests`.
 
+## A new row appears once, in its final place (2026-11-03)
+
+- Leo 2026-11-03 06:19Z: "i hate it when you guys make new worksapces or whatever and they appear for a split second
+  and it's just bloop and then it goes into presumably whichever group... it's just weird how it flickers into some
+  top level group or whatever then goes away"
+- A workspace opened into a named group (`acpmux new --group`, `cmux agent open --group`) draws first in that group.
+  The daemon's create lists it loose and its join is a document move a hop later, so the sidebar leaves the row out
+  while it lists loose (`GroupJoinHold`, at most 2 s from its first loose listing, then it shows where it lists). No
+  other row moves. #30583 removed the current-group stop; this removes the loose one. Test: `GroupJoinHoldTests`.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
