@@ -126,6 +126,7 @@ struct FileExplorerRemoteTmuxRootTests {
         #expect(sshRoot(harness.workspace)?.path == "/home/dev/first")
 
         harness.connection.handleMessageForTesting(.windowPaneChanged(windowId: 1, paneId: 22))
+        #expect(sshRoot(harness.workspace) != nil)
         #expect(sshRoot(harness.workspace)?.path == nil)
 
         harness.connection.handleMessageForTesting(
