@@ -724,6 +724,13 @@ fn every_acknowledged_change_reloads_however_many_invitees_join() {
             }
         };
         let share_id = created["share_id"].as_str().unwrap().to_owned();
+        // Bridged to a room that never answers: every kick stays queued.
+        shares
+            .with(dir, |all, _| {
+                find(all, &share_id)?.room = Some(json!({"url": "https://room.invalid"}));
+                Ok(((), true))
+            })
+            .unwrap();
         for a in 0..MAX_INVITEES {
             let account = format!("{a}-{}@example.com", "x".repeat(280));
             let invite =
@@ -750,6 +757,19 @@ fn every_acknowledged_change_reloads_however_many_invitees_join() {
         }
     }
     assert!(refused, "the per-share limits alone keep the file within its bound");
+    // Every account removed while the room is away: every kick is queued, and still written.
+    let all = shares.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    for share in &all {
+        for invitee in &share.invitees {
+            let p = Uninvite { share_id: share.share_id.clone(), account: invitee.account.clone() };
+            shares.uninvite(dir, &p).unwrap();
+        }
+        assert!(share.guests.is_empty() || !share.invitees.is_empty());
+    }
+    let queued = shares.with(dir, |all, _| {
+        Ok((all.iter().map(|s| s.pending_room_ops.len()).sum::<usize>(), false))
+    });
+    assert!(queued.unwrap() > 0, "the kicks wait for the room");
     let size = std::fs::metadata(directory.join(FILE)).unwrap().len();
     assert!(size <= 64 * 1024, "the file passed the state file's 64 KiB bound: {size}");
     let read = |s: &LinkShares| s.with(dir, |all, _| Ok((all.clone(), false))).unwrap();

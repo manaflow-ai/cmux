@@ -101,13 +101,31 @@ pub(super) struct ShareTerms {
     pub(super) create_id: Option<String>,
 }
 
-/// The encoded registry a change that adds records may leave: below `state_file`'s 64 KiB read
-/// bound with room for the kicks, revokes and state changes that are never refused.
-const MAX_SAVED_BYTES: usize = 56 * 1024;
+/// The encoded registry at its largest: `state_file`'s 64 KiB read bound, less a margin.
+const MAX_SAVED_BYTES: usize = 62 * 1024;
 
-/// Whether `shares` stays within [`MAX_SAVED_BYTES`] once written.
+/// Whether `shares` stays readable after a restart whatever later happens to it without a new
+/// record: a change that adds records (a share, an invitee, a guest) is refused unless the
+/// registry still fits once every share is ended, every guest kicked and every invitee removed,
+/// with each kick and each room `DELETE` queued (kicks, revokes and expiry are never refused, so
+/// they must always fit).
 fn fits(shares: &[LinkShare]) -> bool {
-    serde_json::to_vec(shares).is_ok_and(|bytes| bytes.len() <= MAX_SAVED_BYTES)
+    let mut worst = shares.to_vec();
+    for share in &mut worst {
+        // `provisioning` is the longest state; an end writes a shorter one.
+        share.state = ShareState::Provisioning;
+        for guest in share.guests.iter_mut().filter(|g| g.state == GuestState::Active) {
+            guest.state = GuestState::Kicked;
+            share.pending_room_ops.push(json!({"op": "kick", "guest_id": guest.guest_id}));
+        }
+        for invitee in &mut share.invitees {
+            invitee.state = InviteState::Removed;
+        }
+        if !share.delete_queued() {
+            share.pending_room_ops.push(json!({"op": "delete"}));
+        }
+    }
+    serde_json::to_vec(&worst).is_ok_and(|bytes| bytes.len() <= MAX_SAVED_BYTES)
 }
 
 /// Accounts invited to one share at once.
@@ -561,7 +579,7 @@ impl LinkShares {
         let ShareTerms { ttl_secs, uses, create_id } = terms;
         let (share_id, secret, provision_key) = (token::<16>()?, token::<16>()?, token::<16>()?);
         self.with(directory, |shares, now| {
-            if shares.len() >= MAX_SHARES {
+            if shares.len() >= MAX_SHARES || !fits(shares) {
                 // An ended share goes, unless its room still has to hear of it.
                 // A kick of an ended share is moot: its room ends with it.
                 shares.retain(|s| {
