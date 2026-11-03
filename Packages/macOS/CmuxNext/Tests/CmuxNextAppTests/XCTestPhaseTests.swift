@@ -27,21 +27,43 @@ struct XCTestPhaseTests {
     }
 
     /// An XCTest wait in `xctest` must come back: the probe below waits the way XCTest's own
-    /// start-up does, in a child `xctest` of this same bundle. On the base the guard held the
-    /// child's main thread, and it was killed here at the limit.
+    /// start-up does, in a child `xctest` of this same bundle started as SwiftPM starts its XCTest
+    /// phase (xctest itself, not through the xcrun shim, which is SIP-protected and drops the
+    /// DYLD_* paths; SWIFT_TESTING_ENABLED=0, so XCTest runs no Swift Testing test in it). On the
+    /// base the guard held the child's main thread, and it was killed here at the limit.
     @Test(.timeLimit(.minutes(3)))
     func anXCTestWaitInTheXCTestPhaseReturns() async throws {
         let bundle = try #require(Self.testBundle(), "the test bundle that holds this test")
-        let output = FileManager.default.temporaryDirectory
-            .appendingPathComponent("xctest-phase-\(UUID().uuidString).log")
-        #expect(FileManager.default.createFile(atPath: output.path, contents: nil))
-        defer { try? FileManager.default.removeItem(at: output) }
-        let log = try FileHandle(forWritingTo: output)
-        defer { try? log.close() }
+        let find = await Self.run("/usr/bin/xcrun", ["--find", "xctest"], environment: ProcessInfo.processInfo.environment,
+                                  limit: .seconds(60))
+        let xctest = find.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        try #require(find.status == 0 && xctest.hasPrefix("/"), "xcrun --find xctest: \(find.output)")
 
+        var environment = ProcessInfo.processInfo.environment
+        environment["SWIFT_TESTING_ENABLED"] = "0"
+        let phase = await Self.run(xctest, ["-XCTest", "CmuxNextAppTests.XCTestPhaseRunLoopProbe", bundle.path],
+                                   environment: environment, limit: .seconds(120))
+        let tail = String(phase.output.suffix(4000))
+        #expect(phase.status == 0, "xctest: \(phase.status.map { "exit \($0)" } ?? "still running after 120 s, killed"); its output ends: \(tail)")
+        #expect(phase.output.contains("Executed 1 test, with 0 failures"), "the probe did not run and pass; output ends: \(tail)")
+        #expect(!phase.output.contains("holding the main run loop open"), "the run-loop guard held xctest's main thread")
+    }
+
+    /// Runs a child to its end or to `limit` (then SIGKILL, and a nil status). Its output goes to a
+    /// file, not a pipe, so a child that prints a lot can never block on a full pipe.
+    private static func run(_ executable: String, _ arguments: [String], environment: [String: String],
+                            limit: Duration) async -> (status: Int32?, output: String) {
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent("xctest-phase-\(UUID().uuidString).log")
+        guard FileManager.default.createFile(atPath: output.path, contents: nil),
+              let log = try? FileHandle(forWritingTo: output) else { return (nil, "cannot create \(output.path)") }
+        defer {
+            try? log.close()
+            try? FileManager.default.removeItem(at: output)
+        }
         let child = Process()
-        child.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        child.arguments = ["xctest", "-XCTest", "CmuxNextAppTests.XCTestPhaseRunLoopProbe", bundle.path]
+        child.executableURL = URL(fileURLWithPath: executable)
+        child.arguments = arguments
+        child.environment = environment
         child.standardInput = FileHandle.nullDevice
         child.standardOutput = log
         child.standardError = log
@@ -50,16 +72,15 @@ struct XCTestPhaseTests {
             ended.continuation.yield(finished.terminationStatus)
             ended.continuation.finish()
         }
-        try child.run()
+        do { try child.run() } catch { return (nil, "\(executable): \(error)") }
         let pid = child.processIdentifier
-
         let status: Int32? = await withTaskGroup(of: Int32?.self) { group in
             group.addTask {
                 for await status in ended.stream { return status }
                 return nil
             }
             group.addTask {
-                try? await Task.sleep(for: .seconds(120))
+                try? await Task.sleep(for: limit)
                 return nil
             }
             let first = await group.next() ?? nil
@@ -67,12 +88,7 @@ struct XCTestPhaseTests {
             return first
         }
         if status == nil { kill(pid, SIGKILL) }
-
-        let text = (try? String(contentsOf: output, encoding: .utf8)) ?? ""
-        let tail = String(text.suffix(4000))
-        #expect(status == 0, "xctest: \(status.map { "exit \($0)" } ?? "still running after 120 s, killed"); its output ends: \(tail)")
-        #expect(text.contains("Executed 1 test, with 0 failures"), "the probe did not run and pass; output ends: \(tail)")
-        #expect(!text.contains("holding the main run loop open"), "the run-loop guard held xctest's main thread")
+        return (status, (try? String(contentsOf: output, encoding: .utf8)) ?? "")
     }
 
     /// `…/CmuxNextPackageTests.xctest`, from the image that holds the guard's own code.
