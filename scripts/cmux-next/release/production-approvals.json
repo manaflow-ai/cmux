@@ -15,6 +15,9 @@
     },
     "v16": {
       "reviewer": "hq cloud-api-promote lane 2026-10-19 (new_sqlite_classes HandDO; additive; sandbox hands and Mac hands stay closed in production (no HAND_SANDBOX_SNAPSHOT, no HANDS_MAC_ENABLED); with CHIEF_BRAIN_ENABLED=1 the pairing routes /hand/install.sh, /v1/hands/pair and /v1/hands/pair-codes answer signed-in users, inert without those)"
+    },
+    "v20": {
+      "reviewer": "cmux-api production promote review 2026-11-03 (new_sqlite_classes TrajectoryDO, cmux#25682; additive; inert in production: no CLOUD_TRAJECTORIES_ENABLED, so cloud-trajectory answers 404, and PLATFORM_SURFACES=cloud forwards the trajectory path to cmux-platform-production)"
     }
   },
   "guarded_vars": {
