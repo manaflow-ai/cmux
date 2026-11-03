@@ -29,6 +29,15 @@ const GUEST_VERBS: [&str; 7] = [
     "agent-session-detach",
 ];
 
+/// An invitee with the `view` role: watch only (no prompt, no typing).
+const VIEWER_VERBS: [&str; 5] = [
+    "agent-session-attach",
+    "agent-session-observe",
+    "agent-session-events",
+    "agent-session-view",
+    "agent-session-detach",
+];
+
 /// Whether `author` is a link guest's (`guest:<share_id>.<guest_id>`).
 pub(super) fn is_guest(author: &Value) -> bool {
     author["id"].as_str().is_some_and(|id| id.starts_with(shares::GUEST_PREFIX))
@@ -54,7 +63,11 @@ pub(super) fn scope(
     let cmd = object.get("cmd").and_then(Value::as_str).unwrap_or_default().to_owned();
     if let Some(author) = author {
         let guest = is_guest(author);
-        let verbs: &[&str] = if guest { &GUEST_VERBS } else { &TEAMMATE_VERBS };
+        let verbs: &[&str] = match (guest, shares::view_only(author)) {
+            (true, true) => &VIEWER_VERBS,
+            (true, false) => &GUEST_VERBS,
+            (false, _) => &TEAMMATE_VERBS,
+        };
         if !verbs.contains(&cmd.as_str()) {
             let refusal = if guest { Refusal::ScopeNotGranted } else { Refusal::NotTrusted };
             return Some(refuse(writer, object.remove("id"), refusal));
