@@ -1,0 +1,197 @@
+{
+  "version": 1,
+  "build": "4157787538001",
+  "notes": "notes/4157787538001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32990,
+      "title": "Agent chat: a background task's end never splits a streaming reply",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32927,
+      "title": "Agent chat: a finished turn keeps the task it started in sight",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32858,
+      "title": "base red: move the dialog desk's acpmux pending read into CmuxNextAgentPane (tip arch red from 79b76ff1ed3)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32931,
+      "title": "ci: Playwright drives no browser on a Mac, system Chrome included (follow-up to #32821)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32929,
+      "title": "acpmux host update: a machine that goes away during the push is a quiet retry, not an error toast",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32742,
+      "title": "Transcript spacing: enforce received, status, expanded-run and turn-gap rows over gallery variant all-kinds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32971,
+      "title": "Agent chat: no dark band across the top row; the transcript fades under it again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32880,
+      "title": "Prompt rail: messages from other chats can be bookmarked like every prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32901,
+      "title": "Install an Earlier Nightly…: in the app menu, and cmux nightly --help",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32920,
+      "title": "acpmux: the MCP ls tool lists live sessions, newest first, slim and capped",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32939,
+      "title": "Session Info: a short default view, Leo's four then one Show more for the rest",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32849,
+      "title": "cmux NEXT: Shift-Cmd-L opens a browser while a Chromium page has focus",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32925,
+      "title": "Agent chat: file chips show the file's kind",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32908,
+      "title": "Gallery: a long report from a background review (agent-pane.long-report)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32945,
+      "title": "sidebar: folding a group never changes the rows' width",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32933,
+      "title": "Agent chat: Jump to latest's fisheye glass frosts the words under it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32815,
+      "title": "perf(cmux-next): update Sleepy Mode clock once per minute",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32898,
+      "title": "perf(next): closing the last tab of a split pane removes the pane at once, not after the program read",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32944,
+      "title": "Agent chat: no opaque rectangle behind the header buttons in the tab row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32942,
+      "title": "fix(sidebar): a placement whose workspace ended is dropped, never toasted",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32811,
+      "title": "acpmux: a chat sees the folders in its additionalDirectories, on every harness and start",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32919,
+      "title": "cmux-imessage: send to a chat through Messages.app (opt-in mirror, library step)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32791,
+      "title": "Cloud Native: a route refusal inside the bootstrap reads 'bootstrap_refused: route <check>'",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32769,
+      "title": "fix(focus): a creation takes the keys from the Chromium page the person left, in the key's turn (P0 INVERSE-KEY)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32907,
+      "title": "cmux NEXT panes: a pane in a column with rows closes in the click's turn, never after the daemon's tree",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32897,
+      "title": "cmux NEXT spaces: Delete Space… on the only space is dimmed with its reason",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32893,
+      "title": "Working spinner: the arc runs along its ring (fix #32730's relative arc end)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32781,
+      "title": "cmux NEXT sidebar: an empty workspace list draws nothing (no 'No workspaces' hint)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32904,
+      "title": "backend: cmux-api-staging names the VM API origin for Native receiver policy and dial checks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32799,
+      "title": "fix(design): the empty-label test counts layouts through the measure's layout seam (review P2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32835,
+      "title": "Session status card: acpmux fills Host, Auth source, Routing, Settings and Usage limits",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
