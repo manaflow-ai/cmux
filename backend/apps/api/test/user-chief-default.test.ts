@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import { DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_PROVISION, HOSTED_DEFAULT_KEY, defaultChiefIdentity, defaultChiefWorkspace } from "../src/domains/user-chief-default.ts"
 import { personalTeamIdFor, userDomain, type UserState } from "../src/domains/user.ts"
 import { deliverSignupChief, ensureChiefMachine, type DefaultMachinePlatform } from "../src/user-chief-provision.ts"
+import type { TargetItem } from "../src/do-outbox.ts"
 import { fireAlarm, quiesce } from "./setup/alarm.ts"
 
 const USER = "user_00000000000000000001"
@@ -114,7 +115,7 @@ describe("signup default Chief", () => {
     const host = {
       platform: platform(),
       current: () => state,
-      deliver: async (batch: typeof items) => {
+      deliver: async (batch: ReadonlyArray<TargetItem>) => {
         for (const item of batch) state = decided(userDomain.reduce(state, item.op, item.params, context())).state
         return { done: batch.map((item) => item.id) }
       },
