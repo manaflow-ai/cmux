@@ -22,10 +22,70 @@
       "do": "smoke_make_key"
     },
     {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "ws"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: Cmd-N makes the typing workspace",
+      "since": "ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_workspaces": {
+            "new": 1
+          }
+        },
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "term"
+    },
+    {
+      "do": "outwait_hold"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo typing-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the typing terminal runs its line",
+      "since": "term",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "typing-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "typing-${nonce}",
+      "as": "typing"
+    },
+    {
       "do": "pty_release",
       "tabs": 50,
       "threads": 16,
-      "timeout": 170
+      "timeout": 150
     }
   ],
   "finally": [
