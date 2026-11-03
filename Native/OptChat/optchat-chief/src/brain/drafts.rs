@@ -24,6 +24,13 @@ impl Brain {
         {
             return;
         }
+        // The first words clock stops at the first draft the person sees.
+        self.first_words.draft(
+            &draft.turn,
+            !draft.done && !draft.text.is_empty(),
+            std::time::Instant::now(),
+            chrono::Utc::now(),
+        );
         self.publish_draft(&conversation, draft);
     }
 
