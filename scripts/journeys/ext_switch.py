@@ -890,15 +890,19 @@ def step_switch_panecost(j, step):
         ws = _wait(lambda: _ws_named(j, name), float(step.get("create_timeout", 60)), "workspace %s did not appear" % name)
         _shows(j, ws, name)
         first = _terminals_of(ws)[0][1]
-        panes += 1
-        made = [first]
+        # The kit's grid builder (focus each top pane, then split it down), without beacons.
+        top = [first]
         for c in range(1, cols):
-            made.append(_new_terminal(j, name, "splitRight", prompt=False))
-            panes += 1
-        for col_term in list(made):
+            top.append(_new_terminal(j, name, "splitRight", prompt=False))
+        for t in top:
+            pid = _pane_of(j, name, t)
+            if rows_ > 1 and pid:
+                j.app.cmux("pane", pid, "focus")
+                _wait(lambda: _shown_tab(j)[0] == pid, 10, "pane %s did not take the focus" % pid)
             for r in range(1, rows_):
                 _new_terminal(j, name, "splitDown", prompt=False)
-                panes += 1
+        j.app.rpc("action.run", {"action": "equalizeSplits", "args": {}})
+        panes += cols * rows_
         if fill:
             for _, term in _terminals_of(_ws_named(j, name)):
                 if term != first:
