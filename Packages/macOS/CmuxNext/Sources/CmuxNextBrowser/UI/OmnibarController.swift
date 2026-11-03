@@ -79,6 +79,19 @@ import Foundation
         return handled
     }
 
+    /// Puts back a resting state another tab left (`BrowserChromeTabState`): no input, no effects;
+    /// the field and the bar show it at once. Only a state with no focus is put back.
+    func restore(_ resting: OmnibarState) {
+        guard !isRunning, !resting.hasFocus else { return }
+        queryTask?.cancel()
+        queryTask = nil
+        state = resting
+        isApplying = true
+        applier.apply(OmnibarPresentation(state))
+        isApplying = false
+        onStep?()
+    }
+
     /// The query in flight, if any (tests settle on it): it ends after the
     /// query's last delivery reached the reducer.
     var pendingQuery: Task<Void, Never>? { queryTask }

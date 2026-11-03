@@ -2,18 +2,16 @@ public import AppKit
 public import CmuxNextDesign
 import CmuxNextIcons
 
-/// A browser pane: toolbar (back, forward, reload, omnibox, extension slot),
-/// a progress line, and the tab's content with find bar, prompt bar, and
-/// error overlays. Hides its toolbar while page content is fullscreen.
+/// A browser pane: toolbar (back, forward, reload, omnibox, extension slot), a progress line, and the tab's
+/// content with find bar, prompt bar, and error overlays. Hides its toolbar while page content is fullscreen.
 public final class BrowserChromeView: NSView {
     /// The tab on screen. Assigning swaps the content view in place.
     public var tab: any BrowserTab {
         didSet { attach(tab, replacing: oldValue) }
     }
 
-    /// When true the chrome handles `BrowserChromeCommand.defaultShortcut`
-    /// key equivalents itself. Turn off once the App layer routes those
-    /// shortcuts through its own action registry.
+    /// When true the chrome handles `BrowserChromeCommand.defaultShortcut` key equivalents itself. Turn off
+    /// once the App layer routes those shortcuts through its own action registry.
     public var handlesDefaultShortcuts = true
 
     /// Empty container at the trailing end of the toolbar for extension
@@ -36,9 +34,8 @@ public final class BrowserChromeView: NSView {
         case chrome
     }
 
-    /// Browser focus mode (the page gets every key but app-level ones):
-    /// a thin gray inset outline around the page and the omnibar's "Focus
-    /// Mode" badge (classic cmux parity).
+    /// Browser focus mode (the page gets every key but app-level ones): a thin gray inset outline around the
+    /// page and the omnibar's "Focus Mode" badge (classic cmux parity).
     public var showsFocusModeIndicator = false {
         didSet {
             guard showsFocusModeIndicator != oldValue else { return }
@@ -99,6 +96,8 @@ public final class BrowserChromeView: NSView {
         return isToolbarHidden ? 0 : currentToolbarHeight
     }
     private var observation: ObservationLoop?
+    var boundState: BrowserChromeTabState?  // the tab state shown now (`bind(_:state:)`); nil: one page only
+    var parksLeavingPage = false  // while `bind(_:state:)` switches: the leaving page stays, hidden
     /// Prompts have their own loop: a state change (a title, progress) does not re-render the prompt
     /// bar, and a new prompt does not re-run the rest of the chrome.
     private var promptObservation: ObservationLoop?
@@ -133,9 +132,8 @@ public final class BrowserChromeView: NSView {
     let siteZoom = SiteZoomFollower()
     var toolbarLayout = BrowserToolbarLayout(visiblePinned: ExtensionActionToolbar.maxVisible, showsForward: true)
 
-    /// Omnibar editing boundaries. When set, the App owns focus: the chrome
-    /// only loads a committed URL and never moves focus itself. When nil,
-    /// commit and cancel return focus to the page.
+    /// Omnibar editing boundaries. When set, the App owns focus: the chrome only loads a committed URL and
+    /// never moves focus itself. When nil, commit and cancel return focus to the page.
     public var onOmnibarEvent: ((OmnibarEvent) -> Void)?
 
     /// Modified commits (Cmd-Enter) open elsewhere, nil: here; `loadOverride` true: the host served it (`cmux://history`).
@@ -147,10 +145,8 @@ public final class BrowserChromeView: NSView {
     /// Where finished page loads are recorded (omnibar history suggestions).
     public var history: (any BrowserHistoryStore)?
 
-    /// Closing the find bar or ending address bar editing hands the keyboard
-    /// back to the page. When set, the host does it (a focus coordinator
-    /// that also tracks Chromium page windows); else the chrome focuses the
-    /// page itself.
+    /// Closing the find bar or ending address bar editing hands the keyboard back to the page. When set, the
+    /// host does it (a focus coordinator that also tracks Chromium page windows); else the chrome focuses it.
     public var onReturnFocusToPage: (() -> Void)?
     public var machineBadge: ((URL?) -> (text: String, help: String)?)? { didSet { updateMachineBadge() } } // remote localhost
     var recordedURL: URL?
@@ -347,25 +343,33 @@ public final class BrowserChromeView: NSView {
 
     // MARK: Tab binding
 
+    func reattach() { attach(tab, replacing: tab) }  // the same page under a new tab state
+
     private func attach(_ tab: any BrowserTab, replacing old: (any BrowserTab)?) {
         observation?.cancel()
         promptObservation?.cancel()
-        // Another page in this toolbar: the held address was the old page's.
-        if let old, old !== tab { wakingAddress = nil }
+        // Another page in this toolbar: the held address was the old page's (a tab switch put back its own).
+        if let old, old !== tab, !parksLeavingPage { wakingAddress = nil }
         siteZoom.follow(tab)
         if let old, old !== tab {
-            old.contentView.removeFromSuperview()
+            // A switch hides the leaving page first (a Chromium page conceals itself), then shows this one.
+            if parksLeavingPage { old.contentView.isHidden = true } else { old.contentView.removeFromSuperview() }
         }
         pageInfoIfMade?.tabDidChange()
         let content = tab.contentView
-        content.translatesAutoresizingMaskIntoConstraints = false
-        contentContainer.addSubview(content)
-        NSLayoutConstraint.activate([
-            content.topAnchor.constraint(equalTo: contentContainer.topAnchor),
-            content.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
-            content.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
-        ])
+        if content.superview === contentContainer {
+            content.isHidden = false
+        } else {
+            content.translatesAutoresizingMaskIntoConstraints = false
+            content.isHidden = false
+            contentContainer.addSubview(content)
+            NSLayoutConstraint.activate([
+                content.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+                content.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
+                content.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+                content.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
+            ])
+        }
         pageBars.findBarIfMade?.tab = tab
         addressBar.allowsChromiumSchemes = tab.engineKind == .cef
         extensionToolbar.bind(tab)
@@ -435,14 +439,10 @@ public final class BrowserChromeView: NSView {
         syncPageOverlays()
     }
 
-    /// Child-window pages draw above this view; tell them where the find
-    /// bar, prompt bar, and error page cover them (floating cards are on
-    /// the overlay host instead, `PageFloatingOverlays`).
-    ///
-    /// The find and prompt bars are rounded glass: a page that takes rounded
-    /// holes (`BrowserRoundedOcclusionHosting`) gets each bar's glass with its
-    /// corner radius, so the page shows around the corners instead of a square
-    /// of pane ground (Lawrence 2026-10-27, the save-password bar).
+    /// Child-window pages draw above this view; tell them where the find bar, prompt bar, and error page cover
+    /// them (floating cards are on the overlay host, `PageFloatingOverlays`). A page that takes rounded holes
+    /// (`BrowserRoundedOcclusionHosting`) gets each bar's glass with its corner radius, so the page shows around
+    /// the corners instead of a square of pane ground (Lawrence 2026-10-27, the save-password bar).
     private func updateOcclusion() {
         guard let occluded = tab as? any BrowserOcclusionHosting else { return }
         let bars = pageBars.shown

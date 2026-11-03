@@ -27,7 +27,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// The media hub's cards, kept between opens.
     public let mediaRows = BrowserMediaRows()
     /// Design mode and color scheme of the bound tab.
-    public let modes = BrowserPageModes()
+    public private(set) var modes = BrowserPageModes()
     /// 0 shows every button; 1 hides design mode and DevTools; 2 also
     /// media, zoom, Favorites, Downloads, profile and theme (`BrowserToolbarButton.collapseLevel`).
     /// More lists the hidden ones.
@@ -88,9 +88,14 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     /// Shows `tab`'s states. A new page (another tab, or the chrome's tab
     /// swapped) gets the chosen color scheme and starts with design mode off.
-    func bind(_ tab: any BrowserTab) {
+    func bind(_ tab: any BrowserTab, modes tabModes: BrowserPageModes? = nil) {
         observation?.cancel()
-        if self.tab !== tab {
+        if let tabModes, tabModes !== modes {
+            // Another tab of the pane: its own modes, as it left them.
+            modes = tabModes
+            self.tab = tab
+            pageURL = tab.state.url
+        } else if self.tab !== tab {
             self.tab = tab
             pageURL = tab.state.url
             modes.designMode = false

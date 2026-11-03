@@ -31,14 +31,10 @@ extension BrowserChromeView {
     /// button when it is not shown).
     public func showExtensionItemMenu(_ id: String) { extensionToolbar.showItemMenu(id) }
 
-    /// Opens the Extensions menu (or `id`'s menu) on the next run-loop turn,
-    /// for callers that must return first (CLI, palette, debug socket). The
-    /// menu's tracking loop then runs in a run-loop callout, not inside a
-    /// main-queue job, so main-actor work (control calls) keeps running
-    /// while it is open.
-    /// The tab has the extension toolbar but the Extensions button is not
-    /// shown, so More offers the Extensions menu (cx-d0d.81). The button now
-    /// shows on every Chromium tab, so this holds only while it is unbound.
+    /// Opens the Extensions menu (or `id`'s menu) on the next run-loop turn, for callers that must return first
+    /// (CLI, palette, debug socket): its tracking loop runs in a run-loop callout, so main-actor work keeps running.
+    /// The tab has the extension toolbar but the Extensions button is not shown, so More offers the Extensions
+    /// menu (cx-d0d.81). The button now shows on every Chromium tab, so this holds only while it is unbound.
     public var offersExtensionsMenuInMore: Bool {
         extensionToolbar.host != nil && !extensionToolbar.isShowingExtensions
     }
@@ -74,10 +70,9 @@ extension BrowserChromeView {
         return extensionToolbar.menuController.report?.map { ($0.title, $0.identifier, $0.extensionID, $0.isEnabled) }
     }
 
-    /// Chooses an item of the open Extensions bubble or extension menu as a click would: a row
-    /// control (`run`, `pin`, `unpin`, `more`) of `extensionID`, `manage`, `close`, or an
-    /// extension menu operation (`options`, `remove`, `siteAccess`, `homePage`,
-    /// `manageExtension`, `webPermissions`, `pin`, `unpin`). False when no item matches.
+    /// Chooses an item of the open Extensions bubble or extension menu as a click would: a row control (`run`, `pin`,
+    /// `unpin`, `more`) of `extensionID`, `manage`, `close`, or an extension menu operation (`options`, `remove`,
+    /// `siteAccess`, `homePage`, `manageExtension`, `webPermissions`, `pin`, `unpin`). False when no item matches.
     public func chooseInExtensionsMenu(_ operation: String, extension extensionID: String?) -> Bool {
         if let menu = extensionToolbar.presentedMenu, let extensionID,
            let index = menu.items.firstIndex(where: { $0.identifier?.rawValue == "\(ExtensionsMenu.moreIdentifier(extensionID)).\(operation)" }) {
