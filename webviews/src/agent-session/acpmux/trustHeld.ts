@@ -34,6 +34,10 @@ export type TrustHeldPrompt = {
   /// The gesture ticket its send reserves for its prompt id (`transport.gesture`); none when the
   /// host gave none. It goes once this settles: the reserve took the send's gesture.
   ticket: Promise<string | undefined>;
+  /// Held while the chat's Cloud machine wakes (cloudWake.ts), not for the folder's trust: it
+  /// reserves no ticket (a ticket ends with the connection the wake replaces) and goes with the
+  /// send's gesture once the chat is back.
+  waking?: true;
 };
 
 /// Whether `entry` was sent in the chat shown: its session, or for a new chat (no session yet) its
@@ -81,7 +85,13 @@ export function heldQueueRows(
     .filter((entry) => sentIn(entry, chat, cwd))
     .map((entry) => {
       const images = attachedImages(entry.attachments);
-      return { id: entry.id, prompt: entry.text, held: true, ...(images.length ? { images } : {}) };
+      return {
+        id: entry.id,
+        prompt: entry.text,
+        held: true,
+        ...(entry.waking ? { waking: true as const } : {}),
+        ...(images.length ? { images } : {}),
+      };
     });
 }
 
@@ -234,16 +244,25 @@ export function useTrustHeldPrompts({
   }, [holds, chat, cwd, held, rounds]);
 
   /// Holds a prompt sent now, with its send's gesture, in the chat shown, or in `sentFrom`: the chat
-  /// and folder it was sent in, for a refusal that came after the person moved on.
+  /// and folder it was sent in, for a refusal that came after the person moved on. `waking`: it
+  /// waits for the chat's Cloud machine to wake instead (cloudWake.ts), with no ticket.
   const hold = useCallback(
     (
       text: string,
       attachments: ComposerAttachment[],
       sentFrom?: { chat: string | undefined; cwd: string | undefined },
+      waking = false,
     ) => {
       const id = crypto.randomUUID();
-      const ticket = reserve(id).catch(() => undefined);
-      const entry = { id, ...(sentFrom ?? { chat, cwd }), text, attachments, ticket };
+      const ticket = waking ? Promise.resolve(undefined) : reserve(id).catch(() => undefined);
+      const entry: TrustHeldPrompt = {
+        id,
+        ...(sentFrom ?? { chat, cwd }),
+        text,
+        attachments,
+        ticket,
+        ...(waking ? { waking: true as const } : {}),
+      };
       now.current = { ...now.current, held: [...now.current.held, entry] };
       setHeld((list) => [...list, entry]);
     },
@@ -331,6 +350,18 @@ export function useTrustHeldPrompts({
         setHeld((list) => list.filter((entry) => !ids.has(entry.id)));
       }
       return inFlight ? [inFlight, ...held] : held;
+    },
+    /// Whether any prompt waits for a Cloud machine to wake (cloudWake.ts).
+    wakingAny: () => now.current.held.some((entry) => entry.waking),
+    /// Takes every prompt that waits for a Cloud machine to wake out, in order: the wake failed, so
+    /// they go back into the composer.
+    takeWaking: () => {
+      const taken = now.current.held.filter((entry) => entry.waking);
+      if (!taken.length) return taken;
+      const ids = new Set(taken.map((entry) => entry.id));
+      now.current = { ...now.current, held: now.current.held.filter((entry) => !ids.has(entry.id)) };
+      setHeld((list) => list.filter((entry) => !ids.has(entry.id)));
+      return taken;
     },
     /// The held prompt `id`, for an edit that takes it back into the composer.
     get: (id: string) => now.current.held.find((entry) => entry.id === id),

@@ -224,6 +224,8 @@ export type QueuedPrompt = {
   images?: QueuedPromptImage[];
   /// Not acpmux's: the pane holds it until the folder is trusted (trustHeld.ts).
   held?: boolean;
+  /// A held prompt that waits for the chat's Cloud machine to wake instead (cloudWake.ts).
+  waking?: boolean;
   inlineParts?: PromptContentPart[];
   /// Another agent's message waiting here (direct.ts `queuedMessage`): it draws in the transcript
   /// as the message's received card (conversation/queuedMessages.ts), never as a queue row.

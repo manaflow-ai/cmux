@@ -127,6 +127,17 @@ struct AgentPaneCloudMachineRequestTests {
         #expect(attached == ["vm-1"])
     }
 
+    /// A send in a chat whose machine is paused wakes it with the Enter that sent the prompt: the
+    /// attach takes that gesture's scope-add credit and leaves its grant for the prompt itself.
+    @Test func aWakeLeavesTheSendsGrant() async {
+        let machines = AgentPaneCloudMachines()
+        let gestures = AgentPaneUserGestures()
+        machines.attach = { _ in true }
+        gestures.record()
+        #expect(await AgentPaneCloudMachineRequest.attach(id: "vm-1").reply(machines, gestures: gestures)["ok"] as? Bool == true)
+        #expect(gestures.consumeForSend())
+    }
+
     /// Review of cmux#27031: a refresh that was superseded or failed leaves the earlier registry in
     /// place, so the reply is complete only when the App says the list is this read's own answer.
     @Test func theRecoveryListIsCompleteOnlyWhenTheAppSaysSo() async throws {
