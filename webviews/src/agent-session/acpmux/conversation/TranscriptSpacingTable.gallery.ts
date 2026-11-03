@@ -373,6 +373,53 @@ function notesThenLive(): AcpmuxSnapshot {
   );
 }
 
+/// Leo's 2026-11-03 06:55Z capture ("why is the spacing like this it's weird"): an earlier turn
+/// ending on status rows ("2 background updates", "Subagent finished"), the person's next prompt,
+/// and the first status row of its turn ("Sent to …"). The prompt stays centred, 32 from the
+/// rows on each side (design/transcript-spacing.md rule 5, `step-to-prompt` and `prompt-to-step`).
+function statusPrompt(): AcpmuxSnapshot {
+  const note = (n: number, state: string, minutes: number) =>
+    row("backgroundTask", minutes, {
+      id: `sp-task-${n}`,
+      backgroundTask: { toolCallId: `sp-call-${n}`, command: `Wait for run ${n}`, state },
+    });
+  return claudeChat(
+    chat(
+      [
+        user("Check the nightly and the cloud machines.", 50, { id: "sp-first" }),
+        activity([run("Checked the nightly", "gh run list -w nightly -L 1")], 49, { id: "sp-work" }),
+        row(SUBAGENTS, 48.8, {
+          id: "sp-subagents",
+          subagents: [
+            {
+              id: "agent-sp-cloud",
+              parent: null,
+              name: "cloud-check",
+              task: "Check the cloud machines",
+              state: "completed",
+              startedAt: minutesAgo(48),
+              endedAt: minutesAgo(6),
+            },
+          ],
+        }),
+        assistant("The nightly is green; a subagent checks the cloud machines.", 48.5, { id: "sp-reply" }),
+        summary(48.4, { id: "sp-footer", status: "completed", durationMs: 96_000, toolCount: 1 }),
+        note(1, "completed", 7),
+        note(2, "stopped", 6.5),
+        // The background turn the subagent's end started, which said nothing: its footer draws nothing.
+        summary(5.9, { id: "sp-bg-footer", status: "completed", durationMs: 2_000, toolCount: 0 }),
+        user("does this nightly cloud work!?", 3, { id: "sp-prompt" }),
+        // Claude's blank text before its first call.
+        assistant("\n\n", 2.8, { id: "sp-blank" }),
+        activity([send(`${OWNER_PEER}/daemon-owner`, "Don't end turns to wait: check the nightly yourself.")], 2.5, {
+          id: "sp-sent",
+        }),
+      ],
+      { title: "spacing-coordinator", isWorking: true, sessions: statusSessions() },
+    ),
+  );
+}
+
 /// The session chip's looks compared over `reply-received` (the pick, shipped in AgentTag.css: the
 /// row's words on a light wash, 1em + 4px tall, no ring): the 22 bordered chip it replaces, and
 /// Claude Code desktop's underlined name with no wash (reference claude/live/transcript-peer-session-message).
@@ -449,6 +496,10 @@ export default agentPaneEntry({
     "notes-live": {
       note: 'Leo\'s 2026-11-03 06:20Z capture: a reply\'s footer, five "Background task finished" notes, "Received 6 messages", one more note, and "Thinking" 22 under it.',
       snapshot: notesThenLive(),
+    },
+    "status-prompt": {
+      note: 'Leo\'s 2026-11-03 06:55Z capture: "2 background updates" and "Subagent finished" end a turn, then the next prompt, then "Sent to …": the prompt 32 from the rows on each side.',
+      snapshot: statusPrompt(),
     },
     "reply-received-before": {
       note: "Version A, the replaced look: the 22 bordered chip at the control size, taller than its row's words.",
