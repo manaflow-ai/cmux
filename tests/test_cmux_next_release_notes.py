@@ -79,6 +79,25 @@ class ReleaseNotesTests(unittest.TestCase):
             "Tabs stay put after a restart, across every workspace window.",
         )
 
+    def test_summary_lines_carry_no_work_tracking_codes_or_infrastructure(self):
+        # Leo 2026-11-02, on What's New rows: "why is the what's new the 0 information density one".
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_codes", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        self.assertEqual(
+            notes.summary_entry("P0 RESIZE KEYS K4: Ctrl-Shift-J/K move a row edge one exact step (#31001)"),
+            ("changed", "Ctrl-Shift-J/K move a row edge one exact step"))
+        self.assertIsNone(notes.summary_entry("P0 RESIZE F1 part 1 of 2 (#31002)"))
+        self.assertEqual(notes.summary_entry("Chrome glyphs come from one bitmap (REOPEN-F7 part A2)"),
+                         ("changed", "Chrome glyphs come from one bitmap"))
+        self.assertEqual(notes.summary_entry("Cmux NEXT agent pane: a file drag rings the composer"),
+                         ("changed", "A file drag rings the composer"))
+        self.assertIsNone(notes.summary_entry("Start the Native link in ad hoc builds"))
+        self.assertIsNone(notes.summary_entry("Cancelled, skipped and superseded runs are not counted as failing"))
+        # No filler under a title: a PR body with nothing usable gives no description.
+        self.assertEqual(notes.pr_description("", "The run uses cosmic-gray."), "")
+
     def test_description_safety_and_sentence_boundaries(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
@@ -97,7 +116,8 @@ class ReleaseNotesTests(unittest.TestCase):
                 with self.subTest(text=text, heading=heading):
                     description = notes.pr_description(f"## {heading} {text}", "Tabs stay put")
                     self.assertEqual(description, "Tabs stay put.")
-            self.assertEqual(notes.pr_description("", text), "Fixes and improvements.")
+            # Never the filler line (Leo 2026-11-02, "the 0 information density one").
+            self.assertEqual(notes.pr_description("", text), "")
         for text in (
             "Tabs restore e.g. pinned panes after restart.",
             "Tabs restore i.e. reopen after restart.",
@@ -305,7 +325,42 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertIsNotNone(digest)
         self.assertEqual(digest["entries"][0]["summary"]["en"], "Tabs stay put.")
 
-    def test_long_digest_title_fallback_only_describes_what_the_title_leaves_out(self):
+    def test_low_density_rows_never_reach_the_digest(self):
+        # Leo 2026-11-02, "the 0 information density one": work-stream codes, a code-only subject,
+        # a summary that is a piece of its title, and every pipeline line read as "improved".
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_density", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        self.assertEqual(
+            notes.summary_entry("P0 RESIZE KEYS K4: Ctrl-Shift-J/K move a row edge one exact step (#32001)"),
+            ("changed", "Ctrl-Shift-J/K move a row edge one exact step"))
+        self.assertEqual(
+            notes.summary_entry("Cmux-tui + app: hidden terminals no longer wake the app (SWITCH FRAMES SF-5 B) (#3)"),
+            ("fixed", "Hidden terminals no longer wake the app"))
+        self.assertEqual(notes.summary_entry("Chrome glyphs keep size and scale (REOPEN-F7 part A2)"),
+                         ("changed", "Chrome glyphs keep size and scale"))
+        self.assertIsNone(notes.summary_entry("P0 RESIZE F1 part 1 of 2 (#32002)"))
+        self.assertEqual(notes.summary_entry("Pick a model (GPT-5 only) per chat"),
+                         ("changed", "Pick a model (GPT-5 only) per chat"))
+        # A code-only subject takes its pull request's description as its line.
+        subject = "P0 RESIZE F1 part 1 of 2 (#32002)"
+        lines = notes.summarize_changes([subject], descriptions={
+            subject: "Closing a pane no longer tears down its terminal during the close animation."})
+        self.assertEqual(lines, [{"group": "fixed",
+                                  "title": "Closing a pane no longer tears down its terminal during the close animation"}])
+        for piece in ("And name the check that refuses it", "(alternates) to Cloud", "8 under the run", "Size and scale"):
+            self.assertTrue(notes.is_fragment(piece), piece)
+        for whole in ("Not one globe.", "macOS windows keep their shadow", "Turn it on from the Command Palette"):
+            self.assertFalse(notes.is_fragment(whole), whole)
+        # The validator refuses the codes in a curated entry.
+        validate = notes._description_validator()
+        for text in ("P0 RESIZE keys move a row.", "Glyphs share a bitmap (REOPEN-F7).", "Panes close faster, part 1 of 2."):
+            problems = validate.Problems("entry")
+            validate.check_text(problems, "summary", text, "summary", "en")
+            self.assertTrue(problems.items, text)
+
+    def test_long_digest_title_fallback_never_makes_a_fragment_the_summary(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
         notes = importlib.util.module_from_spec(spec)
@@ -322,8 +377,10 @@ class ReleaseNotesTests(unittest.TestCase):
                 self.assertEqual(len(digest["entries"]), 1)
                 entry = digest["entries"][0]
                 self.assertEqual(entry["title"]["en"], "Sidebar rows keep their order")
-                self.assertEqual(entry["summary"]["en"],
-                                 "Even when a workspace is renamed while another one is dragged.")
+                # "Even when …" is the rest of the sentence, not one of its own: the summary is the
+                # whole line, which the page shows as the one title (Leo 2026-11-02: "the 0
+                # information density one", on rows whose line was a piece of the title).
+                self.assertEqual(entry["summary"]["en"], title + ".")
         description = "Your layout stays stable as you rename workspaces."
         digest = notes.summary_whats_new_digest(args, [
             {"group": "fixed", "title": title, "description": description}])

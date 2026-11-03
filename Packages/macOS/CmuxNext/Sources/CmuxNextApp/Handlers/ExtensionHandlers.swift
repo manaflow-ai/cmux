@@ -109,7 +109,7 @@ enum ExtensionHandlers {
     private static func extensionID(_ invocation: ActionInvocation, _ entry: BrowserEntry) throws -> String {
         let text = invocation["extension"]?.stringValue ?? ""
         guard let tab = entry.tab as? CEFTab else { throw ActionFailure(message: ExtensionStrings.needsChromiumTab) }
-        tab.extensionStore.refresh()
+        tab.readExtensionsForCommand()  // a background tab's actions may be stale
         let id = tab.extensionActions.first(where: { $0.id == text })?.id
             ?? tab.extensionActions.first(where: { $0.name.localizedCaseInsensitiveCompare(text) == .orderedSame })?.id
             ?? tab.extensionStore.extensionInfo(matching: text)?.id

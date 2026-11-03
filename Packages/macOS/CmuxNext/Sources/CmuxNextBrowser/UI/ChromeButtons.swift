@@ -17,14 +17,14 @@ final class ChromeIconButton: ClickableButton {
     /// Toolbar buttons use the omnibar geometry (`OmnibarStyle`); others the
     /// compact overlay size.
     private let isToolbar: Bool
-    /// False where the tooltip would only repeat the icon's name (Back,
-    /// Forward, Reload/Stop, More: Lawrence 2026-10-13). The accessibility
-    /// label stays.
+    /// False where the tooltip would only repeat the icon's name (Back, Forward,
+    /// Reload/Stop, More: Lawrence 2026-10-13). The accessibility label stays.
     var showsToolTip: Bool {
         didSet { if showsToolTip != oldValue { themedToolTip = showsToolTip ? iconLabel : nil } }
     }
     /// A menu for right-click and long-press (Back / Forward entries).
     var menuProvider: (() -> NSMenu?)?
+    var onPointerEnter: (() -> Void)?  // the pointer came onto it (the Extensions button's bubble is made then)
     private let holdTimer = DemandTimer(owner: "ChromeIconButton.hold")
     private var showedHoldMenu = false
 
@@ -53,7 +53,7 @@ final class ChromeIconButton: ClickableButton {
             applyIcon()
         }
         density.start()
-        hover = PointerHover(self) { [weak self] _ in self?.updateFill(animated: true) }
+        hover = PointerHover(self) { [weak self] in self?.updateFill(animated: true); if $0 { self?.onPointerEnter?() } }
         hover?.isHoverable = { [weak self] in self?.isEnabled ?? false }
     }
 

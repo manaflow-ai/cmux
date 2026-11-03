@@ -141,6 +141,38 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
         },
       },
     },
+    "checklist-harness": {
+      note: "Last step: the machine, repository and setup are done (checks) and the harness row spins, reading Starting Claude Code until it has (no start time in the fixture: a running row times against the page clock).",
+      props: {
+        start: {
+          ...begun,
+          step: "opening",
+          agent: "Claude Code",
+          hasRepository: true,
+          repository: "manaflow-ai/cmux",
+          machineStartedAt: 10_000,
+          machineFinishedAt: 12_400,
+          clone: { state: "done", ...timing },
+          setup: { state: "done", ...timing },
+        },
+      },
+    },
+    "checklist-harness-failed": {
+      note: "The harness failed to start: earlier steps keep their checks, the harness row shows the error mark.",
+      props: {
+        start: {
+          ...begun,
+          step: "opening",
+          state: "failed",
+          agent: "Claude Code",
+          hasRepository: true,
+          repository: "manaflow-ai/cmux",
+          clone: { state: "done", ...timing },
+          setup: { state: "done", ...timing },
+          message: "Claude Code exited before the session opened.",
+        },
+      },
+    },
     initialized: {
       note: "Once the harness starts, the checklist folds to one quiet line.",
       props: {
