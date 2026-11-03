@@ -43,8 +43,7 @@ struct DividerDrag {
             let point = contentPoint(fromWindow: windowPoint, kind: kind)
             screen.activeDrag?.sample(point, at: CACurrentMediaTime())
             screen.resizeGestureMoved()
-            guard screen.context.dragsOnFrameTick else { return apply(at: windowPoint, phase: .changed) }
-            // Control's trail follows every event, with the keys held at it, as `apply` did for each one.
+            // Control's trail follows every event, with the keys held at it; the frame tick writes the newest point.
             _ = screen.activeDrag?.effective(point)
             waitForFrame()
         case let .modifiersChanged(flags):
@@ -53,7 +52,7 @@ struct DividerDrag {
             screen.activeDrag?.modifiers = modifiers
             // A press that has not moved yet stays a click: nothing to re-apply.
             guard drag.pointer != nil else { return }
-            if screen.context.dragsOnFrameTick { waitForFrame() } else { apply(at: drag.lastWindowPoint, phase: .changed) }
+            waitForFrame()
         case .cancelled:
             cancel(redraw: true)
         case let .ended(windowPoint, flags):
@@ -104,10 +103,10 @@ struct DividerDrag {
         }
     }
 
-    /// With `motion.frameOwner.timing` on, a move or a key change only keeps the pointer and keys for the window's
-    /// next frame tick, and asks for it: that tick writes the newest ones once (``applyWaiting()``), so a burst of events
-    /// in one display frame costs one model write and one layout pass (Chrome aligns input to the begin-frame). The
-    /// release (`ended`) still applies in its own turn, at its own point; a cancel drops what waits.
+    /// A move or a key change only keeps the pointer and keys for the window's next frame tick, and asks for it: that
+    /// tick writes the newest ones once (``applyWaiting()``), so a burst of events in one display frame costs one model
+    /// write and one layout pass (Chrome aligns input to the begin-frame). The release (`ended`) still applies in its
+    /// own turn, at its own point; a cancel drops what waits.
     private func waitForFrame() {
         screen.activeDrag?.waiting = true
         screen.activeDrag?.ticksLeft = ScreenContentView.panTickTail
@@ -123,8 +122,8 @@ struct DividerDrag {
 
     /// Writes this frame's values. A split or column the drag set before and does not set now goes
     /// back to its start first. The model's observation lays each value out (one sync per turn: events that arrive
-    /// together show once), or with `motion.frameOwner.timing` on the frame tick's own sync does; a still pointer asks
-    /// for no frames.
+    /// together show once), or in the frame tick its own sync does (`LayoutFrameInput`); a still pointer asks for no
+    /// frames.
     func apply(at windowPoint: NSPoint, phase: LayoutGesturePhase) {
         guard var drag = screen.activeDrag else { return }
         let point = drag.effective(contentPoint(fromWindow: windowPoint, kind: drag.kind))

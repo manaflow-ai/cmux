@@ -66,18 +66,6 @@ public nonisolated enum MotionTunables {
         help: "Bounce of tab, row, pane and divider springs when Animations Bounce is Subtle (0 is critically damped).",
         default: 0.15, range: 0...0.5, step: 0.01, unit: .multiplier, code: "MotionTunables.subtleBounce")
 
-    /// FRAME OWNER REFACTOR stage S2 (timing), a switch read on every frame so one build films the old and the new
-    /// path; it goes with the old path once S2's films pass. On: every spring and motion frame client of a window
-    /// steps to the time its frame shows (the display link's target, `FrameTick.frameElapsed`), so a late frame lands
-    /// on the curve instead of behind it (at most `FrameScheduler.catchUpLimit`), and a divider, column-edge or
-    /// row-edge drag lays the layout out once per display frame, in the window's frame tick, at the newest pointer.
-    /// On by default (S2 films and typing-load-l6 passed). Off: springs step by the time between the vsyncs that began the frames, at most 1/30 s, and each
-    /// drag event writes the model, which the layout syncs in the next turn.
-    public static let frameOwnerTiming = Tunable<Bool>.toggle(
-        "motion.frameOwner.timing", .springs, "Frame timing (frame owner S2)",
-        help: "On: springs step to the time each frame shows and catch up after a late frame; a divider, column-edge or row-edge drag lays the layout out once per display frame, in the frame tick, at the newest pointer. Off: springs step by the time between vsyncs (at most 1/30 s) and every drag event lays the layout out.",
-        default: true, code: "MotionTunables.frameOwnerTiming")
-
     // MARK: Fades and loops
 
     /// Every timed fade is a `MotionScale` step (or 0, instant), so nothing reads slow (Leo
@@ -209,7 +197,7 @@ public nonisolated enum MotionTunables {
 
     /// Every Motion tunable, for the catalog.
     public static var all: [TunableDescriptor] {
-        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, frameOwnerTiming.descriptor]
+        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor]
             + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
             + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,
