@@ -89,7 +89,10 @@ const PRELUDE: &str = r#"
   delete globalThis.__workflowInputs;
   globalThis.args = JSON.parse(inputs);
   const nondeterministic = () => { throw new Error('workflow replay forbids clocks and randomness'); };
-  globalThis.Date = nondeterministic;
+  Object.defineProperty(globalThis, 'Date', {value: nondeterministic, writable: false, configurable: false});
+  for (const name of ['performance', 'crypto', 'Temporal']) {
+    Object.defineProperty(globalThis, name, {value: undefined, writable: false, configurable: false});
+  }
   Object.defineProperty(Math, 'random', {value: nondeterministic, writable: false, configurable: false});
   const pending = new Map();
   const rejected = new Map();
