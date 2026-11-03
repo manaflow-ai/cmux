@@ -39,6 +39,9 @@ public final class TerminalSurfaceView: NSView {
     /// Whether a grid report waits for the pane's layout spring to land (``TerminalGridPolicy/held``).
     var isHeldGridPending: Bool { geometry.held }
 
+    /// The size this view asked of Ghostty while its window's commit owns its frame (``place(_:anchor:)``).
+    var frameOwnership = TerminalFrameOwnership()
+
     /// A person drags a divider or edge of this terminal's pane (`PaneResizeGestureFollowing`): the view's
     /// grid is held (drawn as the reflow preview) and goes to the PTY once, when the drag lands.
     var isFollowingResizeGesture = false
@@ -232,6 +235,8 @@ public final class TerminalSurfaceView: NSView {
     }
 
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        // A size that waits for this window's commit takes its bounds now.
+        if newWindow !== window { releaseFrameOwnership() }
         super.viewWillMove(toWindow: newWindow)
         observeWindow(false)
         // Leaving its window gets no mouseExited: the modifier watcher and underlines go here.
@@ -343,7 +348,8 @@ public final class TerminalSurfaceView: NSView {
         let resized = newSize != frame.size
         super.setFrameSize(newSize)
         if resized { session?.frameChanges.bump() } // its kept frame has another size now (TerminalLaunchFrameKeeper)
-        if resized, isShown { updateSurfaceSize() }
+        // Taking the size Ghostty already shows (``landRequestedFrame()``) asks for no new size.
+        if resized, isShown, !frameOwnership.landing { updateSurfaceSize() }
         copyMode.syncCursor()
     }
 
@@ -426,7 +432,8 @@ public final class TerminalSurfaceView: NSView {
             pendingForcedReport = pendingForcedReport || forceReport
             return
         }
-        let pixels = convertToBacking(bounds.size)
+        // The size asked of Ghostty and not shown yet, else the view's (``place(_:anchor:)``).
+        let pixels = convertToBacking(frameOwnership.inFlight ?? bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }
         ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
@@ -523,7 +530,10 @@ public final class TerminalSurfaceView: NSView {
         // normally starts the next frame, but a first display after that off-window parse can
         // otherwise retain an empty IOSurface. Explicitly refresh the reveal edge so the state
         // already parsed off-screen is presented (#22282, related to #16706/#18432).
-        if drawing { ghostty_surface_refresh(surface) }
+        if drawing {
+            ghostty_surface_refresh(surface)
+            frameOwnershipDidReveal()
+        }
     }
 
     /// A paused surface keeps the frame its layer shows, volatile until it shows again
