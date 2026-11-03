@@ -290,7 +290,8 @@ fn procargs2_argv(data: &[u8]) -> Option<Vec<String>> {
 fn procargs2_env(data: &[u8]) -> Option<Vec<(String, String)>> {
     let (_, rest) = procargs2_words(data)?;
     // The strings after the environment (the kernel's own, past an empty one) are not its.
-    let end = rest.split(|b| *b == 0).take_while(|w| !w.is_empty()).map(|w| w.len() + 1).sum();
+    let end: usize =
+        rest.split(|b| *b == 0).take_while(|w| !w.is_empty()).map(|w| w.len() + 1).sum();
     Some(env_pairs(rest.get(..end.min(rest.len()))?))
 }
 
