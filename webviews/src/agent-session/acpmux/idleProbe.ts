@@ -35,7 +35,20 @@ function top(map: Map<string, Site>, limit = 12) {
     .map(([site, { count, sample }]) => ({ site, count, sample }));
 }
 
+/** A probe in its window: a second one would save the first one's wrappers and put them back for good. */
+let probing = false;
+
 export async function idleProbe(options: IdleProbeOptions = {}): Promise<Record<string, unknown>> {
+  if (probing) return { error: "an idle probe is already running" };
+  probing = true;
+  try {
+    return await probe(options);
+  } finally {
+    probing = false;
+  }
+}
+
+async function probe(options: IdleProbeOptions): Promise<Record<string, unknown>> {
   const ms = Math.max(100, Math.min(30_000, options.ms ?? 10_000));
   const frames = new Map<string, Site>();
   const timeouts = new Map<string, Site>();

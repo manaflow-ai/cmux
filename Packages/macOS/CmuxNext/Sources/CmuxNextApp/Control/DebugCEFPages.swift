@@ -25,17 +25,17 @@ func debugCEFPagesReport(_ services: AppServices) -> JSONValue {
 /// shown page's metrics and CPU profile with it. Browser tabs are refused: this reads only cmux's pages.
 @MainActor
 func debugCEFPageDevTools(_ params: [String: JSONValue], _ services: AppServices) async -> JSONValue {
-    guard let browser = params["browser"]?.intValue, let method = params["method"]?.stringValue else {
-        return .object(["error": .string("browser and method are required")])
+    guard let id = params["browser"]?.intValue, let browser = Int32(exactly: id), let method = params["method"]?.stringValue else {
+        return .object(["error": .string("browser (a browser id) and method are required")])
     }
-    guard let page = services.cache.cef.rendererPages.first(where: { $0.browserID == Int32(browser) }) else {
+    guard let page = services.cache.cef.rendererPages.first(where: { $0.browserID == browser }) else {
         return .object(["error": .string("no live page \(browser)")])
     }
     guard page.origin.hasPrefix("cmux-page://") else { return .object(["error": .string("only cmux's own pages")]) }
     var arguments: [String: any Sendable] = [:]
     for (key, value) in params["params"]?.objectValue ?? [:] { arguments[key] = debugDevToolsValue(value) }
     do {
-        guard let reply = try await services.cache.cef.devTools(browserID: Int32(browser), method: method, params: arguments) else {
+        guard let reply = try await services.cache.cef.devTools(browserID: browser, method: method, params: arguments) else {
             return .object(["error": .string("no live page \(browser)")])
         }
         return .object(["result": .string(reply)])
