@@ -1,7 +1,7 @@
 //! The machine side of `cmux link sync`: `fs-v1` request lines on the
 //! machine daemon's socket (spec/commands.md, "fs-v1").
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead as _, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -32,9 +32,6 @@ const READ_CAP: u64 = 1 << 30;
 const MAX_ANSWER_BYTES: u64 = 16 * 1024 * 1024;
 /// Most answers for other requests one call skips before it gives up.
 const MAX_OTHER_ANSWERS: usize = 16;
-/// Most pages and entries of one folder's listing.
-const MAX_LIST_PAGES: usize = 1000;
-const MAX_LIST_ENTRIES: usize = 200_000;
 
 /// A listing named something other than one plain component.
 #[derive(Debug)]
@@ -163,8 +160,14 @@ impl Remote {
             Err(error) if refusal_code(&error) == Some("fs.not_found") => return Ok(None),
             Err(error) => return Err(error),
         };
-        for _ in 0..MAX_LIST_PAGES {
-            for entry in page["entries"].as_array().into_iter().flatten() {
+        let listing = page.get("listing").cloned();
+        let mut cursors = BTreeSet::new();
+        loop {
+            if page.get("listing") != listing.as_ref() {
+                bail!("the machine changed the listing of {path}");
+            }
+            let batch = page["entries"].as_array().context("fs.list answered no entries")?;
+            for entry in batch {
                 let name = entry["name"].as_str().unwrap_or_default().to_string();
                 // The machine is not trusted: a listed name is one plain
                 // component, or the whole listing is refused.
@@ -175,21 +178,24 @@ impl Remote {
                 let revision = entry["size"]
                     .as_u64()
                     .map(|size| cmux_tui_core::fs_ops::revision(size, entry["mtime"].as_u64()));
-                entries.insert(name, RemoteEntry { kind, revision });
-            }
-            if entries.len() > MAX_LIST_ENTRIES {
-                bail!("the machine's listing of {path} never ends");
+                if entries.insert(name, RemoteEntry { kind, revision }).is_some() {
+                    bail!("the machine repeated an entry in the listing of {path}");
+                }
             }
             let Some(cursor) = page["cursor"].as_str().map(str::to_string) else {
                 return Ok(Some(entries));
             };
-            let listing = page["listing"].clone();
+            // Pagination may run for any number of pages, but every page
+            // must advance within the same snapshot. A repeated cursor or
+            // an empty nonterminal page is a protocol error, not a big folder.
+            if batch.is_empty() || !cursors.insert(cursor.clone()) {
+                bail!("the machine's listing of {path} made no progress");
+            }
             page = self.call(
                 "fs.list",
                 json!({ "listing": listing, "cursor": cursor, "limit": LIST_LIMIT }),
             )?;
         }
-        bail!("the machine's listing of {path} never ends")
     }
 
     /// Creates the folder `path` and any missing folder above it.
@@ -288,17 +294,30 @@ impl Remote {
     /// Reads the whole file at `path` into memory, up to [`READ_CAP`]
     /// bytes; None when it is not there.
     pub(super) fn read(&mut self, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
-        let mut bytes = Vec::new();
-        Ok(self.read_into(path, &mut bytes, READ_CAP)?.map(|_| bytes))
+        struct Buffer(Vec<u8>);
+        impl Write for Buffer {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if (self.0.len() as u64).saturating_add(bytes.len() as u64) > READ_CAP {
+                    return Err(std::io::Error::other("in-memory read is over 1 GiB"));
+                }
+                self.0.extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut bytes = Buffer(Vec::new());
+        Ok(self.read_into(path, &mut bytes)?.map(|_| bytes.0))
     }
 
-    /// Streams the file at `path` into `out`, refusing one over `cap` bytes.
+    /// Streams the file at `path` into `out` through bounded range reads.
     /// Returns its size; None when it is not there.
     pub(super) fn read_into(
         &mut self,
         path: &str,
         out: &mut dyn Write,
-        cap: u64,
     ) -> anyhow::Result<Option<u64>> {
         let mut size = 0u64;
         loop {
@@ -320,10 +339,7 @@ impl Remote {
                 }
                 (None, None) => bail!("fs.read answered no bytes"),
             };
-            size += part.len() as u64;
-            if size > cap {
-                bail!("the machine's {path} is over {cap} bytes");
-            }
+            size = size.checked_add(part.len() as u64).context("fs.read offset overflow")?;
             out.write_all(part)?;
             if answer["truncated"] != json!(true) {
                 return Ok(Some(size));
@@ -474,14 +490,14 @@ mod tests {
         assert!(format!("{error:#}").contains("other requests"), "{error:#}");
     }
 
-    /// A listing whose pages never end is refused.
+    /// A listing that cycles cursors is refused promptly.
     #[test]
-    fn a_listing_that_never_ends_is_refused() {
+    fn a_listing_with_a_repeated_cursor_is_refused() {
         let mut remote = hostile(|requests, server| {
             for (page, request) in requests.enumerate().take(5000) {
                 let answer = json!({"id": request["id"], "ok": true, "data": {
                     "entries": [{"name": format!("n{page}"), "kind": "file", "size": 1, "mtime": 1}],
-                    "cursor": format!("c{page}"),
+                    "cursor": "c1",
                     "listing": "l",
                 }});
                 if server.write_all(format!("{answer}\n").as_bytes()).is_err() {
@@ -490,6 +506,10 @@ mod tests {
             }
         });
         let error = remote.list("/x").unwrap_err();
-        assert!(format!("{error:#}").contains("never ends"), "{error:#}");
+        assert!(format!("{error:#}").contains("no progress"), "{error:#}");
     }
 }
+
+#[cfg(test)]
+#[path = "limits_tests.rs"]
+mod limits_tests;

@@ -228,7 +228,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var deviceEmulationNeedsReset = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
-    @ObservationIgnored private var isOccluded = false
+    @ObservationIgnored private var isOccluded = false { didSet { if !isOccluded { runtime.extensionActionReads.tabShown(self) } } }
     /// The pane window this tab belongs to. A popup starts in its opener's
     /// Chromium window but belongs to its own popup host from adoption on;
     /// `awaitsWindowMove` is true until Chromium moved it there.
@@ -322,7 +322,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             host.lifecycleTrace.record(id, "restore-navigation \(code == 1 ? "ok" : "failed(\(code))")")
             if code != 1, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
         }
-        refreshExtensionActions()
+        runtime.extensionActionReads.refresh(self)
     }
 
     // What the page area shows, and when the document takes it over, are in
