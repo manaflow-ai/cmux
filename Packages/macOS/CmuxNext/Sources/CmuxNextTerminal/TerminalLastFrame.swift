@@ -29,8 +29,13 @@ public final class TerminalLastFrame {
     init(surface: IOSurface, showsOutput: Bool) {
         self.surface = surface
         self.showsOutput = showsOutput
+        bytes = UInt64(max(0, surface.allocationSize))
         surface.makeVolatile()
     }
+
+    /// The frame's memory: its drawable's allocation, the size of the pane it came from (``TerminalLastFrames``
+    /// counts these against its bound).
+    public let bytes: UInt64
 
     /// The frame for a new surface that shows it from now on (non-volatile for good); nil when the
     /// system purged it.
