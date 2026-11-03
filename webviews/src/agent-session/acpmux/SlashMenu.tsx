@@ -65,9 +65,7 @@ export function SlashMenu({
             </span>
           )}
           <span className="acpmux-slash-description">
-            {match.command.descriptionKey
-              ? t(match.command.descriptionKey)
-              : match.command.description}
+            {match.command.descriptionKey ? t(match.command.descriptionKey) : match.command.description}
           </span>
         </>
       )}

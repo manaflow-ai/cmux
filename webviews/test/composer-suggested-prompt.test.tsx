@@ -402,7 +402,9 @@ test("the + menu uses the current pane language for existing actions", async () 
     expect(menuDocument().querySelector('[data-value="add.files"] .acpmux-menu-label')?.textContent).toBe(
       "Dateien oder Bilder anhängen",
     );
-    expect(menuDocument().querySelector('[data-value="add.project"] .acpmux-menu-label')?.textContent).toBe("Projekt auswählen");
+    expect(menuDocument().querySelector('[data-value="add.project"] .acpmux-menu-label')?.textContent).toBe(
+      "Projekt auswählen",
+    );
     expect(menuDocument().querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
     expect(menuDocument().querySelector('[data-value="add.project"] .acpmux-menu-description')).toBeNull();
   } finally {
@@ -517,7 +519,7 @@ test("the + menu lists at most three recent commands, then Commands and skills�
     await render(noChat([], { summary: { sessionId: "", cwd: APP } as never, commands }));
     const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
     await act(async () => plus.click());
-  const group = [...menuDocument().querySelectorAll(".acpmux-composer-plus .acpmux-menu-section")].find((section) =>
+    const group = [...menuDocument().querySelectorAll(".acpmux-composer-plus .acpmux-menu-section")].find((section) =>
       section.querySelector('[data-value="add.commands"]'),
     )!;
     const labels = [...group.querySelectorAll<HTMLElement>(".acpmux-menu-item")].map(

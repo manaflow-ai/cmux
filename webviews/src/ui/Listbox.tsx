@@ -1,16 +1,7 @@
 // A focusable listbox of actions (recent items): one Tab stop, Up/Down/Home/End move, typing a
 // letter jumps to the next row starting with it, Return or Space opens, a click opens. Base UI 1.8
 // has no standalone listbox, so this is the wrapper's one implementation (aria-activedescendant).
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-  type Ref,
-} from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { cx } from "./cx";
 import { useScrollEdges } from "./scrollEdges";
 import "./popupSurface.css";
@@ -89,9 +80,7 @@ export function Listbox<T>({
   const current = Math.min(currentHighlight, items.length - 1);
   useEffect(() => {
     if (current < 0) return;
-    const element = document.getElementById(
-      getItemId?.(items[current], current) ?? `${id}-${current}`,
-    );
+    const element = document.getElementById(getItemId?.(items[current], current) ?? `${id}-${current}`);
     element?.scrollIntoView?.({ block: "nearest" });
   }, [current, getItemId, id, items]);
 
@@ -114,18 +103,13 @@ export function Listbox<T>({
       if (item) onOpen(item);
     } else if (event.key.length === 1 && /\S/.test(event.key)) {
       const now = event.timeStamp;
-      const joined =
-        now - typed.current.at > TYPEAHEAD_RESET_MS ? event.key : typed.current.text + event.key;
+      const joined = now - typed.current.at > TYPEAHEAD_RESET_MS ? event.key : typed.current.text + event.key;
       typed.current = { text: joined, at: now };
       // The same letter again cycles through the rows starting with it.
       const text = /^(.)\1*$/su.test(joined) ? event.key : joined;
       const wanted = text.toLocaleLowerCase();
-      const order = items.map(
-        (_, index) => (current + (text.length === 1 ? 1 : 0) + index) % items.length,
-      );
-      const match = order.find((index) =>
-        textValue(items[index]).toLocaleLowerCase().startsWith(wanted),
-      );
+      const order = items.map((_, index) => (current + (text.length === 1 ? 1 : 0) + index) % items.length);
+      const match = order.find((index) => textValue(items[index]).toLocaleLowerCase().startsWith(wanted));
       if (match !== undefined) {
         event.preventDefault();
         setCurrentHighlight(match);
@@ -143,9 +127,7 @@ export function Listbox<T>({
       tabIndex={0}
       aria-label={label}
       aria-busy={ariaBusy || undefined}
-      aria-activedescendant={
-        items.length ? (getItemId?.(items[current], current) ?? `${id}-${current}`) : undefined
-      }
+      aria-activedescendant={items.length ? (getItemId?.(items[current], current) ?? `${id}-${current}`) : undefined}
       onKeyDown={onKeyDown}
     >
       {items.map((item, index) => (

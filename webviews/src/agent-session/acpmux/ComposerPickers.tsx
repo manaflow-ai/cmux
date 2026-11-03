@@ -48,7 +48,6 @@ import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
 import { continueTargets } from "./cmuxCommands";
 import { useModelCatalogState } from "./modelCatalogHost";
-import { focusWithRing } from "../../ui/focusWithRing";
 import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT } from "../../ui/hoverIntent";
 import { useHoverCard } from "./chips/useHoverCard";
@@ -57,7 +56,16 @@ import { contextBreakdown } from "./session-info/ContextSection";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { compactingUsage } from "./usageStats";
-import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
+import {
+  Menu,
+  MenuButton,
+  MenuGroup,
+  MenuItem,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+} from "../../ui/Menu";
 import { cx } from "../../ui/cx";
 import { registerPicker } from "./pickerOpeners";
 import {
@@ -1671,39 +1679,46 @@ export function Picker({
   return (
     <span className={cx("acpmux-picker", className)}>
       <Menu open={menuOpen} onOpenChange={onMenuOpenChange}>
-      <MenuButton
-        buttonRef={trigger}
-        className="acpmux-picker-button"
-        label={label}
-        title={tooltip}
-        aria-haspopup="menu"
-        data-menu={label}
-      >
-        {button}
-      </MenuButton>
-      <MenuPopup
-        label={heading ?? label}
-        side="top"
-        align={align}
-        finalFocus={returnFocus ? undefined : false}
-        className={cx(
-          "acpmux-menu acpmux-picker-menu",
-          className,
-          overBackdrop && "acpmux-menu-over-backdrop",
-        )}
-      >
-        {heading && (
-          <div className="acpmux-menu-heading" aria-hidden="true">
-            {heading}
-          </div>
-        )}
-        {sections.map((section, sectionIndex) => (
-          <React.Fragment key={`section-${sectionIndex}`}>
-            {sectionIndex > 0 && <MenuSeparator />}
-            <div className="acpmux-menu-section">
-              {section.title ? (
-                <MenuGroup label={section.title}>
-                  {section.choices.map((choice) => (
+        <MenuButton
+          buttonRef={trigger}
+          className="acpmux-picker-button"
+          label={label}
+          title={tooltip}
+          aria-haspopup="menu"
+          data-menu={label}
+        >
+          {button}
+        </MenuButton>
+        <MenuPopup
+          label={heading ?? label}
+          side="top"
+          align={align}
+          finalFocus={returnFocus ? undefined : false}
+          className={cx("acpmux-menu acpmux-picker-menu", className, overBackdrop && "acpmux-menu-over-backdrop")}
+        >
+          {heading && (
+            <div className="acpmux-menu-heading" aria-hidden="true">
+              {heading}
+            </div>
+          )}
+          {sections.map((section, sectionIndex) => (
+            <React.Fragment key={`section-${sectionIndex}`}>
+              {sectionIndex > 0 && <MenuSeparator />}
+              <div className="acpmux-menu-section">
+                {section.title ? (
+                  <MenuGroup label={section.title}>
+                    {section.choices.map((choice) => (
+                      <PickerMenuItem
+                        key={choice.id}
+                        choice={choice}
+                        section={section}
+                        warnUnrestricted={warnUnrestricted}
+                        close={() => setMenuOpen(false)}
+                      />
+                    ))}
+                  </MenuGroup>
+                ) : (
+                  section.choices.map((choice) => (
                     <PickerMenuItem
                       key={choice.id}
                       choice={choice}
@@ -1711,23 +1726,12 @@ export function Picker({
                       warnUnrestricted={warnUnrestricted}
                       close={() => setMenuOpen(false)}
                     />
-                  ))}
-                </MenuGroup>
-              ) : (
-                section.choices.map((choice) => (
-                  <PickerMenuItem
-                    key={choice.id}
-                    choice={choice}
-                    section={section}
-                    warnUnrestricted={warnUnrestricted}
-                    close={() => setMenuOpen(false)}
-                  />
-                ))
-              )}
-            </div>
-          </React.Fragment>
-        ))}
-      </MenuPopup>
+                  ))
+                )}
+              </div>
+            </React.Fragment>
+          ))}
+        </MenuPopup>
       </Menu>
     </span>
   );

@@ -20,14 +20,9 @@ const MENTION_DEBOUNCE_MS = 80;
 /// (backslash escapes undone), or undefined when the caret is not in one. An `@` inside a word (an
 /// email address) or inside an inline code span is not a mention. The prompt's markdown writes a
 /// space after an escaped character as an entity (`\_\_init\_\_.py&#x20;`), which ends the word too.
-export function mentionQuery(
-  markdown: string,
-  at: number,
-): { start: number; query: string } | undefined {
+export function mentionQuery(markdown: string, at: number): { start: number; query: string } | undefined {
   const before = markdown.slice(0, at);
-  const found = /(^|\s|&#x20;|&#32;|&nbsp;)@((?:\\.|(?!&#x20;|&#32;|&nbsp;)[^\s\\@])*)$/i.exec(
-    before,
-  );
+  const found = /(^|\s|&#x20;|&#32;|&nbsp;)@((?:\\.|(?!&#x20;|&#32;|&nbsp;)[^\s\\@])*)$/i.exec(before);
   if (!found) return undefined;
   const start = before.length - found[2]!.length - 1;
   // An odd number of backticks before it: inside a code span.
@@ -42,10 +37,9 @@ export function mentionQuery(
 export function markdownOffset(markdown: string, shown: number): number {
   let index = 0;
   for (let count = 0; count < shown && index < markdown.length; count++) {
-    const escape =
-      /^(\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);|\uFFFC[\w.~%-]+\uFFFC)/i.exec(
-        markdown.slice(index),
-      );
+    const escape = /^(\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);|\uFFFC[\w.~%-]+\uFFFC)/i.exec(
+      markdown.slice(index),
+    );
     index += escape ? escape[0].length : 1;
   }
   return index;
@@ -67,10 +61,7 @@ export type MentionState =
 
 /// The files matching `query` (undefined: the picker is closed), asked of `search` once typing
 /// settles; only the newest answer lands.
-export function useMentionSearch(
-  search: FileSearchSource | undefined,
-  query: string | undefined,
-): MentionState {
+export function useMentionSearch(search: FileSearchSource | undefined, query: string | undefined): MentionState {
   const [state, setState] = useState<MentionState>({ kind: "idle" });
   const generation = useRef(0);
   useEffect(() => {
@@ -170,9 +161,7 @@ export function MentionMenu({
         empty={state?.kind === "searching" && items.length === 0 ? <FileSearchLoading mention /> : undefined}
         footer={
           note ? (
-            <output
-              className={state?.kind === "searching" ? "acpmux-file-loading-note" : "acpmux-file-note"}
-            >
+            <output className={state?.kind === "searching" ? "acpmux-file-loading-note" : "acpmux-file-note"}>
               {note}
             </output>
           ) : undefined
@@ -185,9 +174,7 @@ export function MentionMenu({
             <span className="acpmux-slash-name">{runs(item.name)}</span>
             {item.kind === "session"
               ? item.project && <span className="acpmux-slash-description">{item.project}</span>
-              : item.dir.length > 0 && (
-                  <span className="acpmux-slash-description">{runs(item.dir)}</span>
-                )}
+              : item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>}
           </>
         )}
       />
