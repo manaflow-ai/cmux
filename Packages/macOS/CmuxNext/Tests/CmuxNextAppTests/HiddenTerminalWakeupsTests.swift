@@ -24,19 +24,24 @@ struct HiddenTerminalWakeupsTests {
     /// lane's blocks, and Ghostty's renderer and termio thread wakes by source (ghostty_surface_render_counters, fork #73).
     struct Work: CustomStringConvertible {
         var reads: UInt64, passes: UInt64, blocks: UInt64
-        var rendererWakeups: UInt64, drawNow: UInt64, timers: UInt64, ioWakeups: UInt64, ioTimers: UInt64
+        var rendererWakeups: UInt64, drawNow: UInt64, cursorTimer: UInt64, animationTimer: UInt64, compressionTimer: UInt64
+        var ioWakeups: UInt64, ioTimers: UInt64
+        var timers: UInt64 { cursorTimer &+ animationTimer &+ compressionTimer }
         static func of(_ entry: TerminalEntry) -> Work? {
             guard let reads = entry.io.driver.machine.liveLink?.link.transportReads, let lane = entry.session.surfaceView.lane,
                   let surface = entry.session.surfaceView.surface else { return nil }
             let c = ghostty_surface_render_counters(surface)
             return Work(reads: reads, passes: entry.session.frameChanges.generation, blocks: lane.blocks,
                         rendererWakeups: c.renderer_wakeups, drawNow: c.renderer_draw_now,
-                        timers: c.renderer_cursor_timer_fires &+ c.renderer_animation_timer_fires &+ c.renderer_compression_timer_fires,
+                        cursorTimer: c.renderer_cursor_timer_fires, animationTimer: c.renderer_animation_timer_fires,
+                        compressionTimer: c.renderer_compression_timer_fires,
                         ioWakeups: c.io_wakeups, ioTimers: c.io_timer_fires)
         }
         static func - (a: Work, b: Work) -> Work {
             Work(reads: a.reads &- b.reads, passes: a.passes &- b.passes, blocks: a.blocks &- b.blocks,
-                 rendererWakeups: a.rendererWakeups &- b.rendererWakeups, drawNow: a.drawNow &- b.drawNow, timers: a.timers &- b.timers,
+                 rendererWakeups: a.rendererWakeups &- b.rendererWakeups, drawNow: a.drawNow &- b.drawNow,
+                 cursorTimer: a.cursorTimer &- b.cursorTimer, animationTimer: a.animationTimer &- b.animationTimer,
+                 compressionTimer: a.compressionTimer &- b.compressionTimer,
                  ioWakeups: a.ioWakeups &- b.ioWakeups, ioTimers: a.ioTimers &- b.ioTimers)
         }
         /// Wake chains started: each read of a batch starts one; the lane, renderer and termio hand-offs of that batch go on
@@ -47,7 +52,8 @@ struct HiddenTerminalWakeupsTests {
         }
         var description: String {
             "\(reads) reads, \(passes) consumer passes, \(blocks) lane blocks, renderer \(rendererWakeups) wakeups + \(drawNow) draw-now"
-                + " + \(timers) timer fires, termio \(ioWakeups) wakeups + \(ioTimers) timer fires"
+                + " + timers (cursor \(cursorTimer), animation \(animationTimer), compression \(compressionTimer)),"
+                + " termio \(ioWakeups) wakeups + \(ioTimers) timer fires"
         }
     }
 
