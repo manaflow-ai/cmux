@@ -310,8 +310,16 @@ struct AgentChatArtifactIndexBuildTests {
         #expect(await index.startedBuildCount == 1)
     }
 
+    /// Waits until `count` requests have joined a build, failing after a
+    /// deadline instead of hanging when one answered from the cache.
     private func waitForRequests(_ count: Int, on index: AgentChatArtifactIndex) async {
+        let deadline = ContinuousClock.now + .seconds(30)
         while await index.waitingRequestCount < count {
+            guard ContinuousClock.now < deadline else {
+                let joined = await index.waitingRequestCount
+                Issue.record("only \(joined) of \(count) requests joined a build before the deadline")
+                return
+            }
             await Task.yield()
         }
     }
