@@ -3303,8 +3303,7 @@ button.cv-video-frames__frame:focus-visible {
   align-items: flex-start;
   gap: var(--ds-space-2);
   margin: 0 0 var(--ds-space-2) var(--cv-tool-text-inset);
-  /* One 18 line centred in a 28 row; more lines grow it. */
-  padding: calc((var(--ds-control-row) - 18px) / 2) var(--ds-space-3);
+  padding: var(--ds-space-1) var(--ds-space-3);
   border-radius: var(--grid-cards-radius);
   background: var(--cv-card-fill);
   box-shadow:
@@ -5504,7 +5503,7 @@ a.cv-sha:focus-visible {
   flex: none;
   align-items: center;
   gap: var(--ds-space-2);
-  padding: 2px var(--ds-space-2);
+  padding: calc(var(--ds-space-1) / 2) var(--ds-space-2);
   border: 1px solid color-mix(in srgb, var(--agent-accent) 34%, transparent);
   border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, var(--agent-accent) 6%, transparent);
