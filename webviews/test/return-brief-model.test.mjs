@@ -1,5 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { returnBrief, MAX_ARTIFACT_READ_AGE_MS } from '../src/agent-session/acpmux/session-info/returnBriefModel.ts';
 
 const COMMIT = 'a'.repeat(40);
@@ -99,4 +104,37 @@ test('reopening means fresh authorization, digest and expiry checks against the 
   reopened.artifact.checkedAt = reopened.now;
   reopened.artifact.expiresAt = reopened.now - 1;
   assert.equal(item(reopened, 'artifact').action, undefined);
+});
+
+
+test('synthetic retained bytes survive scratch destruction and another process checks digest', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'return-brief-proof-'));
+  const scratch = join(root, 'scratch');
+  const store = join(root, 'owner');
+  const file = join(store, 'result.md');
+  const bytes = Buffer.from('# Retry proof\n12 executed passing tests\n');
+  const digest = 'sha256:' + createHash('sha256').update(bytes).digest('hex');
+  const independentRead = () => {
+    const child = spawnSync(process.execPath, [
+      '-e',
+      'const fs=require("node:fs"); const c=require("node:crypto"); const b=fs.readFileSync(process.argv[1]); console.log("sha256:"+c.createHash("sha256").update(b).digest("hex"))',
+      file,
+    ], { encoding: 'utf8' });
+    assert.equal(child.status, 0, child.stderr);
+    return child.stdout.trim();
+  };
+  try {
+    await mkdir(scratch);
+    await mkdir(store);
+    await writeFile(join(scratch, 'temporary-result.md'), bytes);
+    await writeFile(file, await readFile(join(scratch, 'temporary-result.md')));
+    await rm(scratch, { recursive: true });
+    const ownerReceipt = { ...artifact(), digest, readbackDigest: independentRead() };
+    assert.equal(item({ ...base(), artifact: ownerReceipt }, 'artifact').level, 'verified');
+    assert.equal(item({ ...base(), viewerScope: 'wrong-team', artifact: ownerReceipt }, 'artifact').level, 'inaccessible');
+    await writeFile(file, '# Tampered after publication\n');
+    assert.equal(item({ ...base(), artifact: { ...ownerReceipt, readbackDigest: independentRead() } }, 'artifact').level, 'failed');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
