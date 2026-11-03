@@ -60,7 +60,7 @@ test("agent work draws ChatGPT's gap ring: a 0.72 arc at stroke 2 over a faint t
   expect(arc).toContain('stroke-linecap="round"');
   expect(arc).toContain('stroke-width="2"');
   // 0.72 of the ring from 12 o'clock clockwise: one large-arc segment ending at about 259°.
-  expect(arc).toContain('d="M8 2.75a5.25 5.25 0 1 1 2.84 8.98"');
+  expect(arc).toContain('d="M8 2.75A5.25 5.25 0 1 1 2.84 8.98"');
   expect(working).not.toContain("cv-spinner__arc");
   expect(working).not.toContain("cv-spinner__spokes");
   expect(working).not.toContain("<line");
