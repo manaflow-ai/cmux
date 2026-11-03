@@ -15,7 +15,11 @@ Steps (`do`):
                    `LOAD-READY <L>` line. Its stdout (LOAD-RATE lines) goes to OUT/load/<L>.stdout. A tool that is
                    missing or ends before it is ready: not run (a kit gap, never a product red).
   load_stop   {}   SIGTERM to the load tool, waits up to 60 s for its teardown, records its exit and focus_changed.
-  probe_relaunch {hang_ms?: 4}  reopens the app with the in-app per-key marks on (see the function).
+  probe_relaunch {hang_ms?: 4, env?: {KEY: VALUE}, new_daemon?: false}  reopens the app with the in-app per-key
+                   marks on (see the function); `env` adds launch variables (an A/B arm's CMUX_NEXT_* switch);
+                   `new_daemon` stops the app's daemon while no app runs, so the reopen starts a new one with them.
+  daemon_arm  {as, want: on|off, name?: CMUX_TUI_RDS_INPUT}  proves the arm: `ps -wwE -p <daemon pid>` shows
+                   NAME=1 (on) or not (off); kept as OUT/daemon-arm-<as>.json. A mismatch: not run.
   probe_mark  {as}  keeps debug.hangs and debug.wakeups as OUT/probe-<as>.json.
   typist_play {seed?: 7, seconds?: 120, from?: 0, to?, label?}
                    plays typing/typist.py's seeded plan with real HID keys (ext_realkey press: CuaDriver, desktop
@@ -242,12 +246,69 @@ def step_probe_relaunch(j, step):
         raise D.NotRun(f"probe_relaunch: no launch variables read from pid {app.pid}")
     env.update({"CMUX_NEXT_TYPING_PROBE": str(out / "probe.csv"), "CMUX_NEXT_TRACE_FLOWS": str(out / "flows"),
                 "CMUX_NEXT_HANG_THRESHOLD_MS": str(step.get("hang_ms", 4))})
+    env.update(step.get("env", {}))
+    relaunch = {"how": "quit", "mark": step.get("mark")}
+    if step.get("new_daemon"):
+        # The app's daemon outlives a Cmd-Q, and a daemon reads its switches (CMUX_TUI_RDS_INPUT, from the app's
+        # CMUX_NEXT_TUI_RDS_INPUT) only when `server ensure` starts it. So the daemon is stopped while no app runs:
+        # `server stop` ends the owner only (terminal hosts and the topology stay; the next owner restores them).
+        old = _daemon_of(app)
+        relaunch["before_reopen"] = lambda: _stop_daemon(app, old)
     app.launch_env = lambda: dict(env)
     try:
-        rec = j.step_relaunch({"how": "quit", "mark": step.get("mark")})
+        rec = j.step_relaunch(relaunch)
     finally:
         del app.launch_env
-    return dict(rec, probe=str(out / "probe.csv"), flows=str(out / "flows"))
+    return dict(rec, probe=str(out / "probe.csv"), flows=str(out / "flows"),
+                env_added=sorted(step.get("env", {})), new_daemon=bool(step.get("new_daemon")))
+
+
+def _daemon_of(app):
+    """{pid, socket} of the daemon the app is connected to (debug.daemon), read while the app runs."""
+    sock = app.daemon_socket()
+    pid = (getattr(app, "daemon_state", None) or {}).get("pid")
+    if not sock or not pid:
+        raise D.NotRun(f"new_daemon: no daemon pid or socket (debug.daemon {json.dumps(getattr(app, 'daemon_state', None))[:200]})")
+    return {"pid": int(pid), "socket": sock}
+
+
+def _stop_daemon(app, old):
+    """`cmux server stop` on the old daemon's socket (no --end-terminals), then waits up to 30 s for its pid to end.
+    Never a signal: a daemon that does not stop is a not run."""
+    started = D.now()
+    done = subprocess.run([app.cli, "--socket", old["socket"], "--json", "server", "stop"], capture_output=True,
+                          text=True, timeout=60, env={"HOME": app.home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                                                      "CMUX_QUIET": "1"})
+    end = D.now() + 30
+    while D.now() < end and app.alive(old["pid"]):
+        time.sleep(0.25)
+    if app.alive(old["pid"]):
+        raise D.NotRun(f"new_daemon: daemon pid {old['pid']} still runs 30 s after `server stop` (exit "
+                       f"{done.returncode}: {(done.stdout + done.stderr).strip()[-200:]})")
+    app._daemon_sock = None
+    return {"old_daemon_pid": old["pid"], "stop_exit": done.returncode, "stopped_after_s": round(D.now() - started, 2)}
+
+
+def step_daemon_arm(j, step):
+    """The A/B arm proof: the daemon the app is connected to now (debug.daemon pid), its `ps -wwE -p PID` words,
+    and whether NAME=1 is among them. Only the NAME words, the pid and the process name are kept (never the
+    whole environment). `want` on needs NAME=1, off needs no NAME=1; otherwise the run is not run."""
+    name = step.get("name", "CMUX_TUI_RDS_INPUT")
+    j.app.daemon_socket()
+    pid = (getattr(j.app, "daemon_state", None) or {}).get("pid")
+    if not pid:
+        raise D.NotRun(f"daemon_arm: no daemon pid (debug.daemon {json.dumps(getattr(j.app, 'daemon_state', None))[:200]})")
+    text = subprocess.run(["ps", "-wwE", "-p", str(int(pid))], capture_output=True, text=True, timeout=10).stdout
+    words = [w for w in text.split() if w.startswith(name + "=")]
+    rows = text.strip().splitlines()
+    exe = rows[1].split()[4] if len(rows) > 1 and len(rows[1].split()) > 4 else None
+    rec = {"as": step["as"], "pid": int(pid), "exe": exe, "words": words, "on": (name + "=1") in words,
+           "want": step.get("want"), "t": round(host_now(), 6)}
+    (j.out / f"daemon-arm-{step['as']}.json").write_text(json.dumps(rec))
+    want = step.get("want")
+    if want in ("on", "off") and rec["on"] != (want == "on"):
+        raise D.NotRun(f"daemon_arm {step['as']}: want {want}, daemon pid {pid} has {words or 'no ' + name}")
+    return rec
 
 
 def step_probe_mark(j, step):
@@ -265,6 +326,6 @@ def step_probe_mark(j, step):
     return {"as": step["as"], "hangs": len(hangs) if isinstance(hangs, list) else None, "file": f"probe-{step['as']}.json"}
 
 
-STEPS = {"probe_relaunch": step_probe_relaunch, "probe_mark": step_probe_mark, "echo_start": step_echo_start, "load_start": step_load_start, "load_stop": step_load_stop,
+STEPS = {"probe_relaunch": step_probe_relaunch, "daemon_arm": step_daemon_arm, "probe_mark": step_probe_mark, "echo_start": step_echo_start, "load_start": step_load_start, "load_stop": step_load_stop,
          "typist_play": step_typist_play}
 CONDITIONS = {}

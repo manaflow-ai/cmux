@@ -1291,6 +1291,10 @@ class Journey:
             time.sleep(float(step["leftovers_after"]))
             self.leftovers = {"after_s": float(step["leftovers_after"]), "rows": app.bundle_processes(old)}
             record["leftovers"] = self.leftovers
+        if callable(step.get("before_reopen")):
+            # An extension step's work while no app runs (ext_load probe_relaunch new_daemon: the app's daemon is
+            # stopped here, so the reopened app's `server ensure` starts a new one with the reopen's variables).
+            record["before_reopen"] = step["before_reopen"]()
         if step.get("mark"):
             self.marks[step["mark"]] = now()
         # In the background (-g), as capture-host's own launch, unless that launch was --activate (a whole-host

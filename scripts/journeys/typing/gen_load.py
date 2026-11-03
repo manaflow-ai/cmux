@@ -81,22 +81,43 @@ def journey(profile, film):
             "steps": steps(profile, film)}
 
 
+def rds_journey(arm):
+    """R-DAEMON-STATE stage S1 typing A/B (STATUS 10117): typing-load-l6 with a NEW daemon at the probe relaunch,
+    the input lane switch on (CMUX_NEXT_TUI_RDS_INPUT=1, which the app hands its daemon as CMUX_TUI_RDS_INPUT=1) or
+    absent, and the arm proven from the daemon's environment before and after the typing. P1: run with --journey
+    (as P0 the dogfood gate would ask every build for it)."""
+    spec = journey("L6", True)
+    spec.update(id=f"typing-load-l6-rds-{arm}", priority="P1",
+                title=f"Typing under load L6, R-DAEMON-STATE S1 input lane {arm.upper()} (new daemon, arm proven)",
+                source="REWRITE R-DAEMON-STATE S1 typing A/B (STATUS 10117)")
+    out = []
+    for step in spec["steps"]:
+        if step["do"] == "probe_relaunch":
+            step = dict(step, new_daemon=True, env={"CMUX_NEXT_TUI_RDS_INPUT": "1"} if arm == "on" else {})
+        out.append(step)
+        if step["do"] == "echo_start":
+            out.append({"do": "daemon_arm", "as": "before", "want": arm})
+        if step["do"] == "probe_mark" and step["as"] == "after":
+            out.append({"do": "daemon_arm", "as": "after", "want": arm})
+    spec["steps"] = out
+    return spec
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--check", action="store_true")
     a = ap.parse_args()
     bad = 0
-    for profile in PROFILES:
-        for film in (True, False):
-            spec = journey(profile, film)
-            path = OUT / f"{spec['id']}.json"
-            text = json.dumps(spec, indent=2) + "\n"
-            if a.check:
-                if not path.is_file() or path.read_text() != text:
-                    print(f"differs: {path}")
-                    bad = 1
-                continue
-            path.write_text(text)
+    specs = [journey(profile, film) for profile in PROFILES for film in (True, False)]
+    for spec in specs + [rds_journey("off"), rds_journey("on")]:
+        path = OUT / f"{spec['id']}.json"
+        text = json.dumps(spec, indent=2) + "\n"
+        if a.check:
+            if not path.is_file() or path.read_text() != text:
+                print(f"differs: {path}")
+                bad = 1
+            continue
+        path.write_text(text)
     return bad
 
 
