@@ -50,7 +50,7 @@
   right: 8px;
   bottom: 0;
   border-top: 2px solid var(--ui-slide-fill, var(--agent-accent, var(--cmux-accent)));
-  border-radius: 999px;
+  border-radius: 0;
 }
 
 /* A selected item under a highlight draws no fill of its own; its colour still changes on the click. */
