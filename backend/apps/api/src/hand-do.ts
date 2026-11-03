@@ -157,6 +157,55 @@ export class HandDO extends DurableObject<Env> {
     return { expires_at: now + PAIR_TTL_MS }
   }
 
+  /**
+   * Registers the hand carried by a server-provisioned default machine.  This is deliberately
+   * separate from `mint`/`redeem`: the machine gets its config through the creator-only CloudDO
+   * exec path, so there is no pairing code to leak or replay.  The operation is idempotent only
+   * for the exact default identity and key hash; a changed key, owner or chief is a hard conflict.
+   * It is an internal RPC (there is no HTTP route) and grants only this Chief on this hand.
+   */
+  async ensureDefault(
+    hand: string,
+    owner: string,
+    chief: string,
+    keySha: string,
+    name = "Chief machine",
+    profile: Profile = "sandbox",
+  ): Promise<{ ok: true; hand: string } | { ok: false; code: string; message: string }> {
+    if (!/^hand_[a-z2-7]{20}$/.test(hand) || !/^[0-9a-f]{64}$/.test(keySha) || !owner || !chief) {
+      return { ok: false, code: "validation.invalid", message: "invalid default hand identity" }
+    }
+    const expectedMintedBy = `system:chief:${chief}`
+    const now = Date.now()
+    const existing = this.row()
+    if (existing) {
+      if (existing.hand !== hand || existing.owner !== owner || existing.minted_by !== expectedMintedBy) {
+        return { ok: false, code: "hand.default_conflict", message: "the default hand identity is already used" }
+      }
+      if (existing.revoked_at !== null) return { ok: false, code: "hand.revoked", message: "the default hand is revoked" }
+      if (existing.key_sha !== keySha) return { ok: false, code: "hand.default_conflict", message: "the default hand key does not match" }
+      if (existing.paired_at === null) return { ok: false, code: "hand.default_conflict", message: "the default hand is not paired" }
+      this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO hand_grant (agent) VALUES (?)`, chief)
+      return { ok: true, hand }
+    }
+    this.ctx.storage.sql.exec(
+      `INSERT INTO hand (id, hand, owner, name, minted_by, created_at, code_sha, key_sha, paired_at, profile, level) VALUES (1, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
+      hand,
+      owner,
+      name.slice(0, 80) || "Chief machine",
+      expectedMintedBy,
+      now,
+      keySha,
+      now,
+      profile,
+      (await this.index(owner).ownerDefaultLevel(profile)) ?? defaultLevel(profile),
+    )
+    // The default Chief may use only this hand. Do not modify the owner's other hand grants.
+    this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO hand_grant (agent) VALUES (?)`, chief)
+    await this.publish(this.row()!)
+    return { ok: true, hand }
+  }
+
   /** Single use: the first valid redeem sets the key hash and clears the code. */
   async redeem(codeSha: string, keySha: string, info: { name: string; profile: Profile; os?: string }): Promise<HandReply<{ hand: string; owner: string }>> {
     const r = this.row()

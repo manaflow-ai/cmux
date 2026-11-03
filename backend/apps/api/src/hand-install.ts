@@ -8,6 +8,7 @@ import type { Env } from "./env.ts"
  * service (launchd on macOS; systemd --user, else nohup, on Linux). No root, no inbound port.
  *
  *   curl -fsSL <api>/hand/install.sh | sh -s -- --pair <code> [--profile sandbox|mac] [--root DIR]...
+ *   (a server-provisioned machine uses --configured after writing ~/.cmux-hand/hand.json itself)
  *        [--agent-policy P] [--name N] [--binary PATH (a local file, for development)] [--no-service]
  */
 
@@ -46,7 +47,7 @@ export const handInstallScript = async (env: Env, origin: string): Promise<Respo
 set -eu
 API="${origin}"
 RELEASE="${release?.base ?? ""}"
-PAIR="" PROFILE="sandbox" NAME="" POLICY="" LOCAL_BIN="" SERVICE=1 ROOTS=""
+PAIR="" PROFILE="sandbox" NAME="" POLICY="" LOCAL_BIN="" SERVICE=1 ROOTS="" CONFIGURED=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --pair) PAIR="$2"; shift 2 ;;
@@ -55,11 +56,14 @@ while [ $# -gt 0 ]; do
     --agent-policy) POLICY="$2"; shift 2 ;;
     --name) NAME="$2"; shift 2 ;;
     --binary) LOCAL_BIN="$2"; shift 2 ;;
+    --configured) CONFIGURED=1; shift ;;
     --no-service) SERVICE=0; shift ;;
     *) echo "cmux-hand install: unknown option $1" >&2; exit 2 ;;
   esac
 done
-[ -n "$PAIR" ] || { echo "cmux-hand install: --pair <code> is required" >&2; exit 2; }
+if [ "$CONFIGURED" != 1 ]; then
+  [ -n "$PAIR" ] || { echo "cmux-hand install: --pair <code> is required" >&2; exit 2; }
+fi
 case "$(uname -s)/$(uname -m)" in
   Darwin/arm64) TARGET=aarch64-apple-darwin ;;
   Darwin/x86_64) TARGET=x86_64-apple-darwin ;;
@@ -92,8 +96,12 @@ chmod 755 "$TMP"
 # Replace by rename, never by writing over a running binary (macOS kills a rewritten signed file).
 mv -f "$TMP" "$BIN"
 trap - EXIT
-# shellcheck disable=SC2086 # ROOTS holds only plain paths (checked above)
-"$BIN" hand pair "$PAIR" --api "$API" --profile "$PROFILE" \${NAME:+--name "$NAME"} \${POLICY:+--agent-policy "$POLICY"} $ROOTS
+if [ "$CONFIGURED" != 1 ]; then
+  # shellcheck disable=SC2086 # ROOTS holds only plain paths (checked above)
+  "$BIN" hand pair "$PAIR" --api "$API" --profile "$PROFILE" \${NAME:+--name "$NAME"} \${POLICY:+--agent-policy "$POLICY"} $ROOTS
+else
+  [ -r "$HOME_DIR/hand.json" ] || { echo "cmux-hand install: --configured requires $HOME_DIR/hand.json" >&2; exit 2; }
+fi
 [ "$SERVICE" = 1 ] || { echo "cmux-hand: installed; run: $BIN hand run"; exit 0; }
 # The service files below name these paths unquoted (plist XML, systemd unit): plain paths only.
 case "$HOME_DIR" in *[!A-Za-z0-9._/-]*) echo "cmux-hand: $HOME_DIR is not a plain path; start it yourself: CMUX_HAND_HOME='$HOME_DIR' '$BIN' hand run" >&2; exit 0 ;; esac
