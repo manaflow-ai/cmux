@@ -136,24 +136,3 @@ final class TerminalEntry {
         session.view.removeFromSuperview() // parked hidden in a pane until now
     }
 }
-
-/// A live page and its `BrowserChromeTabState`; a pane's tabs share one `BrowserPaneChrome`: write per-tab state to `state`.
-final class BrowserEntry {
-    let tab: any BrowserTab
-    let state = BrowserChromeTabState()
-    @MainActor var chrome: BrowserChromeView? { state.chrome }
-    /// Owns the chrome's (weak) Extensions menu handler.
-    var extensionMenuHandler: (any ExtensionMenuHandling)?
-
-    nonisolated deinit { BrowserTabRetirement(tab: tab, state: state).retire() }  // no isolated-deinit hop (cx-t7hu)
-
-    @MainActor init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil) {
-        self.tab = tab
-        state.suggestionEngine = suggestionEngine
-        state.history = history
-    }
-
-    func close() {
-        BrowserTabRetirement(tab: tab, state: state).retire()
-    }
-}

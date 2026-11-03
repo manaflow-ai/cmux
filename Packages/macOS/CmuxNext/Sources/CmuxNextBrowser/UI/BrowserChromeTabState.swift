@@ -104,12 +104,19 @@ struct BrowserChromeTabSwitch {
             if tab !== chrome.tab { chrome.tab = tab }
             return
         }
-        let leaving = chrome.tab
+        let leaving = chrome.tab, parks = chrome.boundState != nil
         if let previous = chrome.boundState {
             save(into: previous)
             previous.chrome = nil
         }
-        state.chrome?.boundState = nil  // the tab moved here from another pane's chrome
+        var movedOffer: BrowserCookieImportCard?
+        if let other = state.chrome {
+            // The tab moved here from another pane: that chrome hands over what it shows for it, then lets it go.
+            let there = BrowserChromeTabSwitch(chrome: other)
+            there.save(into: state)
+            movedOffer = other.currentCookieImportCard.flatMap { $0.heldFor === state ? $0 : nil }
+            there.release(state)
+        }
         state.chrome = chrome
         chrome.boundState = state
         restore(from: state)
@@ -117,17 +124,33 @@ struct BrowserChromeTabSwitch {
         // Before the page binds: the toolbar's modes become this tab's, and the leaving tab's stay as they were.
         chrome.toolbarButtons.bind(tab, modes: state.modes)
         if tab === leaving {
-            chrome.reattach()
+            chrome.attach(tab, replacing: tab)
         } else {
+            // A chrome that let its tab go shows an empty page (`release`): it leaves; a tab's page stays, hidden.
+            if !parks { BrowserPageArea(container: chrome.contentContainer).leave(leaving.contentView, parks: false) }
             chrome.parksLeavingPage = true
             chrome.tab = tab
             chrome.parksLeavingPage = false
         }
         restoreFind(state)
+        restoreCookieOffer(state, moved: movedOffer)
+    }
+
+    /// The cookie import offer the tab left (it shows once per launch): shown again; one held for a tab that closed goes.
+    private func restoreCookieOffer(_ state: BrowserChromeTabState, moved: BrowserCookieImportCard?) {
+        if let moved { chrome.showCookieImportOffer(moved.offer) { moved.onChoice?($0) } }
+        guard let card = chrome.currentCookieImportCard, card.isHidden else { return }
+        if card.heldFor === state {
+            card.heldFor = nil
+            card.isHidden = false
+            chrome.syncPageOverlays()
+        } else if card.heldFor == nil {
+            chrome.hideCookieImportOffer()
+        }
     }
 
     /// The tab that leaves: what its toolbar shows goes into its state.
-    private func save(into state: BrowserChromeTabState) {
+    func save(into state: BrowserChromeTabState) {
         let bar = chrome.addressBar
         if bar.field.currentEditor() != nil, let window = chrome.window { window.makeFirstResponder(nil) }
         if bar.controller.state.hasFocus { bar.controller.send(.focusLost) }
@@ -142,7 +165,12 @@ struct BrowserChromeTabSwitch {
             state.pendingNotice = (notice.text, notice.action)
             chrome.pageOverlays.remove(notice)
         }
-        chrome.hideCookieImportOffer()
+        // The cookie import offer waits, hidden, for its tab (it shows once per launch).
+        if let card = chrome.currentCookieImportCard, !card.isHidden {
+            card.heldFor = state
+            card.isHidden = true
+            chrome.syncPageOverlays()
+        }
         state.isOmnibarHidden = chrome.isOmnibarHidden
         state.wakingAddress = chrome.wakingAddress
         state.httpsFallback = chrome.httpsFallback

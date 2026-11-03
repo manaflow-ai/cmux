@@ -1,3 +1,4 @@
+import CmuxNextBrowser
 import CmuxNextDaemon
 
 extension TabContentCache {

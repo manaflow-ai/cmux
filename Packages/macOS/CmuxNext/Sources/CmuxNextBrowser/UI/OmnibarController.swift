@@ -27,6 +27,8 @@ import Foundation
     private(set) var isApplying = false
     private var queue: [OmnibarInput] = []
     private var isRunning = false
+    /// A tab switch's resting state that came while a step ran (`restore`): put back once the step ends.
+    private var restoreAfterRun: OmnibarState?
     private var queryTask: Task<Void, Never>?
 
     init(
@@ -76,13 +78,28 @@ import Foundation
         defer { isRunning = false }
         let handled = step(input)
         while !queue.isEmpty { step(queue.removeFirst()) }
+        if let resting = restoreAfterRun {
+            restoreAfterRun = nil
+            put(resting)
+        }
         return handled
     }
 
     /// Puts back a resting state another tab left (`BrowserChromeTabState`): no input, no effects;
-    /// the field and the bar show it at once. Only a state with no focus is put back.
+    /// the field and the bar show it at once. Only a state with no focus is put back. A switch made by an
+    /// omnibar step (a "switch to tab" row) puts it back when that step ends, and the leaving tab's queued
+    /// inputs are dropped.
     func restore(_ resting: OmnibarState) {
-        guard !isRunning, !resting.hasFocus else { return }
+        guard !resting.hasFocus else { return }
+        guard !isRunning else {
+            queue.removeAll()
+            restoreAfterRun = resting
+            return
+        }
+        put(resting)
+    }
+
+    private func put(_ resting: OmnibarState) {
         queryTask?.cancel()
         queryTask = nil
         state = resting

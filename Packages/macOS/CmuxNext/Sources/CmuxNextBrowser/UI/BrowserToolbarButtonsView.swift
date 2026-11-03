@@ -91,10 +91,11 @@ public final class BrowserToolbarButtonsView: NSStackView {
     func bind(_ tab: any BrowserTab, modes tabModes: BrowserPageModes? = nil) {
         observation?.cancel()
         if let tabModes, tabModes !== modes {
-            // Another tab of the pane: its own modes, as it left them.
+            // Another tab of the pane: its own modes, as it left them, and the document they were for.
+            modes.pageURL = pageURL
             modes = tabModes
             self.tab = tab
-            pageURL = tab.state.url
+            pageURL = tabModes.pageURL ?? tab.state.url
         } else if self.tab !== tab {
             self.tab = tab
             pageURL = tab.state.url

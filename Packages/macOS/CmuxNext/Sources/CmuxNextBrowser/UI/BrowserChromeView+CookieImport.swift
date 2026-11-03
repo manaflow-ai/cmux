@@ -61,7 +61,7 @@ extension BrowserChromeView {
     }
 
     /// Whether an offer is on screen (tests, diagnostics).
-    public var showsCookieImportOffer: Bool { currentCookieImportCard != nil }
+    public var showsCookieImportOffer: Bool { currentCookieImportCard.map { !$0.isHidden } ?? false }
 
     var currentCookieImportCard: BrowserCookieImportCard? {
         pageOverlays.views.lazy.compactMap { $0 as? BrowserCookieImportCard }.first { !$0.isDismissing }

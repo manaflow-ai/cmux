@@ -34,7 +34,7 @@ import Testing
         _ = pane.bind(b.tab, state: b.state)
         b.close()
         #expect(b.tab.contentView.superview == nil, "the closed tab's page left the chrome")
-        #expect(chrome.shownTabState == nil, "the chrome shows no tab until the pane binds the next")
+        #expect(chrome.boundState == nil, "the chrome shows no tab until the pane binds the next")
         #expect(pane.bind(a.tab, state: a.state) === chrome && chrome.tab === a.tab)
         #expect(!a.tab.contentView.isHidden, "the remaining tab's page shows")
     }

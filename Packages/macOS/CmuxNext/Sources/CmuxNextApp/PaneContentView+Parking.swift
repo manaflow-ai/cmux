@@ -156,6 +156,14 @@ extension PaneContentView {
         }
     }
 
+    /// Parked content whose tab closed, moved away or got a new view leaves the window. `liveViews`: the pane's tabs'
+    /// views now (`PaneController.existingContent(for:)`: every kind, so a page tab that parks is never dropped as closed).
+    func dropClosedParked(liveViews: () -> [NSView]) {
+        guard !parked.isEmpty else { return }
+        let live = Set(liveViews().map(ObjectIdentifier.init))
+        prunePark { live.contains(ObjectIdentifier($0)) }
+    }
+
     /// Takes every parked view out of the pane (the pane goes away).
     func dropParked() {
         prunePark { _ in false }

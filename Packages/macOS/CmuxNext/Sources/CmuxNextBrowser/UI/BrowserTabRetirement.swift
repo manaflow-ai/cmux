@@ -31,23 +31,27 @@ public nonisolated struct BrowserTabRetirement: Sendable {
 }
 
 extension BrowserChromeTabSwitch {
-    /// The tab `state` closes: the chrome closes what it showed for it (popups, find, its notice) and shows no
-    /// tab until its pane binds the next one.
+    /// The tab `state` closes or moves to another pane: the chrome closes what it showed for it (popups, find, its
+    /// notice) and lets its page go: it shows an empty page that loads nothing (`DeferredBrowserTab` with no
+    /// address), so it neither keeps a closed page alive nor renders a moved one a second time, until its pane binds
+    /// the next tab.
     func release(_ state: BrowserChromeTabState) {
         guard chrome.boundState === state else { return }
         chrome.extensionToolbar.hidePopups()
         chrome.pageInfoIfMade?.close()
         chrome.hideNotice()
-        chrome.hideCookieImportOffer()
+        // Its cookie import offer goes (a moved tab's shows on its new chrome); one held for another tab stays.
+        if let card = chrome.currentCookieImportCard, !card.isHidden || card.heldFor === state { chrome.hideCookieImportOffer() }
         if let find = chrome.pageBars.findBarIfMade { find.isHidden = true }
         state.chrome = nil
         chrome.boundState = nil
+        // Nothing of the tab stays: its hooks (closures that may hold its page), its modes, its page.
+        let none = BrowserChromeTabState()
+        BrowserChromeTabHooks(chrome: chrome, state: none).apply()
+        let blank = DeferredBrowserTab(id: .random(), engine: chrome.tab.engineKind, url: nil, title: nil)
+        chrome.toolbarButtons.bind(blank, modes: none.modes)
+        chrome.tab = blank
     }
-}
-
-extension BrowserChromeView {
-    /// The tab state this chrome shows now (`bind(_:state:)`), nil while it shows none.
-    public var shownTabState: BrowserChromeTabState? { boundState }
 }
 
 extension BrowserChromeTabState {

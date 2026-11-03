@@ -35,7 +35,11 @@ enum ExtensionHandlers {
         registry.bind("browser.extension.run", run: { invocation in
             let entry = try chromiumEntry(context, invocation)
             let id = try extensionID(invocation, entry)
-            if let chrome = entry.chrome { chrome.runExtensionAction(id) } else { (entry.tab as? any BrowserExtensionActionHosting)?.requestExtensionAction(id) }
+            if let chrome = entry.chrome {
+                chrome.runExtensionAction(id)
+            } else {
+                (entry.tab as? any BrowserExtensionActionHosting)?.requestExtensionAction(id)
+            }
         })
         registry.bind("browser.extension.options", run: { invocation in
             let (tab, store) = try managedStore(context, invocation)

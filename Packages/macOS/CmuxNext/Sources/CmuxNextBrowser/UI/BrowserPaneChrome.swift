@@ -7,6 +7,8 @@ public import AppKit
 @MainActor
 public final class BrowserPaneChrome {
     public private(set) var chrome: BrowserChromeView?
+    /// The page the chrome shows now: a replaced page (a woken hibernated one) is new content under the same chrome.
+    public var shownPage: NSView? { chrome?.tab.contentView }
 
     public init() {}
 

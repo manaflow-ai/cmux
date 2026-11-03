@@ -43,7 +43,8 @@ enum BrowserToolbarHandlers {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("browser.profile.choose", run: { invocation in
-            let (entry, chrome) = try context.shownPage(invocation); chrome.toolbarButtons.present(profileMenu(for: entry, services: context.services), from: .profile)
+            let (entry, chrome) = try context.shownPage(invocation)
+            chrome.toolbarButtons.present(profileMenu(for: entry, services: context.services), from: .profile)
         })
         registry.bind("browser.media.show", run: { invocation in
             let (_, chrome) = try context.shownPage(invocation)
@@ -183,7 +184,8 @@ enum BrowserToolbarHandlers {
     /// Show in Toolbar (cx-d0d.81). Catalog rows the tab cannot run drop out; no engine prints yet.
     static func overflowMenu(for entry: BrowserEntry, registry: ActionRegistry, settings: SettingsController?) -> NSMenu {
         var entries: [ContextMenuEntry] = []
-        let buttons = entry.chrome?.toolbarButtons; if entry.chrome?.offersExtensionsMenuInMore == true { entries.append(.action("browser.extensions.menu")) }
+        let buttons = entry.chrome?.toolbarButtons
+        if entry.chrome?.offersExtensionsMenuInMore == true { entries.append(.action("browser.extensions.menu")) }
         for button in buttons?.menuButtons ?? [] {
             switch button {
             case .designMode: entries.append(.action("toggleBrowserDesignMode"))
