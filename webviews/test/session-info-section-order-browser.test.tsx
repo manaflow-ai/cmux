@@ -198,9 +198,9 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
       }
     });
 
-    // Leo, 2026-10-31: "ok we can click and drag but my screenshots were literally claude code having
-    // it on the fucking right".
-    test("hovering a section shows its handle in the right padding, right of its title, and nothing moves", async () => {
+    // Leo, 2026-11-03: "the grabber is too close to the thumb scroll thing in fact why dont we have the
+    // drag grabber to the left of the title in that session info?" (it was on the right since 2026-10-31).
+    test("hovering a section shows its handle left of its title, inside the panel, and nothing moves", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
         // The handle's width and the body's insets are grid tokens since #27570.
@@ -230,19 +230,20 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
             .querySelector('section[data-section="outputs"] .acpmux-session-info-section__title')!
             .getBoundingClientRect();
           return {
-            inBody: handle.right <= body.right + 0.5,
+            inBody: handle.left >= body.left - 0.5 && handle.right <= body.right + 0.5,
             // Leo, 2026-11-01: "the dragger is a bit too close to the thumb".
             clearOfScrollbar: scrollport - handle.right >= 3.5,
-            afterSection: handle.left >= section.right - 0.5,
-            rightOfTitle: handle.left > title.right,
+            // Before the head's icon column: one grid gap (the head's padding) into the section.
+            beforeIconColumn: handle.right <= section.left + 8.5,
+            leftOfTitle: handle.right <= title.left,
             titleAtTextColumn: Math.round(title.left - section.left),
           };
         });
         expect(inside).toEqual({
           inBody: true,
           clearOfScrollbar: true,
-          afterSection: true,
-          rightOfTitle: true,
+          beforeIconColumn: true,
+          leftOfTitle: true,
           // design/grid.md section 3: text = lead + box + 8 (8 + 16 + 8); a head without an icon still
           // starts its title on that column (#27570).
           titleAtTextColumn: 32,

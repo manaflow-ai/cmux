@@ -34,6 +34,8 @@ MODEL_BY_PATH = {
     'types/CellPixelFailure': models.CellPixelFailure,
     'types/CellPixelResize': models.CellPixelResize,
     'types/CellPixelSurface': models.CellPixelSurface,
+    'types/ChiefWorkAgent': models.ChiefWorkAgent,
+    'types/ChiefWorkTask': models.ChiefWorkTask,
     'types/ClientInfo': models.ClientInfo,
     'types/ClientSize': models.ClientSize,
     'types/CloseTerminalResult': models.CloseTerminalResult,
@@ -128,6 +130,8 @@ MODEL_BY_PATH = {
     'types/SavedTabGroupMember': models.SavedTabGroupMember,
     'types/SavedTabGroupRecord': models.SavedTabGroupRecord,
     'types/Screen': models.Screen,
+    'types/SelectionPane': models.SelectionPane,
+    'types/SelectionScreen': models.SelectionScreen,
     'types/SendExpectAgent': models.SendExpectAgent,
     'types/ServerStatsConnections': models.ServerStatsConnections,
     'types/ServerStatsHistogram': models.ServerStatsHistogram,
@@ -226,6 +230,8 @@ MODEL_BY_PATH = {
     'commands/browser-wheel-guarded/request': models.BrowserWheelGuardedRequest,
     'commands/chief-inspect/request': models.ChiefInspectRequest,
     'commands/chief-inspect/result': models.ChiefInspectResult,
+    'commands/chief-work/request': models.ChiefWorkRequest,
+    'commands/chief-work/result': models.ChiefWorkResult,
     'commands/clear-history/request': models.ClearHistoryRequest,
     'commands/clear-window-title/request': models.ClearWindowTitleRequest,
     'commands/client-focus/request': models.ClientFocusRequest,
@@ -604,6 +610,7 @@ MODEL_BY_PATH = {
     'events/screen-closed/payload': models.ScreenClosedEvent,
     'events/screen-renamed/payload': models.ScreenRenamedEvent,
     'events/scroll-changed/payload': models.ScrollChangedEvent,
+    'events/selection-changed/payload': models.SelectionChangedEvent,
     'events/settings-changed/payload': models.SettingsChangedEvent,
     'events/size-state/payload': models.SizeStateEvent,
     'events/status/payload': models.StatusEvent,
@@ -629,6 +636,7 @@ MODEL_BY_PATH = {
     'events/workspace-changed/payload': models.WorkspaceChangedEvent,
     'events/workspace-closed/payload': models.WorkspaceClosedEvent,
     'events/workspace-moved/payload': models.WorkspaceMovedEvent,
+    'events/workspace-presentation-changed/payload': models.WorkspacePresentationChangedEvent,
     'events/workspace-renamed/payload': models.WorkspaceRenamedEvent
 }
 

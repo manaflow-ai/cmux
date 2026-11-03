@@ -9,13 +9,12 @@
 nonisolated enum CloudActionDescriptions {
     static let text: [ActionID: String] = [
         "newCloudWorkspace": """
-            Opens a Cloud workspace on a new small machine of its own; it never reuses a listed machine \
-            (another workspace's, a teammate's or a fleet one). Returns machine_id, title, status and target \
-            once the server has the machine (workspace_id when it is already open); after 30 s it answers \
-            pending: true and the create goes on. A refused create (a plan it needs) fails with its reason. \
-            With --target machine:<id> it opens on that machine instead: a connected one returns workspace_id, \
-            one not connected is connected (a paused one resumes) and answers pending. From the app, the \
-            person's own gesture opens on the machine their window shows.
+            Opens a Cloud workspace on a new small machine of its own, never a listed one (another \
+            workspace's, a teammate's or a fleet one). Returns machine_id, title, status and target once the \
+            server has it (workspace_id once open); after 30 s, pending: true while the create goes on. A \
+            refused create fails with its reason. --target machine:<id> opens on that machine: a connected one \
+            returns workspace_id, another connects (a paused one resumes) and answers pending. In the app, \
+            the person's own gesture opens on the machine their window shows.
             """,
         "newCloudMachine": """
             Creates a Cloud machine; returns machine_id, title, status and target once the server has it. \
@@ -130,6 +129,20 @@ nonisolated enum CloudActionDescriptions {
             Authorizes an SSH public key (--public-key, the key's text) for file transfer to the machine \
             (--target machine:<id>) and returns host, port, user, host_key and expires_at (Unix seconds) \
             for scp or sftp.
+            """,
+        "cloudSystemTunnelOn": """
+            Turns on the opt-in Cloud Tunnel: a system-wide route from this Mac to the person's Cloud \
+            networks, so other apps (a browser, ssh, an editor) reach machines at their private IPv4. The \
+            first time, macOS asks the person to allow the cmux network extension. Returns status \
+            (connected, awaiting-approval, connecting, failed, unavailable) and reason.
+            """,
+        "cloudSystemTunnelOff": """
+            Turns off the Cloud Tunnel and removes its VPN configuration. cmux's own terminals and \
+            browser keep reaching machines without it. Returns status and reason.
+            """,
+        "cloudSystemTunnelStatus": """
+            Returns the Cloud Tunnel's status (off, unavailable, awaiting-approval, connecting, \
+            connected, disconnecting, failed), reason, and connected_since (Unix seconds) when connected.
             """,
         "cloudTunnelAttach": """
             Attaches this Mac's Cloud tunnel to a private network. The network id (from \

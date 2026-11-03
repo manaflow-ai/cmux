@@ -51,8 +51,7 @@ A run:
      debt the last stable build already shipped.
    - `swift-suites`: one owned mini submits 4 shards at once. Together they cover every
      CmuxNext test target, by target name, and run with `package-test-lane.sh suite` as
-     build-fleet steps on `macos-27` + `ram48` workers. Those are M4 Pro only, because no M6
-     mini has `ram48`. Each shard retries once.
+     build-fleet steps on `macos-27` + `ram48` workers. No M6 mini has `ram48`. Each shard retries once.
    - `perf-budgets`: `split-spring.sh --suite=budgets --gate` on an exclusive macOS 27 M4 Pro
      measure worker. It fails when a row's p95 is more than 10% over the
      `apple-m4-pro-macos27` baseline.

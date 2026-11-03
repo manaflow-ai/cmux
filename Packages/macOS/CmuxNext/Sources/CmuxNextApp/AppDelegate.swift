@@ -360,6 +360,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.configActions.start(settings: settings)
+        services.cloud.followTunnelSetting(settings) // opt-in Cloud Tunnel
         services.personInput.start()
         services.joinConsent.follow(settings: settings)
         // Agent-launched builds never take system-wide keys from the person's app.
@@ -551,8 +552,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings?.stop()
         services?.mobile.stop()
         services?.iphone.stop()
+        services?.dockMenu.stop()
         services?.daemon.shutdownConnection()
     }
+
+    /// The Dock icon's menu, from rows the controller already holds: it never waits on acpmux or disk.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? { services?.dockMenu.menu() }
 
     /// The app stays running with no windows (standard macOS behavior): a window closes when its
     /// last workspace closes, and the daemon keeps every terminal regardless.

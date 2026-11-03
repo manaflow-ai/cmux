@@ -186,6 +186,18 @@ test("the command draws in its colors, one Find run, its prompt skipped", async 
   expect(container.querySelector(".cv-shell__output")?.textContent).toBe("src/a.ts:1:todo\n");
 });
 
+test("a failed command reads $ command, then Exit code N, then its output, as Claude Code desktop opens one", async () => {
+  // Leo, 2026-11-03: "claude code desktop's summarization of tool calls/parsing of them seem kinda good?"
+  await act(async () =>
+    root!.render(<ShellBlock command="ls fixtures" output="ls: fixtures: No such file" exitCode={1} />),
+  );
+  const order = [...container.querySelectorAll(".cv-shell__command, .cv-shell__exit, .cv-shell__body")].map(
+    (node) => node.className.split(" ")[0],
+  );
+  expect(order).toEqual(["cv-shell__command", "cv-shell__exit", "cv-shell__body"]);
+  expect(container.querySelector(".cv-shell__exit")!.textContent).toBe("Exit code 1");
+});
+
 test("streaming output tokenizes the command once, and a sibling step's not at all", async () => {
   const lines = (n: number) => Array.from({ length: n }, (_, at) => `line ${at + 1}`).join("\n");
   const view = (n: number) => (
