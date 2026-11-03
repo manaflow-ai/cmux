@@ -32,7 +32,12 @@ enum NeedsYouNotices {
     static func closed(_ delivered: [(identifier: String, payload: PushPayload)], in store: FeedStore) -> [String] {
         delivered.compactMap { notification in
             let payload = notification.payload
-            guard payload.kind.isAsk, let permission = payload.permissionId,
+            guard payload.kind.isAsk else { return nil }
+            // A request of the Mac app's own Feed (a PR held for trial, #33818): `feed-<id>`.
+            if let event = payload.eventId, store.isClosedMacRequest(eventID: event, mac: payload.mac) {
+                return notification.identifier
+            }
+            guard let permission = payload.permissionId,
                   store.isClosedAsk(permissionID: permission, mac: payload.mac) else { return nil }
             return notification.identifier
         }

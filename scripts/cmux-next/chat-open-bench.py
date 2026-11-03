@@ -657,8 +657,11 @@ def frame_click(run, key, label, keep=False):
         # The same moment through the screen (screencapture, this script's own capture), to check the app's frames
         # show the chat's page pixels: a capture without them shows the pane empty.
         screen = os.path.join(folder, "screen.png")
-        if subprocess.run(["screencapture", "-x", "-t", "png", screen], capture_output=True, timeout=30).returncode == 0:
+        shot = subprocess.run(["screencapture", "-x", "-t", "png", screen], capture_output=True, text=True, timeout=30)
+        if shot.returncode == 0 and os.path.exists(screen):
             record["pictures"].update(frame_pictures(folder, [{"ms": "screen", "file": "screen.png"}], {}, names={"screen": "screen"}))
+        else:
+            record["screen_error"] = f"screencapture exited {shot.returncode}: {(shot.stderr or shot.stdout).strip()[:300]}"
     shutil.rmtree(folder, ignore_errors=True)  # the PNGs: the numbers per frame, and the kept pictures, are the evidence
     record.update({"click": strip.get("key"), "frame_count": strip.get("frame_count"),
                    "mean_interval_ms": strip.get("mean_interval_ms"), "strip_settled_ms": strip.get("settled_ms"),
@@ -669,9 +672,9 @@ def frame_click(run, key, label, keep=False):
                    "layout_watch": out.get("watch"), "drift": cof.row_drift(out.get("watch")),
                    "watch_started_ms": round((out["watch_asked"] - clicked) * 1000) if out.get("watch_asked") else None})
     record["transcript_ms"] = cof.transcript_ms(out.get("watch"), record["watch_started_ms"], opts.strip_ms)
+    record["layout_watch_errors"] = out.get("watch_errors")  # the asks before one answered too: why the watch started late
     if not out.get("watch"):
         record["layout_watch_error"] = out.get("watch_error")
-        record["layout_watch_errors"] = out.get("watch_errors")
     # Rows the page added after its first paint are a second view: the first frame was not the final one.
     if (record.get("drift") or {}).get("rows_appeared_later"):
         record["first_is_final"] = False

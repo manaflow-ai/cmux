@@ -453,6 +453,7 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
             "localhost-forward-v1",
             "cloud-directory-v1",
             "cloud-acpmux-v1",
+            "needs-you-v1",
             "browser-stream-v1",
             "browser-video-track-v1",
             "surface-stream-v1",
