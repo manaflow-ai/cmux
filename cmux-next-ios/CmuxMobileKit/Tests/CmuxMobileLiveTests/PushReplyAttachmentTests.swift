@@ -1,9 +1,12 @@
 import CmuxMobileAgentChat
 import CmuxMobileNotifications
 import CmuxMobileTransport
+import CoreGraphics
 import CryptoKit
 import Foundation
+import ImageIO
 import Testing
+import UniformTypeIdentifiers
 @testable import CmuxMobileLive
 
 @MainActor
@@ -94,7 +97,7 @@ import Testing
         #expect(files.first?.fileURL == picked.url)
         let link = Link()
         let blocks = try await PushReplyAttachments.blocks(text: "Read this", names: names, outbox: outbox, link: link)
-        #expect(blocks.count == 2)
+        try #require(blocks.count == 2)
         #expect(blocks[0]["text"]?.stringValue == "Read this")
         #expect(blocks[1]["type"]?.stringValue == "resource_link")
         #expect(blocks[1]["uri"]?.stringValue == "file:///uploads/original")
@@ -130,10 +133,40 @@ import Testing
         let outbox = PushOutbox(directory: root.appendingPathComponent("outbox"))
         let picked = try PushPickedFile(source, outbox: outbox)
         #expect(PushPickedFile.previewURL(picked.url) == picked.url)
-        await #expect(throws: LinkUpload.Failure.self) {
+        await #expect(throws: LinkError.self) {
             try await PushReplyAttachments.blocks(text: "", names: [picked.name], outbox: outbox, link: Link(fails: true))
         }
         #expect(try String(contentsOf: picked.url, encoding: .utf8) == "keep me")
+        // Attachment replies cannot fall back to the mailbox. The existing LinkError
+        // handler offers Retry with this same reply and the retained original instead.
+        let reply = PushReply(mac: "m", kind: .completed, sessionId: "s", action: .text("", attachments: [picked.name]))
+        #expect(!MailboxReply.supports(reply))
+    }
+
+    @Test func aPhotoKeepsVisionContentAlongsideItsOriginal() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("photo.png")
+        let context = try #require(CGContext(data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 8,
+                                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        let image = try #require(context.makeImage())
+        let destination = try #require(CGImageDestinationCreateWithURL(source as CFURL, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        #expect(CGImageDestinationFinalize(destination))
+        let outbox = PushOutbox(directory: root.appendingPathComponent("outbox"))
+        let picked = try PushPickedFile(source, outbox: outbox)
+        let blocks = try await PushReplyAttachments.blocks(text: "", names: [picked.name], outbox: outbox, link: Link())
+        try #require(blocks.count == 2)
+        #expect(blocks[0]["type"]?.stringValue == "resource_link")
+        #expect(blocks[1]["type"]?.stringValue == "image")
+        #expect(blocks[1]["mimeType"]?.stringValue == "image/jpeg")
+        let jpeg = try #require(blocks[1]["data"]?.stringValue.flatMap { Data(base64Encoded: $0) })
+        #expect(jpeg.count <= 1 << 20)
+        let decoded = try #require(CGImageSourceCreateWithData(jpeg as CFData, nil))
+        let preview = try #require(CGImageSourceCreateImageAtIndex(decoded, 0, nil))
+        #expect(preview.width == 2 && preview.height == 2)
     }
 
     @Test func invalidNamesCannotReadOutsideTheOutbox() throws {
