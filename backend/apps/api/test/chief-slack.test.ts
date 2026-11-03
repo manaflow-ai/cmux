@@ -3,6 +3,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it, vi } from "vitest"
 import { postSlackMessage, validSlackInbound, type SlackInbound } from "../src/chief-slack.ts"
+import { sha256Hex } from "../src/ingress/verify.ts"
 import { slackOutbound } from "../src/chief-brain/brain-slack.ts"
 import { PlatformChief } from "../src/platform-chief.ts"
 import type { ChiefBrainDO } from "../src/chief-brain/brain-do.ts"
@@ -10,12 +11,7 @@ import type { Env } from "../src/env.ts"
 import { createExecutionContext } from "cloudflare:test"
 import { fireAlarm } from "./setup/alarm.ts"
 
-/**
- * A peer Chief's message (the user, 2026-10-21: "make it so it's possible for you to talk to the
- * cloud chief"): the owner's install forwards a message from the agent hub to POST
- * /v1/chiefs/<agent>/peer, and the Cloud Chief answers it in its main conversation as a woken turn.
- * Fake model only (it echoes its input).
- */
+/** The service-binding Slack bridge against the real conversation and brain storage. */
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; TEAM_DO: DurableObjectNamespace; CONVERSATION_DO: DurableObjectNamespace; MUX_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
 const sessionToken = async (sub: string) =>
@@ -68,10 +64,19 @@ describe("Chief Slack bridge", () => {
         expect(await b.slackInbound({ agent: chief.id, conversation: chief.main_conversation, inbound })).toMatchObject({ ok: true, queued: false })
         expect(await b.slackInbound({ agent: chief.id, conversation: chief.main_conversation, inbound: { ...inbound, ts: "123.002", isOwner: true, slackUserId: "UOWNER", text: "I approve" } })).toMatchObject({ ok: true })
         expect(b.sql.exec("SELECT * FROM cb_slack_threads").toArray()).toHaveLength(1)
+        // A normal cmux wake wins the race between conversation commit and bridge inbox injection.
+        const raced = { ...inbound, threadTs: "123.003", ts: "123.003" }
+        const raceRoot = `msg_${(await sha256Hex(JSON.stringify([chief.id, chief.main_conversation, raced.slackTeamId, raced.channelId, raced.threadTs]))).slice(0, 32)}`
+        const conv = (env as unknown as Env).CONVERSATION_DO.get((env as unknown as Env).CONVERSATION_DO.idFromName(chief.main_conversation))
+        await conv.slackMessage(chief.main_conversation, { owner: user, agent: chief.id, root: raceRoot, inbound: raced })
+        await b.wake({ agent: chief.id, owner: user, conversation: chief.main_conversation, seq: 3, reason: "message" })
+        expect(b.sql.exec<{ kind: string; thread_root: string }>("SELECT kind, thread_root FROM cb_inbox WHERE seq = 3").one()).toMatchObject({ kind: "slack", thread_root: raceRoot })
+        expect(await b.slackInbound({ agent: chief.id, conversation: chief.main_conversation, inbound: raced })).toMatchObject({ ok: true, queued: false })
+        expect(b.sql.exec("SELECT * FROM cb_slack_threads").toArray()).toHaveLength(2)
         const sends: Array<Promise<unknown>> = []
         const fetch = vi.fn(async () => new Response("{}"))
         const host = { sql: b.sql, doEnv: { ENVIRONMENT: "test", PLATFORM: { fetch }, INTERNAL_TOKEN: "test-internal" }, doCtx: { waitUntil: (p: Promise<unknown>) => sends.push(p) } } as unknown as ChiefBrainDO
-        const root = b.sql.exec<{ root: string }>("SELECT root FROM cb_slack_threads").one().root
+        const root = b.sql.exec<{ root: string }>("SELECT root FROM cb_slack_threads WHERE thread_ts = '123.001'").one().root
         await slackOutbound(host, { root: "msg_unlinked", message: "normal", text: "private" })
         await slackOutbound(host, { root, message: "reply", text: "answer" })
         await slackOutbound(host, { root, message: "reply", text: "answer" })
@@ -80,11 +85,12 @@ describe("Chief Slack bridge", () => {
         return b.sql.exec<{ effect_authorized: number; woke: number; thread_root: string }>("SELECT effect_authorized, woke, thread_root FROM cb_inbox ORDER BY n").toArray()
       } finally { b.kick = kick }
     })
-    expect(rows.map((r) => r.effect_authorized)).toEqual([0, 1])
-    expect(rows.map((r) => r.woke)).toEqual([1, 1])
+    expect(rows.map((r) => r.effect_authorized)).toEqual([0, 1, 0])
+    expect(rows.map((r) => r.woke)).toEqual([1, 1, 1])
     expect(rows[0]!.thread_root).toBe(rows[1]!.thread_root)
+    expect(rows[2]!.thread_root).not.toBe(rows[0]!.thread_root)
     const messages = await history(token, chief.main_conversation)
-    expect(messages).toHaveLength(2)
+    expect(messages).toHaveLength(3)
     expect(messages[0].author).toBe("slack:T123:U123")
     expect(messages[0].thread).toMatchObject({ source: "slack", channelName: "general", permalink: input(user, team).permalink })
     expect(messages[1].thread_root).toBe(messages[0].id)
