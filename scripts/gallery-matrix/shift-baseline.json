@@ -13,7 +13,7 @@
     "agent-pane.add-project-panel#sources": 0,
     "agent-pane.addressed-message#relayed": 0,
     "agent-pane.agent-message-row#both-directions": 0,
-    "agent-pane.agent-message-row#both-directions-opened": 0.02068,
+    "agent-pane.agent-message-row#both-directions-opened": 0.0265,
     "agent-pane.agent-message-row#folded-run": 0,
     "agent-pane.agent-message-row#folded-run-mixed": 0,
     "agent-pane.agent-message-row#folded-run-opened": 0.05651,
