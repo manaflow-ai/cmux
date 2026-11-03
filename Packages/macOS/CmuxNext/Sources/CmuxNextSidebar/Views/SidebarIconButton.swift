@@ -18,7 +18,7 @@ final class SidebarIconButton: ClickableButton {
         didSet {
             guard label != oldValue else { return }
             setAccessibilityLabel(label)
-            themedToolTip = showsLabelToolTip ? label : nil
+            applyToolTip()
             renderedSize = 0
             renderIcon()
         }
@@ -26,7 +26,7 @@ final class SidebarIconButton: ClickableButton {
     /// Hovering shows the label as the themed tooltip. Off for a glyph that names itself (a card's
     /// ×, media controls), which keeps the label for VoiceOver only (Leo, 2026-10-20).
     var showsLabelToolTip = true {
-        didSet { if showsLabelToolTip != oldValue { themedToolTip = showsLabelToolTip ? label : nil } }
+        didSet { if showsLabelToolTip != oldValue { applyToolTip() } }
     }
     /// Full Keyboard Access reaches this button (a card's x, UPDATE-CARD-CLOSE): Tab focuses it,
     /// Space presses it, and the focus shows as a ring in the theme's focus color (cx-wqn5), not
@@ -66,7 +66,7 @@ final class SidebarIconButton: ClickableButton {
         title = ""
         isBordered = false
         setAccessibilityLabel(label)
-        themedToolTip = label
+        applyToolTip()
         wantsLayer = true
         target = self
         action = #selector(pressed)
@@ -144,6 +144,20 @@ final class SidebarIconButton: ClickableButton {
         self.image = image
     }
 
+    /// The label as the themed tooltip (when ``showsLabelToolTip``), registered once the button shows: a hidden
+    /// button cannot be hovered (REOPEN-F7: each row's hidden hover buttons registered theirs before the first
+    /// frame). VoiceOver's help is set at once, shown or not.
+    private func applyToolTip() {
+        let text = showsLabelToolTip && !label.isEmpty ? label : nil
+        guard !isHiddenOrHasHiddenAncestor, window != nil else {
+            // A registered one stays in step; an unregistered one waits for the button to show.
+            if themedToolTip != nil { themedToolTip = text }
+            setAccessibilityHelp(text)
+            return
+        }
+        if themedToolTip != text { themedToolTip = text }
+    }
+
     override func layout() {
         super.layout()
         renderIcon()
@@ -177,7 +191,10 @@ final class SidebarIconButton: ClickableButton {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { renderIcon() }
+        if window != nil {
+            renderIcon()
+            applyToolTip()
+        }
         if takesKeyFocus { keyRepaint.track() }
     }
 
@@ -222,6 +239,7 @@ final class SidebarIconButton: ClickableButton {
     override func viewDidUnhide() {
         super.viewDidUnhide()
         renderIcon()
+        applyToolTip()
         hover.pointer?.refresh()
     }
 }
