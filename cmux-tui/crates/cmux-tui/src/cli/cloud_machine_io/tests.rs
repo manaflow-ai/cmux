@@ -683,3 +683,65 @@ fn a_read_never_mixes_two_versions_of_the_file() {
     assert_eq!(got, new, "read again from the start: all of the new file, none of the old");
     assert!(*reads.lock().unwrap() >= 3);
 }
+
+#[test]
+fn a_command_of_several_mib_runs_whole_through_the_direct_route() {
+    if !python_here() {
+        eprintln!("skipped: no python3");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let cell = Arc::new(Mutex::new(String::new()));
+    let c = Arc::clone(&cell);
+    // Freestyle's limits as the machine has them: one argument of at most 128 KiB, a stdin of
+    // at most 1 MiB.
+    let (origin, seen) = fake(move |s| {
+        if s.is_mint() {
+            return minted(&c.lock().unwrap());
+        }
+        if !s.is_exec_await() {
+            return (599, "{}".into());
+        }
+        let body = s.json();
+        let stdin = body
+            .get("stdin")
+            .and_then(Value::as_str)
+            .map_or(0, |b| BASE64.decode(b).unwrap().len());
+        if body["command"].as_str().unwrap().len() > 128 * 1024 || stdin > direct::STDIN_MAX {
+            return (400, json!({ "error": "too large" }).to_string());
+        }
+        run_here(s)
+    });
+    *cell.lock().unwrap() = origin.clone();
+    let mut payload = String::new();
+    let mut n: u64 = 3;
+    while payload.len() < 5 * 1024 * 1024 {
+        n = n.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        payload.push_str(&format!("word{} ", n % 1_000_003));
+        if n % 7 == 0 {
+            payload.push('\n');
+        }
+    }
+    let out = dir.path().join("got");
+    let command = format!("printf '%s' '{payload}' > '{}' && echo done", out.display());
+    let req =
+        Request { command: Some(command), ..request(&origin, &dir.path().join("cache"), Op::Exec) };
+    let (route, answer) = go(&req, T0);
+    assert_eq!((route, answer.status), (Route::Direct, 200), "{:?}", answer.body);
+    assert_eq!(answer.body["exitCode"], 0, "{:?}", answer.body);
+    assert_eq!(answer.body["stdout"], "done\n");
+    assert_eq!(std::fs::read(&out).unwrap(), payload.as_bytes());
+    // Staged in pieces, then run from a file that is gone once the command started.
+    let log = seen.lock().unwrap();
+    let runs: Vec<String> = log
+        .iter()
+        .filter(|s| s.is_exec_await())
+        .map(|s| s.json()["command"].as_str().unwrap().to_owned())
+        .filter(|c| c.contains("exec bash /dev/fd/3"))
+        .collect();
+    assert_eq!(runs.len(), 1);
+    let staged = runs[0].split("/tmp/.cmux-exec-").nth(1).unwrap();
+    let staged: String = staged.chars().take_while(char::is_ascii_alphanumeric).collect();
+    assert!(!std::path::Path::new(&format!("/tmp/.cmux-exec-{staged}")).exists());
+    assert!(log.iter().filter(|s| s.is_exec_await()).count() > 6, "the command went in pieces");
+}
