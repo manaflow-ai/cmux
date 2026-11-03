@@ -390,6 +390,22 @@ class WebLintPrePushTests(unittest.TestCase):
                 self.assertIn(f"{self.SWIFT_SOURCE}:3", result.stderr, "must name the field")
                 self.assertFalse(log.exists(), "only the declared source checks run")
 
+    def test_the_reviewed_copy_runs_nothing_when_a_reason_lies_outside_scripts_cmux_next(self):
+        # #34060's reviewed-copy path runs only when every reason a package is untrusted is a change under
+        # scripts/cmux-next/; a check-code change anywhere else (here a root file a tool's upward search reads) keeps
+        # every piece out, so nothing the push controls can steer it.
+        self.trusted_fixture()
+        self.write("scripts/cmux-next/media/states/app-theme.json", "{}\n")
+        self.write("postcss.config.mjs", "export default {};\n")
+        self.write(self.SWIFT_SOURCE, self.RINGED_FIELD)
+        self.commit("a state file, a root config and a field with a focus ring")
+
+        result = self.push()
+
+        self.assertIn("webviews: not linted here", result.stderr)
+        self.assertIn("postcss.config.mjs", result.stderr)
+        self.assertNotIn("still run, from the hook's reviewed copy", result.stderr)
+
     def test_the_reviewed_copy_is_what_runs_never_the_pushed_check_code(self):
         # A pushed module that would shadow the stdlib for a script run from scripts/cmux-next must never load.
         self.trusted_fixture()
