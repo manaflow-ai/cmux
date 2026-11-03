@@ -96,6 +96,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
             showLog: details.showLog,
             showProgress: details.showProgress,
             showAgentUsage: details.showAgentUsage,
+            showAgentCost: details.showAgentCost,
             showBranchDirectory: details.showBranchDirectory,
             showPullRequests: details.showPullRequests,
             showPorts: details.showPorts,

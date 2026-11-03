@@ -156,6 +156,16 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowAgentUsage"
     )
 
+    /// Whether agent usage includes the estimated API cost
+    /// (`sidebar.showAgentCost`). Applies only while `sidebar.showAgentUsage`
+    /// is on; turn it off to keep the model and context percentage without
+    /// the dollar figure. Defaults to on.
+    public let showAgentCost = DefaultsKey<Bool>(
+        id: "sidebar.showAgentCost",
+        defaultValue: true,
+        userDefaultsKey: "sidebarShowAgentCost"
+    )
+
     /// Whether sidebar workspace rows show the loading spinner for running
     /// coding agents and manual `cmux workspace loading` loaders
     /// (`sidebar.showAgentActivity`). Defaults to on.

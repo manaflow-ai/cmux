@@ -187,7 +187,7 @@ struct SidebarWorkspaceSnapshotFactory {
             // carry no usage text because they are no longer rows.
             metadataEntries: detailVisibility.showsMetadata
                 ? (detailVisibility.showsAgentUsage
-                    ? SidebarAgentUsageFormatter().decorate(
+                    ? SidebarAgentUsageFormatter(includesCost: detailVisibility.showsAgentCost).decorate(
                         statusEntries.rows,
                         usageByStatusKey: workspace.sidebarMetadata.agentUsageByStatusKey
                     )

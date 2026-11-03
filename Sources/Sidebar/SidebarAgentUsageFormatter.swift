@@ -13,11 +13,16 @@ struct SidebarAgentUsageFormatter {
     static let separator = " · "
 
     let locale: Locale
+    /// Whether the summary includes the estimated cost (`sidebar.showAgentCost`).
+    let includesCost: Bool
 
     /// Creates a formatter.
-    /// - Parameter locale: Locale for the percent and currency formats.
-    init(locale: Locale = .current) {
+    /// - Parameters:
+    ///   - locale: Locale for the percent and currency formats.
+    ///   - includesCost: Whether to append the estimated cost.
+    init(locale: Locale = .current, includesCost: Bool = true) {
         self.locale = locale
+        self.includesCost = includesCost
     }
 
     /// Tooltip for an entry that shows an estimated cost (resolved once;
@@ -29,13 +34,14 @@ struct SidebarAgentUsageFormatter {
 
     /// The compact usage summary, e.g. `Opus 4.8 · 42% · ~$1.20`.
     ///
-    /// Components that are unknown (context window, price) are omitted.
+    /// Components that are unknown (context window, price) are omitted, and
+    /// so is the cost when ``includesCost`` is off.
     func summary(for usage: SidebarAgentUsage) -> String {
         var parts = [usage.modelName]
         if let fraction = usage.contextFraction {
             parts.append(fraction.formatted(.percent.precision(.fractionLength(0)).locale(locale)))
         }
-        if let cost = usage.estimatedCostUSD {
+        if includesCost, let cost = usage.estimatedCostUSD {
             let costText = cost.formatted(.currency(code: "USD").precision(.fractionLength(2)).locale(locale))
             // The tilde marks the figure as an estimate, the plus a lower bound.
             parts.append(usage.costIsLowerBound
@@ -68,7 +74,7 @@ struct SidebarAgentUsageFormatter {
                 priority: entry.priority,
                 format: entry.format,
                 timestamp: entry.timestamp,
-                helpText: usage.estimatedCostUSD == nil ? entry.helpText : Self.costHelpText
+                helpText: includesCost && usage.estimatedCostUSD != nil ? Self.costHelpText : entry.helpText
             )
         }
     }

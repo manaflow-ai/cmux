@@ -97,6 +97,24 @@ struct SidebarAgentUsageTests {
         #expect(!SidebarTabItemSettingsSnapshot(defaults: defaults).visibleAuxiliaryDetails.showsAgentUsage)
     }
 
+    @Test func costSettingDropsOnlyTheDollarFigureAndItsTooltip() {
+        let formatter = SidebarAgentUsageFormatter(locale: Locale(identifier: "en_US"), includesCost: false)
+        let claude = Self.statusEntry(key: "claude_code", value: "Running")
+
+        let decorated = formatter.decorate([claude], usageByStatusKey: ["claude_code": Self.usage])
+
+        #expect(decorated[0].value == "Running · Opus 4.8 · 42%")
+        #expect(decorated[0].helpText == claude.helpText)
+    }
+
+    @Test func costSettingIsOnByDefaultAndFollowsItsKey() {
+        let defaults = UserDefaults(suiteName: "SidebarAgentUsageTests.\(UUID().uuidString)")!
+        #expect(SidebarTabItemSettingsSnapshot(defaults: defaults).visibleAuxiliaryDetails.showsAgentCost)
+
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showAgentCostKey)
+        #expect(!SidebarTabItemSettingsSnapshot(defaults: defaults).visibleAuxiliaryDetails.showsAgentCost)
+    }
+
     // MARK: Coordinator
 
     @Test func rowShowsTheMostRecentlyActiveSessionAndPanesDoNotClearEachOther() async throws {

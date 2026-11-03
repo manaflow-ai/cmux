@@ -5,7 +5,7 @@ public import Foundation
 /// pull requests, ports, coding-agent usage).
 ///
 /// The master "hide all details" switch wins over every individual toggle;
-/// ``resolved(showMetadata:showLog:showProgress:showAgentUsage:showBranchDirectory:showPullRequests:showPorts:hideAllDetails:)``
+/// ``resolved(showMetadata:showLog:showProgress:showAgentUsage:showAgentCost:showBranchDirectory:showPullRequests:showPorts:hideAllDetails:)``
 /// applies exactly that legacy precedence.
 public struct SidebarWorkspaceAuxiliaryDetailVisibility: Equatable, Sendable {
     /// Whether custom metadata pills are shown.
@@ -17,6 +17,9 @@ public struct SidebarWorkspaceAuxiliaryDetailVisibility: Equatable, Sendable {
     /// Whether coding-agent usage (model, context %, estimated cost) is
     /// appended to the agent status entry.
     public let showsAgentUsage: Bool
+    /// Whether that usage includes the estimated API cost
+    /// (`sidebar.showAgentCost`).
+    public let showsAgentCost: Bool
     /// Whether the branch/directory line is shown.
     public let showsBranchDirectory: Bool
     /// Whether pull-request badges are shown.
@@ -47,12 +50,14 @@ public struct SidebarWorkspaceAuxiliaryDetailVisibility: Equatable, Sendable {
         showsBranchDirectory: Bool,
         showsPullRequests: Bool,
         showsPorts: Bool,
-        showsAgentUsage: Bool = false
+        showsAgentUsage: Bool = false,
+        showsAgentCost: Bool = true
     ) {
         self.showsMetadata = showsMetadata
         self.showsLog = showsLog
         self.showsProgress = showsProgress
         self.showsAgentUsage = showsAgentUsage
+        self.showsAgentCost = showsAgentCost
         self.showsBranchDirectory = showsBranchDirectory
         self.showsPullRequests = showsPullRequests
         self.showsPorts = showsPorts
@@ -76,6 +81,7 @@ public struct SidebarWorkspaceAuxiliaryDetailVisibility: Equatable, Sendable {
         showLog: Bool,
         showProgress: Bool,
         showAgentUsage: Bool = false,
+        showAgentCost: Bool = true,
         showBranchDirectory: Bool,
         showPullRequests: Bool,
         showPorts: Bool,
@@ -89,7 +95,8 @@ public struct SidebarWorkspaceAuxiliaryDetailVisibility: Equatable, Sendable {
             showsBranchDirectory: showBranchDirectory,
             showsPullRequests: showPullRequests,
             showsPorts: showPorts,
-            showsAgentUsage: showAgentUsage
+            showsAgentUsage: showAgentUsage,
+            showsAgentCost: showAgentCost
         )
     }
 }
