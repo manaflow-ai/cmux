@@ -1,5 +1,8 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-03 FYI from a939 (Home filter): the filter button stays filled while the filter is on; an "Unread
+  Messages ×" chip shows under search; the empty state reads "No Unread Chats" with Show All. Owner commits and the
+  Sidebar States Playground match it; owner helpers do not change these views.
 - 2026-11-03: a workspace icon follows the sidebar density. Leo, verbatim: "generally we can have stuff more dynamically
   sized for compact/etc rn i think it's just a one size for these workspace icons". The icon's glyph was clamped to the
   compact 16 pt square at every density, so comfortable only widened an empty slot. It now fills the density's icon
