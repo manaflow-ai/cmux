@@ -670709,131 +670709,6 @@
         }
       }
     },
-    "cli.docs.completion.cliContractLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عقد CLI"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI ugovor"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI-kontrakt"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI-Vertrag"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI contract"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Contrato de la CLI"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Contrat de la CLI"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Contratto della CLI"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI 契約"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កិច្ចសន្យា CLI"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI 계약"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI-kontrakt"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kontrakt CLI"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Contrato da CLI"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Контракт CLI"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ข้อตกลง CLI"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI sözleşmesi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Контракт CLI"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI 契约"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI 契約"
-          }
-        }
-      }
-    },
     "cli.docs.completion.summary": {
       "extractionState": "manual",
       "localizations": {
@@ -673649,6 +673524,3074 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 等待期間 Kiro 全域勾點檔案已變更。未進行任何變更；請再次執行命令。"
+          }
+        }
+      }
+    },
+    "cli.docs.settings.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-owned settings, cmux.json locations, schema, and reload flow."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-eigene Einstellungen, Speicherorte von cmux.json, Schema und Neuladen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réglages propres à cmux, emplacements de cmux.json, schéma et rechargement."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعدادات cmux الخاصة، ومواقع cmux.json، والمخطط، وطريقة إعادة التحميل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustes propios de cmux, ubicaciones de cmux.json, esquema y recarga."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 自有設定、cmux.json 的位置、結構描述與重新載入流程。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 自有设置、cmux.json 的位置、模式与重新加载流程。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 자체 설정, cmux.json 위치, 스키마 및 다시 불러오기 흐름."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 固有の設定、cmux.json の場所、スキーマ、再読み込みの流れ。"
+          }
+        }
+      }
+    },
+    "cli.docs.managedPolicies.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDM-enforceable managed policies: disable the embedded browser, iOS remote control, and Cloud on managed Macs."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per MDM durchsetzbare Richtlinien: eingebetteten Browser, iOS-Fernsteuerung und Cloud auf verwalteten Macs deaktivieren."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stratégies gérées applicables par MDM : désactiver le navigateur intégré, le contrôle à distance iOS et Cloud sur les Mac gérés."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سياسات مُدارة يمكن فرضها عبر MDM: تعطيل المتصفح المضمّن والتحكم عن بُعد من iOS وCloud على أجهزة Mac المُدارة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Políticas administradas aplicables por MDM: desactivar el navegador integrado, el control remoto desde iOS y Cloud en Macs administrados."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可由 MDM 強制套用的管理原則：在受管理的 Mac 上停用內建瀏覽器、iOS 遠端控制與 Cloud。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可由 MDM 强制执行的托管策略：在受管 Mac 上禁用内置浏览器、iOS 远程控制和 Cloud。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDM으로 적용할 수 있는 관리 정책: 관리되는 Mac에서 내장 브라우저, iOS 원격 제어, Cloud를 비활성화합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDM で適用できる管理ポリシー: 管理対象の Mac で内蔵ブラウザ、iOS リモート操作、Cloud を無効にします。"
+          }
+        }
+      }
+    },
+    "cli.docs.shortcuts.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-owned keyboard shortcuts and two-step chord syntax."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-eigene Tastenkürzel und die Syntax zweistufiger Tastenfolgen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raccourcis clavier propres à cmux et syntaxe des combinaisons en deux étapes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختصارات لوحة المفاتيح الخاصة بـ cmux وصيغة التسلسلات ذات الخطوتين."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atajos de teclado propios de cmux y sintaxis de combinaciones en dos pasos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 自有鍵盤快速鍵與兩段式組合鍵語法。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 自有键盘快捷键与两步组合键语法。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 자체 키보드 단축키와 2단계 코드 구문."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 固有のキーボードショートカットと 2 段階コードの構文。"
+          }
+        }
+      }
+    },
+    "cli.docs.api.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI/socket API, handle model, windows, workspaces, panes, and surfaces."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-/Socket-API, Handle-Modell, Fenster, Workspaces, Panes und Surfaces."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API CLI/socket, modèle de handles, fenêtres, espaces de travail, panneaux et surfaces."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "واجهة CLI/المقبس، ونموذج المقابض، والنوافذ، ومساحات العمل، والألواح، والأسطح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API de CLI/socket, modelo de identificadores, ventanas, espacios de trabajo, paneles y superficies."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI/socket API、handle 模型、視窗、工作區、窗格與 surface。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI/socket API、handle 模型、窗口、工作区、窗格与 surface。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI/socket API, 핸들 모델, 창, 작업 공간, 창 분할, 서피스."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI/socket API、ハンドルモデル、ウインドウ、ワークスペース、ペイン、サーフェス。"
+          }
+        }
+      }
+    },
+    "cli.docs.browser.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser panel automation commands and snapshot-driven web interaction."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehle zur Automatisierung des Browser-Panels und snapshotbasierte Web-Interaktion."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commandes d’automatisation du panneau navigateur et interaction web pilotée par instantanés."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أوامر أتمتة لوحة المتصفح والتفاعل مع الويب المعتمد على اللقطات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandos de automatización del panel del navegador e interacción web basada en instantáneas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器面板的自動化指令與以快照驅動的網頁互動。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器面板的自动化命令与以快照驱动的网页交互。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 패널 자동화 명령과 스냅샷 기반 웹 상호작용."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザパネルの自動化コマンドと、スナップショットに基づくウェブ操作。"
+          }
+        }
+      }
+    },
+    "cli.docs.capture.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot or record a cmux window from the CLI: png, jpeg, mp4 or gif, with no Screen Recording permission."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein cmux-Fenster aus der CLI als Screenshot oder Aufnahme sichern: png, jpeg, mp4 oder gif, ohne Berechtigung für Bildschirmaufnahmen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capturer ou enregistrer une fenêtre cmux depuis la CLI : png, jpeg, mp4 ou gif, sans autorisation d’enregistrement d’écran."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التقاط لقطة شاشة أو تسجيل نافذة cmux من CLI: png أو jpeg أو mp4 أو gif، دون إذن تسجيل الشاشة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capturar o grabar una ventana de cmux desde la CLI: png, jpeg, mp4 o gif, sin permiso de grabación de pantalla."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從 CLI 擷取或錄製 cmux 視窗：png、jpeg、mp4 或 gif，無需螢幕錄製權限。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 CLI 截取或录制 cmux 窗口：png、jpeg、mp4 或 gif，无需屏幕录制权限。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI에서 cmux 창을 스크린샷 또는 녹화: png, jpeg, mp4, gif, 화면 기록 권한 불필요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI から cmux ウインドウを撮影または録画: png、jpeg、mp4、gif に対応し、画面収録の許可は不要。"
+          }
+        }
+      }
+    },
+    "cli.docs.agents.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent hook integrations, agent-to-agent messages, Feed approvals, notifications, and session restore. To reach another agent, use `cmux agent message`; never type into its terminal."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Hook-Integrationen, Nachrichten zwischen Agenten, Feed-Freigaben, Benachrichtigungen und Sitzungswiederherstellung. Einen anderen Agenten erreichst du mit `cmux agent message`; tippe nie in sein Terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intégrations de hooks d’agent, messages entre agents, approbations du Feed, notifications et restauration de session. Pour joindre un autre agent, utilisez `cmux agent message` ; ne tapez jamais dans son terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكاملات خطافات الوكلاء، والرسائل بين الوكلاء، وموافقات Feed، والإشعارات، واستعادة الجلسات. للوصول إلى وكيل آخر استخدم `cmux agent message`؛ ولا تكتب أبدًا في طرفيته."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integraciones de hooks de agentes, mensajes entre agentes, aprobaciones del Feed, notificaciones y restauración de sesiones. Para contactar a otro agente usa `cmux agent message`; nunca escribas en su terminal."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理 hook 整合、代理之間的訊息、Feed 核准、通知與工作階段還原。要聯絡其他代理請使用 `cmux agent message`，切勿直接在其終端機輸入。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理 hook 集成、代理之间的消息、Feed 审批、通知与会话恢复。要联系其他代理请使用 `cmux agent message`，切勿直接在其终端中输入。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 hook 연동, 에이전트 간 메시지, Feed 승인, 알림, 세션 복원. 다른 에이전트에게 연락하려면 `cmux agent message`를 사용하고 그 터미널에 직접 입력하지 마세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント hook 連携、エージェント間メッセージ、Feed の承認、通知、セッションの復元。別のエージェントに連絡するには `cmux agent message` を使い、その端末に直接入力しないでください。"
+          }
+        }
+      }
+    },
+    "cli.docs.dock.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom right-sidebar terminal controls from .cmux/dock.json or ~/.config/cmux/dock.json."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene Terminal-Steuerelemente in der rechten Seitenleiste aus .cmux/dock.json oder ~/.config/cmux/dock.json."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrôles de terminal personnalisés dans la barre latérale droite depuis .cmux/dock.json ou ~/.config/cmux/dock.json."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عناصر تحكم طرفية مخصصة في الشريط الجانبي الأيمن من .cmux/dock.json أو ~/.config/cmux/dock.json."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controles de terminal personalizados en la barra lateral derecha desde .cmux/dock.json o ~/.config/cmux/dock.json."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自 .cmux/dock.json 或 ~/.config/cmux/dock.json 的右側邊欄自訂終端機控制項。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自 .cmux/dock.json 或 ~/.config/cmux/dock.json 的右侧边栏自定义终端控件。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ".cmux/dock.json 또는 ~/.config/cmux/dock.json으로 정의하는 오른쪽 사이드바 터미널 컨트롤."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ".cmux/dock.json または ~/.config/cmux/dock.json で定義する右サイドバーのカスタム端末コントロール。"
+          }
+        }
+      }
+    },
+    "cli.docs.sidebars.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibe-code a custom sidebar: a runtime-interpreted SwiftUI-style file in ~/.config/cmux/sidebars/ (beta)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine eigene Seitenleiste per Vibe-Coding: eine zur Laufzeit interpretierte Datei im SwiftUI-Stil unter ~/.config/cmux/sidebars/ (Beta)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibe-coder une barre latérale personnalisée : un fichier de style SwiftUI interprété à l’exécution dans ~/.config/cmux/sidebars/ (bêta)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "برمجة شريط جانبي مخصص بأسلوب vibe-coding: ملف بأسلوب SwiftUI يُفسَّر أثناء التشغيل في ~/.config/cmux/sidebars/ (تجريبي)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crear una barra lateral personalizada con vibe coding: un archivo al estilo SwiftUI interpretado en tiempo de ejecución en ~/.config/cmux/sidebars/ (beta)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以 vibe coding 打造自訂側邊欄：放在 ~/.config/cmux/sidebars/ 的 SwiftUI 風格檔案，於執行階段解譯（測試版）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以 vibe coding 打造自定义侧边栏：放在 ~/.config/cmux/sidebars/ 的 SwiftUI 风格文件，在运行时解释（测试版）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "바이브 코딩으로 사용자 지정 사이드바 만들기: ~/.config/cmux/sidebars/ 에 두는 SwiftUI 스타일 파일을 런타임에 해석합니다(베타)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイブコーディングでカスタムサイドバーを作成: ~/.config/cmux/sidebars/ に置く SwiftUI 風のファイルを実行時に解釈します（ベータ）。"
+          }
+        }
+      }
+    },
+    "cli.docs.resources.settingsSchema": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "settings schema"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungsschema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "schéma des réglages"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مخطط الإعدادات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "esquema de ajustes"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定結構描述"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置模式"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 스키마"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定スキーマ"
+          }
+        }
+      }
+    },
+    "cli.docs.resources.cmuxSkill": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux skill"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Skill"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "skill cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مهارة cmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "skill de cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 技能"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 技能"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 스킬"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux スキル"
+          }
+        }
+      }
+    },
+    "cli.docs.resources.managedDevicePolicies": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "managed device policies"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richtlinien für verwaltete Geräte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "stratégies des appareils gérés"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سياسات الأجهزة المُدارة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "políticas de dispositivos administrados"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受管理裝置原則"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受管设备策略"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "관리되는 기기 정책"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理対象デバイスのポリシー"
+          }
+        }
+      }
+    },
+    "cli.docs.resources.shortcutData": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shortcut data"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastenkürzel-Daten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "données des raccourcis"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بيانات الاختصارات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "datos de atajos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速鍵資料"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快捷键数据"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키 데이터"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ショートカットデータ"
+          }
+        }
+      }
+    },
+    "cli.docs.resources.cliContract": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI contract"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-Vertrag"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "contrat de la CLI"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عقد CLI"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "contrato de la CLI"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 合約"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 契约"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 계약"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI コントラクト"
+          }
+        }
+      }
+    },
+    "cli.docs.resources.browserSkill": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser skill"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser-Skill"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "skill navigateur"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مهارة المتصفح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "skill del navegador"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器技能"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器技能"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 스킬"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザスキル"
+          }
+        }
+      }
+    },
+    "cli.docs.resources.browserCommands": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser commands"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser-Befehle"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "commandes du navigateur"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أوامر المتصفح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comandos del navegador"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器指令"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器命令"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 명령"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザコマンド"
+          }
+        }
+      }
+    },
+    "cli.docs.resources.captureSkill": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "capture skill"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufnahme-Skill"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "skill de capture"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مهارة الالتقاط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "skill de captura"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擷取技能"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获技能"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캡처 스킬"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャプチャスキル"
+          }
+        }
+      }
+    },
+    "cli.docs.resources.captureCommands": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "capture commands"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufnahme-Befehle"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "commandes de capture"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أوامر الالتقاط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comandos de captura"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擷取指令"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获命令"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캡처 명령"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャプチャコマンド"
+          }
+        }
+      }
+    },
+    "cli.docs.agents.hooks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent hook docs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doku zu Agent-Hooks"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "documentation des hooks d’agent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وثائق خطافات الوكلاء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "documentación de hooks de agentes"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理 hook 文件"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理 hook 文档"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 hook 문서"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント hook のドキュメント"
+          }
+        }
+      }
+    },
+    "cli.docs.agents.messages": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent messages"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten-Nachrichten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "messages d’agent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رسائل الوكلاء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mensajes de agentes"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理訊息"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理消息"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 메시지"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントメッセージ"
+          }
+        }
+      }
+    },
+    "cli.docs.resources.feedDocs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feed docs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed-Doku"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "documentation du Feed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وثائق Feed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "documentación del Feed"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed 文件"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed 文档"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed 문서"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed のドキュメント"
+          }
+        }
+      }
+    },
+    "cli.docs.resources.notificationsDocs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications docs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungs-Doku"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "documentation des notifications"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وثائق الإشعارات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "documentación de notificaciones"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知文件"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知文档"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 문서"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知のドキュメント"
+          }
+        }
+      }
+    },
+    "cli.docs.resources.dockDocs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dock docs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock-Doku"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "documentation du Dock"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وثائق Dock"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "documentación del Dock"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 文件"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 文档"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 문서"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock のドキュメント"
+          }
+        }
+      }
+    },
+    "cli.docs.resources.dockWebCopy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dock web copy"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock-Webtexte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "textes web du Dock"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نصوص الويب الخاصة بـ Dock"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "textos web del Dock"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 網頁文案"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 网页文案"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 웹 문구"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock のウェブ文言"
+          }
+        }
+      }
+    },
+    "cli.docs.resources.customSidebarGuide": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "custom sidebar authoring guide"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anleitung für eigene Seitenleisten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "guide de création de barre latérale personnalisée"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دليل إنشاء شريط جانبي مخصص"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "guía para crear barras laterales personalizadas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂側邊欄製作指南"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义侧边栏编写指南"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 사이드바 작성 가이드"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムサイドバー作成ガイド"
+          }
+        }
+      }
+    },
+    "cli.docs.usage.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Print the canonical docs URL, raw GitHub resources, and useful commands for a cmux topic."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gibt die kanonische Doku-URL, Roh-Ressourcen auf GitHub und nützliche Befehle zu einem cmux-Thema aus."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche l’URL de documentation canonique, les ressources brutes GitHub et les commandes utiles pour un sujet cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يطبع عنوان الوثائق الأساسي، وموارد GitHub الخام، والأوامر المفيدة لموضوع cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra la URL de documentación canónica, los recursos sin procesar de GitHub y comandos útiles para un tema de cmux."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列出 cmux 主題的正式文件網址、GitHub 原始資源與實用指令。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列出 cmux 主题的正式文档网址、GitHub 原始资源与实用命令。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 주제의 공식 문서 URL, GitHub 원본 리소스, 유용한 명령을 출력합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のトピックについて、正式なドキュメント URL、GitHub の生リソース、便利なコマンドを表示します。"
+          }
+        }
+      }
+    },
+    "cli.docs.usage.noSocket": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This command does not require a running cmux app or socket."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Befehl benötigt weder eine laufende cmux-App noch einen Socket."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette commande ne nécessite ni application cmux en cours d’exécution ni socket."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يتطلب هذا الأمر تشغيل تطبيق cmux أو وجود مقبس."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este comando no necesita que la app de cmux esté en ejecución ni un socket."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此指令不需要執行中的 cmux App 或 socket。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此命令不需要正在运行的 cmux 应用或 socket。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 명령은 실행 중인 cmux 앱이나 소켓이 필요하지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコマンドは、起動中の cmux アプリやソケットを必要としません。"
+          }
+        }
+      }
+    },
+    "cli.docs.usage.agents.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents :"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكلاء:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes:"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント向け:"
+          }
+        }
+      }
+    },
+    "cli.docs.usage.agents.settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use `cmux docs settings` before editing ~/.config/cmux/cmux.json."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Bearbeiten von ~/.config/cmux/cmux.json `cmux docs settings` verwenden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez `cmux docs settings` avant de modifier ~/.config/cmux/cmux.json."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم `cmux docs settings` قبل تعديل ~/.config/cmux/cmux.json."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa `cmux docs settings` antes de editar ~/.config/cmux/cmux.json."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯 ~/.config/cmux/cmux.json 之前請先使用 `cmux docs settings`。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑 ~/.config/cmux/cmux.json 之前请先使用 `cmux docs settings`。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~/.config/cmux/cmux.json 을 편집하기 전에 `cmux docs settings`를 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~/.config/cmux/cmux.json を編集する前に `cmux docs settings` を使ってください。"
+          }
+        }
+      }
+    },
+    "cli.docs.usage.agents.dock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use `cmux docs dock` before creating or editing .cmux/dock.json."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Anlegen oder Bearbeiten von .cmux/dock.json `cmux docs dock` verwenden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez `cmux docs dock` avant de créer ou de modifier .cmux/dock.json."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم `cmux docs dock` قبل إنشاء .cmux/dock.json أو تعديله."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa `cmux docs dock` antes de crear o editar .cmux/dock.json."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立或編輯 .cmux/dock.json 之前請先使用 `cmux docs dock`。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建或编辑 .cmux/dock.json 之前请先使用 `cmux docs dock`。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ".cmux/dock.json 을 만들거나 편집하기 전에 `cmux docs dock`을 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ".cmux/dock.json を作成または編集する前に `cmux docs dock` を使ってください。"
+          }
+        }
+      }
+    },
+    "cli.docs.usage.agents.capture": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use `cmux docs capture` to screenshot or record a window for a pull request or a bug report."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit `cmux docs capture` ein Fenster für einen Pull Request oder Fehlerbericht als Screenshot sichern oder aufnehmen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez `cmux docs capture` pour capturer ou enregistrer une fenêtre pour une pull request ou un rapport de bug."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم `cmux docs capture` لالتقاط لقطة شاشة أو تسجيل نافذة من أجل طلب سحب أو تقرير خطأ."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa `cmux docs capture` para capturar o grabar una ventana para un pull request o un informe de error."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 `cmux docs capture` 擷取或錄製視窗，用於 pull request 或錯誤回報。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 `cmux docs capture` 截取或录制窗口，用于 pull request 或错误报告。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pull request나 버그 리포트용으로 창을 스크린샷 또는 녹화하려면 `cmux docs capture`를 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pull request やバグ報告用にウインドウを撮影または録画するには `cmux docs capture` を使ってください。"
+          }
+        }
+      }
+    },
+    "cli.docs.usage.agents.backup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine vorhandene cmux.json vor dem Bearbeiten als .bak-Kopie mit Zeitstempel sichern, damit der Benutzer zurückkehren kann."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sauvegardez tout fichier cmux.json existant dans une copie .bak horodatée avant de le modifier, pour que l’utilisateur puisse revenir en arrière."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انسخ أي ملف cmux.json موجود احتياطيًا إلى نسخة .bak بطابع زمني قبل التعديل حتى يتمكن المستخدم من التراجع."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antes de editar, respalda cualquier cmux.json existente en una copia .bak con marca de tiempo para que el usuario pueda revertir."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯前請先將既有的 cmux.json 備份為帶時間戳記的 .bak 副本，讓使用者可以還原。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑前请先将现有的 cmux.json 备份为带时间戳的 .bak 副本，以便用户恢复。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "편집하기 전에 기존 cmux.json 파일을 타임스탬프가 붙은 .bak 사본으로 백업해 사용자가 되돌릴 수 있게 하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集する前に、既存の cmux.json をタイムスタンプ付きの .bak コピーにバックアップし、ユーザーが元に戻せるようにしてください。"
+          }
+        }
+      }
+    },
+    "cli.docs.usage.agents.fetch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetch raw resources with the printed curl commands when you need the latest schema."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn du das aktuelle Schema brauchst, lade die Roh-Ressourcen mit den ausgegebenen curl-Befehlen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Récupérez les ressources brutes avec les commandes curl affichées lorsque vous avez besoin du schéma le plus récent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اجلب الموارد الخام باستخدام أوامر curl المطبوعة عندما تحتاج إلى أحدث مخطط."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtén los recursos sin procesar con los comandos curl mostrados cuando necesites el esquema más reciente."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要最新結構描述時，請用列出的 curl 指令取得原始資源。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要最新模式时，请用列出的 curl 命令获取原始资源。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최신 스키마가 필요하면 출력된 curl 명령으로 원본 리소스를 가져오세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新のスキーマが必要なときは、表示された curl コマンドで生リソースを取得してください。"
+          }
+        }
+      }
+    },
+    "cli.docs.index.topics": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Topics:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Themen:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sujets :"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المواضيع:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temas:"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主題:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주제:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トピック:"
+          }
+        }
+      }
+    },
+    "cli.docs.index.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run `cmux docs <topic>` for URLs, raw resources, and next commands."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`cmux docs <topic>` ausführen, um URLs, Roh-Ressourcen und nächste Befehle zu sehen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exécutez `cmux docs <topic>` pour les URL, les ressources brutes et les commandes suivantes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شغّل `cmux docs <topic>` لعرض الروابط والموارد الخام والأوامر التالية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ejecuta `cmux docs <topic>` para ver URLs, recursos sin procesar y los siguientes comandos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行 `cmux docs <topic>` 查看網址、原始資源與後續指令。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行 `cmux docs <topic>` 查看网址、原始资源与后续命令。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL, 원본 리소스, 다음 명령을 보려면 `cmux docs <topic>`을 실행하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL、生リソース、次のコマンドを見るには `cmux docs <topic>` を実行してください。"
+          }
+        }
+      }
+    },
+    "cli.docs.reference.web": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Webdokumentation:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web :"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الويب:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitio web:"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網頁:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网页:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "웹:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウェブ:"
+          }
+        }
+      }
+    },
+    "cli.docs.reference.rawResources": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raw resources:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roh-Ressourcen:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressources brutes :"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الموارد الخام:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recursos sin procesar:"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原始資源:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原始资源:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원본 리소스:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生リソース:"
+          }
+        }
+      }
+    },
+    "cli.docs.reference.fetch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetch:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrufen:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Récupérer :"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجلب:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtener:"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取得:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "获取:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오기:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取得:"
+          }
+        }
+      }
+    },
+    "cli.docs.reference.usefulCommands": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Useful commands:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nützliche Befehle:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commandes utiles :"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أوامر مفيدة:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandos útiles:"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "實用指令:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实用命令:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유용한 명령:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "便利なコマンド:"
+          }
+        }
+      }
+    },
+    "cli.docs.settings.files.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Config files:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfigurationsdateien:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fichiers de configuration :"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملفات الإعداد:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivos de configuración:"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定檔:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置文件:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 파일:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定ファイル:"
+          }
+        }
+      }
+    },
+    "cli.docs.settings.files.primary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "primary"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "primär"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "principal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأساسي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "principal"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主要"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主要"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メイン"
+          }
+        }
+      }
+    },
+    "cli.docs.settings.files.legacyConfig": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "legacy config"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ältere Konfiguration"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "configuration héritée"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإعداد القديم"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "configuración heredada"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "舊版設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旧版配置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "레거시 설정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旧設定"
+          }
+        }
+      }
+    },
+    "cli.docs.settings.files.legacyAppSupport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "legacy app support"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "älterer Application-Support-Pfad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ancien chemin Application Support"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسار Application Support القديم"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ruta antigua de Application Support"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "舊版 Application Support 路徑"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旧版 Application Support 路径"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "레거시 Application Support 경로"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旧 Application Support パス"
+          }
+        }
+      }
+    },
+    "cli.docs.settings.related.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Related (not cmux-owned, but cmux reads it for terminal behavior):"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwandt (nicht cmux-eigen, aber cmux liest sie für das Terminalverhalten):"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexe (pas propre à cmux, mais cmux le lit pour le comportement du terminal) :"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ذو صلة (ليس خاصًا بـ cmux، لكن cmux يقرأه لسلوك الطرفية):"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relacionado (no es propio de cmux, pero cmux lo lee para el comportamiento del terminal):"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相關（非 cmux 自有，但 cmux 會讀取以決定終端機行為）:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相关（非 cmux 自有，但 cmux 会读取以决定终端行为）:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "관련 항목(cmux 자체 파일은 아니지만 터미널 동작을 위해 cmux가 읽음):"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "関連（cmux 固有ではありませんが、端末の動作のために cmux が読み込みます）:"
+          }
+        }
+      }
+    },
+    "cli.docs.settings.related.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use this for terminal transparency (background-opacity), blur, font, theme, etc."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hier Terminal-Transparenz (background-opacity), Unschärfe, Schrift, Theme usw. einstellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez-le pour la transparence du terminal (background-opacity), le flou, la police, le thème, etc."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدمه لشفافية الطرفية (background-opacity) والضبابية والخط والسمة وغيرها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Úsalo para la transparencia del terminal (background-opacity), desenfoque, fuente, tema, etc."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用於終端機透明度（background-opacity）、模糊、字型、主題等。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用于终端透明度（background-opacity）、模糊、字体、主题等。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 투명도(background-opacity), 블러, 글꼴, 테마 등에 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端末の透明度（background-opacity）、ぼかし、フォント、テーマなどに使います。"
+          }
+        }
+      }
+    },
+    "cli.docs.settings.backup.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before editing cmux.json:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Bearbeiten von cmux.json:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avant de modifier cmux.json :"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قبل تعديل cmux.json:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antes de editar cmux.json:"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯 cmux.json 之前:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑 cmux.json 之前:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json 편집 전:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json を編集する前に:"
+          }
+        }
+      }
+    },
+    "cli.docs.settings.backup.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back up any existing cmux.json file to a timestamped .bak copy so the user can revert."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine vorhandene cmux.json als .bak-Kopie mit Zeitstempel sichern, damit der Benutzer zurückkehren kann."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sauvegardez tout fichier cmux.json existant dans une copie .bak horodatée pour que l’utilisateur puisse revenir en arrière."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انسخ أي ملف cmux.json موجود احتياطيًا إلى نسخة .bak بطابع زمني حتى يتمكن المستخدم من التراجع."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Respalda cualquier cmux.json existente en una copia .bak con marca de tiempo para que el usuario pueda revertir."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請將既有的 cmux.json 備份為帶時間戳記的 .bak 副本，讓使用者可以還原。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请将现有的 cmux.json 备份为带时间戳的 .bak 副本，以便用户恢复。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기존 cmux.json 파일을 타임스탬프가 붙은 .bak 사본으로 백업해 사용자가 되돌릴 수 있게 하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既存の cmux.json をタイムスタンプ付きの .bak コピーにバックアップし、ユーザーが元に戻せるようにしてください。"
+          }
+        }
+      }
+    },
+    "cli.docs.settings.reload.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload after editing cmux.json or Ghostty config:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach dem Bearbeiten von cmux.json oder der Ghostty-Konfiguration neu laden:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechargez après avoir modifié cmux.json ou la configuration Ghostty :"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعد التحميل بعد تعديل cmux.json أو إعدادات Ghostty:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recarga después de editar cmux.json o la configuración de Ghostty:"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯 cmux.json 或 Ghostty 設定後請重新載入:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑 cmux.json 或 Ghostty 配置后请重新加载:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json 또는 Ghostty 설정을 편집한 후 다시 불러오기:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json または Ghostty の設定を編集したら再読み込み:"
+          }
+        }
+      }
+    },
+    "cli.docs.settings.reload.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux reload-config   (reloads BOTH and refreshes terminals; no app restart needed)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux reload-config   (lädt BEIDE neu und aktualisiert die Terminals; kein Neustart der App nötig)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux reload-config   (recharge LES DEUX et rafraîchit les terminaux ; aucun redémarrage de l’app nécessaire)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux reload-config   (يعيد تحميل الاثنين معًا ويحدّث الطرفيات؛ دون الحاجة إلى إعادة تشغيل التطبيق)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux reload-config   (recarga AMBOS y actualiza los terminales; no hace falta reiniciar la app)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux reload-config   （兩者皆重新載入並更新終端機；無需重新啟動 App）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux reload-config   （两者都重新加载并刷新终端；无需重启应用）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux reload-config   (둘 다 다시 불러오고 터미널을 새로 고침, 앱 재시작 불필요)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux reload-config   （両方を再読み込みして端末を更新。アプリの再起動は不要）"
+          }
+        }
+      }
+    },
+    "cli.docs.settings.json.ghosttyNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not cmux-owned, but cmux reads it. Use for terminal transparency (background-opacity), blur, font, theme, etc."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht cmux-eigen, aber cmux liest sie. Für Terminal-Transparenz (background-opacity), Unschärfe, Schrift, Theme usw."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas propre à cmux, mais cmux le lit. À utiliser pour la transparence du terminal (background-opacity), le flou, la police, le thème, etc."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليس خاصًا بـ cmux، لكن cmux يقرأه. يُستخدم لشفافية الطرفية (background-opacity) والضبابية والخط والسمة وغيرها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No es propio de cmux, pero cmux lo lee. Úsalo para la transparencia del terminal (background-opacity), desenfoque, fuente, tema, etc."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非 cmux 自有，但 cmux 會讀取。用於終端機透明度（background-opacity）、模糊、字型、主題等。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非 cmux 自有，但 cmux 会读取。用于终端透明度（background-opacity）、模糊、字体、主题等。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 자체 파일은 아니지만 cmux가 읽습니다. 터미널 투명도(background-opacity), 블러, 글꼴, 테마 등에 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 固有ではありませんが、cmux が読み込みます。端末の透明度（background-opacity）、ぼかし、フォント、テーマなどに使います。"
+          }
+        }
+      }
+    },
+    "cli.docs.settings.json.reloadScope": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reloads Ghostty config + cmux.json and refreshes terminals in place. No app restart needed."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lädt Ghostty-Konfiguration + cmux.json neu und aktualisiert die Terminals an Ort und Stelle. Kein Neustart der App nötig."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recharge la configuration Ghostty + cmux.json et rafraîchit les terminaux sur place. Aucun redémarrage de l’app nécessaire."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعيد تحميل إعدادات Ghostty + cmux.json ويحدّث الطرفيات في مكانها. دون الحاجة إلى إعادة تشغيل التطبيق."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recarga la configuración de Ghostty + cmux.json y actualiza los terminales en el sitio. No hace falta reiniciar la app."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入 Ghostty 設定 + cmux.json 並就地更新終端機。無需重新啟動 App。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新加载 Ghostty 配置 + cmux.json 并就地刷新终端。无需重启应用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 설정 + cmux.json 을 다시 불러오고 터미널을 그 자리에서 새로 고칩니다. 앱 재시작은 필요 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty の設定 + cmux.json を再読み込みし、端末をその場で更新します。アプリの再起動は不要です。"
+          }
+        }
+      }
+    },
+    "cli.docs.error.unknownTopic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown docs topic '%@'. Run 'cmux docs' for topics."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekanntes Doku-Thema '%@'. 'cmux docs' zeigt die Themen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sujet de documentation inconnu '%@'. Exécutez 'cmux docs' pour voir les sujets."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موضوع وثائق غير معروف '%@'. شغّل 'cmux docs' لعرض المواضيع."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tema de documentación desconocido '%@'. Ejecuta 'cmux docs' para ver los temas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的文件主題 '%@'。執行 'cmux docs' 查看主題。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的文档主题 '%@'。运行 'cmux docs' 查看主题。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 문서 주제 '%@'. 주제를 보려면 'cmux docs'를 실행하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なドキュメントのトピック '%@'。トピック一覧は 'cmux docs' で確認してください。"
           }
         }
       }
