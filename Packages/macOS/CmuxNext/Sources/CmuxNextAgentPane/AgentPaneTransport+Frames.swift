@@ -404,8 +404,11 @@ extension AgentPaneTransport {
                 let credit = facts.method == "session/prompt"
                     && startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime) == true
                 // A prompt spends the person's gesture however old it is (``AgentPaneUserGestures/consumeForSend()``).
+                // Computer use acting as the person (``AgentPaneActAsMe``, on only by the person's own grant)
+                // backs Send, Retry and Approve, nothing else (``AgentPaneUserGestures/consumePosted(for:)``).
                 granted = redeemedQuestion || !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures)
                     && (facts.method == "session/prompt" ? gestures.consumeForSend() : gestures.consume())) || credit
+                    || gestures.consumePosted(for: facts.method)
                 // A new chat on this Mac needs no gesture, but its send's (or the folder pick's) goes with its first
                 // prompt however long the start takes, past ``AgentPaneUserGestures/lifetime`` (hq#2569 item 5).
                 // A folder pick that took the Send's gesture (``grantPicked(_:)``) gives it to this start.
@@ -419,6 +422,7 @@ extension AgentPaneTransport {
                 }
             }
             if !granted {
+                gestures.noteRefused(facts.method)
                 Self.logger.info("agent pane transport gesture refused method=\(facts.method ?? "-", privacy: .public) \(self.gestures.debugDescription, privacy: .public)")
                 return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
             }
