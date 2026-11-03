@@ -134,7 +134,36 @@ def step_rk_panes(j, step):
     return out
 
 
-STEPS = {"rk_focus": step_rk_focus, "rk_press": step_rk_press, "rk_hold": step_rk_hold, "rk_panes": step_rk_panes}
+def step_rk_probe_point(j, step):
+    """Where a hid_drag TARGET would grab, and what is there, before the drag (lead 03:2xZ: the 3-column drag got no
+    mouse event on two minis): the latest trace sample's window size and dividers, the chosen point in window points
+    and in desktop pixels, the main window frame (debug.layers), every app window with its frame, level and
+    ignores_mouse (debug.window_list), the window server's view of the desktop with a screenshot (CuaDriver
+    get_desktop_state), and the accessibility element at the point (get_accessibility_tree, when the driver has it)."""
+    name = step.get("name", "probe")
+    sample = V._latest_sample(j)
+    out = {"window": sample.get("window"), "dividers": sample.get("dividers"),
+           "panes": [p[:5] for p in sample.get("panes") or []]}
+    try:
+        point = V._target_point(j, step["target"])
+        out["point_window"] = point
+        out["point_desktop_px"], out["scale"] = V._desktop_pixels(j, point)
+    except Exception as e:  # the probe reports what fails; the drag after it decides the case
+        out["point_error"] = str(e)[:400]
+    out["layers_window"] = R._layers_window(j)
+    out["window_list"] = j.app.rpc("debug.window_list", {})
+    shot = j.out / f"{name}.png"
+    bad, data, raw = R._session(j).call("get_desktop_state", {"screenshot_out_file": str(shot)})
+    out["desktop_state"] = {k: v for k, v in (data or {}).items() if k != "screenshot"} if not bad else {"error": str(raw)[:400]}
+    if "point_desktop_px" in out:
+        bad2, data2, raw2 = R._session(j).call("get_accessibility_tree", {})
+        out["ax_tree_head"] = (json.dumps(data2) if not bad2 else str(raw2))[:4000]
+    (j.out / f"diag-{name}.json").write_text(json.dumps(out, indent=1, default=str))
+    return {"point_window": out.get("point_window"), "point_desktop_px": out.get("point_desktop_px"),
+            "point_error": out.get("point_error"), "window": out["window"], "dividers": out["dividers"]}
+
+
+STEPS = {"rk_probe_point": step_rk_probe_point, "rk_focus": step_rk_focus, "rk_press": step_rk_press, "rk_hold": step_rk_hold, "rk_panes": step_rk_panes}
 CONDITIONS = {}
 
 

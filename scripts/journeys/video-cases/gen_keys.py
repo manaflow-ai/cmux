@@ -260,6 +260,20 @@ def tiered_drags(journeys_dir):
                 st["title"] = st.get("title", "").replace(src, rid)
         j = dict(j, id=rid, steps=steps, source="RESIZE KEYS (drag with core tiers), from " + src)
         out.append(j)
+        if src == "rv-col-drag-3-heavy-dark":
+            # The same case with a probe of the grab point before each drag (lead 03:2xZ): the drag reached the app
+            # with no mouse event on cmux21 and cmux18.
+            psteps = []
+            for k, st in enumerate(steps):
+                if st.get("do") == "hid_drag":
+                    psteps.append({"do": "rk_probe_point", "name": f"probe{k}", "target": st["target"],
+                                   "title": "probe: the grab point, the windows and the element there"})
+                    psteps.append(st)
+                else:
+                    psteps.append(st)
+            pid = rid.replace("rkd-", "rkd-probe-")
+            pj = json.loads(json.dumps(dict(j, id=pid, steps=psteps)).replace(rid, pid))
+            out.append(pj)
     return out
 
 
