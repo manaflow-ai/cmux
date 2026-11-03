@@ -4,30 +4,9 @@
 /* The icon picker's emoji keywords ("uppercase", "italic") are data, not class names. */
 @source not "./icon-picker/generated";
 
-/* The type scale (pages/shared/desktop.css, ui/README.md "Type scale") as Tailwind font sizes:
-   text-caption, text-detail, text-body, text-control, text-title, text-heading, text-content. */
-@theme inline {
-  --text-caption: var(--text-caption);
-  --text-caption--line-height: var(--text-caption--line-height);
-  --text-caption--letter-spacing: var(--text-caption--letter-spacing);
-  --text-detail: var(--text-detail);
-  --text-detail--line-height: var(--text-detail--line-height);
-  --text-detail--letter-spacing: var(--text-detail--letter-spacing);
-  --text-body: var(--text-body);
-  --text-body--line-height: var(--text-body--line-height);
-  --text-body--letter-spacing: var(--text-body--letter-spacing);
-  --text-control: var(--text-control);
-  --text-control--line-height: var(--text-control--line-height);
-  --text-control--letter-spacing: var(--text-control--letter-spacing);
-  --text-title: var(--text-title);
-  --text-title--line-height: var(--text-title--line-height);
-  --text-title--letter-spacing: var(--text-title--letter-spacing);
-  --text-heading: var(--text-heading);
-  --text-heading--line-height: var(--text-heading--line-height);
-  --text-heading--letter-spacing: var(--text-heading--letter-spacing);
-  --text-content: var(--text-content);
-  --text-content--line-height: var(--text-content--line-height);
-}
+/* The one Tailwind theme (schemas/design-scale, type-scale and motion-scale, through
+   scripts/cmux-next/gen-design-scale.py): p-3, rounded-md, text-body, bg-hover, shadow-elevation-2. */
+@import "./ui/theme.generated.css";
 
 :root {
   color-scheme: light dark;
