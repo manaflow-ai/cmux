@@ -117,11 +117,28 @@ export function newTabURL(input: string, home?: string): string | undefined {
   if (text === undefined) return undefined;
   const file = fileURL(text, home);
   if (file !== undefined) return file;
-  if (/\s/u.test(text)) return undefined;
+  if (/\s/u.test(text)) return encodingSpaces(text);
   const scheme = explicitScheme(text);
   if (scheme !== undefined) return explicitURL(text, scheme);
   if (looksLikeFileName(text)) return undefined;
   return schemeLessURL(text);
+}
+
+/// Like BrowserURLResolver.encodingSpaces: a pasted HTTP(S) or file URL may have literal
+/// spaces in its path/query, but never in its authority. Only ASCII spaces are encoded;
+/// other whitespace keeps the input as a prompt.
+function encodingSpaces(text: string): string | undefined {
+  const scheme = explicitScheme(text);
+  if (scheme !== "http" && scheme !== "https" && scheme !== "file") return undefined;
+  const delimiter = text.indexOf("://");
+  if (delimiter < 0) return undefined;
+  const start = delimiter + 3;
+  const endAfterHost = text.slice(start).search(/[/?#]/u);
+  if (endAfterHost < 0) return undefined;
+  const authorityEnd = start + endAfterHost;
+  const firstSpace = text.search(/\s/u);
+  if (firstSpace < 0 || authorityEnd >= firstSpace || /[^\S ]/u.test(text)) return undefined;
+  return explicitURL(text.replace(/ /g, "%20"), scheme);
 }
 
 /// The text with wrap breaks from a terminal paste removed when every break comes after the
