@@ -146,7 +146,9 @@ enum MarginSpy {
             !frame.contains("MarginSpy") && !frame.contains("assumeIsolated") && !frame.hasPrefix("$sx") && !frame.hasPrefix("$sy")
                 && !frame.contains("Regions)") && !frame.contains("StructuralRegions") && !frame.contains("DragMargins")
         }
-        callers[name, default: [:]][outside.prefix(2).joined(separator: " <- "), default: 0] += 1
+        // The first frame of the app's own code under the call (who changed what AppKit then tracks).
+        let ours = outside.first { $0.contains("CmuxNext") && !$0.contains("ShellWindow") && !$0.contains("Tests") } ?? "-"
+        callers[name, default: [:]][outside.prefix(2).joined(separator: " <- ") + " || ours: " + ours, default: 0] += 1
         let lower = name.lowercased()
         if firstStacks[name] == nil, lower.contains("set") || lower.contains("invalidate") || lower.contains("needs") {
             firstStacks[name] = Thread.callStackSymbols.map { line in
