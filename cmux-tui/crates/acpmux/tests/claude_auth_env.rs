@@ -983,3 +983,56 @@ async fn a_profile_bedrock_switch_gets_no_aws_secret() {
     assert_eq!(v["auth"], json!(["bedrock"]), "{v}");
     assert_eq!(v["awsKeys"], json!(["AWS_PROFILE", "AWS_REGION"]), "{v}");
 }
+
+/// The `/status` card's rows (Leo, 2026-11-03: "how come the status doesn't say anything"): a
+/// Claude chat started from a profile that sets its sign-in, endpoint and Claude home has, in
+/// its session info, the machine, the kind of sign-in and where it came from (never its value),
+/// the route, the settings files in force, and the usage limits Claude Code reported.
+#[tokio::test]
+async fn session_info_names_host_sign_in_route_settings_and_limits() {
+    let dir = scratch("status", "export EDITOR=vi\n");
+    let home = dir.join("home/.claude");
+    std::fs::write(home.join("settings.json"), r#"{"model": "opus"}"#).unwrap();
+    std::fs::create_dir_all(dir.join(".claude")).unwrap();
+    std::fs::write(dir.join(".claude/settings.local.json"), "{}").unwrap();
+    // Not `claude()`: its sign-in mode answers every prompt itself, with no rate_limit_event.
+    let env = json!({
+        "CLAUDE_CONFIG_DIR": home,
+        "ANTHROPIC_AUTH_TOKEN": "status-secret-token",
+        "ANTHROPIC_BASE_URL": "http://sr2-gateway.example:4016",
+    });
+    let profile = json!({"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio", "env": env});
+    let d = start(&dir, json!({"claude": profile}), &[]).await;
+    let mut rpc = Rpc::connect(&d.socket).await;
+    let created = rpc
+        .call(
+            "session/new",
+            json!({"cwd": d.dir, "mcpServers": [], "_meta": {"acpmux": {"harness": "claude"}}}),
+        )
+        .await;
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+    rpc.call(
+        "session/prompt",
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "rate-limits-probe"}]}),
+    )
+    .await;
+    let info = rpc.call("_acpmux/info", json!({"sessionId": id})).await;
+    assert!(info["machine"].as_str().is_some_and(|h| !h.is_empty()), "{info}");
+    // `host` means a chat on another machine to clients: a local chat's detail has none.
+    assert!(info.get("host").is_none_or(Value::is_null), "{info}");
+    assert_eq!(info["authSource"], "Auth token (ANTHROPIC_AUTH_TOKEN, from its profile)", "{info}");
+    assert_eq!(info["route"], "SR2 gateway (sr2-gateway.example:4016)", "{info}");
+    let settings: Vec<&str> = info["settingsSources"]
+        .as_array()
+        .unwrap_or_else(|| panic!("settingsSources: {info}"))
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    let has = |suffix: &str| settings.iter().any(|s| s.ends_with(suffix));
+    // The fake HOME is the daemon's home, so its Claude home reads as `~`.
+    assert!(settings.contains(&"~/.claude/settings.json"), "{settings:?}");
+    assert!(has(".claude/settings.local.json"), "{settings:?}");
+    assert!(settings.contains(&"autocompact at 400K"), "{settings:?}");
+    assert!(info["usageLimits"]["windows"].as_array().is_some_and(|w| !w.is_empty()), "{info}");
+    assert!(!info.to_string().contains("status-secret-token"), "{info}");
+}

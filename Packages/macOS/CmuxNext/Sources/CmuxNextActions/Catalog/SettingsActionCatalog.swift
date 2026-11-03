@@ -500,6 +500,16 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 category: .settings, symbol: "gauge.with.dots.needle.67percent", surfaces: [.palette], isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // Lawrence msgs 19596, 19605, 19613, 19627: a live Swift playground of tab bar designs (crowded
+            // tabs, the new-tab control, the trailing ⋮), each row the real tab strip (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.tabBarPlayground",
+                title: String(localized: "action.debug.tabBarPlayground", defaultValue: "Tab Bar Playground", bundle: .module),
+                keywords: ["tab bar", "tabs", "playground", "gallery", "variants", "crowded", "new tab", "plus", "chevron", "more", "debug"],
+                category: .settings, symbol: "rectangle.3.group", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
             // The per-action budget's HUD (zero-latency.md, the budget contract): the newest action runs
             // and their perform-to-commit times, over-budget ones in red (Debug menu, DEV and NIGHTLY).
             ActionDescriptor(

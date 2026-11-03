@@ -125,7 +125,8 @@ const NON_POPUP_REVEALS = new Map<string, string>([
   ["styles.css|.comment-card:hover .comment-card-actions", "comment affordance"],
   ["optchat-inspector/styles.css|.term:hover .tip", "inspector tooltip"],
   ["agent-session/acpmux/styles.css|.acpmux-omni-row:hover .acpmux-omni-action", "new-tab affordance"],
-  // A section's six-dot handle is a drag grip and its fold chevron a disclosure mark: neither opens a menu.
+  // A section's six-dot handle (left of its title) is a drag grip and its fold chevron a disclosure mark:
+  // neither opens a menu.
   [
     "agent-session/acpmux/session-info/sessionInfo.css|.acpmux-session-info-section:has(> .acpmux-session-info-section__disclosure > .ui-disclosure-trigger:hover) > .acpmux-session-info-section__handle",
     "drag handle",

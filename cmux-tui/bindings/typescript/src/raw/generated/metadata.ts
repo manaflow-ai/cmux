@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c. */
+/* cmux-tui mux protocol 12, IR e1376b26094dcc4058ebfae8b8708916c1f9f204117cba1fee8a626ff0266943. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c" as const;
+export const SDK_IR_SHA256 = "e1376b26094dcc4058ebfae8b8708916c1f9f204117cba1fee8a626ff0266943" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1995,7 +1995,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "frontend-browser-tabs-v1",
-    "fields": {},
+    "fields": {
+      "split": {
+        "since": null,
+        "capability": "frontend-browser-tab-split-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -4151,6 +4156,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "selection-changed": {
+    "since": 12,
+    "capability": "tree-selection-deltas-v1",
+    "streams": [
+      "subscribe-deltas"
+    ],
+    "emission": "emitted"
+  },
   "settings-changed": {
     "since": 12,
     "capability": "settings-v1",
@@ -4348,6 +4361,14 @@ export const EVENT_METADATA = {
   "workspace-moved": {
     "since": 7,
     "capability": null,
+    "streams": [
+      "subscribe-deltas"
+    ],
+    "emission": "emitted"
+  },
+  "workspace-presentation-changed": {
+    "since": 12,
+    "capability": "tree-selection-deltas-v1",
     "streams": [
       "subscribe-deltas"
     ],
@@ -10082,6 +10103,77 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SelectionPane": {
+    "additional_properties": false,
+    "fields": {
+      "active_tab": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "focused_at": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SelectionScreen": {
+    "additional_properties": false,
+    "fields": {
+      "active": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "active_pane": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "panes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "SelectionPane"
+          },
+          "kind": "array"
         }
       }
     },
@@ -22206,6 +22298,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "split": {
+          "capability": "frontend-browser-tab-split-v1",
+          "default": null,
+          "description": "With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationTabSplit"
+          }
+        },
         "title": {
           "default": null,
           "nullable": true,
@@ -31049,6 +31152,55 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "selection-changed": {
+    "additional_properties": false,
+    "fields": {
+      "active": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "active_workspace": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "selection-changed"
+        }
+      },
+      "screens": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "SelectionScreen"
+          },
+          "kind": "array"
+        }
+      },
+      "workspace": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "settings-changed": {
     "additional_properties": false,
     "fields": {
@@ -32252,6 +32404,36 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "workspace-presentation-changed": {
+    "additional_properties": false,
+    "fields": {
+      "entity": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Workspace"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "workspace-presentation-changed"
+        }
+      },
+      "workspace": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
         }
       }
     },
