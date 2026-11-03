@@ -42,6 +42,9 @@ impl Hub {
         prompt: &str,
         options: &Value,
     ) -> Result<Value, RpcError> {
+        if options.get("on").is_some_and(|host| !host.is_string()) {
+            return Err(RpcError::invalid_params("on must name a machine"));
+        }
         match &activity.child {
             Child::Machine { session_id, task_id, .. } => {
                 let gate = self.workflow_runs.gate(&run.id).lock_owned().await;
@@ -190,12 +193,12 @@ impl Hub {
                     options.get("stallMs").and_then(Value::as_u64).unwrap_or(300_000).max(1),
                 );
                 'attempt: loop {
-                    if key != recovery.key {
-                        key = recovery.key.clone();
-                        if let Some(validator) = validator.as_mut() {
-                            validator.rebind(key.clone());
-                        }
+                    if key != recovery.key
+                        && let Some(validator) = validator.as_mut()
+                    {
+                        validator.rebind(recovery.key.clone());
                     }
+                    key = recovery.key.clone();
                     let gate = self.workflow_runs.gate(&run.id).lock_owned().await;
                     self.workflow_runs
                         .store()
@@ -241,7 +244,14 @@ impl Hub {
                                     model: pick("model"),
                                     effort: pick("effort"),
                                     route: pick(if restarted { "fallbackRoute" } else { "route" }),
-                                    name: Some(pick("name").unwrap_or_else(|| run.name.clone())),
+                                    name: Some(format!(
+                                        "{} · {}",
+                                        pick("name").unwrap_or_else(|| run.name.clone()),
+                                        crate::workflow_runs::digest(&session_id)
+                                            .chars()
+                                            .take(12)
+                                            .collect::<String>()
+                                    )),
                                     cwd: Some(run.cwd.clone()),
                                     starter: Some(run.owner_session_id.clone()),
                                     env,
@@ -730,16 +740,11 @@ impl Hub {
         run: &RunRecord,
         activity: &str,
     ) -> Result<(), RpcError> {
-        // Descendants use explicit separators. A plain prefix would cancel a sibling
-        // such as `test-lint` when stopping `test`.
-        let child_prefixes = ["-prompt-", "-task-", "-nudge-", "-remote-"];
+        let Some(parent) = run.activities.get(activity) else {
+            return Ok(());
+        };
         for child in run.activities.values().filter(|child| {
-            child.outcome.is_none()
-                && (child.id == activity
-                    || child_prefixes.iter().any(|suffix| {
-                        child.id.starts_with(activity)
-                            && child.id[activity.len()..].starts_with(suffix)
-                    }))
+            child.outcome.is_none() && (child.id == activity || workflow_child_of(parent, child))
         }) {
             match &child.child {
                 Child::Agent { session_id, prompt_id, .. } => {
@@ -829,6 +834,58 @@ impl Hub {
             return Err(RpcError::internal("workflow prompt has no exact persisted turn"));
         }
         Ok(reply)
+    }
+}
+
+/// Internal child kinds cannot be requested by the runner. Require their exact
+/// deterministic identity and owned session/task as well, so a logical sibling
+/// named like `test-prompt-x` is never mistaken for a child of `test`.
+fn workflow_child_of(parent: &ActivityRecord, child: &ActivityRecord) -> bool {
+    match (&parent.child, &child.child, child.kind.as_str()) {
+        (
+            Child::Agent { session_id, prompt_id, host },
+            Child::Agent { session_id: owned, prompt_id: prompt, host: owned_host },
+            "agent_prompt",
+        ) => {
+            owned_host == host
+                && (owned == session_id || owned == &format!("{session_id}-restart"))
+                && prompt.strip_prefix(prompt_id).is_some_and(|suffix| suffix.starts_with("-g"))
+                && child.id
+                    == format!("{}-prompt-{}", parent.id, crate::workflow_runs::digest(prompt))
+        }
+        (
+            Child::Agent { host, .. },
+            Child::Agent { session_id, prompt_id, host: owned_host },
+            "agent_nudge",
+        ) => {
+            owned_host == host
+                && serde_json::from_value::<Policy>(parent.policy.clone())
+                    .ok()
+                    .and_then(|policy| policy.nudge)
+                    .is_some_and(|intent| {
+                        intent.id == child.id
+                            && intent.session_id == *session_id
+                            && intent.prompt_id == *prompt_id
+                    })
+        }
+        (
+            Child::Machine { session_id, task_id, host },
+            Child::Machine { session_id: owned, task_id: task, host: owned_host },
+            "machine_task",
+        ) => {
+            owned == session_id
+                && owned_host == host
+                && child.fingerprint == parent.fingerprint
+                && task
+                    .strip_prefix(task_id)
+                    .and_then(|suffix| suffix.strip_prefix("-g"))
+                    .and_then(|generation| generation.parse::<u64>().ok())
+                    .is_some_and(|generation| {
+                        task == &format!("{task_id}-g{generation}")
+                            && child.id == format!("{}-task-{generation}", parent.id)
+                    })
+        }
+        _ => false,
     }
 }
 
@@ -950,6 +1007,103 @@ mod tests {
             })
             .unwrap();
         turns
+    }
+
+    #[tokio::test]
+    async fn workflow_invalid_placement_cannot_create_a_local_agent() {
+        let (hub, run, child) = activity_chat();
+        for on in [json!(["ci"]), Value::Null, json!(true), json!(4), json!({"host":"ci"})] {
+            let error = hub
+                .workflow_execute(&run, run.generation, &child, "test", &json!({"on":on}))
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, RpcError::invalid_params("").code);
+        }
+        let Child::Agent { session_id, .. } = &child.child else { unreachable!() };
+        assert!(
+            hub.resolve(session_id).is_err(),
+            "invalid placement cannot silently launch locally"
+        );
+        cleanup(hub, run).await;
+    }
+
+    #[tokio::test]
+    async fn workflow_parallel_activities_have_distinct_names_with_same_title() {
+        let (hub, run, first) = activity_chat();
+        let mut second = first.clone();
+        second.id = "second".into();
+        second.child = Child::Agent {
+            session_id: format!("{}-second", run.id),
+            prompt_id: format!("{}-second-prompt", run.id),
+            host: None,
+        };
+        hub.workflow_runs
+            .store()
+            .register_activity(&run.id, run.generation, "owner", second.clone())
+            .unwrap();
+        let options = json!({"harness":"fake","name":"Shared title"});
+        let (a, b) = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            tokio::join!(
+                hub.workflow_execute(&run, run.generation, &first, "test", &options),
+                hub.workflow_execute(&run, run.generation, &second, "test", &options)
+            )
+        })
+        .await
+        .unwrap();
+        assert_eq!(a.unwrap(), json!("{\"ok\":true}"));
+        assert_eq!(b.unwrap(), json!("{\"ok\":true}"));
+        let name = |activity: &ActivityRecord| {
+            let Child::Agent { session_id, .. } = &activity.child else { unreachable!() };
+            hub.resolve(session_id).unwrap().meta().name
+        };
+        let (a, b) = (name(&first), name(&second));
+        assert!(a.starts_with("Shared title · ") && b.starts_with("Shared title · "));
+        assert_ne!(a, b);
+        cleanup(hub, run).await;
+    }
+
+    #[tokio::test]
+    async fn workflow_cancellation_preserves_reserved_looking_logical_siblings() {
+        let (hub, run, mut parent) = activity_chat();
+        parent.id = "test".into();
+        hub.workflow_runs
+            .store()
+            .register_activity(&run.id, run.generation, "owner", parent.clone())
+            .unwrap();
+        let Child::Agent { session_id, prompt_id, host } = &parent.child else { unreachable!() };
+        let prompt = format!("{prompt_id}-g1-0-0");
+        let owned = ActivityRecord {
+            id: format!("test-prompt-{}", crate::workflow_runs::digest(&prompt)),
+            kind: "agent_prompt".into(),
+            child: Child::Agent {
+                session_id: session_id.clone(),
+                prompt_id: prompt,
+                host: host.clone(),
+            },
+            ..parent.clone()
+        };
+        hub.workflow_runs
+            .store()
+            .register_activity(&run.id, run.generation, "owner", owned.clone())
+            .unwrap();
+        for id in ["test-lint", "test-prompt-x", "test-task-1", "test-nudge-x"] {
+            let sibling = ActivityRecord { id: id.into(), ..parent.clone() };
+            hub.workflow_runs
+                .store()
+                .register_activity(&run.id, run.generation, "owner", sibling)
+                .unwrap();
+        }
+        let current = hub.workflow_runs.store().get(&run.id).unwrap();
+        hub.workflow_cancel_activity(&current, "test").await.unwrap();
+        let current = hub.workflow_runs.store().get(&run.id).unwrap();
+        assert!(
+            current.activities[&owned.id].outcome.is_some(),
+            "owned internal prompt must be cancelled"
+        );
+        for id in ["test-lint", "test-prompt-x", "test-task-1", "test-nudge-x"] {
+            assert!(current.activities[id].outcome.is_none(), "sibling {id} must survive");
+        }
+        cleanup(hub, run).await;
     }
 
     #[tokio::test]
