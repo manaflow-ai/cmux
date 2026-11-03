@@ -84,7 +84,7 @@ import bench_memory as bm  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 from bench_power import wipe_state  # noqa: E402  (the tagged app's saved state under the real ~/Library)
 import chat_open_frames as cof  # noqa: E402
-from chat_open_summary import cell, summarize  # noqa: E402
+from chat_open_summary import cell, invalid_reason, summarize  # noqa: E402
 import chat_open_seed_cache as seed_cache  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -510,7 +510,7 @@ def why(record):
     """What an open's log line says beyond its times, so a run with no artifact (a failed step returns
     none) still shows why an open had no first content."""
     parts = []
-    for key in ("error", "timed_out"):
+    for key in ("error", "timed_out", "invalid_reason"):
         if record.get(key):
             parts.append(f"{key}={str(record[key])[:200]}")
     if not record.get("first_content_ms"):
@@ -798,9 +798,11 @@ def main():
                         say(f"chat-open: {condition} {case} {index}: first_content_frame_ms={record.get('first_content_ms')} "
                             f"final_frame_ms={record.get('final_frame_ms')} first_is_final={record.get('first_is_final')} "
                             f"between={record.get('between_frames')} blank={record.get('blank_frames')} "
+                            f"transcript_ms={record.get('transcript_ms')} watch_started_ms={record.get('watch_started_ms')} "
                             f"drift={json.dumps(record.get('drift'))}" + (f" error={str(record['error'])[:300]}" if record.get("error") else ""))
                         continue
                     record = measure_case(run, case, sessions[condition], index)
+                    record["invalid_reason"] = invalid_reason(record)
                     records.append(record)
                     say(f"chat-open: {condition} {case} {index}: first_content_ms={record.get('first_content_ms')} "
                         f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}{why(record)}")
@@ -828,6 +830,7 @@ def main():
                             time.sleep(0.5)  # test script: waiting for the app's recorder to finish
                         if not recorded(record_dir):
                             say(f"chat-open: {condition} restore {index}: the launch recording wrote no frames.json")
+                    record["invalid_reason"] = invalid_reason(record)
                     records.append(record)
                     say(f"chat-open: {condition} restore {index}: first_content_ms={record.get('first_content_ms')} "
                         f"first_image_ms={record.get('first_image_ms')} saved_pictures={pictures}{why(record)}")
