@@ -184,3 +184,55 @@ async fn a_steer_sent_now_still_stops_a_foreground_shell() {
     };
     assert_eq!(written.iter().filter(|l| is_interrupt(l)).count(), 1, "{written:?}");
 }
+
+/// Send now ends the turn it stops (Leo, 2026-11-03: "idk why we're getting into these weird
+/// thinking states"). The stopped step's result answers the prompt `cancelled`, carrying the
+/// steer Claude Code has not read, and that steer runs as a turn of its own (`carry.rs`): it is
+/// read into the carry and its `_meta.carried` prompt ends at that turn's result.
+#[tokio::test]
+async fn send_now_ends_the_stopped_turn_and_the_steer_runs_as_its_own() {
+    let now = || Message::request(9, method::MUX_STEP_NOW, json!({"sessionId": "acp-1"}));
+    let ways = [
+        (json!({"steer": true, "steerNow": true, "promptId": "p-2"}), None),
+        (json!({"steer": true, "promptId": "p-2"}), Some(now())),
+    ];
+    for (meta, stop) in ways {
+        let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+        let Outbound::Lines(first) = t.outbound(&prompt(1, "run sleep 25", json!({}))).await else {
+            panic!()
+        };
+        t.inbound(&echo(&first[0])).await;
+        let Outbound::Lines(written) = t.outbound(&prompt(2, "reply PINEAPPLE", meta.clone())).await
+        else {
+            panic!()
+        };
+        let steer = written[0].clone();
+        if let Some(stop) = &stop {
+            let Outbound::Lines(_) = t.outbound(stop).await else { panic!("{stop:?}") };
+        }
+        let msgs = t.inbound(&serde_json::from_str(INTERRUPTED).unwrap()).await;
+        let ended = answer(&msgs, 1).unwrap_or_else(|| panic!("{meta}: the turn stayed open"));
+        assert_eq!(ended["stopReason"], "cancelled", "{meta}: {ended}");
+        let carry = ended["_meta"]["claude"]["carried"].clone();
+        assert_eq!(carry["promptIds"], json!(["p-2"]), "{meta}: {ended}");
+        assert!(answer(&msgs, 2).is_none(), "{meta}: the steer is not read yet: {msgs:?}");
+        // The steer's own turn: the hub's carried prompt writes nothing.
+        let carried = Message::request(
+            3,
+            method::SESSION_PROMPT,
+            json!({"sessionId": "acp-1", "prompt": [], "_meta": {"carried": true}}),
+        );
+        let Outbound::Lines(none) = t.outbound(&carried).await else {
+            panic!("{meta}: the carried prompt was answered at once")
+        };
+        assert!(none.is_empty(), "{meta}: {none:?}");
+        let msgs = t.inbound(&echo(&steer)).await;
+        let read = answer(&msgs, 2).expect("the steer is answered at its echo");
+        assert_eq!(read["stopReason"], "steered", "{meta}: {read}");
+        assert_eq!(read["_meta"]["claude"]["carried"], carry["seq"], "{meta}: {read}");
+        let msgs = t.inbound(&serde_json::from_str(DONE).unwrap()).await;
+        let next = answer(&msgs, 3).expect("the steer's turn ends at its result");
+        assert_eq!(next["stopReason"], "end_turn", "{meta}: {next}");
+        assert!(answer(&msgs, 1).is_none(), "{meta}: {msgs:?}");
+    }
+}
