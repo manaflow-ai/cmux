@@ -67,6 +67,8 @@ fn events(dir: &std::path::Path, ev: &str) -> Vec<Value> {
 #[test]
 fn a_subagent_answer_names_its_harness_and_session() {
     let mut h = Harness::new(default_script());
+    h.brain
+        .set_trace(Trace::open(&h.dir.path().join("traces"), false).unwrap());
     h.agents.hold(true);
     let a = spawner(&h);
     let spawned = pump(
