@@ -36,14 +36,21 @@ echo "tab-hibernation: ref $(git rev-parse HEAD)"
 # A fleet step has no LaunchServices session: run the app binary itself (bench_memory.launch).
 CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/bench_hibernation.py --app "$app" --engines chromium --tabs 48 --heap-mb 40 \
   --pressure --pressure-reuse --out "$PWD/tab-hibernation.json" "$@"
-# The run's verdict on the never-hibernate rule: a media or agent-driven page that slept fails it.
+# The run's verdict on the keep rules (Chrome's: only an audible page is kept): a page that plays sound that is
+# heard, or an agent-driven page, that slept fails it; a page whose media its own page muted that never slept fails
+# it too; an audible page that did not play makes the run unjudged.
 python3 - "$PWD/tab-hibernation.json" <<'PY'
 import json, sys
 report = json.load(open(sys.argv[1]))
 pressure = report.get("pressure") or {}
 if pressure.get("skipped"):
     sys.exit("tab-hibernation: the pressure phase did not run: " + pressure["skipped"])
+audible = pressure.get("playing_audible") or {}
+if not audible or not all(value is True for value in audible.values()):
+    sys.exit("tab-hibernation: the audible page did not play, so the keep rule was not tested: " + json.dumps(audible))
 bad = (pressure.get("playing_hibernated") or []) + (pressure.get("driven_hibernated") or [])
-print("PERF-HIBERNATE-VERDICT never_hibernate=" + ("FAIL " + ",".join(bad) if bad else "ok"))
-sys.exit(1 if bad else 0)
+kept = pressure.get("silent_kept") or []
+print("PERF-HIBERNATE-VERDICT never_hibernate=" + ("FAIL " + ",".join(bad) if bad else "ok")
+      + " silent_hibernates=" + ("FAIL " + ",".join(kept) if kept else "ok"))
+sys.exit(1 if bad or kept else 0)
 PY
