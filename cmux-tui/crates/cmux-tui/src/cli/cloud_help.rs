@@ -414,7 +414,7 @@ QUICK START
   cmux cloud start-chat --name dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
   Then, on that chat (MACHINE_ID and SESSION_ID from the answer):
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID "next prompt"'
+  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
 
@@ -445,7 +445,7 @@ const INTRO_JA: &str = "\
   cmux cloud start-chat --name dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
   続けて同じチャットに（MACHINE_ID と SESSION_ID は返答から）:
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID "next prompt"'
+  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
 
@@ -517,7 +517,7 @@ EXAMPLES
   cmux cloud start-chat --name dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
 FOLLOW-UPS (MACHINE_ID and SESSION_ID from the answer)
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID "next prompt"'
+  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
 

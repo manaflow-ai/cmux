@@ -128,7 +128,12 @@ struct Fake {
 
 impl Fake {
     fn new(answers: Vec<Ran>) -> Self {
-        Self { answers: answers.into(), ran: Vec::new(), clock: Instant::now(), paused: Duration::ZERO }
+        Self {
+            answers: answers.into(),
+            ran: Vec::new(),
+            clock: Instant::now(),
+            paused: Duration::ZERO,
+        }
     }
 }
 
@@ -215,7 +220,8 @@ fn without_wait_it_answers_once_the_prompt_is_sent() {
         started(),
         exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
     ]);
-    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"])) else {
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
         panic!()
     };
     assert_eq!(answer["delivery"], "delivery-1");
@@ -255,12 +261,8 @@ fn a_pending_machine_names_the_command_that_waits_on() {
 fn a_permission_question_and_a_timeout_say_what_to_do() {
     let sent = || exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n");
     let running = "@@history\n{\"turns\":[{\"seq\":2,\"status\":\"running\"}]}\n@@last\n{}\n";
-    let mut fake = Fake::new(vec![
-        signed_in(),
-        started(),
-        sent(),
-        exec_out(&format!("@@wait 2\n{running}")),
-    ]);
+    let mut fake =
+        Fake::new(vec![signed_in(), started(), sent(), exec_out(&format!("@@wait 2\n{running}"))]);
     let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
     else {
         panic!()

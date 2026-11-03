@@ -31,7 +31,6 @@ use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
 
-
 /// The longest `--wait` takes by default, and at most.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(900);
 const MAX_TIMEOUT: Duration = Duration::from_secs(4 * 60 * 60);
@@ -152,11 +151,10 @@ pub(super) fn parse(
             "--target" => target = Some(value()?),
             "--timeout" => {
                 let text = value()?;
-                let seconds = text
-                    .parse::<u64>()
-                    .ok()
-                    .filter(|seconds| *seconds > 0)
-                    .ok_or_else(|| UsageError::new(format!("--timeout {text}: give seconds")))?;
+                let seconds =
+                    text.parse::<u64>().ok().filter(|seconds| *seconds > 0).ok_or_else(|| {
+                        UsageError::new(format!("--timeout {text}: give seconds"))
+                    })?;
                 timeout = Duration::from_secs(seconds).min(MAX_TIMEOUT);
             }
             "--wait" => wait = true,
@@ -175,9 +173,13 @@ pub(super) fn parse(
     }
     let agent = agent.unwrap_or_else(|| "claude".to_owned());
     if agent.is_empty()
-        || !agent.chars().all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || "._-".contains(ch))
+        || !agent
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || "._-".contains(ch))
     {
-        return Err(UsageError::new(format!("--agent {agent:?}: a harness id such as claude or codex")));
+        return Err(UsageError::new(format!(
+            "--agent {agent:?}: a harness id such as claude or codex"
+        )));
     }
     if let Some(dir) = &cwd
         && !dir.starts_with('/')

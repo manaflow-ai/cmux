@@ -180,7 +180,10 @@ fn quick_start_commands_parse() {
         // Two start-chat lines, three follow-ups and five machine lines; the quick start's
         // create is `cmux machine new`.
         assert_eq!(commands.len(), 10, "{commands:?}");
-        assert!(commands[0].starts_with("cmux cloud start-chat "), "start-chat leads: {commands:?}");
+        assert!(
+            commands[0].starts_with("cmux cloud start-chat "),
+            "start-chat leads: {commands:?}"
+        );
         for command in commands {
             let words = shell_words(command)
                 .into_iter()
@@ -238,7 +241,8 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
         .collect::<Vec<_>>();
     assert_eq!(examples.len(), 2, "{examples:?}");
     for example in examples {
-        let words = shell_words(example).into_iter().skip(3).filter(|w| w != "--json").collect::<Vec<_>>();
+        let words =
+            shell_words(example).into_iter().skip(3).filter(|w| w != "--json").collect::<Vec<_>>();
         assert!(
             matches!(
                 crate::cli::cloud_start_chat::parse(&words, || Err(String::new())),
