@@ -19,7 +19,7 @@ import XCTest
 /// same hang came with no Contacts line at all). The run-loop guard
 /// (Tests/Support/CmuxNextTestExitTrace) had queued a block that never returns, so that one turn
 /// took xctest's main thread and XCTest never ran its suite.
-struct XCTestPhaseTests {
+nonisolated struct XCTestPhaseTests {
     @Test func theRunLoopGuardHoldsOnlyTheSwiftTestingHelper() {
         #expect(cmux_next_test_runloop_guard_holds_in("swiftpm-testing-helper") == 1)
         #expect(cmux_next_test_runloop_guard_holds_in("xctest") == 0)
@@ -107,8 +107,9 @@ struct XCTestPhaseTests {
 
 /// Run by ``XCTestPhaseTests`` in a child `xctest`, and by the XCTest phase of a whole-package
 /// `swift test`, where it passes in about 50 ms. It waits on an expectation the way XCTest's
-/// start-up does: the wait turns the main run loop until the expectation is met.
-final class XCTestPhaseRunLoopProbe: XCTestCase {
+/// start-up does: the wait turns the main run loop until the expectation is met. `nonisolated`:
+/// this target defaults to the main actor, and XCTestCase's initializers are not isolated.
+nonisolated final class XCTestPhaseRunLoopProbe: XCTestCase {
     func testAnXCTestWaitReturns() {
         let turned = expectation(description: "the main run loop turned")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { turned.fulfill() }
