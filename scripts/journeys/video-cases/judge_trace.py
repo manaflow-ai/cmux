@@ -16,9 +16,10 @@ at its HID t_sent moved to the host clock by the entry's own host_offset_s (ext_
 one, else at the app input journal's mouse-down (uptimeNanos, the trace's clock). With no drag, the whole film is one
 motion, as before; when the events have HID drags that nothing places on the trace's clock (no host_offset_s, no
 journal), the report's `notes` says the film is not split. Drags that start at the same sample (several before the
-trace starts) cut once, and the part is labelled with the last of them. A part's dropped refreshes and film frames stop
-at the next part's first sample, so a drop between two close drags counts once. The report's `motions` has one entry
-per part (its input, motion and each pane edge's travel); `motion` spans them all. Each defect of a split film has
+trace starts) cut once, and the part is labelled with the last of them. Each trace interval and film-frame interval is
+judged by the part whose motion window (the motion and 2 refreshes either side) holds it; when two close drags' windows
+both hold it, by the part whose span (from its cut to the next cut) holds it: a drop between two close drags counts
+once, and none is lost. The report's `motions` has one entry per part (its input, motion and each pane edge's travel); `motion` spans them all. Each defect of a split film has
 `drag`, the index (in the sorted drag starts) of the drag that starts its part.
 
 It reports, with the frame number (the trace sample index, and the movie frame index when --frames is given):
@@ -116,7 +117,9 @@ def drag_starts(trace, events):
 def unsplit_note(events):
     """Why a film whose events have drags is not split, or None. HID drags with no host_offset_s (rounds before
     #32776) are on the driver's clock; without the journal's mouse-downs nothing places them on the trace's clock."""
-    drags = [h for h in (events or {}).get("hid") or [] if isinstance(h, dict) and h.get("kind") == "drag"]
+    if not isinstance(events, dict):
+        return None
+    drags = [h for h in events.get("hid") or [] if isinstance(h, dict) and h.get("kind") == "drag"]
     if not drags:
         return None
     return (f"{len(drags)} HID drag(s) with no host_offset_s and no mouse-down in the app journal: nothing places them "
@@ -224,7 +227,50 @@ def judge(trace, frames=None, scale=2.0, events=None):
     defects, motions = [], []
     t0 = float(trace.get("t0_s") or 0)
     rows = [r for r in (frames or []) if isinstance(r, list) and r]
+    host = lambda i: t0 + float(samples[i]["t"]) / 1000  # noqa: E731
+    # Each part's motion window, as for a whole film before the split: trace intervals into samples
+    # first-2 .. last+2, film frames within 2 refreshes of the motion's samples.
+    windows = []
     for drag, inside, part_lo, part_hi in parts:
+        if inside:
+            first, last = inside[0], inside[-1]
+            windows.append(((max(1, first - 2), min(len(samples) - 1, last + 2)),
+                            (host(first - 1) - 2 * refresh / 1000, host(last) + 2 * refresh / 1000)))
+        else:
+            windows.append(None)
+    # An interval (into trace sample i, or between two film frames by the later one) is judged by the part whose
+    # window holds it. When two close drags' windows both hold it, it goes to the part whose own span (from its cut
+    # to the next cut) holds it, else to the earlier part: each is counted once, and none that a window holds is lost.
+    def owner(holders, own):
+        return own if own in holders else (holders[0] if holders else None)
+    def part_of_sample(i):
+        return next((k for k, (_, _, lo, hi) in enumerate(parts) if lo <= i < hi), None)
+    def part_of_time(t):
+        k = None
+        for j, (_, _, lo, _) in enumerate(parts):
+            if lo == 0 or t >= host(lo):
+                k = j
+        return k
+    trace_owner = {}
+    for i in range(1, len(samples)):
+        holders = [k for k, w in enumerate(windows) if w and w[0][0] <= i <= w[0][1]]
+        if holders:
+            trace_owner[i] = owner(holders, part_of_sample(i))
+    complete_rows = [(k, float(r[0])) for k, r in enumerate(rows) if (r[1] if len(r) > 1 else None) in (None, "complete", 0, "0")]
+    def in_movie_window(k, t):
+        return windows[k] is not None and windows[k][1][0] <= t <= windows[k][1][1]
+    row_owner = {}
+    for k, r in enumerate(rows):
+        t = float(r[0])
+        holders = [j for j in range(len(parts)) if in_movie_window(j, t)]
+        if holders:
+            row_owner[k] = owner(holders, part_of_time(t))
+    pair_owner = {}
+    for (k0, a), (k1, b) in zip(complete_rows, complete_rows[1:]):
+        holders = [j for j in range(len(parts)) if in_movie_window(j, a) and in_movie_window(j, b)]
+        if holders:
+            pair_owner[k1] = (k0, a, b, owner(holders, part_of_time(b)))
+    for n, (drag, inside, part_lo, part_hi) in enumerate(parts):
         entry = {"input": None if drag is None else {"drag": drag, "t_ms": round(starts[drag], 2), "source": source},
                  "motion": None}
         motions.append(entry)
@@ -236,10 +282,8 @@ def judge(trace, frames=None, scale=2.0, events=None):
             if source:
                 d["drag"] = drag
             defects.append(d)
-        # dropped refreshes in the trace while it moves (and 2 refreshes either side, within this part: the interval
-        # into sample i belongs to the part that holds sample i, so a drop between two close drags counts once)
-        lo, hi = max(1, first - 2, part_lo), min(len(samples) - 1, last + 2, part_hi - 1)
-        for i in range(lo, hi + 1):
+        # dropped refreshes in the trace while it moves (and 2 refreshes either side)
+        for i in sorted(i for i, k in trace_owner.items() if k == n):
             dt = float(samples[i]["t"]) - float(samples[i - 1]["t"])
             missed = round(dt / refresh) - 1
             if missed >= 1:
@@ -249,20 +293,8 @@ def judge(trace, frames=None, scale=2.0, events=None):
                            "frames": last - first + 1, "panes_at_rest": rest}
         entry["travel"] = travel
         if rows:
-            lo_s = t0 + float(samples[first - 1]["t"]) / 1000 - 2 * refresh / 1000
-            hi_s = t0 + float(samples[last]["t"]) / 1000 + 2 * refresh / 1000
-            # The motion's film frames are those within 2 refreshes of it, as before the split. Of these, a frame
-            # belongs to this part when it comes at or after this part's first sample and before the next part's
-            # first sample (host time), and an interval belongs to the part of its later frame: two close drags'
-            # margins share frames, but each frame and each interval is counted once.
-            own_lo = t0 + float(samples[part_lo]["t"]) / 1000 if part_lo > 0 else float("-inf")
-            own_hi = t0 + float(samples[part_hi]["t"]) / 1000 if part_hi < len(samples) else float("inf")
-            window = [(k, float(r[0]), r[1] if len(r) > 1 else None) for k, r in enumerate(rows) if lo_s <= float(r[0]) <= hi_s]
-            in_window = [(k, t) for k, t, st in window if st in (None, "complete", 0, "0")]
-            inside_rows = [w for w in window if own_lo <= w[1] < own_hi]
-            complete = [(k, t) for k, t in in_window if own_lo <= t < own_hi]
-            for (k0, a), (k1, b) in zip(in_window, in_window[1:]):
-                if not own_lo <= b < own_hi:
+            for k1, (k0, a, b, k) in sorted(pair_owner.items()):
+                if k != n:
                     continue
                 missed = round((b - a) * 1000 / refresh) - 1
                 if missed >= 1:
@@ -271,7 +303,9 @@ def judge(trace, frames=None, scale=2.0, events=None):
                     if source:
                         d["drag"] = drag
                     defects.append(d)
-            entry["movie"] = {"frames_in_motion": len(inside_rows), "complete": len(complete)}
+            mine = [k for k, j in row_owner.items() if j == n]
+            entry["movie"] = {"frames_in_motion": len(mine),
+                              "complete": sum(1 for k in mine if (rows[k][1] if len(rows[k]) > 1 else None) in (None, "complete", 0, "0"))}
     judged = [m["motion"] for m in motions if m["motion"]]
     first, last = judged[0]["first_frame"], judged[-1]["last_frame"]
     movie = None
