@@ -39,7 +39,7 @@ enum TabContent {
     @MainActor var inputReadiness: PageInputReadiness? {
         switch self {
         case .agent(let view): view.inputReadiness
-        case .page(let view): (view.content as? PageWebView)?.inputReadiness
+        case .page(let view): PageWebView.shown(in: view.content)?.inputReadiness
         default: nil
         }
     }
