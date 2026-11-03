@@ -548,6 +548,14 @@ fn oversize(content: &Value) -> bool {
 /// Claude Code's `tool_result` blocks in a user message; `structured` is the line's
 /// `toolUseResult`, which `settle_write` checks against each Write's own path.
 pub fn claude_tool_results(content: &Value, structured: Option<&Value>) -> Vec<ToolResult> {
+    claude_tool_results_for_session(content, structured, None)
+}
+
+pub(crate) fn claude_tool_results_for_session(
+    content: &Value,
+    structured: Option<&Value>,
+    session: Option<&str>,
+) -> Vec<ToolResult> {
     content
         .as_array()
         .into_iter()
@@ -559,7 +567,7 @@ pub fn claude_tool_results(content: &Value, structured: Option<&Value>) -> Vec<T
             // What is kept is bounded by the transcript tail adopt reads (`adopt_replay::MAX_BYTES`),
             // which already holds each image.
             let mut content = result_text(block.get("content"));
-            content.extend(crate::claude_stdio::result_images(block.get("content")));
+            content.extend(crate::claude_stdio::result_images(block.get("content"), session));
             Some(ToolResult {
                 id: s(block, "tool_use_id")?.to_owned(),
                 done: json!({

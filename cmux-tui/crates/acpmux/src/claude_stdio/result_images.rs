@@ -1,27 +1,12 @@
-//! The images a Claude Code tool returns, as ACP content (manaflow-ai/cmux "why image
-//! unavailbale"). A Read of a PNG, or an MCP tool that answers with a screenshot, gives a
-//! `tool_result` whose content holds Anthropic image blocks
-//! (`{"type":"image","source":{"type":"base64","media_type":...,"data":...}}`). Only its text
-//! reached the client, so the pane fell back to the file's path and asked the Mac for it: for a
-//! chat on another machine the path is not there, and the row said "Image unavailable".
-//!
-//! Each such block becomes an ACP image block in the call's `tool_call_update`, the shape
-//! `outbound.rs` turns back into Claude's. The update is logged like every other, so a chat
-//! reopened later still draws the image. The bytes are those Claude Code already holds (it scales
-//! an image to what the API takes, at most 5 MiB of base64), and the images of one result are
-//! kept up to [`MAX_RESULT_IMAGE_BYTES`] of base64: the update stays well inside one message
-//! (`rpc::MAX_MESSAGE_BYTES`), and the client draws an image up to the same size. An image past
-//! that budget, or one given by URL, is left out, and the pane falls back to its path as before.
+//! Claude Code tool images: small previews inline, complete larger originals as session files.
+//! References use ordinary Markdown file links, so older clients can still open the original.
+//! The inline budget bounds a preview/update, never the tool's result.
 
 use serde_json::{Value, json};
 
-/// The most base64 the images of one tool result keep (the client's limit for one image).
-pub(crate) const MAX_RESULT_IMAGE_BYTES: usize = 8 << 20;
+const INLINE_BYTES: usize = 8 << 20;
 
-/// The image blocks of a `tool_result`'s `content`, as ACP `content` blocks, in order, within
-/// [`MAX_RESULT_IMAGE_BYTES`]. Empty for text content.
-pub(crate) fn result_images(content: Option<&Value>) -> Vec<Value> {
-    let mut left = MAX_RESULT_IMAGE_BYTES;
+fn sources(content: Option<&Value>) -> impl Iterator<Item = (&str, &str)> {
     content
         .and_then(Value::as_array)
         .into_iter()
@@ -33,9 +18,57 @@ pub(crate) fn result_images(content: Option<&Value>) -> Vec<Value> {
                 return None;
             }
             let data = source.get("data").and_then(Value::as_str).filter(|d| !d.is_empty())?;
-            left = left.checked_sub(data.len())?;
             let mime = source.get("media_type").and_then(Value::as_str).unwrap_or("image/png");
-            Some(json!({"type": "content", "content": {"type": "image", "mimeType": mime, "data": data}}))
+            Some((data, mime))
+        })
+}
+
+fn inline(data: &str, mime: &str) -> Value {
+    json!({"type": "content", "content": {"type": "image", "mimeType": mime, "data": data}})
+}
+
+fn reference(saved: anyhow::Result<std::path::PathBuf>) -> Value {
+    let text = match saved.and_then(|path| {
+        url::Url::from_file_path(&path).map_err(|_| anyhow::anyhow!("invalid image file path"))
+    }) {
+        Ok(uri) => format!("\n\n[Original tool image]({uri})\n"),
+        // A filesystem/invalid-base64 failure is visible rather than silently losing the image.
+        // The source remains in Claude Code's transcript and can be replayed after repair.
+        Err(error) => format!("\n\nTool image could not be saved: {error}.\n"),
+    };
+    json!({"type": "content", "content": {"type": "text", "text": text}})
+}
+
+/// Adoption runs off the runtime. Readers without an owning session (indexing, prompt scans)
+/// keep the source blocks; the paths serving a chat supply its session before sending.
+pub(crate) fn result_images(content: Option<&Value>, session: Option<&str>) -> Vec<Value> {
+    let mut left = INLINE_BYTES;
+    sources(content)
+        .map(|(data, mime)| {
+            if let Some(session) = session.filter(|_| data.len() > left) {
+                reference(crate::hub::result_image_files::save(session, data, mime))
+            } else {
+                left = left.saturating_sub(data.len());
+                inline(data, mime)
+            }
         })
         .collect()
+}
+
+/// A live result uses bounded decode buffers and async writes, with no extra copy of the
+/// provider's full base64 string. Claude Code already supplied that string in its JSON.
+pub(super) async fn live_images(content: Option<&Value>, session: &str) -> Vec<Value> {
+    let mut left = INLINE_BYTES;
+    let mut out = Vec::new();
+    for (data, mime) in sources(content) {
+        if data.len() > left {
+            out.push(reference(
+                crate::hub::result_image_files::save_async(session, data, mime).await,
+            ));
+        } else {
+            left -= data.len();
+            out.push(inline(data, mime));
+        }
+    }
+    out
 }

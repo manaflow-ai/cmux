@@ -222,6 +222,18 @@ pub fn open_in(
     home: Option<&Path>,
     at: &mut dyn FnMut(Step),
 ) -> Result<Opened, RpcError> {
+    open_in_originals(roots, path, home, None, at)
+}
+
+/// Stored originals may exceed the preview source budget. They still pass every descriptor
+/// check and only the owning session's generated names qualify; ordinary media keeps its guard.
+pub(crate) fn open_in_originals(
+    roots: &[PathBuf],
+    path: &str,
+    home: Option<&Path>,
+    originals: Option<&Path>,
+    at: &mut dyn FnMut(Step),
+) -> Result<Opened, RpcError> {
     let (root, parts) = locate(roots, path)?;
     at(Step::Resolved);
     let mut dir = sys::open_root(&root.path).ok_or_else(unreadable)?;
@@ -269,7 +281,10 @@ pub fn open_in(
     let mime = sniff(head.get(..read).unwrap_or_default())
         .ok_or_else(|| refused("media.type", "the file is not a png, jpeg, gif, webp or video"))?;
     let cap = if mime.starts_with("image/") { MAX_IMAGE_BYTES } else { MAX_VIDEO_BYTES };
-    if identity.size > cap {
+    let original = originals
+        .and_then(|root| std::fs::canonicalize(root).ok())
+        .is_some_and(|root| super::result_image_files::is_original(&root, &own));
+    if identity.size > cap && !original {
         return Err(refused("media.tooLarge", &format!("a {mime} is at most {} MiB", cap >> 20))
             .with_data(json!({"reason": "media.tooLarge", "maxBytes": cap})));
     }
@@ -400,7 +415,11 @@ pub async fn handle(
             roots.push(home.clone());
         }
         roots.extend(super::file_uploads::session_dir(&session.id));
-        let opened = blocking(move || open_in(&roots, &path, home.as_deref(), &mut |_| {})).await?;
+        let originals = super::result_image_files::root(&session.id);
+        let opened = blocking(move || {
+            open_in_originals(&roots, &path, home.as_deref(), originals.as_deref(), &mut |_| {})
+        })
+        .await?;
         let (size, mime, identity) = (opened.identity.size, opened.mime, opened.identity.token());
         let handle = handles.insert(&session, opened)?;
         return Ok(json!({"handle": handle, "size": size, "mimeType": mime, "identity": identity}));

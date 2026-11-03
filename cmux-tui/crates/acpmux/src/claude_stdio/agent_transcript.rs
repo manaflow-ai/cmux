@@ -14,7 +14,17 @@ const READ: &str = "read";
 /// `prompt`, `lines` start at the transcript's first line, the agent's prompt, which is also the
 /// person's message.
 pub async fn replay(lines: &[Value], from: usize, prompt: bool) -> Vec<Vec<Value>> {
-    let reader = Translator::new(READ.to_owned(), "default", "default", "default");
+    replay_for_session(lines, from, prompt, READ).await
+}
+
+/// The hub supplies the owning chat so replayed originals have the same access scope as live ones.
+pub(crate) async fn replay_for_session(
+    lines: &[Value],
+    from: usize,
+    prompt: bool,
+    session: &str,
+) -> Vec<Vec<Value>> {
+    let reader = Translator::new(session.to_owned(), "default", "default", "default");
     reader.subagents.lock().await.insert(READ.to_owned(), READ.to_owned());
     let mut out = Vec::with_capacity(lines.len().saturating_sub(from));
     for (at, line) in lines.iter().enumerate() {

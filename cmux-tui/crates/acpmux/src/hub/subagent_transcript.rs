@@ -103,6 +103,7 @@ pub(crate) async fn handle(hub: &std::sync::Arc<Hub>, params: &Value) -> Result<
     let (start, end, from) = text.bounded(start, end, after.is_some());
     // Parsed and replayed off the runtime: a page and the lines before it are CPU work. A line
     // over `PAGE_BYTES` is never parsed: it goes as an `omitted` stub (`fit`).
+    let image_session = session.id.clone();
     let per_line = tokio::task::spawn_blocking(move || {
         let replayed: Vec<Value> = (from..end).map(|at| text.message(at)).collect();
         let huge: Vec<Option<usize>> =
@@ -110,11 +111,13 @@ pub(crate) async fn handle(hub: &std::sync::Arc<Hub>, params: &Value) -> Result<
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
             .map_err(|e| RpcError::internal(e.to_string()))?;
-        let mut per_line = runtime.block_on(crate::claude_stdio::agent_transcript::replay(
-            &replayed,
-            start - from,
-            from == 0 && !truncated,
-        ));
+        let mut per_line =
+            runtime.block_on(crate::claude_stdio::agent_transcript::replay_for_session(
+                &replayed,
+                start - from,
+                from == 0 && !truncated,
+                &image_session,
+            ));
         for (updates, bytes) in per_line.iter_mut().zip(huge) {
             if let Some(bytes) = bytes {
                 *updates = vec![omitted(bytes)];

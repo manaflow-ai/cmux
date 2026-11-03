@@ -439,7 +439,13 @@ impl Translator {
                                 let mut blocks = vec![
                                     json!({"type": "content", "content": {"type": "text", "text": text}}),
                                 ];
-                                blocks.extend(result_images(c.get("content")));
+                                blocks.extend(
+                                    result_images::live_images(
+                                        c.get("content"),
+                                        &self.acp_session_id,
+                                    )
+                                    .await,
+                                );
                                 Value::Array(blocks)
                             }
                         };
