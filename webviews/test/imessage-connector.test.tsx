@@ -62,6 +62,103 @@ afterEach(async () => {
 const button = (container: HTMLElement, text: string) =>
   [...container.querySelectorAll("button")].find((node) => node.textContent === text)!;
 
+test("a Mac browser without a native bridge has no iMessage connector", async () => {
+  const container = install();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<SessionInfo more />);
+  });
+  expect(container.querySelector('[data-section="connectors"]')).toBeNull();
+  expect(container.textContent).not.toContain(translate("imessage.unavailable"));
+});
+
+test("the WebKit native bridge enables iMessage on a Mac", async () => {
+  const container = install();
+  const calls: string[] = [];
+  Object.assign(dom!.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: async ({ method }: { method: string }) => {
+            calls.push(method);
+            return { ok: true, value: { ...IMESSAGE_INITIAL } };
+          },
+        },
+      },
+    },
+  });
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<SessionInfo more />);
+  });
+  expect(calls).toEqual(["imessage.status"]);
+  expect(button(container, translate("imessage.connect"))).toBeDefined();
+});
+
+test("Connectors reveals Connect once, then keeps a manual fold through status refreshes", async () => {
+  const container = install();
+  let status: IMessageData["status"] = "not_connected";
+  setNativeHost(async () => ({ ...IMESSAGE_INITIAL, status }));
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<SessionInfo more />);
+  });
+  const fold = () => container.querySelector<HTMLButtonElement>('[data-section="connectors"] button[aria-expanded]')!;
+  expect(fold().getAttribute("aria-expanded")).toBe("true");
+  await act(async () => fold().click());
+  expect(fold().getAttribute("aria-expanded")).toBe("false");
+  for (const next of ["needs_full_disk_access", "needs_automation", "connected", "not_connected"] as const) {
+    status = next;
+    await act(async () => dom!.window.dispatchEvent(new dom!.window.Event("cmux-imessage-changed")));
+    expect(fold().getAttribute("aria-expanded")).toBe("false");
+  }
+});
+
+test("the Connectors header keeps the MCP count beside an unconnected iMessage row", async () => {
+  const container = install();
+  setNativeHost(async () => ({ ...IMESSAGE_INITIAL }));
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<SessionInfo more summary={{ mcpServers: [{ name: "github", status: "connected" }] }} />);
+  });
+  const section = container.querySelector('[data-section="connectors"]')!;
+  expect(section.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe(
+    translate("rail.connected", { count: 1 }),
+  );
+  expect(button(container, translate("imessage.connect"))).toBeDefined();
+});
+
+test("an action settling while Session Info is hidden leaves buttons enabled when shown again", async () => {
+  const container = install();
+  let controller: IMessageView | undefined;
+  let reply: ((value: IMessageData) => void) | undefined;
+  const delayed = new Promise<IMessageData>((resolve) => {
+    reply = resolve;
+  });
+  setNativeHost(async (method) => (method === "imessage.connect" ? delayed : { ...IMESSAGE_INITIAL }));
+  function Harness({ shown }: { shown: boolean }) {
+    controller = useIMessage(shown);
+    return controller ? <IMessageConnector view={controller} /> : null;
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<Harness shown />);
+  });
+  let pending: Promise<void> | undefined;
+  await act(async () => {
+    pending = controller!.perform("connect");
+  });
+  expect(button(container, translate("imessage.connect")).disabled).toBe(true);
+  await act(async () => root!.render(<Harness shown={false} />));
+  await act(async () => {
+    reply!({ ...IMESSAGE_INITIAL, status: "needs_full_disk_access" });
+    await pending;
+  });
+  await act(async () => root!.render(<Harness shown />));
+  expect(controller!.busy).toBe(false);
+  expect(button(container, translate("imessage.connect")).disabled).toBe(false);
+});
+
 test("Connect is one Show more reveal away without MCP; permission steps precede all thread reads", async () => {
   const container = install();
   const calls: string[] = [];
@@ -188,7 +285,7 @@ for (const stale of ["threads", "status"] as const) {
   });
 }
 
-test("native rows retain Connect without MCP and connected contacts in reader order", () => {
+test("native rows retain Connect without MCP and connected contacts in reader order", async () => {
   const actions = new NativeInfoActions();
   const performed: string[] = [];
   const view = {
@@ -201,9 +298,10 @@ test("native rows retain Connect without MCP and connected contacts in reader or
     },
   };
   const section = connectorsSection({ servers: [], open: false, imessage: view }, actions, translate)!;
-  expect(section.open).toBe(true);
+  expect(section.open).toBe(false);
   expect(section.rows[0]!.title).toBe("iMessage");
-  actions.run(section.rows[0]!.buttons![0]!.action);
+  expect(actions.run(section.rows[0]!.buttons![0]!.action)).toBe(true);
+  await Promise.resolve();
   expect(performed).toEqual(["connect"]);
   const connected = connectorsSection(
     {
