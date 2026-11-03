@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextTestSupport
 import Foundation
 import Testing
@@ -29,6 +30,31 @@ import Testing
         #expect(ShimLog.calls.filter { $0.hasPrefix("command") }.count == 1, "one open")
     }
 
+    /// NEWTAB DEVTOOLS FRAMES (#32911, pacing triage on feat 585171513e37, 120 Hz films): the stand-in's ask ran as a
+    /// main-actor `Task`, which runs from the main queue in the same run-loop pass as the key, before that pass's Core
+    /// Animation commit. So CefBrowserHost::ShowDevTools (about 18 ms, Chromium creates DevTools there) was inside the
+    /// key's commit (commit_ms 43 ms p50, 9 missed vsyncs). Chrome commits the frame the input changed first: Chromium is
+    /// asked only after the pass that shows the stand-in committed its frame.
+    @Test func chromiumIsAskedOnlyAfterTheKeysFrameCommitted() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        tab.performDevTools(.dock(.bottom))
+        // Stands in for Core Animation's commit observer (before waiting, order 2,000,000): it marks each commit.
+        let commit = MainRunLoopObserver(activities: .beforeWaiting, order: 2_000_000) { _ in ShimLog.calls.append("commit") }
+        defer { commit.invalidate() }
+        tab.performDevTools(.show)
+        // The main-actor jobs the key's turn queued run now, before any commit of the run loop.
+        for _ in 0..<20 { await Task.yield() }
+        #expect(!ShimLog.calls.contains { $0.hasPrefix("command") }, "no Chromium creation before the key's frame commits")
+        #expect(tab.devToolsController.standIn, "the stand-in waits for its commit")
+        await rig.until { ShimLog.calls.contains { $0.hasPrefix("command") } }
+        let committed = try #require(ShimLog.calls.firstIndex(of: "commit"), "a run-loop pass committed")
+        let asked = try #require(ShimLog.calls.firstIndex { $0.hasPrefix("command") }, "Chromium was asked")
+        #expect(committed < asked, "the commit of the stand-in's frame comes before Chromium's creation")
+        #expect(ShimLog.calls.filter { $0.hasPrefix("command") } == ["command \(Rig.browser) show"], "one open")
+    }
+
     /// The fake Chromium opens nothing (no DEVTOOLS_WILL_OPEN): the stand-in rolls back after the command.
     @Test func whenChromiumOpensNothingTheStandInRollsBack() async throws {
         let rig = try Rig()
@@ -51,7 +77,7 @@ import Testing
         tab.performDevTools(.toggle)
         tab.performDevTools(.toggle)
         #expect(!tab.devToolsController.reservesRoom)
-        for _ in 0..<20 { await Task.yield() }
+        await rig.passes(20)
         #expect(!ShimLog.calls.contains { $0.hasPrefix("command") }, "Chromium was never asked to open DevTools")
     }
 
@@ -66,7 +92,7 @@ import Testing
         tab.performDevTools(.console)
         #expect(tab.devToolsController.standIn)
         tab.container.isHidden = true  // another tab of the pane shows (PaneContentView parks this one)
-        for _ in 0..<20 { await Task.yield() }
+        await rig.passes(20)
         #expect(!ShimLog.calls.contains { $0.hasPrefix("command") }, "no console for a page that is not shown")
         #expect(!tab.devToolsController.reservesRoom, "the stand-in rolled back")
     }
@@ -95,7 +121,7 @@ import Testing
         tab.performDevTools(.toggle)  // cancels the console stand-in
         tab.performDevTools(.toggle)  // a new stand-in for show
         await rig.until { ShimLog.calls.contains { $0.hasPrefix("command") } }
-        for _ in 0..<20 { await Task.yield() }
+        await rig.passes(20)
         #expect(ShimLog.calls.filter { $0.hasPrefix("command") } == ["command \(Rig.browser) show"])
     }
 
@@ -144,10 +170,21 @@ import Testing
             return tab
         }
 
+        /// Runs main-actor jobs and main run-loop passes (with their observers: the frame commit) until `condition`.
         func until(_ condition: () -> Bool) async {
             let clock = ContinuousClock()
             let deadline = clock.now.advanced(by: .seconds(10))
-            while !condition(), clock.now < deadline { await Task.yield() }
+            while !condition(), clock.now < deadline { await pass() }
+        }
+
+        /// `count` main run-loop passes, each after the main-actor jobs queued so far.
+        func passes(_ count: Int) async {
+            for _ in 0..<count { await pass() }
+        }
+
+        private func pass() async {
+            await Task.yield()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.001))
         }
 
         func close() {
