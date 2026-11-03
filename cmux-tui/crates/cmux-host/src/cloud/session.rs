@@ -478,4 +478,33 @@ mod tests {
             caps(&r[0])
         );
     }
+    /// cmux#33573: daemon a lapses while it says a turn runs and daemon b keeps renewing 0. a's
+    /// agent host may still run that turn, so the report stops advertising `activity-turns`
+    /// until a reports again; it never says "0 sessions, known".
+    #[test]
+    fn a_busy_daemon_that_lapses_beside_an_idle_one_makes_the_count_unknown() {
+        use super::super::wire::ACTIVITY_TURNS_CAPABILITY;
+        let mut s = session();
+        s.activity_stream(true, 0);
+        let turns = |s: &Session| {
+            s.reporter.daemon().capabilities.iter().any(|c| c == ACTIVITY_TURNS_CAPABILITY)
+        };
+        s.line(&acp_from("/a.sock", 1), 0);
+        s.line(&acp_from("/b.sock", 0), 0);
+        s.line(&acp_from("/b.sock", 0), 60_000);
+        assert!(turns(&s));
+        s.fire(ACP_ACTIVITY_TTL_MS);
+        assert_eq!(s.reporter.activity().active_sessions, 0);
+        assert!(!turns(&s), "a busy daemon lapsed: 0 sessions must not be known");
+        // b's renewals do not make it known again; a's return does.
+        s.line(&acp_from("/b.sock", 0), 120_000);
+        assert!(!turns(&s));
+        s.line(&acp_from("/a.sock", 0), 130_000);
+        assert!(turns(&s), "a reported again");
+        // An idle daemon that lapses changes nothing.
+        s.line(&acp_from("/a.sock", 0), 140_000);
+        s.fire(130_000 + ACP_ACTIVITY_TTL_MS);
+        s.fire(140_000 + ACP_ACTIVITY_TTL_MS - 1);
+        assert!(turns(&s), "an idle daemon's lapse is not a busy one's");
+    }
 }
