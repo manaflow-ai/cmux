@@ -129,14 +129,17 @@
    "collect": "gruvbox-dark-dark-workspace.png"
   },
   {
-   "title": "Settings",
-   "cmux": [
-    "action",
-    "run",
-    "openSettings",
-    "--arg",
-    "setting=appearance.appTheme"
-   ],
+   "title": "Settings (focus: a socket command opens it behind otherwise)",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "openSettings",
+     "args": {
+      "setting": "appearance.appTheme"
+     },
+     "focus": true
+    }
+   },
    "wait": 4
   },
   {
