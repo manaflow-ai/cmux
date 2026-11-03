@@ -113,12 +113,12 @@ impl QuestionReplyPrompt {
         let mut sections = Vec::new();
         let mut number = 0_usize;
         for item in &self.question.items {
-            let mut lines = vec![plain_messages(&item.prompt)];
+            let mut lines = vec![format!("Question: {}", one_line(&plain_messages(&item.prompt)))];
             for option in &item.options {
                 number = number.saturating_add(1);
-                lines.push(format!("{number}. {}", plain_messages(&option.label)));
+                lines.push(format!("{number}. {}", one_line(&plain_messages(&option.label))));
                 if let Some(detail) = &option.detail {
-                    let detail = plain_messages(detail);
+                    let detail = one_line(&plain_messages(detail));
                     if !detail.is_empty() {
                         lines.push(format!("   {detail}"));
                     }
@@ -255,7 +255,7 @@ impl QuestionReplyPrompt {
             return unique(exact.into_iter());
         }
         // Digits and yes/no are never fuzzy guesses in ordinary choice prompts.
-        if numeric || matches!(folded.as_str(), "yes" | "no") {
+        if numeric || matches!(folded.as_str(), "yes" | "no") || text.chars().count() < 2 {
             return Err(ReplyError::NoMatch);
         }
         unique(labels.iter().enumerate().filter_map(|(index, label)| {

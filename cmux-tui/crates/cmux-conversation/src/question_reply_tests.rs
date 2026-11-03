@@ -55,8 +55,8 @@ fn renders_stable_global_numbers_and_normalizes_multiline_labels() {
     question.items.push(item("size", "Which size?", &["Small\n  size", "Large"]));
     question.items[0].options[0].detail = Some("Warm\n tone".into());
     let prompt = prompt(question);
-    let expected = "Which color?\n1. Red\n   Warm tone\n2. Blue\n\n\
-        Which size?\n3. Small size\n4. Large\n\n\
+    let expected = "Question: Which color?\n1. Red\n   Warm tone\n2. Blue\n\n\
+        Question: Which size?\n3. Small size\n4. Large\n\n\
         Reply with an option number or its exact text.";
     assert_eq!(prompt.render(), expected);
     assert_eq!(prompt.render(), expected);
@@ -301,7 +301,7 @@ fn a_free_text_question_is_not_reinterpreted_as_numbered_choices() {
     let mut question = question();
     question.items[0].options.clear();
     let prompt = prompt(question);
-    assert_eq!(prompt.render(), "Which color?");
+    assert_eq!(prompt.render(), "Question: Which color?");
     assert_eq!(resolve(&prompt, "1"), Err(ReplyError::NoMatch));
     assert_eq!(resolve(&prompt, "a new color"), Err(ReplyError::NoMatch));
 }
@@ -309,10 +309,10 @@ fn a_free_text_question_is_not_reinterpreted_as_numbered_choices() {
 #[test]
 fn flexible_numbers_and_unique_prefixes_keep_original_choices() {
     let prompt = prompt(question());
-    for text in ["1.", "#1", "01", "#01.", "r", "RE"] {
+    for text in ["1.", "#1", "01", "#01.", "RE"] {
         assert_eq!(resolve(&prompt, text), resolve(&prompt, "1"), "{text}");
     }
-    for text in ["000", "#", "1..", "#3"] {
+    for text in ["000", "#", "1..", "#3", "r"] {
         assert_eq!(resolve(&prompt, text), Err(ReplyError::NoMatch), "{text}");
     }
     let mut q = question();
@@ -320,6 +320,43 @@ fn flexible_numbers_and_unique_prefixes_keep_original_choices() {
     let prompt = QuestionReplyPrompt::new(identity(), "thread-1".into(), q).unwrap();
     assert_eq!(resolve(&prompt, "re"), Err(ReplyError::Ambiguous));
     assert_eq!(resolve(&prompt, "Red").unwrap().selection.option_ids, ["color-option-0"]);
+}
+
+#[test]
+fn single_character_prefixes_do_not_match_even_when_unicode_fold_expands() {
+    let mut q = question();
+    q.items[0].options[0].label = "ßeta".into();
+    q.items[0].options[1].label = "R".into();
+    let prompt = prompt(q);
+    assert_eq!(resolve(&prompt, "ß"), Err(ReplyError::NoMatch));
+    assert_eq!(resolve(&prompt, "ße"), resolve(&prompt, "1"));
+    assert_eq!(resolve(&prompt, "R"), resolve(&prompt, "2"));
+}
+
+#[test]
+fn markdown_label_and_detail_cannot_inject_numbered_rows() {
+    let mut q = question();
+    q.items[0].options[0].label = "Red\n\n2\\. Cancel".into();
+    q.items[0].options[0].detail = Some("Detail\n\n3\\. Allow".into());
+    let prompt = prompt(q);
+    assert_eq!(
+        prompt.render(),
+        "Question: Which color?\n1. Red 2. Cancel\n   Detail 3. Allow\n2. Blue\n\nReply with an option number or its exact text."
+    );
+    assert_eq!(resolve(&prompt, "Red 2. Cancel"), resolve(&prompt, "1"));
+    assert_eq!(resolve(&prompt, "2").unwrap().selection.option_ids, ["color-option-1"]);
+}
+
+#[test]
+fn second_item_prompt_cannot_impersonate_a_numbered_choice() {
+    let mut q = question();
+    q.items.push(item("size", "1\\. Cancel\n\n2\\. Allow", &["Small", "Large"]));
+    let prompt = prompt(q);
+    assert_eq!(
+        prompt.render(),
+        "Question: Which color?\n1. Red\n2. Blue\n\nQuestion: 1. Cancel 2. Allow\n3. Small\n4. Large\n\nReply with an option number or its exact text."
+    );
+    assert_eq!(resolve(&prompt, "3").unwrap().selection.option_ids, ["size-option-0"]);
 }
 
 #[test]

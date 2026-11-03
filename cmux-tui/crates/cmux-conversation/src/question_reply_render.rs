@@ -42,16 +42,17 @@ fn flush(paragraph: &mut String, links: &mut Vec<String>, output: &mut Vec<Strin
     // Keep whole URLs intact. Their own line is a deliberate exception to the
     // prose chunk size: wrapping one changes the link a person can open.
     if !text.is_empty() {
-        let mut chunk = String::new();
-        for (index, ch) in text.chars().enumerate() {
-            if index > 0 && index % PARAGRAPH_CHARS == 0 {
-                output.push(std::mem::take(&mut chunk));
-            }
-            chunk.push(ch);
+        let chars: Vec<_> = text.chars().collect();
+        let mut remaining = chars.as_slice();
+        while remaining.len() > PARAGRAPH_CHARS {
+            let end = remaining[..PARAGRAPH_CHARS]
+                .iter()
+                .rposition(|ch| ch.is_whitespace())
+                .map_or(PARAGRAPH_CHARS, |index| index.saturating_add(1));
+            output.push(remaining[..end].iter().collect());
+            remaining = &remaining[end..];
         }
-        if !chunk.is_empty() {
-            output.push(chunk);
-        }
+        output.push(remaining.iter().collect());
     }
     if !links.is_empty() {
         output.push(links.join("\n"));
@@ -83,6 +84,18 @@ mod tests {
         let rendered = plain_messages(&text);
         let chunks: Vec<_> = rendered.split("\n\n").collect();
         assert_eq!(chunks.len(), 3);
+        assert!(chunks.iter().all(|chunk| chunk.chars().count() <= PARAGRAPH_CHARS));
+        assert_eq!(chunks.join(""), text);
+    }
+
+    #[test]
+    fn prose_splits_at_whitespace_without_breaking_words_or_losing_text() {
+        let text = format!("{}final word", "word ".repeat(103));
+        let rendered = plain_messages(&text);
+        let chunks: Vec<_> = rendered.split("\n\n").collect();
+        assert_eq!(chunks.len(), 2);
+        assert!(chunks[0].ends_with(' '));
+        assert!(chunks[1].starts_with("word "));
         assert!(chunks.iter().all(|chunk| chunk.chars().count() <= PARAGRAPH_CHARS));
         assert_eq!(chunks.join(""), text);
     }
