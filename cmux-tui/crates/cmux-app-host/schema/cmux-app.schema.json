@@ -294,6 +294,28 @@
         }
       }
     },
+    "sessionInfoSection": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/contributionBase"
+        }
+      ],
+      "required": [
+        "id",
+        "title",
+        "render"
+      ],
+      "properties": {
+        "render": {
+          "$ref": "#/$defs/exportName"
+        },
+        "maxRows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      }
+    },
     "command": {
       "allOf": [
         {
@@ -580,6 +602,13 @@
           "maxItems": 16,
           "items": {
             "$ref": "#/$defs/sidebarSection"
+          }
+        },
+        "sessionInfoSections": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/sessionInfoSection"
           }
         },
         "commands": {

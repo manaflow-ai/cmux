@@ -10,6 +10,17 @@ public nonisolated enum AppSceneOp: Sendable, Hashable {
     case remove(id: String)
     case root(id: String)
 
+    /// The wire representation used when a page forwards a scene stream.
+    public var json: AppJSON {
+        switch self {
+        case let .create(id, type, props): ["op": "create", "id": id, "type": type, "props": .object(props)]
+        case let .update(id, props): ["op": "update", "id": id, "props": .object(props)]
+        case let .children(id, children): ["op": "children", "id": id, "children": .array(children.map(AppJSON.string))]
+        case let .remove(id): ["op": "remove", "id": id]
+        case let .root(id): ["op": "root", "id": id]
+        }
+    }
+
     /// Decodes one op; nil for a malformed or unknown op (skipped).
     public init?(json: AppJSON) {
         guard let op = json["op"]?.stringValue, let id = json["id"]?.stringValue else { return nil }

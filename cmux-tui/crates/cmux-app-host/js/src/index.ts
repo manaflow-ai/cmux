@@ -82,10 +82,13 @@ function install() {
         const render = exportsOf()[exportName]
         if (typeof render !== "function") throw new Error(`the app does not export a function named ${exportName}`)
         const ctx = JSON.parse(ctxJSON || "{}")
-        mount(mountId, () => render(ctx))
+        state.context = ctx
+        mount(mountId, () => render(ctx), ctx)
+        state.context = null
       })
       return ""
     } catch (e) {
+      state.context = null
       unmount(mountId)
       const message = describe(e)
       log("error", `mount ${exportName}: ${message}`)
@@ -105,10 +108,12 @@ function install() {
       const payload = payloadJSON ? JSON.parse(payloadJSON) : {}
       // The host attests user events with a gesture token; it is ambient only while the handler runs synchronously.
       state.gesture = typeof payload.gesture === "string" ? payload.gesture : null
+      state.context = record.mount.context
       try {
         dispatchEvent(record, event, payload)
       } finally {
         state.gesture = null
+        state.context = null
       }
     }, undefined)
 
