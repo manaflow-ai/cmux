@@ -81,7 +81,7 @@ acpmux machine doctor my-linux --json
 ```
 
 Run the SSH probe before adding a host. If the first connection is offline,
-`host add` saves the peer, exits 0, and prints a warning to stderr with the
+`machine add` saves the peer, exits 0, and prints a warning to stderr with the
 SSH probe and doctor commands to run next. With `--json`, the response includes
 `warning: {"reason":"peer_unreachable","try":"ssh -o BatchMode=yes HOST true",
 "detail":"the peer was saved and will keep reconnecting"}`. WebSocket URLs
@@ -119,9 +119,9 @@ Run `host doctor` from your Mac against the SSH alias; on the host itself, use
 can run. Its `--harness ID` option is described below. Verify the remote
 harness with `acpmux daemon harnesses` on that host and a real session prompt.
 
-`host enroll` and `host setup` install the invoking binary. Use them only for a
+`machine enroll` and `machine setup` install the invoking binary. Use them only for a
 compatible remote OS and architecture. For a Linux host reached from a Mac, use
-the Linux installation and `host add` steps above instead. `host update`
+the Linux installation and `machine add` steps above instead. `machine update`
 refuses a peer of another OS or architecture unless you pass `--binary-dir DIR`
 with a build named `acpmux-<target>` there (for example
 `acpmux-x86_64-unknown-linux-musl`); otherwise update that host by rebuilding
@@ -183,7 +183,7 @@ sets `vmHost` (see the Claude paragraph below), sessions your peer daemon starts
 with no `--policy` run without asking.
 
 `--tag` and `--machine` with `--group` need an acpmux built from feat-cmux-next on
-2026-10-26 or later; check that `acpmux new --help` lists them.
+2026-10-31 or later (older builds take `--host`); check that `acpmux new --help` lists them.
 
 ```sh
 acpmux new --machine my-linux -m codex --name api-work --cwd /home/me/project --tag task=api -d
@@ -402,7 +402,7 @@ not a complete copy of its transcript.
 | Cloud action unavailable | Inspect `cmux action describe cloudPauseMachine --json`, account/team access and the explicit machine target. A command being listed does not mean its current context is eligible. |
 
 Enroll preserves an existing peer URL and listener port. If the remote daemon
-already listens on a non-default port, pass that URL to `host add` or let
-`host enroll` find the saved peer; it will not restart the daemon on 47811 or
+already listens on a non-default port, pass that URL to `machine add` or let
+`machine enroll` find the saved peer; it will not restart the daemon on 47811 or
 change its listener. A restart can briefly show `reconnecting`; check
 `acpmux machine ls`, then re-add the same `ssh://HOST:PORT` URL if needed.

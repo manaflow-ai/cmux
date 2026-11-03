@@ -316,11 +316,11 @@ enforces this.
   component) needs only that. A behavior change into `feat-cmux-next` that is not small gets
   its review from a different model or a person. Disclose skipped verification on the PR.
   `main` is nightly: fix forward, do not revert.
-- On either branch, a PR merges when an independent review subagent passes it and it causes no
+- On either branch, a PR merges when its independent review (above) passes and it causes no
   red of its own; base reds, flakes and pending checks don't hold it. Don't wait for a person.
   Ship risky user-visible behavior behind a setting or Debug toggle and fix a bad default in the
-  next nightly. Only the `risk:high` tier, the take-back hold (above) and merge freezes hold a
-  reviewed PR. On `main`, `gh-merge-green` still waits for the checks it requires; never get around it
+  next nightly. Only the `risk:high` tier, the take-back hold (above), a `HOLD:` line or hold label, and
+  merge freezes hold a reviewed PR. On `main`, `gh-merge-green` still waits for the checks it requires; never get around it
   with `--override` or the API merge path. Into `feat-cmux-next`, you merge the reviewed
   head yourself (below). Follow
   [dogfood, re-dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
@@ -339,8 +339,7 @@ enforces this.
   findings (above), flakes and pending checks never hold it; fixes found later go in follow-ups.
   When your review passes (and the risk tier's evidence is in the description), merge it
   yourself with a squash pinned to the reviewed head
-  (`gh pr merge N --squash --match-head-commit <full head sha>`); a push after the review needs a
-  new review. A `HOLD:` line in the description or a hold label keeps a reviewed PR from
+  (`gh pr merge N --squash --match-head-commit <full head sha>`). A `HOLD:` line in the description or a hold label keeps a reviewed PR from
   landing. The `ready-to-land` label is only a fallback hand-off for a PR its owner can't land: a
   label older than the head's last push doesn't count. `ci.yml`'s `ci-status` does not run here;
   a red `risk evidence` or `merge freeze` keeps the PR out. Don't wait for, rerun or fix base
