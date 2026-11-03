@@ -24,7 +24,9 @@ to the first frame the pane shows the chat's content, with every surface the pan
   click_again  a click back onto the row of a chat shown before and left (its page kept)
 
 The click cases read the window as the window server composited it, frame after frame, from the click
-(`debug.new_tab frame_strip` with gesture `mouse`, `above` so the Chromium page is in it) until the pane
+(`debug.new_tab frame_strip` with gesture `mouse`, `above` so the Chromium page is in it: read through
+ScreenCaptureKit when the process lacks the Screen Recording grant, as on a fleet step, since the window list
+then leaves the page out; each record's `capture` says which) until the pane
 stops changing, and report click to first content frame, click to final frame, whether those are the same
 frame, and how far the transcript's rows moved after the page first drew them (`layout_watch`, started at the
 click): chat_open_frames.py (Leo, 2026-11-03: the final view on the first frame, never "text first and the
@@ -120,9 +122,6 @@ parser.add_argument("--capture-check", action="store_true",
                     help="only say whether this process (and so the app it launches) may read the screen "
                          "(screen_capture_check.py) into --json, then exit: nothing is launched (scripts/measure/chat-open.sh "
                          "with --app=PATH builds nothing)")
-parser.add_argument("--sck-picture", action="store_true",
-                    help="click cases: each kept open also keeps one picture through ScreenCaptureKit's current-process "
-                         "capture (debug.motion record_*), to compare with frame_strip's")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
@@ -643,35 +642,6 @@ def frame_pictures(folder, frames, record, width=640, names=None):
     return out
 
 
-def sck_picture(run, folder):
-    """The window as it shows now through ScreenCaptureKit's current-process capture (`debug.motion record_*`, a short
-    movie of the display showing only this app's windows), its last frame as a kept picture: whether a capture that
-    needs no Screen Recording grant has the Chromium page's pixels, which frame_strip's window list capture lacks on a
-    worker without the grant. (picture or None, facts)."""
-    movie = os.path.join(folder, "sck.mov")
-    facts = {"start": run.rpc("debug.motion", {"action": "record_start", "path": movie, "seconds": 1.0, "filter": "display"})}
-    time.sleep(1.4)  # test script: the recording ends itself after 1 s
-    facts["stop"] = run.rpc("debug.motion", {"action": "record_stop"})
-    deadline = time.monotonic() + 15
-    while time.monotonic() < deadline:
-        facts["read"] = run.rpc("debug.motion", {"action": "record_read"}) or {}
-        if facts["read"].get("written") or facts["read"].get("error"):
-            break
-        time.sleep(0.2)  # test script: the movie is written on the recorder's queue
-    ffmpeg = next((p for p in ("/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", shutil.which("ffmpeg")) if p and os.path.exists(p)), None)
-    if not ffmpeg or not os.path.exists(movie):
-        facts["error"] = "no ffmpeg" if not ffmpeg else "no movie"
-        return None, facts
-    still = os.path.join(folder, "sck.png")
-    done = subprocess.run([ffmpeg, "-v", "error", "-y", "-sseof", "-0.3", "-i", movie, "-frames:v", "1", still],
-                          capture_output=True, text=True, timeout=60)
-    if done.returncode != 0 or not os.path.exists(still):
-        facts["error"] = f"ffmpeg: {done.stderr.strip()[:300]}"
-        return None, facts
-    picture = frame_pictures(folder, [{"ms": "sck", "file": "sck.png"}], {}, width=1200, names={"sck": "sck"})
-    return picture.get("sck"), facts
-
-
 def frame_click(run, key, label, keep=False):
     """Clicks the sidebar row of workspace `key` inside a frame strip and judges the frames (chat_open_frames)."""
     import threading
@@ -683,9 +653,13 @@ def frame_click(run, key, label, keep=False):
     params = {"action": "frame_strip", "gesture": "mouse", "mouse": {"row": key, "action": "click"}, "above": True,
               "duration_ms": opts.strip_ms, "dir": folder, "tolerance": opts.strip_tolerance}
     watcher.start()
-    # frame_strip clicks 120 ms after it starts recording (DebugFrameStrip's lead): the click's monotonic time.
-    clicked = time.monotonic() + 0.12
+    # frame_strip clicks 120 ms after it starts recording (DebugFrameStrip's lead), or once ScreenCaptureKit's first
+    # frame is in when that is later: the click's monotonic time, corrected from the reply's lead_ms.
+    asked = time.monotonic()
+    clicked = asked + 0.12
     strip = run.rpc("debug.new_tab", params, timeout=opts.strip_ms / 1000 + 60) or {}
+    if isinstance(strip.get("lead_ms"), (int, float)):
+        clicked = asked + strip["lead_ms"] / 1000
     watcher.join(timeout=max(0.0, stop_at - time.monotonic()) + 20)
     if strip.get("error"):
         shutil.rmtree(folder, ignore_errors=True)
@@ -701,11 +675,10 @@ def frame_click(run, key, label, keep=False):
             record["pictures"].update(frame_pictures(folder, [{"ms": "screen", "file": "screen.png"}], {}, names={"screen": "screen"}))
         else:
             record["screen_error"] = f"screencapture exited {shot.returncode}: {(shot.stderr or shot.stdout).strip()[:300]}"
-        if opts.sck_picture:
-            picture, record["sck_facts"] = sck_picture(run, folder)
-            if picture:
-                record["pictures"]["sck"] = picture
     shutil.rmtree(folder, ignore_errors=True)  # the PNGs: the numbers per frame, and the kept pictures, are the evidence
+    # How the frames were read: screencapturekit has the Chromium page's pixels without the Screen Recording grant;
+    # window_list without the grant shows the pane empty (cmuxterm-hq#6338).
+    record.update({"capture": strip.get("capture"), "capture_error": strip.get("capture_error")})
     record.update({"click": strip.get("key"), "frame_count": strip.get("frame_count"),
                    "mean_interval_ms": strip.get("mean_interval_ms"), "strip_settled_ms": strip.get("settled_ms"),
                    "strip_first_change_ms": strip.get("first_change_ms"), "spans": strip.get("spans"),

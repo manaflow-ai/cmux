@@ -120,19 +120,6 @@ def main() -> int:
         report["cua_desktop_shot"] = answer
     else:
         report["cua_permissions"] = "CuaDriver not installed"
-    # The same question for an app this process launches, from one that shows a WebKit page (another process draws
-    # it, as Chromium's GPU process draws a cmux page): which capture methods see the page's pixels.
-    probe_src = Path(__file__).with_name("screen_capture_probe.swift")
-    probe_bin = png_dir / "screen-capture-probe"
-    built = run(["xcrun", "swiftc", "-O", "-o", str(probe_bin), str(probe_src)], timeout=300)
-    if built.get("rc") == 0:
-        ran = run([str(probe_bin), str(png_dir.resolve())], timeout=90)
-        try:
-            report["app_probe"] = json.loads(ran.get("out", "").strip().splitlines()[-1])
-        except (ValueError, IndexError):
-            report["app_probe"] = ran
-    else:
-        report["app_probe"] = {"build": built}
     # CuaDriver's daemon runs in the console user's own home (a step gets a home of its own).
     if os.path.exists(CUA_DRIVER) and report.get("console_user"):
         env = dict(os.environ, HOME=f"/Users/{report['console_user']}")
@@ -145,14 +132,8 @@ def main() -> int:
         except (OSError, subprocess.TimeoutExpired) as error:
             report["cua_desktop_shot_home"] = {"error": str(error)}
     if args.embed_png:
-        probe = report.get("app_probe") if isinstance(report.get("app_probe"), dict) else {}
-        for key in ("cgwindow", "sck_window", "sck_display"):
-            entry = probe.get(key)
-            if isinstance(entry, dict) and entry.get("png") and Path(entry["png"]).exists():
-                entry["png_base64"] = base64.b64encode(Path(entry["png"]).read_bytes()).decode()
         home_shot = report.get("cua_desktop_shot_home")
         if isinstance(home_shot, dict):
-            report.setdefault("screencapture", {})
             png = png_dir / "capture-check-cua-home.png"
             if png.exists():
                 small = png.with_suffix(".small.png")
