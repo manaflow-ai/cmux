@@ -3612,7 +3612,7 @@ export function VirtualTranscript({
     },
     [sessionId],
   );
-  // CHAT SWITCH MOTION (experiment chat-switch-motion, off by default): opening another chat plays
+  // CHAT SWITCH MOTION (experiment chat-switch-motion, stagger by default): opening another chat plays
   // its rows, title and Session Info in as one movement, on the first frame the new chat's rows draw
   // (cached: the frame the switch lands; cold: when its rows arrive). Not the first chat a page shows,
   // and not an empty chat's first send. This effect only notes the switch (before the cold-open fade
