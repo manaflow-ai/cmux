@@ -79,7 +79,6 @@ impl Hub {
                     effort,
                     fast: current_option(draft, "fast-mode").as_deref() == Some("on"),
                     claude_session_id: Some(fresh_id),
-                    cache_ttl_env_ms: crate::claude_stdio::prompt_cache::profile_ttl_ms(profile),
                 }),
             )
         } else {

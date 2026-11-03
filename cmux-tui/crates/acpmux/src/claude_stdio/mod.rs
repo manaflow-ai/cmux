@@ -277,8 +277,6 @@ mod logged_bodies;
 pub use logged_bodies::leave_out_bodies;
 mod outbound;
 pub mod prompt_cache;
-#[cfg(test)]
-mod prompt_cache_tests;
 // A tool result's images as ACP image blocks (`result_images.rs`).
 mod result_images;
 pub(crate) use result_images::result_images;
@@ -533,14 +531,8 @@ pub struct Translator {
     /// The cached context count came from an untagged compaction boundary rather
     /// than a model message. The controller can fence its later result resend.
     context_from_compaction: AtomicBool,
-    /// The chat's prompt cache (`prompt_cache.rs`): the TTL its last call's usage named (0 until
-    /// one did), the TTL Claude Code's env gives (0 when the env does not decide it), when the
-    /// main loop's last model request started (unix ms), and when its cache lapses (0: no cache
-    /// in use, unknown, or a compaction replaced the context).
-    cache_ttl_ms: AtomicU64,
-    pub cache_ttl_env_ms: AtomicU64,
-    cache_requested_at_ms: AtomicU64,
-    cache_expires_at_ms: AtomicU64,
+    /// When the chat's prompt cache expires (`prompt_cache.rs`).
+    cache: prompt_cache::CacheClock,
     /// A compaction just ended: the synthetic user line Claude writes next
     /// is its summary (`compaction_summary`).
     awaiting_summary: AtomicBool,
@@ -675,10 +667,7 @@ impl Translator {
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
             context_from_compaction: AtomicBool::new(false),
-            cache_ttl_ms: AtomicU64::new(0),
-            cache_ttl_env_ms: AtomicU64::new(0),
-            cache_requested_at_ms: AtomicU64::new(0),
-            cache_expires_at_ms: AtomicU64::new(0),
+            cache: Default::default(),
             awaiting_summary: AtomicBool::new(false),
             compacting: AtomicBool::new(false),
             cancelled_compaction: AtomicBool::new(false),

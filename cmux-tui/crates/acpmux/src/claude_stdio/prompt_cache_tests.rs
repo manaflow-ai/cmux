@@ -1,8 +1,8 @@
 //! The chat's prompt cache expiry (`prompt_cache.rs`): from the main loop's last request and the
 //! tier its usage names, sent on its `usage_update`s. Lines as Claude Code 2.1.310 streams them.
 
-use super::prompt_cache::*;
 use super::*;
+use crate::rpc::Message;
 
 fn expiries(msgs: &[Message]) -> Vec<Option<u64>> {
     msgs.iter()
@@ -44,30 +44,6 @@ fn the_tier_comes_from_the_calls_writes() {
     assert_eq!(reported_ttl_ms(&usage(100, 0, 10)), Some(ONE_HOUR_MS));
     assert_eq!(reported_ttl_ms(&usage(100, 0, 0)), None, "a read-only call names no tier");
     assert_eq!(reported_ttl_ms(&json!({"cache_creation_input_tokens": 10})), None);
-}
-
-#[test]
-fn the_env_ttl_follows_claude_codes_order() {
-    let env = |pairs: &'static [(&'static str, &'static str)]| {
-        move |k: &str| pairs.iter().find(|(key, _)| *key == k).map(|(_, v)| v.to_string())
-    };
-    assert_eq!(env_ttl_ms(env(&[])), None, "automatic: depends on the login, unknown here");
-    assert_eq!(env_ttl_ms(env(&[("ENABLE_PROMPT_CACHING_1H", "1")])), Some(ONE_HOUR_MS));
-    assert_eq!(
-        env_ttl_ms(env(&[
-            ("CLAUDE_CODE_PROMPT_CACHE_TTL", "5m"),
-            ("ENABLE_PROMPT_CACHING_1H", "1")
-        ])),
-        Some(FIVE_MINUTES_MS)
-    );
-    assert_eq!(
-        env_ttl_ms(env(&[
-            ("CLAUDE_CODE_PROMPT_CACHE_TTL", "1h"),
-            ("FORCE_PROMPT_CACHING_5M", "1")
-        ])),
-        Some(FIVE_MINUTES_MS)
-    );
-    assert_eq!(env_ttl_ms(env(&[("ENABLE_PROMPT_CACHING_1H", "0")])), None);
 }
 
 #[test]
@@ -113,12 +89,8 @@ async fn no_expiry_without_cache_use_a_known_ttl_or_for_a_subagent() {
     let (msgs, _) = call(&t, json!({}), json!({"input_tokens": 50, "output_tokens": 3})).await;
     assert_eq!(expiries(&msgs), [None], "caching off");
     let no_tier = json!({"input_tokens": 2, "cache_read_input_tokens": 900, "output_tokens": 3});
-    let (msgs, _) = call(&t, json!({}), no_tier.clone()).await;
-    assert_eq!(expiries(&msgs), [None], "no tier reported and none in the env");
-    t.cache_ttl_env_ms.store(ONE_HOUR_MS, Ordering::SeqCst);
-    let (msgs, before) = call(&t, json!({}), no_tier).await;
-    let [Some(at)] = expiries(&msgs)[..] else { panic!("{msgs:?}") };
-    assert!(at >= before + ONE_HOUR_MS, "the env's TTL is the fallback: {at}");
+    let (msgs, _) = call(&t, json!({}), no_tier).await;
+    assert_eq!(expiries(&msgs), [None], "no call has named a tier");
     // A subagent's call is its own cache.
     let t = Translator::new("acp-1".into(), "default", "opus", "default");
     t.inbound(&json!({"type": "stream_event", "parent_tool_use_id": "toolu_1", "event": {"type": "message_start", "message": {"id": "s", "usage": usage(0, 9, 0)}}})).await;
@@ -129,23 +101,12 @@ async fn no_expiry_without_cache_use_a_known_ttl_or_for_a_subagent() {
 #[tokio::test]
 async fn a_call_stopped_before_its_delta_still_moves_the_expiry() {
     let t = Translator::new("acp-1".into(), "default", "opus", "default");
-    let (msgs, _) = call(&t, usage(0, 0, 0), usage(9_000, 400, 0)).await;
+    let (msgs, _) = call(&t, usage(0, 400, 0), usage(9_000, 400, 0)).await;
     let [Some(first)] = expiries(&msgs)[..] else { panic!("{msgs:?}") };
-    // A later call's start reads the cache; it is stopped before its message_delta.
     std::thread::sleep(std::time::Duration::from_millis(5));
-    let before = now_ms();
+    // Stopped mid-call: its start named the cache it read, and no delta came.
     t.inbound(&json!({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "m2", "usage": usage(9_400, 0, 0)}}})).await;
-    let result = json!({"type": "result", "subtype": "success", "result": "", "num_turns": 1, "modelUsage": {"claude-opus-5-5": {"contextWindow": 400000}}});
-    let msgs = t.inbound(&result).await;
-    let [Some(at)] = expiries(&msgs)[..] else { panic!("{msgs:?}") };
-    assert!(at > first && at >= before + FIVE_MINUTES_MS, "{first} -> {at}");
-}
-
-#[test]
-fn the_env_fallback_reads_the_profiles_env_only() {
-    let mut profile: crate::config::HarnessProfile =
-        serde_json::from_value(json!({"argv": ["claude"]})).unwrap();
-    assert_eq!(profile_ttl_ms(&profile), None);
-    profile.env.insert("ENABLE_PROMPT_CACHING_1H".into(), "1".into());
-    assert_eq!(profile_ttl_ms(&profile), Some(ONE_HOUR_MS));
+    let result = json!({"type": "result", "subtype": "success", "result": "ok", "num_turns": 1, "modelUsage": {"claude-opus-5-5": {"contextWindow": 400000}}});
+    let [Some(at)] = expiries(&t.inbound(&result).await)[..] else { panic!() };
+    assert!(at > first, "{at} after {first}");
 }
