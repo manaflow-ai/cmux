@@ -51,6 +51,9 @@ public final class HomeStoreBinding {
     /// An op of this conversation other than a send (a tapback, a read
     /// cursor) ran out of resends unanswered: it may not have gone through.
     public var onUnanswered: (HomeIntent) -> Void = { _ in }
+    /// The person sent a message from this view (its compose bar or a starter), on the main
+    /// actor, as the send starts: the Mac host notes which window prompted the Chief (#32989).
+    public var onSend: (HomeIntent) -> Void = { _ in }
 
     public convenience init(store: HomeStore, controller: HomeController) {
         self.init(store: store, conversation: controller.conversation, controller: controller)
@@ -182,6 +185,7 @@ public final class HomeStoreBinding {
     private func perform(_ intent: HomeIntent) {
         guard let controller else { return }
         let store = self.store
+        if case .sendMessage = intent.op { onSend(intent) }
         Task { [weak self] in
             do {
                 if let send = controller.attachmentSend(intent) {

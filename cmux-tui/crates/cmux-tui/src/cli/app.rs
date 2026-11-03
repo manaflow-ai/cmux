@@ -1091,9 +1091,15 @@ const NO_DAEMON_STATE: [&str; 5] =
 /// The app methods that place a new tab or report where the caller is: the
 /// app opens an agent's tabs in the column right of its chat
 /// (`beside_caller`) and marks the caller in `snapshot.get` and
-/// `system.identify`.
-const CALLER_METHODS: [&str; 4] =
-    ["action.run", "browser.open_split", "snapshot.get", "system.identify"];
+/// `system.identify`, and `workspace.expect_window` files a new workspace in
+/// the caller's window (create_window.rs).
+const CALLER_METHODS: [&str; 5] = [
+    "action.run",
+    "browser.open_split",
+    "snapshot.get",
+    "system.identify",
+    super::create_window::METHOD,
+];
 
 /// Who calls, from the environment: the acpmux agent session
 /// (`CMUX_AGENT_SESSION`, set by acpmux for the agent and its cmux MCP

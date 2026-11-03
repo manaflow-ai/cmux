@@ -87,6 +87,10 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// `caller.terminal_id`: the terminal whose cmux CLI sent the run (an agent running in a
     /// terminal), nil for any other run. Like ``callerAgentSession``, the caller's own claim.
     public var callerTerminal: String?
+    /// The window a control-socket caller's new workspaces open in (`WindowState.id`): a Chief
+    /// turn's prompting window, else the window listing the caller's own workspace (#32989). Nil
+    /// for an in-app run or a caller with no known window (the most recent window, as before).
+    public var callerWindow: String?
     /// A split that opens a terminal even where a person's split opens the New Tab page (the chat
     /// header's Terminal, cx-00n1). In-app only: the control socket never sets it.
     public var opensTerminal = false

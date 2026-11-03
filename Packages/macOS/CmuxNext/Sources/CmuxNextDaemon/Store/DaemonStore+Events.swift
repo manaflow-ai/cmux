@@ -1,6 +1,10 @@
 import Foundation
 
 extension DaemonStore {
+    /// The `origin` of a mutation made through the daemon's resource API (`cmux` CLI, MCP):
+    /// its `mutation_id` is the request's idempotency key (cmux-tui resource_router.rs).
+    public static let resourceAPIOrigin = "resource-api"
+
     /// What the caller must do after `apply(_:)`.
     public enum Followup: Equatable, Sendable {
         case none
@@ -127,6 +131,9 @@ extension DaemonStore {
                     let workspace = store.confirmedWorkspace(delta.entity)
                     store.workspaces.insert(workspace, at: index)
                     store.indexed(workspace)
+                    if delta.origin == DaemonStore.resourceAPIOrigin, let key = delta.mutationID, !key.isEmpty {
+                        store.onResourceWorkspaceAdded?(workspace.id, key)
+                    }
                 }
                 store.sidebarNeedsRecompute = true
             }

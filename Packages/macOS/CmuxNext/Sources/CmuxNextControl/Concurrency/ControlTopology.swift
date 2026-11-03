@@ -27,8 +27,17 @@ public struct ControlTopology: Sendable, Hashable {
     /// this topology was built, by `ControlSessionInfo.id` (the home
     /// session's is `daemonSequence`).
     public var sessionSequences: [String: UInt64] = [:]
+    /// The open window the person last prompted the Chief from (`ControlWindowInfo.id`), nil
+    /// before any message or once it closed: a Chief turn (`caller.home_chat`) is placed in its
+    /// Home, and the workspaces the turn creates open there (#32989).
+    public var chiefPromptWindowID: String?
 
     public init() {}
+
+    /// The window whose sidebar lists `workspace` (a `ControlWorkspaceInfo.id`); nil when none does.
+    public func window(listing workspace: String) -> ControlWindowInfo? {
+        windows.first { $0.workspaceIDs.contains(workspace) }
+    }
 
     /// The session `id` names (a `ControlSessionInfo.id`); nil for the home session or an unknown id.
     public func session(id: String?) -> ControlSessionInfo? {

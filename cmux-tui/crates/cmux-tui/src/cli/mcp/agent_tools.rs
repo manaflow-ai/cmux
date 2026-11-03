@@ -53,7 +53,9 @@ pub(super) const TOOLS: &[AgentTool] = &[
         verb: Verb::WorkspaceCreate,
         title: "Create workspace",
         description: "Create a workspace (`cmux agents workspace create`), with a terminal \
-            unless empty is true. The cmux window keeps showing the user's workspace.",
+            unless empty is true. It opens in your own window (a Chief's: the window it was \
+            prompted from) unless window names another; that window keeps showing the user's \
+            workspace.",
     },
     AgentTool {
         name: "agents_tab_select",
@@ -262,6 +264,13 @@ impl AgentTool {
                     "top".into(),
                     json!({"type": "boolean",
                            "description": "Put the new workspace first in the sidebar, below Home."}),
+                );
+                properties.insert(
+                    "window".into(),
+                    json!({"type": "string", "minLength": 1,
+                           "description": "The window it opens in (win_ id from agents_snapshot). \
+                           Default: your own window; a Chief's is the window it was prompted from. \
+                           Name another only when asked."}),
                 );
             }
             Verb::TabSelect | Verb::TerminalFocus => {
@@ -474,6 +483,9 @@ impl AgentTool {
                 }
                 if args.flag("top")? {
                     words.push("--top".into());
+                }
+                if let Some(window) = args.text("window")? {
+                    words.push(format!("--window={window}"));
                 }
             }
             Verb::TabSelect => words.extend(["tab".into(), "select".into(), args.word("tab")?]),
