@@ -65,12 +65,16 @@ Steps (`do`):
                An agent chat in the named pane: `action.run palette.newAgentChat` with target pane:<id> and no focus, the
                app's targeted path (AgentHandlers.openTargetedChat) that opens the chat tab in that pane. With no target,
                a script's chat goes to a new left chat dock (NewChatPlacement .newDock) and leaves the pane a terminal;
-               with focus the targeted path is not taken. The run answers the chat tab (`result.tab`); in a pane a
-               window shows, that path leaves the selection alone (#23085), so px_agent selects the tab
-               (`action.run tab.focus`, target tab:<id>: a focus action, as `cmux tab <id> focus`) unless the pane
-               shows it already. Waits until debug.surfaces reports that tab selected and shown with kind "agent" (an
-               agent chat, TabContent.agent; "conversation" is a native Home conversation tab), then focuses the pane
-               (`cmux pane focus`) for the next set-up step.
+               with focus the targeted path is not taken. The run answers the chat tab (`result.tab`) from the store,
+               before the control snapshot lists it, and action.run finds a `tab:` target only in that snapshot
+               (PublicIDTargetResolver): so px_agent first waits until snapshot.get (the same snapshot) lists the
+               pane's chat tab, the answered id or else the one new tab of kind conversation, never a provisional
+               `pending_tab_` id. In a pane a window shows, the targeted path leaves the selection alone (#23085), so
+               px_agent selects the tab (`action.run tab.focus`, target tab:<id>: a focus action, as `cmux tab <id>
+               focus`) unless the pane shows it already, then waits until debug.surfaces reports that tab selected and
+               shown with content kind "agent" (TabContent.agent), all in one budget, and focuses the pane (`cmux pane
+               focus`) for the next set-up step. Its result says where the id came from (`tab_source`) and how long the
+               snapshot took to list it (`listed_s`).
   px_switch    {key, value}
                A feature switch (a boolean Debug tunable) for the rest of the journey: the store activated when it is
                inactive (`debug.tunables activate`), the switch set and read back. A switch that does not take (a key
@@ -595,8 +599,9 @@ def film_bytes(j, name):
     return out
 
 
-# debug.surfaces' kind of a pane that shows an agent chat (PaneSurfaceStatus: TabContent.agent). "conversation" is a
-# native Home conversation tab (TabContent.conversation), never the chat palette.newAgentChat opens.
+# debug.surfaces' content kind of a pane that shows an agent chat (PaneSurfaceStatus: TabContent.agent). Its content kind
+# "conversation" is a native Home conversation view (TabContent.conversation). snapshot.get's tab kind is another
+# name space: every chat tab, an agent chat too, is "conversation" there (CHAT_TAB_KIND).
 AGENT_KIND = "agent"
 # The row fields that say what a pane shows (a 300-character cut of the whole row stopped before "kind").
 AGENT_FACTS = ("kind", "selected_tab", "shown_tab", "content_installed", "content_visible", "visible", "focused", "phase")
@@ -608,30 +613,82 @@ def agent_shown(row, tab):
             and bool(row.get("content_installed")))
 
 
+# snapshot.get's kind of an agent chat tab (ControlTopologyMapper: TabModel.kind .conversation), and the id prefix of the
+# app's provisional stand-in for a tab the daemon does not have yet (ProvisionalTab.idPrefix): no action can name it.
+CHAT_TAB_KIND = "conversation"
+PROVISIONAL_TAB = "pending_tab_"
+
+
+def _topology_pane(j, pane_key):
+    """PANE_KEY in the app's control snapshot (snapshot.get): the snapshot action.run resolves its targets against."""
+    topology = (j.app.rpc("snapshot.get") or {}).get("topology") or {}
+    for workspace in topology.get("workspaces") or []:
+        for screen in workspace.get("screens") or []:
+            for pane in screen.get("panes") or []:
+                if isinstance(pane, dict) and pane.get("id") == pane_key:
+                    return pane
+    return None
+
+
+def _pane_tabs(pane):
+    return [t for t in (pane or {}).get("tabs") or [] if isinstance(t, dict) and t.get("id")]
+
+
+def listed_chat(pane, answered, before):
+    """The chat tab the control snapshot lists in PANE, and where its id came from: the open's ANSWERED id once listed
+    (never a provisional stand-in), else the one new chat tab (kind conversation, not among BEFORE). (None, None) until
+    then."""
+    real = [t for t in _pane_tabs(pane) if not str(t["id"]).startswith(PROVISIONAL_TAB)]
+    if answered and any(t["id"] == answered for t in real):
+        return answered, "answer"
+    new = [t["id"] for t in real if t.get("kind") == CHAT_TAB_KIND and t["id"] not in before]
+    return (new[0], "report") if len(new) == 1 else (None, None)
+
+
 def step_px_agent(j, step):
     rec = W.named(j, step["pane"])
-    opened = j.app.rpc("action.run", {"action": "palette.newAgentChat", "target": f"pane:{rec['pane']}", "args": {}}) or {}
-    tab = (opened.get("result") or {}).get("tab")
-    if not tab:
-        raise D.StepError(f"px_agent {step['pane']}: palette.newAgentChat named no chat tab: {json.dumps(opened)[:300]}")
-    selected = None
-    if not agent_shown(_surface_row(j, rec["pane"]) or {}, tab):
-        # In a pane a window shows, the targeted open adds the tab and leaves the selection alone
-        # (AgentChatPlacement.openTab(selects: shown == nil), #23085): select it as a person's `cmux tab <id> focus` does.
-        selected = j.app.rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab}"})
+    pane_key, name = rec["pane"], step["pane"]
     timeout = float(step.get("timeout", 20))
+    before = {t["id"] for t in _pane_tabs(_topology_pane(j, pane_key))}
+    opened = j.app.rpc("action.run", {"action": "palette.newAgentChat", "target": f"pane:{pane_key}", "args": {}}) or {}
+    answered = (opened.get("result") or {}).get("tab")
     t0 = D.now()
+    # 1. The open answers its tab from the store before the control snapshot lists it, and action.run finds a `tab:`
+    #    target only in that snapshot (sweep-b08cc6f 18:54Z: a tab.focus 0.01 s after the open was not_found). So the
+    #    select waits until snapshot.get, the same snapshot, lists the pane's chat tab.
+    tab, source, pane = None, None, None
     while True:
-        row = _surface_row(j, rec["pane"]) or {}
+        pane = _topology_pane(j, pane_key)
+        tab, source = listed_chat(pane, answered, before)
+        if tab or D.now() >= t0 + timeout:
+            break
+        time.sleep(0.1)  # orchestration poll of the app's own report
+    if not tab:
+        tabs = [{k: t.get(k) for k in ("id", "kind")} for t in _pane_tabs(pane)]
+        raise D.StepError(f"px_agent {name}: snapshot.get lists no chat tab in the pane within {timeout:.0f} s (the open "
+                          f"answered tab {answered}; the pane {'lists ' + json.dumps(tabs) if pane else 'is not listed'}; "
+                          f"palette.newAgentChat: {json.dumps(opened)[:300]})")
+    listed_s = round(D.now() - t0, 3)
+    # 2. In a pane a window shows, the targeted open adds the tab and leaves the selection alone
+    #    (AgentChatPlacement.openTab(selects: shown == nil), #23085): select it as a person's `cmux tab <id> focus` does.
+    selected = None
+    if not agent_shown(_surface_row(j, pane_key) or {}, tab):
+        try:
+            selected = j.app.rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab}"})
+        except D.StepError as error:
+            raise D.StepError(f"px_agent {name}: tab.focus {tab} refused after snapshot.get listed it: {error}")
+    # 3. The pane shows it: debug.surfaces reports the tab selected and shown, an agent chat. One budget for 1 to 3.
+    while True:
+        row = _surface_row(j, pane_key) or {}
         if agent_shown(row, tab):
-            focus = j.app.cmux("pane", rec["pane"], "focus")
-            return {"pane": rec["pane"], "kind": row.get("kind"), "tab": tab, "opened": opened, "selected": selected,
-                    "focus": focus}
+            focus = j.app.cmux("pane", pane_key, "focus")
+            return {"pane": pane_key, "kind": row.get("kind"), "tab": tab, "tab_source": source, "listed_s": listed_s,
+                    "opened": opened, "selected": selected, "focus": focus}
         if D.now() >= t0 + timeout:
             break
         time.sleep(0.1)  # orchestration poll of the app's own report
     facts = {k: row.get(k) for k in AGENT_FACTS if k in row}
-    raise D.StepError(f"px_agent {step['pane']}: the pane does not show its chat tab {tab} within {timeout:.0f} s "
+    raise D.StepError(f"px_agent {name}: the pane does not show its chat tab {tab} within {timeout:.0f} s "
                       f"(pane {json.dumps(facts)}; tab.focus: {json.dumps(selected)[:200]}; "
                       f"palette.newAgentChat: {json.dumps(opened)[:300]})")
 
