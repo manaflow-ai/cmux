@@ -49,7 +49,7 @@ fn tools() -> Value {
     if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1")
         && let Some(list) = all.as_array_mut()
     {
-        list.retain(|t| t["name"] != "connect_mcp_server");
+        list.retain(|t| *field(t, "name") != "connect_mcp_server");
     }
     all
 }
