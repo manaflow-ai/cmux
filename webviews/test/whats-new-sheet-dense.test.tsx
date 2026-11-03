@@ -9,7 +9,6 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createStrings } from "../src/pages/shared/i18n";
 import table from "../src/pages/changelog/generated/strings.json";
-import { AREAS } from "../src/pages/changelog/areas";
 import { mergedView, titleKey } from "../src/pages/changelog/model";
 import { placeholderAreas, placeholderRows, sheetRows } from "../src/pages/changelog/SheetPage";
 import { parseSheetLayout } from "../src/pages/changelog/store";
@@ -90,12 +89,13 @@ test("a loading day holds about the rows its index promises, three when it promi
 });
 
 test("a loading day also holds the area headers its rows will sit under (#32744 grouped by area)", () => {
+  const build = (highlights: number) => ({ build: "1", shortVersion: "1", date: "2026-11-01", highlights });
   // Real nightly days: 1 change in 1 area, 3 in 3, 10 in 6, 26 in 9.
-  expect([1, 3, 10, 26].map(placeholderAreas)).toEqual([1, 3, 6, 9]);
-  expect(placeholderAreas(0)).toBe(1);
-  expect(placeholderAreas(60)).toBe(13);
-  // Never more headers than areas (and Other).
-  expect(placeholderAreas(10_000)).toBe(AREAS.length + 1);
+  expect([1, 3, 10, 26].map((n) => placeholderAreas([build(n)]))).toEqual([1, 3, 6, 9]);
+  expect(placeholderAreas([build(2), build(3)])).toBe(4);
+  expect(placeholderAreas([build(500)])).toBe(13);
+  // A day the index counts nothing for: its three-row guess sits under one header.
+  expect(placeholderAreas([build(0)])).toBe(1);
 });
 
 test("titles compare without case, repeated spaces, curly quotes or a closing period", () => {
