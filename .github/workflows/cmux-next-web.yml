@@ -88,8 +88,10 @@ jobs:
           python3 -I scripts/ci/web_coalesce.py wait "${off[@]}" --last "$RUNNER_TEMP/web-coalesce/last.json" \
             --sha "$GITHUB_SHA" --before "$PUSH_BEFORE" --attempt "$GITHUB_RUN_ATTEMPT" --hold-minutes 15 --out "$RUNNER_TEMP/web-coalesce/last.json"
 
+      # A re-run records nothing new (its marker is the one it read), and in its own group a late save could roll the
+      # newest marker back: only a first attempt saves.
       - name: Record this push as the last covered one
-        if: ${{ env.COALESCE == '1' && steps.wait.outputs.run == 'true' }}
+        if: ${{ env.COALESCE == '1' && steps.wait.outputs.run == 'true' && github.run_attempt == '1' }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
