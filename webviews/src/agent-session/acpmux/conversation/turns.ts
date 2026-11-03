@@ -39,6 +39,7 @@ import {
   openBackgroundTurns,
 } from "./backgroundTurns";
 import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRuns } from "./messageRuns";
+import { backgroundRunFoldFor, foldBackgroundRuns, openBackgroundRuns } from "./backgroundRuns";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -305,7 +306,7 @@ export function turnViewFrom(
       if (!reuseFoldedBackground) collectFoldedBackgroundId(foldedBackground as Set<string>, row, expanded);
       if (!isVisiblyEmptyMessage(row)) out.push(row);
     }
-    out = foldBackgroundTurns(out, expanded);
+    out = foldBackgroundRuns(foldBackgroundTurns(out, expanded), expanded);
     lead = index;
     starts = [];
     times = [];
@@ -433,6 +434,8 @@ type ShapedTurn = {
   background: string;
   /// Which of its message runs' lines are open (messageRuns.ts `openMessageRuns`).
   messageRuns: string;
+  /// Which of its background-task runs' lines are open (backgroundRuns.ts `openBackgroundRuns`).
+  backgroundRuns: string;
   last: boolean;
   clockOffset: number;
   dated: boolean;
@@ -478,6 +481,7 @@ function shapedTurn(
   const open = live ? "" : openFolds(rows, start, end, expanded);
   const background = openBackgroundTurns(rows, start + 1, end, expanded);
   const messageRuns = live ? "" : openMessageRuns(rows, start + 1, end, expanded);
+  const backgroundRuns = live ? "" : openBackgroundRuns(rows, start + 1, end, expanded);
   const source = rows
     .slice(start + 1, end)
     .filter((row) => row.inBackground === undefined || !foldedBackground.has(row.inBackground));
@@ -487,6 +491,7 @@ function shapedTurn(
     cached.open === open &&
     cached.background === background &&
     cached.messageRuns === messageRuns &&
+    cached.backgroundRuns === backgroundRuns &&
     cached.last === last &&
     cached.clockOffset === clockOffset &&
     cached.dated === dated &&
@@ -554,8 +559,11 @@ function shapedTurn(
     );
     // Where its runs fold, a run of them that carries messages between agents folds under one line
     // (messageRuns.ts; Leo, 2026-11-01: "this should be collapsible").
-    const body =
+    const messaged =
       liveRuns || agentFamily?.startsWith("claude") === true ? foldMessageRuns(shapedBody, expanded) : shapedBody;
+    // A run of background-task notifications folds under one line (backgroundRuns.ts; Leo,
+    // 2026-11-02: "why do you still do these").
+    const body = foldBackgroundRuns(messaged, expanded);
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const line = held.length && body.at(-1)?.below ? body.splice(-1) : [];
@@ -586,6 +594,7 @@ function shapedTurn(
       open,
       background,
       messageRuns,
+      backgroundRuns,
       last,
       clockOffset,
       dated,
@@ -1634,6 +1643,15 @@ export function hiddenRowFolds(rows: readonly AcpmuxRow[], drawn: readonly Acpmu
   if (!row) return [];
   const line = messageRunFoldFor(drawn, row.id);
   if (line) return [line];
+  // A row in a closed run of background-task notifications, or behind a member line of one: the
+  // run's line, then the member's own line.
+  const behind = row.inBackground === undefined ? undefined : backgroundTurnRowId(row.inBackground);
+  const backgroundRun = backgroundRunFoldFor(drawn, row.id) ?? (behind && backgroundRunFoldFor(drawn, behind));
+  if (backgroundRun) {
+    // A message run inside the member's rows (a send and a read it folded) opens too.
+    const inner = messageRunRevealKey(drawn, row);
+    return [backgroundRun, ...(behind ? [behind] : []), ...(inner ? [inner] : [])];
+  }
   const turn = turnFoldFor(rows, index);
   const run = messageRunRevealKey(drawn, row);
   return [...(turn ? [turn] : []), ...(run ? [run] : [])];
@@ -1649,15 +1667,17 @@ export function messageRevealTarget(
   rows: readonly AcpmuxRow[],
   drawn: readonly AcpmuxRow[],
   messageRows: readonly string[],
-): { rowId: string; fold?: string; run?: string } | undefined {
+): { rowId: string; fold?: string; run?: string; also?: string[] } | undefined {
   const places = messageRows.map((id) => rows.findIndex((row) => row.id === id)).filter((at) => at >= 0);
   if (places.length === 0) return undefined;
   const shown = places.find((at) => findRowIndex(drawn, rows[at]!.id) >= 0);
   if (shown !== undefined) return { rowId: rows[shown]!.id };
   const at = places[0]!;
   // The turn's fold first, then the message run inside it (``hiddenRowFolds``).
-  const [fold, run] = hiddenRowFolds(rows, drawn, at);
-  return { rowId: rows[at]!.id, fold, ...(run && { run }) };
+  // Behind a run of background-task notifications there can be more: the member's line and a
+  // message run inside it (`also`).
+  const [fold, run, ...also] = hiddenRowFolds(rows, drawn, at);
+  return { rowId: rows[at]!.id, fold, ...(run && { run }), ...(also.length > 0 && { also }) };
 }
 
 /// The footer of the drawn turn that `rows[from]` is in (the turn's summary row), looking forward
