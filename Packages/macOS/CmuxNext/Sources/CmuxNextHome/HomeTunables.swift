@@ -97,11 +97,11 @@ public nonisolated struct HomeTunables {
 
     /// How a Chief's avatar moves in the Home list and pinned grid (Leo 2026-11-01: "i also want them
     /// animated like how chatgpt animates their dots"): a slow idle loop, livelier while it works.
-    /// Float by default; the others are the gallery's variants.
+    /// Still by default; motion is opt-in through Debug Settings.
     public static let avatarMotion = Tunable<HomeAvatarMotionChoice>.choice(
         "home.avatarMotion", section, "Chief avatar motion",
         help: "How a Chief's avatar moves in the Home list: Float bobs it by a point, Breathe grows and shrinks it, Sway tilts it, Still keeps it at rest. Each moves faster while the Chief works, and none moves under Reduce Motion or while the window is hidden.",
-        default: .float, code: "HomeTunables.avatarMotion")
+        default: .still, code: "HomeTunables.avatarMotion")
 
     public static var all: [TunableDescriptor] {
         [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, launchIntoHome.descriptor,
