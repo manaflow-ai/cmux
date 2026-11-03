@@ -72,7 +72,12 @@ pub(super) fn untargeted(
     };
     let plain = |key: &String| matches!(key.as_str(), "path" | "url" | "focus" | "idempotency_key");
     let given = |key: &str| arguments.get(key).is_none() || text(arguments, key).is_some();
+    // `open` takes a key `validate_idempotency_key` accepts; a longer one an action takes
+    // (up to 200 characters) keeps the action's own path.
+    let key_fits = text(arguments, "idempotency_key")
+        .is_none_or(|key| cmux_tui_core::resource::validate_idempotency_key(key).is_ok());
     if !arguments.keys().all(plain)
+        || !key_fits
         || !given("path")
         || !given("url")
         || needs.is_some_and(|key| text(arguments, key).is_none())

@@ -1410,8 +1410,8 @@ impl<B: Backend> Server<B> {
         })
     }
 
-    /// `tools` with [`CHIEF_RULE`] added to the descriptions of `open` and `cmux_exec` in a
-    /// Chief turn.
+    /// `tools` with [`CHIEF_RULE`] at the start of the descriptions of `open` and `cmux_exec`
+    /// in a Chief turn.
     fn chief_rule(&self, mut tools: Vec<Value>) -> Vec<Value> {
         if !self.backend.home_chat() {
             return tools;
@@ -1421,7 +1421,8 @@ impl<B: Backend> Server<B> {
                 continue;
             }
             if let Some(description) = tool["description"].as_str() {
-                tool["description"] = json!(format!("{description} {CHIEF_RULE}"));
+                // First: `cmux_exec`'s description is about 6 KB, and a client may cut it.
+                tool["description"] = json!(format!("{CHIEF_RULE} {description}"));
             }
         }
         tools
