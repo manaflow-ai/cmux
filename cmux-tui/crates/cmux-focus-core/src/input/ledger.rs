@@ -6,7 +6,8 @@
 //!   and a key that waits ends exactly once (delivered, run or dropped with a
 //!   reason); [`Ledger::waiting`] lists the keys still waiting.
 //! - I2 no double key: no key ends twice.
-//! - I3 order kept: a sink takes its keys in typing order.
+//! - I3 order kept: a sink takes its keys in typing order, and the offers to
+//!   one page end in typing order (a page answers its keys in key order).
 //! - I4 a key a session takes reaches no sink: while a session runs, a
 //!   key-down's disposition is the session's, unless the session ended first
 //!   in the key's call (a key the session does not take ends it and routes on)
@@ -77,8 +78,9 @@ pub struct Ledger {
     waiting: HashMap<InputId, Sink>,
     /// The entries waiting for each sink (no entry: none).
     lanes: HashMap<Sink, usize>,
-    /// Keys offered to a page whose offer has not ended, oldest first.
-    offered: VecDeque<InputId>,
+    /// Keys offered to a page whose offer has not ended, and their page,
+    /// oldest first.
+    offered: VecDeque<(InputId, Sink)>,
     /// The newest key each sink took (until the sink ends).
     newest: HashMap<Sink, InputId>,
     /// Tab sinks that ended and are not new yet.
@@ -130,7 +132,8 @@ impl Ledger {
             let Some(id) = effect.id() else { continue };
             if let Some(waited) = self.waiting.remove(&id) {
                 self.end_waiting(id, waited, effect);
-            } else if let Some(index) = self.offered.iter().position(|offered| *offered == id) {
+            } else if let Some(index) = self.offered.iter().position(|(offered, _)| *offered == id)
+            {
                 self.end_offered(id, index, effect);
             } else if is_key && new_key.is_none() {
                 new_key = Some(id);
@@ -186,7 +189,7 @@ impl Ledger {
             }
             InputEffect::Offer { sink, .. } => {
                 self.took(sink, id);
-                self.offered.push_back(id);
+                self.offered.push_back((id, sink.clone()));
             }
             InputEffect::Deliver { sink, .. } => self.took(sink, id),
             _ => {}
@@ -222,9 +225,14 @@ impl Ledger {
     }
 
     /// An effect for key `id`, offered to its page (`index` in `offered`): its
-    /// action runs, or its offer closes.
+    /// action runs, or its offer closes, after every older offer of its page.
     fn end_offered(&mut self, id: InputId, index: usize, effect: &InputEffect) {
-        self.offered.remove(index);
+        let Some((_, page)) = self.offered.remove(index) else { return };
+        if let Some((older, _)) = self.offered.iter().find(|(older, of)| *older < id && *of == page)
+        {
+            let detail = format!("{effect:?} while the older offer {older:?} to {page:?} is open");
+            self.fail(Invariant::OrderKept, Some(id), detail);
+        }
         if !matches!(effect, InputEffect::Run { .. } | InputEffect::OfferClosed { .. }) {
             let detail = format!("an offered key ends again: {effect:?}");
             self.fail(Invariant::NoDoubleKey, Some(id), detail);
