@@ -427,9 +427,9 @@ public final class BrowserChromeView: NSView {
     public override func layout() {
         applyToolbarLayout()
         super.layout()
-        // Auto Layout may defer the address bar's frame until its subtree is
-        // laid out. Follow the card only after that frame reflects this pass.
-        addressBar.layoutSubtreeIfNeeded()
+        // Auto Layout may defer a subtree's frames: the address bar's (the card follows it after this pass), and a
+        // page bar's glass two levels down on its first show (its hole in the page would be empty).
+        for view in [addressBar as NSView] + pageBars.shown.map(\.bar) { view.layoutSubtreeIfNeeded() }
         addressBar.followLayout()
         updateOcclusion()
         syncPageOverlays()
