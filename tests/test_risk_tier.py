@@ -151,7 +151,7 @@ class ClassifyTests(unittest.TestCase):
     # the hook runs on a push (the web lint and the cmux-next gate, which each pick the reviewed copy or the pushed
     # code), the hook itself, and how its reviewed copy is installed and refreshed. A normal change could make the hook
     # run code a push controls (#34124 finds and closes several such routes). The lint rules themselves stay normal.
-    PREPUSH_TRUST = ("scripts/web_lint_prepush.py", "scripts/cmux-next/prepush-gate.py",
+    PREPUSH_TRUST = ("scripts/web_lint_prepush.py", "scripts/cmux-next/prepush-gate.py", "scripts/cmux-next/push_range.py",
                      "scripts/git-hooks/pre-push", "scripts/git-hooks/post-merge", "scripts/git-hooks/refresh_checks.py",
                      "scripts/install-git-hooks.sh")
 
