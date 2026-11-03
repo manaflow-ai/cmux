@@ -132,3 +132,11 @@ export const BUBBLE = {
   radius: 12,
   pending: undefined as string | undefined,
 } as const;
+
+/** Any two consecutive one-line rows, whatever their kind (design/transcript-spacing.md rule 3):
+ * another agent's received line, a background turn's line ("Scheduled check"), a tool run and its
+ * opened steps, a compaction ("Compacting the conversation…") and the other status rows sit flush,
+ * 22 apart centre to centre, with no gap between them (Leo, 2026-11-02, on a Claude chat where
+ * they stood a block apart: "these are all so stupid looking"). Measured by
+ * test/transcript-system-rows.test.ts on gallery entry agent-pane.transcript-system-rows. */
+export const SYSTEM_ROW_PITCH = 22;

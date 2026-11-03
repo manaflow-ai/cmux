@@ -213,10 +213,11 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
 
     await pickDot(page, form, "codex");
     await page.waitForSelector(`${form}[data-composer-look="codex"]`);
-    // Codex's look lays the buttons out as Claude's: the mode and model stay in the quiet row, the
-    // dots over its middle, shown on hover there; the first dot goes back.
-    expect(await page.$(`${form} .acpmux-composer-box .acpmux-model`)).toBeNull();
-    expect(await page.$(`${form} .acpmux-composer-foot .acpmux-model`)).not.toBeNull();
+    // Codex's look moves the quiet row into the box under the prompt (+, the mic and Send stay
+    // Claude's): the mode and model sit there, the dots over its middle, shown on hover there; the
+    // first dot goes back.
+    expect(await page.$(`${form} .acpmux-composer-box .acpmux-composer-foot .acpmux-model`)).not.toBeNull();
+    expect(await page.$(`${form} .acpmux-composer-box .acpmux-composer-foot .acpmux-access`)).not.toBeNull();
     expect(await page.$(`${form} .acpmux-composer-foot .acpmux-access`)).not.toBeNull();
     await page.mouse.move(1, 1);
     expect(await shown(page, form)).toBe(false);
@@ -228,6 +229,71 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await pickDot(page, form, "claude");
     await page.waitForFunction((selector) => !document.querySelector(`${selector}[data-composer-look]`), form);
     expect(await page.$(`${form} .acpmux-composer-foot`)).not.toBeNull();
+    expect(await page.$(`${form} .acpmux-composer-box .acpmux-composer-foot`)).toBeNull();
+    await context.close();
+  });
+
+  // Leo 2026-11-02: "switching to the codex view in the middle of an agent chat doesn't do anything
+  // right now": both looks drew Claude's layout (#30395), so the switch showed nothing. It redraws
+  // the open chat's composer in place: the draft stays in the same field (nothing remounts or
+  // reloads), and Codex's box holds the mode and model.
+  test("mid-chat, a look switch redraws the open composer as Codex's and keeps the draft", async () => {
+    const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
+    const page = await context.newPage();
+    await open(page, "agent-pane.composer", "quiet-chips");
+    const form = ".acpmux-composer";
+    await page.locator(`${form} [contenteditable="true"]`).first().click();
+    await page.keyboard.type("half-written draft");
+    await page.evaluate(() => {
+      (window as unknown as { __field?: Element | null }).__field = document.querySelector(
+        '.acpmux-composer [contenteditable="true"]',
+      );
+    });
+    const layout = () =>
+      page.$eval(form, (composer) => {
+        const box = composer.querySelector(".acpmux-composer-box")!;
+        const field = composer.querySelector('[contenteditable="true"]');
+        return {
+          look: composer.getAttribute("data-composer-look"),
+          modelInBox: !!box.querySelector(".acpmux-model"),
+          modeInBox: !!box.querySelector(".acpmux-access"),
+          boxHeight: Math.round(box.getBoundingClientRect().height),
+          sameField: field === (window as unknown as { __field?: Element | null }).__field,
+          draft: field?.textContent ?? "",
+        };
+      });
+    const before = await layout();
+    expect(before).toMatchObject({ look: null, modelInBox: false, modeInBox: false, sameField: true });
+    expect(before.draft).toBe("half-written draft");
+
+    const foot = (await (await page.$(`${form} .acpmux-composer-foot`))!.boundingBox())!;
+    await page.mouse.move(foot.x + foot.width * 0.35, foot.y + foot.height / 2);
+    await pickDot(page, form, "codex");
+    await page.waitForSelector(`${form}[data-composer-look="codex"]`);
+    const codex = await layout();
+    expect(codex).toMatchObject({
+      look: "codex",
+      modelInBox: true,
+      modeInBox: true,
+      sameField: true,
+      draft: "half-written draft",
+    });
+    expect(codex.boxHeight).toBeGreaterThan(before.boxHeight + 20);
+
+    // A pick on another page (New Tab's dots) reaches this chat by the shared storage key.
+    await page.evaluate(() => {
+      localStorage.setItem("cmux.composer.look", "claude");
+      window.dispatchEvent(new StorageEvent("storage", { key: "cmux.composer.look", newValue: "claude" }));
+    });
+    await page.waitForFunction((selector) => !document.querySelector(`${selector}[data-composer-look]`), form);
+    expect(await layout()).toMatchObject({
+      look: null,
+      modelInBox: false,
+      modeInBox: false,
+      boxHeight: before.boxHeight,
+      sameField: true,
+      draft: "half-written draft",
+    });
     await context.close();
   });
 
