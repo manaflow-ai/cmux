@@ -155,6 +155,9 @@ pub(super) struct Item {
     pub(super) text: String,
     /// Machine-readable report context; kept out of the visible words.
     pub(super) details: Option<Value>,
+    /// A tool's notice it is (`prompt_provenance::notice`): its `{sender, host?, severity, title,
+    /// links?}`, so a notice of it and its thread still draw it as one.
+    pub(super) tool_notice: Option<Value>,
     /// A notice told the agent of it (or carries it now).
     pub(super) noticed: bool,
     /// The agent read it (`inbox_thread` with `markRead`).
@@ -179,6 +182,7 @@ impl Item {
             at: now_ms(),
             text: text.to_owned(),
             details: None,
+            tool_notice: None,
             noticed: true,
             read: false,
             answer: None,
@@ -296,11 +300,15 @@ pub(crate) fn plain_send(
 }
 
 /// Whether a provenance is a plain message from another agent: none (a sender that named
-/// itself, or a connection that proved its session), `agent_message` or `session_message`.
+/// itself, or a connection that proved its session), `agent_message`, `session_message` or a
+/// tool's `notice` (`prompt_provenance::notice`).
 fn plain_kind(provenance: Option<&Value>) -> bool {
     match provenance.and_then(|p| p.get("kind")) {
         None => true,
-        Some(kind) => matches!(kind.as_str(), Some("agent_message" | "session_message")),
+        Some(kind) => matches!(
+            kind.as_str(),
+            Some("agent_message" | "session_message" | crate::prompt_provenance::NOTICE_KIND)
+        ),
     }
 }
 
@@ -378,6 +386,14 @@ pub(super) fn prompt_waits_steer_refused() -> RpcError {
         "steer.unavailable: a prompt waits behind the running turn; another agent's message goes in after it, so send without steer-only to queue",
     )
     .with_data(json!({"reason": "steer.unavailable", "turnCap": false, "promptWaits": true}))
+}
+
+/// The tool's notice a message's provenance carries (`prompt_provenance::notice`).
+fn tool_notice_of(provenance: Option<&Value>) -> Option<Value> {
+    provenance
+        .filter(|p| crate::prompt_provenance::is_notice(Some(p)))
+        .and_then(|p| p.get("notice"))
+        .cloned()
 }
 
 /// Whether a prompt's provenance is a notice's.
@@ -592,16 +608,36 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
         if let Some(session) = last.and_then(|i| i.from_session.as_deref()) {
             part.set("fromSession", json!(session));
         }
+        // A thread of tools' notices says its loudest severity, so a fold of it never hides a fire.
+        if let Some(severity) = loudest(list) {
+            part.set("severity", json!(severity));
+        }
         if whole {
             let messages: Vec<Value> = list
                 .iter()
-                .map(|i| json!({"promptId": i.prompt_id, "from": i.from, "at": i.at, "text": i.text}))
+                .map(|i| {
+                    let mut m = json!({"promptId": i.prompt_id, "from": i.from, "at": i.at, "text": i.text});
+                    if let Some(notice) = &i.tool_notice {
+                        m.set("notice", notice.clone());
+                    }
+                    m
+                })
                 .collect();
             part.set("messages", json!(messages));
         }
         parts.push(part);
     }
     (text, json!(parts))
+}
+
+/// The loudest severity of the tools' notices among `items` (`prompt_provenance::NOTICE_SEVERITIES`).
+fn loudest(items: &[&Item]) -> Option<&'static str> {
+    let rank = |i: &&Item| {
+        let severity = i.tool_notice.as_ref()?.get("severity")?.as_str()?;
+        crate::prompt_provenance::NOTICE_SEVERITIES.iter().position(|s| *s == severity)
+    };
+    let top = items.iter().filter_map(rank).max()?;
+    crate::prompt_provenance::NOTICE_SEVERITIES.get(top).copied()
 }
 
 /// A message's text as the notice quotes it: without the blank lines around it, and with the first
@@ -817,6 +853,7 @@ impl Hub {
                             at: now_ms(),
                             text: text.clone(),
                             details: provenance.and_then(|p| p.get("details")).cloned(),
+                            tool_notice: tool_notice_of(provenance),
                             noticed: false,
                             read: false,
                             answer: Some(tx.clone()),
@@ -911,6 +948,7 @@ impl Hub {
                     at,
                     text: text.to_owned(),
                     details: provenance.get("details").cloned(),
+                    tool_notice: None,
                     noticed: true,
                     read: true,
                     answer: None,
@@ -1372,6 +1410,9 @@ impl Hub {
                         text: field("text").to_owned(),
                         details: crate::prompt_provenance::recorded(&e.msg)
                             .and_then(|p| p.get("details").cloned()),
+                        tool_notice: tool_notice_of(
+                            crate::prompt_provenance::recorded(&e.msg).as_ref(),
+                        ),
                         noticed: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
                         read: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
                         answer: None,
@@ -1580,6 +1621,7 @@ impl Hub {
                     "promptId": item.prompt_id, "from": item.from, "fromSession": item.from_session,
                     "class": item.class, "kind": kind_of(item.class), "at": item.at,
                     "text": item.text, "read": item.read, "details": item.details,
+                    "notice": item.tool_notice,
                 }));
                 if mark_read && !item.read {
                     item.read = true;

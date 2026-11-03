@@ -56,6 +56,10 @@ struct DaemonRecoveryNoticeTests {
     private static let diskFullEnsure =
         #"{"code":"server.spawn_failed","message":"could not start the session owner: No space left on device (os error 28)","details":{},"retryable":false}"#
 
+    /// `server ensure` that fails as a restart under heavy load does: no owner became ready in time.
+    private static let notReadyEnsure =
+        #"{"code":"server.spawn_failed","message":"the detached session owner did not become ready","details":{},"retryable":true}"#
+
     /// Test-harness poll for steps on other tasks; the limit is only a failure deadline.
     private static func eventually(_ done: () -> Bool) async -> Bool {
         for _ in 0..<1000 where !done() {
@@ -134,5 +138,73 @@ struct DaemonRecoveryNoticeTests {
         #expect(await Self.eventually { toasts.toasts(in: window).first?.id == DaemonRecoveryNotice.toastID },
                 "a cancelled restart left the window with no way out")
         CmuxDialogCenter.shared.dismissAll()
+    }
+
+    /// A start that fails for any other reason, as a restart on a heavily loaded Mac does, is retried
+    /// quietly (Leo, 2026-11-03, on this notice over a window: "why did this show up"): no notice
+    /// while the starts have not kept failing (`DaemonRecovery.NoticePolicy`). Once they have, it shows.
+    @Test func aRestartThatFailsBrieflyShowsNoNoticeAndOneThatKeepsFailingDoes() async throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-notice-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let binary = root.appendingPathComponent("cmux-tui")
+        try """
+        #!/bin/sh
+        case " $* " in
+        *" server status "*) exit 1 ;;
+        *" server ensure "*) echo '\(Self.notReadyEnsure)' >&2; exit 3 ;;
+        esac
+        exit 64
+        """.write(to: binary, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+        let launcher = DaemonLauncher(
+            configuration: .init(binary: binary, session: "cn-notice-\(UUID().uuidString.prefix(8).lowercased())",
+                                 stateDirectory: root.appendingPathComponent("state"), binaryIsBundled: true),
+            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin"] })
+
+        let service = DaemonService()
+        service.recovery.restartsUnresponsiveOwner = { false }
+        // Real starts fail every few hundred milliseconds here: the window is the test's clock, not two minutes.
+        var clock = ContinuousClock.now
+        service.recovery.now = { clock }
+        service.recovery.attach(launcher, wake: service.retryWake)
+        let socket = root.appendingPathComponent("cmux.sock").path
+        let starts = Counter()
+        let endpoint = launcher.endpointProvider
+        let first = DaemonEndpoint(socketPath: socket, bridge: .fakePython(["-c", Self.daemonScript]))
+        // Restarts every 20-100 ms for as long as they fail, so the step past the window needs no backoff wait.
+        let retry = RetryPolicy(initial: .milliseconds(20), maximum: .milliseconds(100), timedRetries: 1000, keepsTrying: true)
+        let connection = DaemonConnection(configuration: .init(requiredCapabilities: [], retry: retry, terminalEnvironment: nil)) {
+            guard starts.increment() == 0 else { return try await endpoint() }
+            return first
+        }
+        service.start(makeConnection: { connection })
+        defer { service.shutdownConnection() }
+        try #require(await Self.eventually { service.startup == .connected }, "the stand-in daemon never connected")
+
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let toasts = CmuxToastCenter(host: RecordingHost())
+        let notice = DaemonRecoveryNotice(daemon: service, toasts: toasts, window: { [window] in window })
+        notice.start()
+        defer { notice.stop() }
+
+        _ = try? await connection.request(Die())
+        // Several restarts fail, all within the window: Restart stays offered, and nothing shows.
+        try #require(await Self.eventually { launcher.ensureOutcome.failedInARow >= 3 },
+                     "the reconnect did not keep starting cmux-tui")
+        #expect(service.recovery.offersRestart)
+        #expect(!service.recovery.startFailurePersists)
+        #expect(toasts.toasts(in: window).isEmpty, "a notice while cmux keeps retrying a start that failed only briefly")
+
+        // Past the window, the next failed start counts as cmux-tui being down, and the notice shows.
+        clock += DaemonRecovery.NoticePolicy.standard.sustained
+        let shown = await Self.eventually { !toasts.toasts(in: window).isEmpty }
+        let toast = try #require(toasts.toasts(in: window).first, "no notice after the starts kept failing (shown: \(shown))")
+        #expect(toast.message == DaemonRecoveryStrings.stopped)
+        #expect(toast.action?.title == DaemonRecoveryStrings.restart)
     }
 }

@@ -67,6 +67,11 @@ pub struct SubagentTree {
     /// depth, oldest first, each with the label a list names it by (its name, else its task):
     /// the summary's `subagentsRunning` and `subagentNames` (`hub/views.rs`).
     running: Vec<(String, Option<String>)>,
+    /// Each subagent's name, from the newest event that named it (its spawn, a workflow's launch). An
+    /// event that names it not (a progress or state update) is given it, so a client that read the chat's log from a
+    /// page after the spawn still names the subagent and not its raw id (Leo, 2026-11-02, on
+    /// Session Info rows named "01a18fcd-c1c7-7c…": "but what's going on with these?").
+    names: HashMap<String, String>,
     /// Codex's native ids for this session. Legacy activity can echo a root id
     /// while a child is running; it is the root, never a subagent. The tree
     /// lives as long as the hub session, and a harness restart or a new Codex
@@ -162,6 +167,8 @@ impl SubagentTree {
             params.get("update").map(|u| self.events(u, owner.as_deref())).unwrap_or_default();
         for event in &mut events {
             let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
+            self.name_event(id.to_owned(), event);
+            let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
             let preview = self.previews.entry(id.to_owned()).or_default();
             // A progress/state event is authoritative over an earlier usage_update;
             // retain its total for a later lifecycle event that omits tokens.
@@ -217,6 +224,9 @@ impl SubagentTree {
         for (id, preview) in log.previews {
             self.previews.entry(id).or_insert(preview);
         }
+        for (id, name) in log.names {
+            self.names.entry(id).or_insert(name);
+        }
         self.background.extend(log.background.into_iter().filter(|id| !known.contains(id)));
         for (id, label) in log.running {
             if !known.contains(&id) && !self.running.iter().any(|(r, _)| *r == id) {
@@ -224,6 +234,35 @@ impl SubagentTree {
             }
         }
         self.root_threads.extend(log.root_threads);
+    }
+
+    /// Learns `id`'s name from `event` when it names it, or gives `event` the name learned before
+    /// when it carries neither a name nor a task.
+    fn name_event(&mut self, id: String, event: &mut Value) {
+        let text =
+            |key: &str| event.get(key).and_then(Value::as_str).filter(|v| !v.trim().is_empty());
+        // Secrets are masked before the cut, as `note_running`'s labels are: a token across the cut
+        // would no longer match the scanner.
+        let label = |t: &str| {
+            truncate_label(
+                &crate::secret_scan::mask(t).split_whitespace().collect::<Vec<_>>().join(" "),
+            )
+        };
+        if let Some(name) = text("name") {
+            // The newest name wins: a workflow's launch renames the run it started as "Workflow".
+            self.names.insert(id, label(name));
+            return;
+        }
+        if let Some(task) = text("task") {
+            // A task names one that has no name (a Codex legacy spawn says only its prompt).
+            if !self.names.contains_key(&id) {
+                self.names.insert(id, label(task));
+            }
+            return;
+        }
+        if let (Some(name), Some(object)) = (self.names.get(&id), event.as_object_mut()) {
+            object.insert("name".into(), json!(name));
+        }
     }
 
     /// How many background subagents still run.
@@ -840,7 +879,8 @@ mod codex_tests {
         assert_eq!(
             end,
             [
-                json!({"id": "s1/t1", "parent": null, "state": "failed", "agentId": "a8e1", "error": "API Error: 503"})
+                json!({"id": "s1/t1", "parent": null, "state": "failed", "agentId": "a8e1", "error": "API Error: 503",
+                    "name": "Push relay"})
             ]
         );
     }
@@ -1328,6 +1368,69 @@ mod codex_tests {
         assert_eq!(second[0]["id"], prior_art);
         assert_eq!(second[0]["parent"], Value::Null);
         assert!(!tree.owns(root), "the new root is not a subagent");
+    }
+
+    /// Leo's Session Info (2026-11-02) named most running subagents by their raw ids: a client
+    /// that read the chat from a page after a spawn met them through progress, which names none.
+    /// Every event carries the name the spawn gave, and a later name replaces it.
+    #[test]
+    fn a_progress_update_carries_the_name_its_spawn_gave() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/toolu_a",
+                   "name": "Drop server login", "task": "Drop server login"}),
+        );
+        let progress = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_a", "tokens": 10}),
+        );
+        assert_eq!(progress[0]["name"], json!("Drop server login"));
+        let ended = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/toolu_a", "state": "completed"}),
+        );
+        assert_eq!(ended[0]["name"], json!("Drop server login"));
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_a", "name": "Renamed"}),
+        );
+        let next = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_a", "tokens": 11}),
+        );
+        assert_eq!(next[0]["name"], json!("Renamed"));
+        // A task-only spawn names it too.
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/toolu_t", "task": "Check the rail"}),
+        );
+        let later = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_t", "tokens": 1}),
+        );
+        assert_eq!(later[0]["name"], json!("Check the rail"));
+    }
+
+    /// A name holding a secret across the label's cut is masked before the cut, so the cached name a
+    /// later nameless event carries holds none of it.
+    #[test]
+    fn a_cached_name_is_masked_before_its_cut() {
+        let body: String = "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS".chars().cycle().take(36).collect();
+        let token = format!("gh{}_{body}", "p");
+        assert_eq!(crate::secret_scan::mask(&token), "[GitHub Personal Access Token]");
+        let name = format!("{} {token}", "x".repeat(50));
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/toolu_s", "name": name}),
+        );
+        let later = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_s", "tokens": 1}),
+        );
+        let cached = later[0]["name"].as_str().unwrap();
+        assert!(!cached.contains("aZ3kQ9"), "{cached}");
     }
 }
 
