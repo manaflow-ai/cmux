@@ -51,7 +51,10 @@ impl Hub {
             && host != crate::hub::host_label()
             && matches!(&activity.child, Child::Agent { .. })
         {
-            return Box::pin(self.workflow_remote_agent(run, generation, activity, prompt, options, host)).await;
+            return Box::pin(
+                self.workflow_remote_agent(run, generation, activity, prompt, options, host),
+            )
+            .await;
         }
         match &activity.child {
             Child::Machine { session_id, task_id, .. } => {
