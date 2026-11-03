@@ -1088,7 +1088,7 @@ check_no_github_hosted_runners() {
   # The signer route's exact runs-on line (its exception below).
   local signer_route
   signer_route=$(cat <<'SIGNER_ROUTE'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted == 'stalled') && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
 SIGNER_ROUTE
 )
   # The pick holds no signing material, so its re-run reads the declared Linux 4 vCPU pool.

@@ -3479,9 +3479,9 @@ jobs:
     # routing environment, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
     environment: ci-routing-agent
     # Room for every step budget in turn (the read token mint 1, the Blacksmith pick 2, then the owned pick's token
-    # mints 1 + 1, the verify picker 2, the signing picker 2 and the overtaken check 1) plus checkout, so the job is never
+    # mints 1 + 1, the verify picker 2, the signing picker 2, the overtaken and hosted checks 1 + 1) plus checkout, so the job is never
     # cut off before its outputs; the Blacksmith pick runs before the owned steps so `runner` is set first.
-    timeout-minutes: 16
+    timeout-minutes: 17
     permissions:
       # The queue janitor's pool snapshot (an artifact).
       actions: read
@@ -3511,6 +3511,8 @@ jobs:
       attempt: ${{ github.run_attempt }}
       # A newer run's build is already on the feed: signer-app and build-sign-notarize-nightly skip.
       overtaken: ${{ steps.overtaken.outputs.overtaken }}
+      # stalled: this run's hosted Ubuntu waited 3 min or more, so the signer route takes Blacksmith Linux 4 vCPU now.
+      hosted: ${{ steps.hosted.outputs.hosted }}
     steps:
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -3646,6 +3648,15 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/sign-pick-overtaken.sh
+      - id: hosted
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          PLATFORM: hosted
+        run: python3 .publish-tooling/scripts/ci/nightly_sign_runner.py
 
   build-sign-notarize-nightly:
     # Production secrets: GitHub releases them only to protected refs (the
@@ -4776,13 +4787,9 @@ jobs:
         timeout-minutes: 12
         run: bash .publish-tooling/scripts/ci/nightly-steps/launch-smoke-gate.sh "$DMG"
 
-  # The signer jobs take GitHub-hosted Ubuntu first and Blacksmith Linux 4 vCPU on a re-run, never 16 or 32 vCPU.
-  # They are notarization-bound, not CPU-bound (HQ build-fleet summary, W44 p50 on Blacksmith 32 vCPU: signer-app
-  # 240 s, signer-dmg 199 s, signer-build 7 s from its cache). The secret jobs stay on trusted runners (hosted or
-  # Blacksmith), and rcodesign stays the Linux build. A hosted job GitHub drops unstarted fails the pool path, and
-  # the macOS signer (build-sign-notarize-nightly) signs instead, so a hosted queue never holds the nightly.
-  # Leo, 2026-11-01: "a small job that is not CPU-bound, such as signing and its runner pick, takes GitHub-hosted
-  # Ubuntu first" (tests/test_ci_self_hosted_guard.sh allowlists these exact lines).
+  # The signer jobs take hosted Ubuntu first, Blacksmith Linux 4 vCPU on a re-run or when pick-nightly-sign-runner's
+  # `hosted` output says this run's hosted queue stalled 3 min (scripts/ci/hosted_queue_stall.py; run 41683652930's
+  # signer-app waited 532 s). Notarization-bound, not CPU-bound; tests/test_ci_self_hosted_guard.sh allowlists the lines.
   signer-build:
     # Only decide: the signer binary builds while the app does, off the path to the feed (it waited for
     # pick-nightly-sign-runner, about 45 s of pickup and cache restore after the pick in run 41570134320).
@@ -4831,7 +4838,7 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, signer-build, pick-nightly-sign-runner]
     if: needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.pick-nightly-sign-runner.outputs.overtaken != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted == 'stalled') && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 75
     permissions:
       contents: read
@@ -5072,7 +5079,7 @@ jobs:
   signer-dmg:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, signer-app, signer-dmg-image, pick-nightly-sign-runner]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted == 'stalled') && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -6497,7 +6504,7 @@ jobs:
     # picker waited its whole three minutes and then sent it to Blacksmith 4 vCPU in every run (runs
     # 41412703950..41418619409, 2026-11-02: 3.2-3.4 min, about 28 runner reads). The rulebook's measured
     # exception for signing and its picks (Leo, 2026-11-01: "surely github has linux hosted we can just use").
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted == 'stalled') && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 65
     permissions:
       contents: read
@@ -6885,9 +6892,9 @@ jobs:
   # NIGHTLY_NEXT_LEGACY_POOL=off.
   legacy-signer-app:
     environment: release-next
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, legacy-identity-target]
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, legacy-identity-target, pick-nightly-sign-runner]
     if: "!cancelled() && needs.signer-build.result == 'success' && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.action == 'new' && needs.legacy-identity-target.outputs.source_run == format('{0}', github.run_id) && needs.legacy-identity-target.outputs.build == needs.build-nightly-app.outputs.daemon_build && needs.decide.outputs.notary_paused != 'true' && vars.NIGHTLY_NEXT_LEGACY_POOL != 'off' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted == 'stalled') && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     # A failure here costs the old feed nothing: the macOS signer signs instead.
     continue-on-error: true
     timeout-minutes: 75
@@ -7028,9 +7035,9 @@ jobs:
   # cmux-nightly-identity-signed and the outputs publish-nightly-identity-legacy reads.
   legacy-signer-dmg:
     environment: release-next
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, legacy-signer-app, legacy-signer-dmg-image]
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, legacy-signer-app, legacy-signer-dmg-image, pick-nightly-sign-runner]
     if: "!cancelled() && needs.legacy-signer-app.outputs.notarized == 'true' && needs.legacy-signer-dmg-image.outputs.sha256 != ''"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted == 'stalled') && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     continue-on-error: true
     timeout-minutes: 40
     permissions:

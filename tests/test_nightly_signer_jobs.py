@@ -40,7 +40,8 @@ LEGACY_POOL_JOBS = ("legacy-signer-app", "legacy-signer-dmg-image", "legacy-sign
 LEGACY_POOL_SECRET_JOBS = {"legacy-signer-app", "legacy-signer-dmg"}
 # The signer route: GitHub-hosted Ubuntu, Blacksmith Linux 4 vCPU on a re-run (the hosted-runner guard's exception).
 SIGNER_ROUTE = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-                "github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}")
+                "(github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted == 'stalled') && "
+                "'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}")
 SIGNER_BUILD_ROUTE = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                       "needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && "
                       "contains(needs.decide.outputs.early_linux_jobs, ' signer-build ') && "
@@ -174,8 +175,7 @@ class Wiring(unittest.TestCase):
             runs_on = JOBS[name]["runs-on"]
             with self.subTest(job=name):
                 self.assertEqual(runs_on, SIGNER_BUILD_ROUTE if name == "signer-build" else SIGNER_ROUTE)
-                self.assertTrue(runs_on.endswith(
-                    "github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}"))
+                self.assertTrue(runs_on.endswith("'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}"))
                 self.assertNotIn("blacksmith-16vcpu", runs_on)
                 self.assertNotIn("blacksmith-32vcpu", runs_on)
                 self.assertNotIn("vars.LINUX_RUNNER", runs_on)

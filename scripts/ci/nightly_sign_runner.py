@@ -304,6 +304,12 @@ def place(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime, a
 def main(env: Mapping[str, str] = os.environ, read: Callable[[str, str], Any] | None = None,
          now: dt.datetime | None = None, *, sleep: Callable[[float], None] = time.sleep,
          clock: Callable[[], float] = time.monotonic) -> int:
+    if env.get("PLATFORM", "").strip().lower() == "hosted":
+        # Not a label: whether this run's hosted Ubuntu queue stalled, which moves the signer route onto
+        # Blacksmith Linux 4 vCPU (hosted_queue_stall.py). Kept behind this picker, the one the signing guard reads.
+        import hosted_queue_stall  # noqa: PLC0415
+
+        return hosted_queue_stall.main(env)
     now = now or dt.datetime.now(dt.timezone.utc)
     variable = (env.get("CANDIDATE") or "").strip()
     snapshot, problem = None, "no token to read the pool snapshot"

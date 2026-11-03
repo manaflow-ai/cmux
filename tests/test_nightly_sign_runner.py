@@ -450,7 +450,9 @@ class EveryLabelDead(unittest.TestCase):
 
     def test_every_picker_step_reads_runner_pools(self) -> None:
         steps = [step for job in WORKFLOW["jobs"].values() for step in job.get("steps", [])
-                 if "nightly_sign_runner.py" in str(step.get("run", ""))]
+                 if "nightly_sign_runner.py" in str(step.get("run", ""))
+                 # PLATFORM hosted picks no label: it only says whether hosted Ubuntu stalled (hosted_queue_stall.py).
+                 and (step.get("env") or {}).get("PLATFORM") != "hosted"]
         self.assertTrue(steps)
         for step in steps:
             self.assertEqual(step["env"].get("RUNNER_POOLS"), "${{ vars.RUNNER_POOLS }}")
