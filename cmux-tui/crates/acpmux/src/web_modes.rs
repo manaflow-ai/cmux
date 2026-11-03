@@ -146,10 +146,17 @@ pub(crate) const MODE_FIELDS: &[&str] = &[
     "sandbox_mode",
 ];
 
-/// Config options a Web connection may set to any value: they choose a model
-/// or how hard it thinks, never what runs without asking.
-pub(crate) const FREE_CONFIG_IDS: &[&str] =
-    &["model", "effort", "reasoning_effort", "thought_level", "thinking"];
+/// Config options a Web connection may set to any value: they choose a model,
+/// how hard it thinks or whether the chat shows a recap when the person comes
+/// back (`session-recap`), never what runs without asking.
+pub(crate) const FREE_CONFIG_IDS: &[&str] = &[
+    "model",
+    "effort",
+    "reasoning_effort",
+    "thought_level",
+    "thinking",
+    crate::claude_stdio::RECAP_OPTION,
+];
 
 /// Config options a chat may bring back from another machine with any value
 /// (`transfer_guard.rs` `web_guard_modes`), though the Web may not set them:

@@ -136,8 +136,15 @@ try {
     expect(view.bubble).toBe("what goes wrong?");
     // Video first in the row, as the composer's strip had it.
     expect(host.querySelector(".cv-user__images")?.firstElementChild?.className).toBe("cv-user__video");
+    // A host that grants no stream: Quick Look plays it.
     await act(async () => view.tile!.click());
-    expect(calls.at(-1)).toEqual({ method: "video.quickLook", params: { src: PATH } });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(calls.slice(-2)).toEqual([
+      { method: "media.load", params: { src: PATH } },
+      { method: "video.quickLook", params: { src: PATH } },
+    ]);
   });
 
   test("before acpmux's echo the pane's own row draws the tile from the composer's chip", async () => {
@@ -202,6 +209,59 @@ try {
     await render({ id: "user-5", version: 1, at: 0, kind: "user", text: NOTE } as AcpmuxRow);
     expect(shown().tile).toBeNull();
     expect(shown().bubble).toBe(NOTE);
+  });
+  // Leo, 2026-11-02: "this i can't play a video preview inside cmux next? i feel like i should be able to".
+  test("a click on a sent video's ▶ plays it in place: the reply's player, with controls, on the host's streamed URL", async () => {
+    const path = "/Users/dev/Desktop/inline-demo.mp4";
+    const src = "cmux-agent://pane/__media/feedfacefeedface.mp4";
+    const note = "Frames from the video inline-demo.mp4 (0:16, 1920×1080), in order, at: 0:02.0, 0:06.0.";
+    const frame = { id: "d".repeat(64), mimeType: "image/jpeg", name: "inline-demo.mp4 frame at 0:02.0" };
+    const played: HTMLMediaElement[] = [];
+    const proto = dom.window.HTMLMediaElement.prototype;
+    const original = proto.play;
+    proto.play = function (this: HTMLMediaElement) {
+      played.push(this);
+      return Promise.resolve();
+    };
+    setChipHost(async (method, params) => {
+      calls.push({ method, params });
+      return method === "media.load" && params.src === path ? { src } : null;
+    });
+    try {
+      await render({
+        id: "user-6",
+        version: 1,
+        at: 0,
+        kind: "user",
+        text: `play it\n\n${note}\n${frame.name}`,
+        images: [frame],
+        inlineParts: [
+          { kind: "text", text: "play it" },
+          { kind: "file", name: "inline-demo.mp4", uri: `file://${path}` },
+          { kind: "text", text: note },
+          { kind: "text", text: frame.name },
+          { kind: "image", ...frame },
+        ],
+      } as AcpmuxRow);
+      const tile = host.querySelector<HTMLElement>(".cv-user__video");
+      expect(tile?.querySelector(".cv-user__video-length")?.textContent).toBe("0:16");
+      await act(async () => tile!.click());
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      const player = host.querySelector<HTMLVideoElement>(".cv-user__video-player video");
+      expect(player).not.toBeNull();
+      expect(player!.getAttribute("src")).toBe(src);
+      expect(player!.hasAttribute("controls")).toBe(true);
+      expect(player!.muted).toBe(false);
+      expect(played).toEqual([player!]);
+      expect(host.querySelector(".cv-user__video")).toBeNull();
+      expect(calls.some((call) => call.method === "video.quickLook" && call.params.src === path)).toBe(false);
+      // Expand and Open in tab stay with it.
+      expect(host.querySelector(".cv-user__video-player .cv-media__expand")).not.toBeNull();
+    } finally {
+      proto.play = original;
+    }
   });
 } finally {
   afterAll(() => {

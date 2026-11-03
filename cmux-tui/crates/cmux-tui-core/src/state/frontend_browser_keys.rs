@@ -165,11 +165,55 @@ impl Mux {
         };
         let fingerprint = json!({"pane": pane_id, "record": &record});
         let url = record.url.clone();
-        let title = record.title.clone();
-        let created = self.keyed_frontend_browser(key, record, fingerprint, |browser_id| {
+        self.keyed_frontend_browser_tab_with(key, record, fingerprint, |browser_id| {
             let fields = frontend_browser_fields(browser_id, placement);
             self.new_browser_tab_with_fields_as(actor, url, pane, size, fields)
+        })
+    }
+
+    /// `new-frontend-browser-tab {idempotency_key, pane, split}`
+    /// (`frontend-browser-tab-split-v1`): the keyed creation of a tab in a
+    /// new pane split from `split.pane`. The fingerprint names the split
+    /// (side and caller-minted ids), so the same key with another split, or
+    /// without one, is `idempotency.conflict`.
+    pub(crate) fn new_frontend_browser_tab_split_keyed_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        split: TabSplit,
+        record: FrontendBrowserRecord,
+        size: Option<(u16, u16)>,
+        key: &str,
+    ) -> anyhow::Result<FrontendBrowserTabOutcome> {
+        let pane_id = self.with_state(|state| {
+            state.resource_indexes.pane_ids.get(&split.pane).cloned().context("unknown pane")
         })?;
+        let fingerprint = json!({
+            "pane": pane_id,
+            "record": &record,
+            "split": {
+                "direction": split.direction,
+                "pane_id": &split.pane_id,
+                "split_id": &split.split_id,
+            },
+        });
+        let url = record.url.clone();
+        self.keyed_frontend_browser_tab_with(key, record, fingerprint, |browser_id| {
+            let fields = frontend_browser_fields(browser_id, FrontendTabPlacement::default());
+            self.split_tab_pane_with_fields_as(actor, split, url, fields, size)
+        })
+    }
+
+    /// [`Self::keyed_frontend_browser`] for a raw `new-frontend-browser-tab`:
+    /// the replayed tab, or the created one with the record's title.
+    fn keyed_frontend_browser_tab_with(
+        self: &Arc<Self>,
+        key: &str,
+        record: FrontendBrowserRecord,
+        fingerprint: Value,
+        create: impl FnOnce(&BrowserPublicId) -> anyhow::Result<Arc<Surface>>,
+    ) -> anyhow::Result<FrontendBrowserTabOutcome> {
+        let title = record.title.clone();
+        let created = self.keyed_frontend_browser(key, record, fingerprint, create)?;
         let surface = match created {
             KeyedFrontendBrowser::Placed(surface) => {
                 return Ok(FrontendBrowserTabOutcome { surface, replayed: true });

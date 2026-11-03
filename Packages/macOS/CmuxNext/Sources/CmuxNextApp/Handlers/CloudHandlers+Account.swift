@@ -29,7 +29,7 @@ extension CloudHandlers {
                 // now. An ended app link connects again on this gesture, and
                 // a paused machine resumes (idle auto-pause).
                 target?.attach(origin: connectOrigin(for: invocation))
-                let creation = creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
+                let creation = creationFlow(context, startedByPerson: invocation.origin == .user, capCard: invocation.isPersonsOwnRun, askedBy: invocation.callerAgentSession,
                                             reveals: invocation.allowsViewChange).start(in: window, existing: target)
                 guard let target else {
                     // A CLI or agent hears the new machine's id and target once the server has it
@@ -72,9 +72,11 @@ extension CloudHandlers {
         runTracked("new Cloud workspace", context) {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
+            // Release: read the remote switch now, so the offer below reflects it (DEV and NIGHTLY skip it).
+            if !DevTools.isEnabled { await cloud.readHarnessLoginCopySwitch() }
             let availability = CloudWorkspaceSetupWizard.CredentialAvailability.resolve(
                 teamID: cloud.auth.teamID, supportsFileRoute: AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: cloud.configuration.linkSource, isSignedIn: true, passesLogin: true),
-                passesLogin: CloudStartChat.passesHarnessLoginHere)
+                passesLogin: CloudStartChat.passesHarnessLoginHere(switch: cloud.harnessLoginCopySwitch))
             let present: (CmuxDialogSpec) async -> CmuxDialogAnswer = { spec in
                 let scope: CmuxDialogScope = services.windows.active?.window.map(CmuxDialogScope.window) ?? .app
                 return await CmuxDialogCenter.shared.present(spec, in: scope)
@@ -162,6 +164,8 @@ extension CloudHandlers {
                     throw CancellationError()
                 }
                 if provider == .codex {
+                    // The Release consent covers the Claude login only; the Codex broker stays DEV and NIGHTLY.
+                    guard DevTools.isEnabled else { return }
                     guard let windowID = window?.id, let originalWindow = services.windows.controller(for: windowID)?.window else {
                         throw CancellationError()
                     }
@@ -172,13 +176,17 @@ extension CloudHandlers {
                         })
                     return
                 }
+                // Release (CloudService+LoginCopy.swift): the switch read fresh and the person's
+                // one-time consent, asked here when never answered; the transfer checks both again last.
+                guard await CloudStartChat.releaseCopyAllowed(services) else { return }
                 let transfer = CloudCredentialTransfer(provider: .claude,
                     machineID: session.machineID, teamID: teamID, userID: userID, openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
                     })
                 try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID },
                                        currentUserID: { cloud.auth.user?.id }, confirmed: true,
-                                       callerOwnsVM: { [machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) })
+                                       callerOwnsVM: { [machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) },
+                                       stillAllowed: CloudStartChat.releaseStillAllowed(services))
             }
         }
     }
@@ -367,20 +375,20 @@ extension CloudHandlers {
     }
 
     /// The New Cloud Workspace flow over this app's services (cx-lu8f).
-    /// `startedByPerson`: true only for an action invoked with origin user;
-    /// any other create (a Retry or Dismiss button of the progress view,
-    /// which carries no gesture origin) asks the person first.
+    /// `startedByPerson`: true only for an action invoked with origin user; any other create (a Retry or Dismiss
+    /// button of the progress view, which carries no gesture origin) asks the person first. `capCard`: a refusal at
+    /// the plan's cap shows its card; false for a CLI's or agent's run, which hears the refusal at once (cmux#32725).
     /// `reveals`: the run may change the view (a person's, or one with `--focus`): a machine made with no
     /// window showing its creation still opens its workspace in one. Without it the workspace waits,
     /// out of the sidebar, until the person opens the machine (`unopenedCloudWorkspaces`).
-    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, askedBy: String? = nil, reveals: Bool = false,
+    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, capCard: Bool = true, askedBy: String? = nil, reveals: Bool = false,
                              proceed: @escaping (CloudMachineCreation) throws -> Void = { _ in }) -> CloudCreationFlow {
         let cloud = context.services.cloud
         let windows = context.services.windows
         return CloudCreationFlow(
             creations: cloud.creations,
             create: { creation in
-                try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, askedBy: askedBy,
+                try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, capCard: capCard, askedBy: askedBy,
                                                request: creation.request, proceed: { try proceed(creation) })
             },
             open: { session in defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID, doc: context.services.sidebarDoc) }; return try await firstWorkspace(on: session, context) },

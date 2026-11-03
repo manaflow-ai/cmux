@@ -8,7 +8,11 @@ import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BackgroundTurnLine } from "../src/agent-session/acpmux/conversation/BackgroundTurnLine";
-import { BACKGROUND_TURN, backgroundTurnRowId } from "../src/agent-session/acpmux/conversation/backgroundTurns";
+import {
+  BACKGROUND_TURN,
+  backgroundTurnRecord,
+  backgroundTurnRowId,
+} from "../src/agent-session/acpmux/conversation/backgroundTurns";
 import {
   messageRevealTarget,
   turnFoldFor,
@@ -602,6 +606,282 @@ test("a running background turn with no rows yet is a plain line, no chevron and
     expect(opened).toContain("cv-agent-activity__chevron");
     const open = drawn(rows(), [after.id]);
     expect(open.at(-1)?.text).toBe("Still running.");
+  } finally {
+    client.close();
+  }
+});
+
+// A chat's log as Leo's chat had it (2026-11-02): background tasks ended one after another, the agent
+// answered each with a lone "·" in its own message, and the session's bookkeeping came between ("why
+// do you still do these"). The tasks were steps a subagent ran, which acpmux weighs silent: no line
+// and no dot. Turns acpmux did not weigh (an older daemon's) that ran something fold into one line.
+const dotSay = (messageId: string): Step => [
+  "in",
+  "agent_message_chunk",
+  update({ sessionUpdate: "agent_message_chunk", messageId, content: { type: "text", text: "·" } }),
+];
+const quietTask = (id: string, work: boolean, cause?: Record<string, unknown>): Step[] => [
+  ["in", "config_option_update", update({ sessionUpdate: "config_option_update", configOptions: [] })],
+  cause ? ["mux", "background_turn", { state: "started", id, trigger: "task_notification", cause }] : started(id),
+  ...(work ? [ran(`${id}-check`)] : []),
+  dotSay(`msg-${id}`),
+  ended(id, true),
+];
+
+test("a subagent's steps answered with a lone dot draw no line and no dot", async () => {
+  const step = { kind: "subagent_step", status: "completed", weight: "silent", origin: "toolu_step" };
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Run the four suites in the background", "Started them.", "t1"),
+      ...["bg-a", "bg-b", "bg-c", "bg-d"].flatMap((id) => quietTask(id, false, step)),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const dots = rows().filter((row) => row.text === "·");
+    expect(dots.map((row) => row.inBackground)).toEqual(["bg-a", "bg-b", "bg-c", "bg-d"]);
+    const view = drawn(rows());
+    expect(view.some((row) => row.text === "·")).toBe(false);
+    expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
+test("quiet background turns in a row that ran something fold into one counted line", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Run the four suites in the background", "Started them.", "t1"),
+      ...["bg-a", "bg-b", "bg-c", "bg-d"].flatMap((id) => quietTask(id, true)),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const view = drawn(rows());
+    expect(view.some((row) => row.text === "·")).toBe(false);
+    const lines = view.filter((row) => row.kind === BACKGROUND_TURN);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.backgroundRun).toMatchObject({ finished: 4 });
+    // Opened, the four lines draw again in order, each closed on its own rows.
+    const open = drawn(rows(), [lines[0]!.id]).filter((row) => row.kind === BACKGROUND_TURN);
+    expect(open.map((row) => row.background?.id ?? "run")).toEqual(["run", "bg-a", "bg-b", "bg-c", "bg-d"]);
+  } finally {
+    client.close();
+  }
+});
+
+// Weighed from the task's own event (acpmux hub/background_cause.rs; Leo, 2026-11-03: "there's
+// like... background tasks worth responding to and not worth responding to"): one case per weight.
+const shellCall = (id: string): Step => [
+  "in",
+  "tool_call",
+  update({
+    sessionUpdate: "tool_call",
+    toolCallId: id,
+    title: "cargo test",
+    kind: "execute",
+    status: "completed",
+    rawInput: { command: "cargo test", run_in_background: true },
+  }),
+];
+const weighed = (id: string, cause: Record<string, unknown>): Step => [
+  "mux",
+  "background_turn",
+  { state: "started", id, trigger: "task_notification", cause },
+];
+const callOf = (rows: AcpmuxRow[], id: string) =>
+  rows.flatMap((row) => row.items ?? []).find((item) => item.tool?.id === id)?.tool;
+
+test("an interim stop goes onto its call: no line, no new mark, its reply inside the call", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Run the suite", turnId: "t1" }],
+      ["mux", "turn_started", { turnId: "t1" }],
+      shellCall("sh1"),
+      ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      weighed("bg-i", { kind: "shell", status: "interim", weight: "silent", origin: "sh1" }),
+      say("Still waiting on the suite."),
+      ended("bg-i", true),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const view = drawn(rows());
+    expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+    expect(view.some((row) => row.text === "Still waiting on the suite.")).toBe(false);
+    expect(callOf(rows(), "sh1")?.reaction).toEqual({
+      turn: "bg-i",
+      weight: "silent",
+      text: "Still waiting on the suite.",
+    });
+    // A second end of the same call keeps the first one's words before its own.
+    daemon.push(
+      record(
+        [
+          weighed("bg-i2", { kind: "shell", status: "interim", weight: "silent", origin: "sh1" }),
+          say("Still waiting."),
+          ended("bg-i2", true),
+        ],
+        20,
+      ),
+    );
+    expect(callOf(rows(), "sh1")?.reaction?.text).toBe("Still waiting on the suite.\n\nStill waiting.");
+  } finally {
+    client.close();
+  }
+});
+
+test("a final result marks its call new until the next prompt; a reply with something to say draws", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Run the suite", turnId: "t1" }],
+      ["mux", "turn_started", { turnId: "t1" }],
+      shellCall("sh2"),
+      ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      weighed("bg-r", { kind: "shell", status: "completed", weight: "result", origin: "sh2" }),
+      say("All 412 tests passed."),
+      ended("bg-r", true),
+      weighed("bg-r2", { kind: "shell", status: "completed", weight: "result", origin: "sh2" }),
+      say("The suite passed, but the bench regressed 12%:\n\nShould I bisect it?"),
+      ended("bg-r2", false),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const view = drawn(rows());
+    expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+    // The quiet reply is on the call; the one with something to say draws as a message.
+    expect(view.some((row) => row.text === "All 412 tests passed.")).toBe(false);
+    expect(view.at(-1)?.text).toContain("Should I bisect it?");
+    expect(callOf(rows(), "sh2")?.reaction).toMatchObject({ weight: "result", fresh: true });
+    daemon.push(record(personTurn("Yes, bisect", "Bisecting.", "t2"), 30));
+    expect(callOf(rows(), "sh2")?.reaction?.fresh).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
+
+test("a failure always draws its line, named by the task's own summary", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Run the suite", turnId: "t1" }],
+      ["mux", "turn_started", { turnId: "t1" }],
+      shellCall("sh3"),
+      ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      weighed("bg-f", {
+        kind: "shell",
+        status: "failed",
+        weight: "failure",
+        origin: "sh3",
+        summary: "Background command failed (exit code 1)",
+      }),
+      say("."),
+      ended("bg-f", true),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const line = drawn(rows()).find((row) => row.kind === BACKGROUND_TURN)!;
+    expect(line.background?.cause?.weight).toBe("failure");
+    expect(lineHtml(line)).toContain("Background command failed (exit code 1)");
+    expect(callOf(rows(), "sh3")?.reaction).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
+
+test("a silent turn no call took still keeps a line when it had something to say", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Watch it", "Watching.", "t1"),
+      weighed("bg-m", { kind: "monitor", status: "completed", weight: "silent", origin: "gone" }),
+      say("CI moved to step 3 of 5.\n\nNothing to do yet."),
+      ended("bg-m", false),
+      weighed("bg-q", { kind: "monitor", status: "completed", weight: "silent", origin: "gone" }),
+      say("Tick."),
+      ended("bg-q", true),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const lines = drawn(rows()).filter((row) => row.kind === BACKGROUND_TURN);
+    expect(lines.map((row) => row.background?.id)).toEqual(["bg-m"]);
+    // Find opens the quiet one: its line draws while open, so it can close again.
+    const open = drawn(rows(), [backgroundTurnRowId("bg-q")]);
+    expect(open.some((row) => row.text === "Tick.")).toBe(true);
+    expect(open.some((row) => row.background?.id === "bg-q")).toBe(true);
+  } finally {
+    client.close();
+  }
+});
+
+test("a record's cause is read whole or not at all", () => {
+  expect(
+    backgroundTurnRecord({
+      state: "started",
+      id: "b",
+      trigger: "task_notification",
+      cause: { kind: "subagent", status: "completed", weight: "result", origin: "c", summary: "Done" },
+    })?.cause,
+  ).toEqual({ kind: "subagent", status: "completed", weight: "result", origin: "c", summary: "Done" });
+  for (const cause of [undefined, "x", { kind: "shell", status: "completed", weight: "loud" }, { weight: "silent" }])
+    expect(
+      backgroundTurnRecord({ state: "started", id: "b", trigger: "task_notification", cause })?.cause,
+    ).toBeUndefined();
+});
+
+test("a subagent's final report marks its done line new; its quiet reply goes with it", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Review the PR in the background", "Started a reviewer.", "t1"),
+      spawned("reviewer"),
+      spawned("reviewer", "completed"),
+      weighed("bg-s", { kind: "subagent", status: "completed", weight: "result", origin: "reviewer-call" }),
+      say("Reviewer says SHIP."),
+      ended("bg-s", true),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const agent = rows()
+      .flatMap((row) => row.subagents ?? [])
+      .find((entry) => entry.id === "reviewer");
+    expect(agent?.reaction).toMatchObject({ weight: "result", fresh: true, text: "Reviewer says SHIP." });
+    const view = drawn(rows());
+    expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+    expect(view.some((row) => row.text === "Reviewer says SHIP.")).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
+// Review follow-up on #33283: a done line already drawn takes its reaction's mark when it comes, and
+// drops it after the next prompt.
+test("a subagent's done line draws its reaction's mark as it comes and goes", async () => {
+  const daemon = fakeDaemon(
+    record([...personTurn("Review it", "Started a reviewer.", "t1"), spawned("rev"), spawned("rev", "completed")]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const cache = new Map();
+    const done = () => withSubagentLines(rows(), cache).find((row) => row.kind === SUBAGENT_DONE)!;
+    const before = done();
+    expect(before.subagents?.[0]?.reaction).toBeUndefined();
+    daemon.push(
+      record(
+        [
+          weighed("bg-rev", { kind: "subagent", status: "completed", weight: "result", origin: "rev-call" }),
+          say("Reviewer says SHIP."),
+          ended("bg-rev", true),
+        ],
+        20,
+      ),
+    );
+    const marked = done();
+    expect(marked.version).not.toBe(before.version);
+    expect(marked.subagents?.[0]?.reaction).toMatchObject({ fresh: true, text: "Reviewer says SHIP." });
+    daemon.push(record(personTurn("Merge it", "Merging.", "t2"), 40));
+    expect(done().subagents?.[0]?.reaction?.fresh).toBeUndefined();
   } finally {
     client.close();
   }
