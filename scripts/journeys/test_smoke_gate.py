@@ -1286,6 +1286,36 @@ class OpenP0(unittest.TestCase):
             mod.OPEN_P0 = Path(tmp) / "missing.txt"
             self.assertIn("cannot be read", mod.open_p0_blockers("J")[0][1])
 
+    def test_a_superseded_row_is_not_read(self):
+        # The P0 JOURNEY RUNNER marks each older row of a journey "superseded_by" when it appends a new one (its
+        # mark_superseded; lead 2026-11-03): a reader-misread fail whose second try passed (ledger ecf26eee,
+        # quit-reopen-restore) must not block, and a superseded pass must not count.
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            mod.OPEN_P0, mod.P0_LEDGER = Path(tmp) / "list.txt", Path(tmp) / "ledger"
+            mod.P0_WAIVERS = Path(tmp) / "waivers.txt"
+            mod.OPEN_P0.write_text("quit-reopen-restore k o S1\n")
+            mod.P0_LEDGER.mkdir()
+            ok = {"build_job": "J", "kit_dirty": False, "options": {}}
+            rows = [{"id": "quit-reopen-restore", "status": "fail", "kit_status": "fail", "out": "/a1",
+                     "reason": 'frame_text "jq-447486-400" never held', "superseded_by": "2026-11-03T15:14:34Z", **ok},
+                    {"id": "quit-reopen-restore", "status": "not_run", "kit_status": "fail", "out": "/a1",
+                     "reason": "not judged: reader misread", "superseded_by": "2026-11-03T15:41:41Z", **ok},
+                    {"id": "quit-reopen-restore", "status": "pass", "kit_status": "pass", "out": "/a2", **ok}]
+            (mod.P0_LEDGER / "J.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+            self.assertEqual(mod.open_p0_blockers("J"), [])
+            # A superseded pass is not a pass: the journey's current row decides.
+            rows[2]["superseded_by"] = "2026-11-03T16:00:00Z"
+            rows.append({"id": "quit-reopen-restore", "status": "not_run", "out": "/a3", "reason": "no lease", **ok})
+            (mod.P0_LEDGER / "J.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+            self.assertIn("has not passed on J", mod.open_p0_blockers("J")[0][1])
+            # A fail that is NOT superseded still blocks, also with a later pass (a writer that does not supersede,
+            # e.g. run.py itself): only the runner's own mark retires a row.
+            rows[3] = {"id": "quit-reopen-restore", "status": "fail", "out": "/a3", "reason": "real", **ok}
+            rows.append({"id": "quit-reopen-restore", "status": "pass", "out": "/a4", **ok})
+            (mod.P0_LEDGER / "J.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+            self.assertIn("FAILED on J", mod.open_p0_blockers("J")[0][1])
+
     def test_run_py_appends_each_result_to_the_ledger(self):
         sys.path.insert(0, str(HERE))
         import importlib
