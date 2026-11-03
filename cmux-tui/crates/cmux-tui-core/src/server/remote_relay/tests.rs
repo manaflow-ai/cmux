@@ -955,7 +955,6 @@ fn a_remote_entry_connection_keeps_the_remote_path_after_disconnect() {
 // Poisoned relay locks (lane 10 lock slice): every admission, binding and
 // revocation step fails closed and returns a typed error.
 
-/// Poisons `mutex`: a panic while it is held.
 /// Poisons a published value: a panic while its lock is held.
 fn poison_published<T, S>(value: &crate::published::Published<T, S>) {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -965,6 +964,7 @@ fn poison_published<T, S>(value: &crate::published::Published<T, S>) {
     assert!(value.is_poisoned());
 }
 
+/// Poisons `mutex`: a panic while it is held.
 fn poison<T>(mutex: &Mutex<T>) {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _held = mutex.lock().unwrap();
@@ -1035,8 +1035,6 @@ fn a_poisoned_peers_lock_gives_no_principal_and_no_local_trust() {
     }
 }
 
-/// The same for the client registry, also on the input lane, whose readers
-/// load the registry's published facts instead of its lock.
 /// A panic while the session state is held: with the lane on, the next surface read takes the old path and fails
 /// as it does, never routing by tables that a guard which recovered the poison may have published. No terminal:
 /// the mux has none, so nothing else locks the poisoned state.
@@ -1053,6 +1051,8 @@ fn a_poisoned_session_state_never_routes_by_the_published_tables() {
     assert!(read.is_err(), "the lane read the published routes of a poisoned session state");
 }
 
+/// The same for the client registry, also on the input lane, whose readers
+/// load the registry's published facts instead of its lock.
 #[test]
 fn a_poisoned_registry_lock_trusts_no_client_as_local() {
     for lane in [false, true] {
