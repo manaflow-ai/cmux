@@ -106,8 +106,11 @@ impl Hub {
             .spawn_profile_for(meta, &profile, &defaults.env)
             .await
             .map_err(|error| anyhow::anyhow!(error.message))?;
-        profile.env = crate::agent::resolved_profile_env(&profile)?;
-        Ok(profile)
+        tokio::task::spawn_blocking(move || {
+            profile.env = crate::agent::resolved_profile_env(&profile)?;
+            Ok(profile)
+        })
+        .await?
     }
 
     pub async fn workflow_resume(self: &Arc<Self>, id: &str, owner: &str) -> Result<RunRecord> {
