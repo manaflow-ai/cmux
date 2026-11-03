@@ -11,6 +11,7 @@
 # versions under the step (tests/automation-bench/perf/setup.sh), and uses /Applications/Google Chrome.app
 # when present, else Chrome for Testing through playwright-core. Output: BROWSER-USE-PERF lines (one per
 # tool x site x primitive) and browser-use-perf.json (summaries and every row).
+# Retired on Macs (no Playwright on Macs, below): if revived, the Mac path must drive the app with `cmux browser ...`, not Playwright.
 set -euo pipefail
 runs=20
 cold=20

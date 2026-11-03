@@ -502,7 +502,12 @@ final class TabCell {
             // The marquee fades glyphs out across the icon-title gap.
             let textWidth = titleWidth()
             let visibleWidth = visibleEnd - titleX
-            let isMiddleTruncated = textWidth > visibleWidth + 0.5
+            // Measured only for a clipped title (a fitting one keeps the middle mode it never uses).
+            let truncation = textWidth <= visibleWidth + 0.5 ? CTLineTruncationType.middle
+                : Self.titleTruncation(textWidth: textWidth, visibleWidth: visibleWidth,
+                                       middleMinimum: middleTruncationMinimum(displayTitle))
+            if titleLayer.truncation != truncation { titleLayer.truncation = truncation }
+            let isMiddleTruncated = truncation == .middle && textWidth > visibleWidth + 0.5
             let restWidth = isMiddleTruncated ? visibleWidth : span
             let geometry = TitleFadeGeometry(
                 textWidth: textWidth, span: span, visibleWidth: visibleWidth,
