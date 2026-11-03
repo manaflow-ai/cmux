@@ -22,6 +22,7 @@ mod atomic_json;
 mod build;
 pub use build::{build, install_build, version_line};
 pub(crate) mod auto_resume;
+mod bg_notify;
 mod bg_tasks;
 mod bounded;
 mod btw;
@@ -60,6 +61,8 @@ mod prompt_accept_tests;
 mod shutdown_scan_tests;
 #[cfg(test)]
 mod shutdown_tests;
+#[cfg(test)]
+mod transcript_seq_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
 pub(crate) mod fork_before;
@@ -993,6 +996,7 @@ impl Hub {
             if !loading {
                 hub.watch_transfers();
                 hub.watch_orphans();
+                hub.bg_notify_resume();
             }
             hub.watch_titles();
             hub.watch_recaps();
@@ -1190,6 +1194,8 @@ impl Hub {
             let mut meta = session.meta.lock().unwrap();
             meta.event_count += extra;
             meta.last_seq = last;
+            // Whether the tail held a transcript record is not read here: say it may have.
+            meta.transcript_seq = last;
             // The log ran ahead of the saved session (a hard stop): a newer command list may be
             // in that tail, so a client reads the log for it instead of trusting the saved one.
             meta.available_commands = None;
@@ -1930,6 +1936,9 @@ impl Hub {
             m.last_seq = seq;
             m.event_count += 1;
             m.updated_at = record.at;
+            if paging::is_transcript(&record) {
+                m.transcript_seq = seq;
+            }
             if record.dir == "mux" && record.kind == "turn_result" {
                 m.harness_failures.observe(&record.msg, record.seq, record.at);
             }

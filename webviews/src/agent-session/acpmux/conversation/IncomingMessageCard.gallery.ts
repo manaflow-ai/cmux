@@ -79,10 +79,20 @@ const FILES_HOST: ChipHostFixture = {
   },
   policy: { outsideRoots: "open", remoteImages: "click" },
 };
-/// Each received message's own line (its DisclosureRow toggle). Three in a row stay three lines, each
-/// where it arrived: nothing folds them into one card.
+/// Each received message's own line (its DisclosureRow toggle); inside an opened "Received N
+/// messages" row, each message keeps its own line.
 const RECEIVED_LINE = ".cv-received .cv-disclosure__toggle";
+/// Received lines next to each other gather in one "Received N messages" row (#32720), closed, whose
+/// lines show once it opens: opens it when the stage draws one, then waits for a line.
+const RECEIVED_ROW = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
+const openReceivedRow: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(`${RECEIVED_ROW}, .cv-received`));
+  if (ctx.document.querySelector(RECEIVED_ROW)?.getAttribute("aria-expanded") === "false")
+    await ctx.click({ selector: RECEIVED_ROW });
+  await ctx.waitFor(() => ctx.document.querySelector(RECEIVED_LINE));
+};
 const openAllLines: Play = async (ctx) => {
+  await openReceivedRow(ctx);
   for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(RECEIVED_LINE)) toggle.click();
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text").length >= 2);
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text .cv-chip").length > 0);
@@ -132,6 +142,7 @@ const minimalChat = chat([
   summary(4.5, { status: "completed" }),
 ]);
 const linesDrawn: Play = async (ctx) => {
+  await openReceivedRow(ctx);
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__preview").length >= minimalTexts.length);
 };
 const ALT_ID = "incoming-minimal-alt";

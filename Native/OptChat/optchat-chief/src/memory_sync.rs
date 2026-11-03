@@ -5,6 +5,7 @@
 //! Design: plans/cmux-next/chief-memory-import-DESIGN.md.
 
 use std::collections::HashSet;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
@@ -215,10 +216,17 @@ pub fn write_local(paths: &Paths, fresh: &[Item]) -> Result<(usize, Option<PathB
     }
     let mut backup = None;
     if paths.memory_db.exists() {
-        let to = paths.memory_db.with_extension(format!(
-            "sqlite3.import-backup-{}",
-            chrono::Utc::now().format("%Y%m%dT%H%M%SZ")
-        ));
+        let stamp = chrono::Utc::now().timestamp_millis();
+        let mut to = paths
+            .memory_db
+            .with_extension(format!("sqlite3.import-backup-{stamp}"));
+        let mut suffix = 1;
+        while to.exists() {
+            to = paths
+                .memory_db
+                .with_extension(format!("sqlite3.import-backup-{stamp}-{suffix}"));
+            suffix += 1;
+        }
         std::fs::copy(&paths.memory_db, &to)
             .map_err(|e| format!("backup {}: {e}", to.display()))?;
         backup = Some(to);
@@ -293,6 +301,61 @@ pub fn items_from_claude_code(projects: &Path) -> Result<Vec<Item>, String> {
             item(i.kind.as_str(), &i.text, &date, "claude-code")
         })
         .collect())
+}
+
+/// A pasted self-summary from an assistant that has no export API. Empty
+/// paragraphs are ignored and each paragraph becomes one note so the Chief's
+/// compactor can keep preferences, people and projects as separate memories.
+/// The origin is deliberately part of the item source (and therefore the
+/// imported side header), while the key remains content based for idempotent
+/// re-imports from a newly-created temporary file.
+pub fn items_from_text(text: &str, origin: &str) -> Result<Vec<Item>, String> {
+    let origin = match origin {
+        "grok-bot" | "muse" | "dots" | "instinct" => origin,
+        _ => {
+            return Err(format!(
+                "unknown text origin {origin}; use grok-bot, muse, dots or instinct"
+            ));
+        }
+    };
+    let date = "1970-01-01T00:00:00Z"; // source exports do not carry a trustworthy date
+    let mut paragraphs = Vec::new();
+    let mut current = String::new();
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            if !current.trim().is_empty() {
+                paragraphs.push(std::mem::take(&mut current));
+            }
+        } else {
+            if !current.is_empty() {
+                current.push('\n');
+            }
+            current.push_str(line.trim_end());
+        }
+    }
+    if !current.trim().is_empty() {
+        paragraphs.push(current);
+    }
+    Ok(paragraphs
+        .into_iter()
+        .map(|paragraph| item("note", paragraph.trim(), date, origin))
+        .collect())
+}
+
+/// Reads `text:FILE`; `text:-` and `text:stdin` read standard input. The
+/// origin is required so a pasted summary is never detached from its source.
+pub fn items_from_text_source(path: &str, origin: Option<&str>) -> Result<Vec<Item>, String> {
+    let origin = origin.ok_or("text:FILE needs --origin grok-bot|muse|dots|instinct")?;
+    let mut text = String::new();
+    if path == "-" || path == "stdin" {
+        std::io::stdin()
+            .read_to_string(&mut text)
+            .map_err(|e| format!("reading text from stdin: {e}"))?;
+    } else {
+        text = std::fs::read_to_string(path)
+            .map_err(|e| format!("reading text {}: {e}", Path::new(path).display()))?;
+    }
+    items_from_text(&text, origin)
 }
 
 /// Codex chat transcripts (`codex_sessions_import`).
@@ -388,7 +451,12 @@ pub fn items_from_zip(zip: &Path) -> Result<Vec<Item>, String> {
 }
 
 /// Reads a source named on the command line.
-pub fn read_source(source: &str, user_home: &Path, chief_db: &Path) -> Result<Vec<Item>, String> {
+pub fn read_source(
+    source: &str,
+    user_home: &Path,
+    chief_db: &Path,
+    origin: Option<&str>,
+) -> Result<Vec<Item>, String> {
     match source {
         "claude-memory" => Ok(items_from_memory_files(user_home, false)),
         "codex" => Ok(items_from_memory_files(user_home, true)),
@@ -406,11 +474,13 @@ pub fn read_source(source: &str, user_home: &Path, chief_db: &Path) -> Result<Ve
         s => {
             if let Some(z) = s.strip_prefix("zip:") {
                 items_from_zip(Path::new(z))
+            } else if let Some(path) = s.strip_prefix("text:") {
+                items_from_text_source(path, origin)
             } else if let Some(d) = s.strip_prefix("chief:") {
                 items_from_chief(&Paths::new(Path::new(d)).memory_db)
             } else {
                 Err(format!(
-                    "unknown source {s}: chief, chief:MUX_HOME, claude-memory, claude-code, codex, codex-sessions or zip:FILE"
+                    "unknown source {s}: chief, chief:MUX_HOME, claude-memory, claude-code, codex, codex-sessions, zip:FILE or text:FILE"
                 ))
             }
         }
@@ -491,7 +561,8 @@ pub const USAGE: &str = "optchat-chief memory import-from detect [--exports] [--
 optchat-chief memory import-from undo [--to local|cloud[:staging|:URL]] [--chief agent_ID] [--batch ID]   take the last write back
 optchat-chief memory import-from SOURCE dry-run|write [--to local|cloud[:staging|:URL]] [--chief agent_ID]
     [--stop-host] [--max-cost USD] [--max-items N] [--price-in USD --price-out USD] [--session-token-file F] [--mux-home DIR] [--json]
-  SOURCE: chief (this home's memory), chief:MUX_HOME, claude-memory, claude-code, codex (memories), codex-sessions (chat transcripts), zip:FILE (claude.ai / ChatGPT export)
+  SOURCE: chief (this home's memory), chief:MUX_HOME, claude-memory, claude-code, codex (memories), codex-sessions (chat transcripts), zip:FILE (claude.ai / ChatGPT export), text:FILE or text:- (pasted summary; requires --origin)
+  --origin grok-bot|muse|dots|instinct tags pasted text with its source assistant.
   --to local (default) merges into this home's memory (host stopped); --to cloud appends to the Cloud Chief --chief names.
   Incremental: a key per item, so a re-run brings only what is new. Secrets are dropped. A write backs up first.";
 
@@ -558,7 +629,7 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<Str
     let max_items = flags
         .value("max-items")
         .and_then(|v| v.parse::<usize>().ok());
-    let items = read_source(source, &user_home, &paths.memory_db)?;
+    let items = read_source(source, &user_home, &paths.memory_db, flags.value("origin"))?;
     let to = flags.value("to").unwrap_or("local");
     if to == "local" {
         if *source == "chief" {
@@ -885,5 +956,41 @@ mod tests {
         assert_eq!(got[1].kind, "user");
         let gpt = r#"[{"title":"T","mapping":{"a":{"message":{"author":{"role":"user"},"content":{"parts":["q"]},"create_time":1760000000.0}},"b":{"message":{"author":{"role":"tool"},"content":{"parts":["x"]},"create_time":1760000001.0}}}}]"#;
         assert_eq!(items_from_export_json(gpt, "zip:g").unwrap().len(), 2);
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/chatgpt-conversations.zip");
+        assert_eq!(items_from_zip(&fixture).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn pasted_text_is_split_and_tagged_with_a_stable_key() {
+        let first = items_from_text(
+            "Likes short answers.\r\n \r\nWorks on cmux.\r\n",
+            "grok-bot",
+        )
+        .unwrap();
+        let second =
+            items_from_text("Likes short answers.\n\nWorks on cmux.\n", "grok-bot").unwrap();
+        assert_eq!(first.len(), 2);
+        assert_eq!(first[0].source, "grok-bot");
+        assert_eq!(first[0].kind, "note");
+        assert_eq!(first[0].key, second[0].key);
+        let known: HashSet<String> = first.iter().map(|i| i.key.clone()).collect();
+        let (plan, fresh) = make_plan("text:stdin", second, &known);
+        assert_eq!((plan.new, plan.duplicate), (0, 2));
+        assert!(fresh.is_empty());
+        let secret = format!("token ghp_{}", "a1".repeat(15));
+        let (secret_plan, secret_fresh) = make_plan(
+            "text:stdin",
+            items_from_text(&secret, "muse").unwrap(),
+            &HashSet::new(),
+        );
+        assert_eq!(secret_plan.secrets, 1);
+        assert!(secret_fresh.is_empty());
+    }
+
+    #[test]
+    fn pasted_text_requires_a_known_origin() {
+        assert!(items_from_text("a", "chatgpt").is_err());
+        assert!(items_from_text_source("-", None).is_err());
     }
 }

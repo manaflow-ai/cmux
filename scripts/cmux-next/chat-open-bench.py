@@ -46,6 +46,9 @@ The chats come from a seeding daemon (idle_cost_load.PeerDaemon) on chat_open_ag
 template of each shape, written by acpmux itself, copied into the app's store under fresh ids, so
 every cold open is a chat no page of this app has read. --sessions more short chats fill the
 store's list, as a long-used daemon's does.
+The templates are cached on the worker (chat_open_seed_cache.py: keyed by the seed inputs, the
+template generator's sources and acpmux's store schema), so the arms of an A/B seed a 10,000-turn
+chat once; every run still copies them into a fresh store under fresh ids. --no-seed-cache seeds again.
 
 Every number is from this app's own clock; the per-open record keeps each trace's marks, the
 surfaces it showed (`frames`: a flash is a return to an empty surface after content), the page's
@@ -80,6 +83,7 @@ import idle_cost_load as icl  # noqa: E402
 from bench_power import wipe_state  # noqa: E402  (the tagged app's saved state under the real ~/Library)
 import chat_open_frames as cof  # noqa: E402
 from chat_open_summary import cell, summarize  # noqa: E402
+import chat_open_seed_cache as seed_cache  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
 parser.add_argument("--app", required=True)
@@ -105,6 +109,8 @@ parser.add_argument("--backdrop", choices=["opaque", "frosted", "glass", "glass-
                     help="the window material (appearance.backgroundBlur at 85%% opacity; opaque leaves the default): "
                          "a page over a translucent window is clear, which a saved picture must keep")
 parser.add_argument("--tag", default="chatopen", help="the tag the app was built with (its state folder)")
+parser.add_argument("--no-seed-cache", action="store_true",
+                    help="seed every template on the daemon again, neither reading nor writing the worker's seed cache")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
@@ -206,32 +212,74 @@ def copy_chat(home, template, title):
     return session
 
 
+def seed_templates(root):
+    """The template chats, from the worker's seed cache (chat_open_seed_cache.py) when it has them,
+    else written by acpmux on a seeding daemon and cached. Each entry is keyed by its own inputs and
+    the sources that shape it, so the arms of an A/B (different app builds, the same templates)
+    seed once. The templates, how long getting them took and each entry's cache result."""
+    started = time.monotonic()
+    specs = {"small": {"turns": opts.small_turns}, "subagent": {"subagents": SUBAGENTS}}
+    if "big" in CASES:
+        specs["big"] = {"turns": opts.turns}
+    if "bloated" in CASES:
+        specs["bloated"] = {"bloat": opts.bloat}
+    specs["store"] = {}  # the answered and closed chats seed_store copies, made last as before
+    cache_root = None if opts.no_seed_cache else seed_cache.default_root()
+    got, keys, result = {}, {}, {}
+    if cache_root:
+        digest = seed_cache.source_digest(icl.bundled_acpmux(APP))
+        for name, inputs in specs.items():
+            keys[name] = seed_cache.entry_key(name, inputs, digest)
+            got[name] = seed_cache.get(cache_root, keys[name])
+            result[name] = "hit" if got[name] else "miss"
+    else:
+        result = {name: "off" for name in specs}
+    missing = [name for name in specs if not got.get(name)]
+    if missing:
+        peer = icl.PeerDaemon(APP, root, AGENT)
+        peer.start()
+        try:
+            def chat(first, more):
+                session = peer.new_chat(first)
+                if not session:
+                    raise SystemExit("chat-open: the seeding daemon made no chat")
+                for text in more:
+                    sent = peer.acpmux("send", session, text, timeout=120)
+                    if sent.returncode != 0:
+                        raise SystemExit(f"chat-open: send {text!r}: {(sent.stdout + sent.stderr).strip()[-2000:]}")
+                return icl.read_chat(peer.home, session)
+
+            makers = {
+                "small": lambda: {"small": chat("turn: 0", [f"turn: {i}" for i in range(1, opts.small_turns)])},
+                "subagent": lambda: {"subagent": chat("turn: 0", ["turn: 1", f"subagents: {SUBAGENTS}"])},
+                "big": lambda: {"big": chat("turn: 0", [f"turn: {i}" for i in range(1, opts.turns)])},
+                "bloated": lambda: {"bloated": chat("turn: 0", [f"bloat: {opts.bloat}", "turn: 1"])},
+                "store": lambda: dict(zip(("answered", "closed"), peer.templates())),
+            }
+            for name in missing:
+                made_at = time.monotonic()
+                got[name] = makers[name]()
+                if cache_root:
+                    seed_cache.put(cache_root, keys[name], specs[name], got[name], time.monotonic() - made_at)
+        finally:
+            peer.stop()
+    if cache_root:
+        seed_cache.prune(cache_root, keep=tuple(keys.values()))
+    templates = {}
+    for entry in got.values():
+        templates.update(entry)
+    return templates, time.monotonic() - started, result
+
+
 def seed(root):
-    """Templates written by acpmux on the seeding daemon, then the app's store: --sessions short
-    chats for the list and fresh copies of each shape for every cold open."""
-    peer = icl.PeerDaemon(APP, root, AGENT)
-    peer.start()
-    try:
-        started = time.monotonic()
-
-        def chat(first, more):
-            session = peer.new_chat(first)
-            if not session:
-                raise SystemExit("chat-open: the seeding daemon made no chat")
-            for text in more:
-                sent = peer.acpmux("send", session, text, timeout=120)
-                if sent.returncode != 0:
-                    raise SystemExit(f"chat-open: send {text!r}: {(sent.stdout + sent.stderr).strip()[-2000:]}")
-            return icl.read_chat(peer.home, session)
-
-        small = chat("turn: 0", [f"turn: {i}" for i in range(1, opts.small_turns)])
-        sub = chat("turn: 0", ["turn: 1", f"subagents: {SUBAGENTS}"])
-        big = chat("turn: 0", [f"turn: {i}" for i in range(1, opts.turns)]) if "big" in CASES else None
-        bloated = chat("turn: 0", [f"bloat: {opts.bloat}", "turn: 1"]) if "bloated" in CASES else None
-        answered, closed = peer.templates()
-        seeded_s = time.monotonic() - started
-    finally:
-        peer.stop()
+    """Templates written by acpmux on the seeding daemon (or the worker's seed cache), then the
+    app's store: --sessions short chats for the list and fresh copies of each shape for every cold
+    open, under fresh ids in a fresh store every run."""
+    templates, seeded_s, cache_result = seed_templates(root)
+    small, sub = templates["small"], templates["subagent"]
+    big, bloated = templates.get("big"), templates.get("bloated")
+    answered, closed = templates["answered"], templates["closed"]
+    stored_at = time.monotonic()
     home = os.path.join(root, "acpmux")
     filler = icl.seed_store(home, opts.sessions, 0.6, answered, closed)
     per = {}
@@ -247,7 +295,8 @@ def seed(root):
         }
     sizes = {name: sum(len(v) for v in t["events"].values()) for name, t in
              (("small", small), ("subagent", sub), ("big", big), ("bloated", bloated)) if t}
-    return home, per, {"seed_s": round(seeded_s, 1), "filler": filler, "template_bytes": sizes,
+    return home, per, {"seed_s": round(seeded_s, 1), "store_s": round(time.monotonic() - stored_at, 1),
+                       "seed_cache": cache_result, "filler": filler, "template_bytes": sizes,
                        "turns": opts.turns, "small_turns": opts.small_turns, "subagents": SUBAGENTS}
 
 
@@ -485,30 +534,53 @@ def click_subagent(run):
     return reply
 
 
+def workspace_id(row):
+    """The workspace id of a `debug.sidebar_rows` row: its key reads `workspace(<id>)` (SidebarRowKey's description);
+    None for a row that is not a workspace (a section, a group, an item)."""
+    key = str((row or {}).get("key") or "")
+    return key[len("workspace("):-1] if key.startswith("workspace(") and key.endswith(")") else None
+
+
+def sidebar_rows(run):
+    return [row for window in (run.rpc("debug.sidebar_rows") or {}).get("windows") or [] for row in window.get("rows") or []]
+
+
 def shown_workspace(run):
-    """The key of the workspace the window shows (its selected sidebar row), or None."""
-    for window in (run.rpc("debug.sidebar_rows") or {}).get("windows") or []:
-        for row in window.get("rows") or []:
-            if row.get("selected"):
-                return row.get("key")
+    """The id of the workspace the window shows (its selected sidebar row). A launch can show Home or another layout
+    item, with no workspace row selected: then a new workspace (a terminal, no chat) is made and shown, bounded."""
+    def selected():
+        return next((workspace_id(row) for row in sidebar_rows(run) if row.get("selected") and workspace_id(row)), None)
+
+    found = selected()
+    if found:
+        return found
+    run.app.action("workspace.newAtBottom", focus=True)
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        found = selected()
+        if found:
+            return found
+        time.sleep(0.1)  # test script: the new workspace is not shown yet
+    say("chat-open: no workspace row is selected, even after a new workspace; rows:",
+        json.dumps([[row.get("key"), row.get("selected")] for row in sidebar_rows(run)][:20]))
     return None
 
 
 def background_row(run, session):
     """Opens `session` in a new workspace without showing it (no focus: its pane is made when it shows) and
-    waits, bounded, for the workspace's sidebar row; (key, row, error)."""
+    waits, bounded, for the workspace's sidebar row; (its workspace id, row, error). The id is the row's (`row` of
+    debug.mouse and goToWorkspace take it), which holds the open's key and may qualify it by machine."""
     key = str(uuid.uuid4())
     opened = run.app.action("agent.openSessionWorkspace", wait=False, session=session, key=key)
     if opened.get("error"):
         return None, None, f"open: {opened}"
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
-        for window in (run.rpc("debug.sidebar_rows") or {}).get("windows") or []:
-            row = next((r for r in window.get("rows") or [] if r.get("key") == key and r.get("in_list")), None)
-            if row and row.get("selected"):
-                return key, row, "the background open showed its workspace: the click would measure nothing"
-            if row:
-                return key, row, None
+        row = next((r for r in sidebar_rows(run) if key in (workspace_id(r) or "") and r.get("in_list")), None)
+        if row and row.get("selected"):
+            return workspace_id(row), row, "the background open showed its workspace: the click would measure nothing"
+        if row:
+            return workspace_id(row), row, None
         time.sleep(0.05)  # test script: the workspace is not listed yet
     return key, None, "the workspace's sidebar row never appeared"
 
@@ -568,6 +640,9 @@ def measure_click(run, case, session, base, label):
     key, row, error = background_row(run, session)
     if error:
         return {"error": error, "row": row}
+    # Still not selected right before the click (a late auto-select would leave the click nothing to change).
+    if next((r.get("selected") for r in sidebar_rows(run) if workspace_id(r) == key), False) and case == "click":
+        return {"error": "the chat's workspace was shown before the click: the click would measure nothing", "row": row}
     if case == "click_again":
         run.app.action("goToWorkspace", focus=True, workspace=key)
         deadline = time.monotonic() + 30

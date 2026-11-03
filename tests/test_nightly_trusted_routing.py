@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/workflows/nightly.yml'))
 DOC = yaml.safe_load(nightly_expand(WORKFLOW_FILE.read_text()))
 # The nightly signer jobs: GitHub-hosted Ubuntu, then Blacksmith Linux 4 vCPU on a re-run.
-SIGNER_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg')
+SIGNER_JOBS = ('signer-build', 'signer-app', 'signer-dmg')
 # They, their picker, the cmux NIGHTLY-identity copy's release-signer jobs and the feed compare that picks its
 # build (legacy-identity-target; all on the signer route itself) have their own routes, outside the 16/32 rule.
 # sentry-dsyms-nightly (a network-bound Sentry upload, off the build's path) takes the signer route too.
