@@ -240,39 +240,42 @@ const EXEC_BODY_READ_TIMEOUT_MS = 10 * 60_000
 const readGrowing = async (request: Request): Promise<Uint8Array | null> => {
   if (!request.body) return new Uint8Array(0)
   const reader = request.body.getReader()
-  const chunks: Uint8Array[] = []
+  let out = new Uint8Array(64 * 1024)
   let size = 0
-  let stop = (): void => undefined
-  const stopped = new Promise<null>((resolve) => { stop = () => resolve(null) })
+  let cancelled = false
+  // Cancelling the reader ends its pending read (done), so each read is awaited once, with nothing raced.
+  const stop = (): void => {
+    cancelled = true
+    reader.cancel().catch(() => undefined)
+  }
   const deadline = setTimeout(stop, EXEC_BODY_READ_TIMEOUT_MS)
   request.signal?.addEventListener("abort", stop, { once: true })
   try {
     for (;;) {
-      const next = await Promise.race([reader.read(), stopped])
-      if (next === null) {
-        await reader.cancel().catch(() => undefined)
-        for (const chunk of chunks) chunk.fill(0)
-        return null
+      const { done, value } = await reader.read()
+      if (done || cancelled) break
+      // One buffer that doubles as bytes arrive: memory follows what was sent, however it was split.
+      if (size + value.byteLength > out.byteLength) {
+        const grown = new Uint8Array(Math.max(out.byteLength * 2, size + value.byteLength))
+        grown.set(out.subarray(0, size))
+        out.fill(0)
+        out = grown
       }
-      if (next.done) break
-      chunks.push(next.value)
-      size += next.value.byteLength
+      out.set(value, size)
+      size += value.byteLength
+      value.fill(0)
     }
   } catch {
-    for (const chunk of chunks) chunk.fill(0)
-    return null
+    cancelled = true
   } finally {
     clearTimeout(deadline)
     request.signal?.removeEventListener("abort", stop)
   }
-  const out = new Uint8Array(size)
-  let at = 0
-  for (const chunk of chunks) {
-    out.set(chunk, at)
-    at += chunk.byteLength
-    chunk.fill(0)
+  if (cancelled) {
+    out.fill(0)
+    return null
   }
-  return out
+  return out.subarray(0, size)
 }
 
 /**

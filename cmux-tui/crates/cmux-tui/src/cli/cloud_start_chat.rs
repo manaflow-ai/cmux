@@ -517,8 +517,9 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let sent = match exec(runner, machine_id, &send) {
         Ok(stdout) => stdout,
         Err(error) => {
-            // The send may never have started: the uploaded prompt does not stay on the machine.
-            if let Some(file) = &uploaded {
+            // Refused before it started: the uploaded prompt does not stay on the machine. Any other
+            // failure (no answer) may be a send still reading the file, so the file stays.
+            if let Some(file) = uploaded.as_ref().filter(|_| refused_before_start(&error)) {
                 let _ = exec(runner, machine_id, &format!("{GUEST_PRELUDE}{file}rm -f \"$f\""));
             }
             return sent_failure(error, answer);
@@ -668,6 +669,14 @@ fn prompt_file(name: &str) -> String {
         .map(|ch| if ch.is_ascii_alphanumeric() || "-_.".contains(ch) { ch } else { '_' })
         .collect();
     format!("f=\"$HOME/.cmux/prompts/\"{}; ", shell_quote(&format!("{name}.prompt")))
+}
+
+/// Whether a `cloud exec` was refused before its command started: the machine busy, stopped or
+/// gone, the caller not allowed, or the command too long.
+fn refused_before_start(error: &Value) -> bool {
+    let code = at(error, "code").as_str().unwrap_or_default();
+    matches!(code, "vm_busy" | "vm_not_running" | "vm_not_found" | "vm_forbidden")
+        || command_too_long(error)
 }
 
 /// Whether a refused `cloud exec` was refused for its command's length (nothing of it ran).

@@ -544,3 +544,26 @@ fn a_send_refused_after_the_upload_removes_the_prompt_file() {
     };
     assert_eq!(file(cleanup), file(upload));
 }
+
+#[test]
+fn a_send_with_no_answer_keeps_the_prompt_file_for_a_send_still_reading_it() {
+    let prompt = "x".repeat(200 * 1024);
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out(&format!("@@size {}\n", prompt.len())),
+        Ran {
+            code: 1,
+            stdout: String::new(),
+            stderr: json!({"code": "vm_unavailable", "message": "the machine did not answer"})
+                .to_string(),
+        },
+    ]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", prompt.as_str(), "--name", "dev"]))
+    else {
+        panic!()
+    };
+    assert_eq!(error["code"], "chat.unreachable");
+    assert_eq!(fake.ran.len(), 4, "no cleanup exec");
+}
