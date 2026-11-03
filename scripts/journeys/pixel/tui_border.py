@@ -90,11 +90,14 @@ def fg(rgb):
     return "\x1b[38;2;%d;%d;%dm" % rgb
 
 
+INK_DARK, INK_LIGHT = (104, 104, 104), (152, 152, 152)
+
+
 def ink_on(rgb):
-    """A text color that reads on RGB and is none of the fixture's loud colors (the judge classes pure corners of
-    the color cube): dark gray on light, light gray on dark."""
+    """A text color that reads on RGB and is none of the fixture's loud colors: every channel strictly between the
+    judge's 96 and 160 ("other": never a ring, a fill, the shell or the ground). The darker gray on a light fill."""
     luma = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
-    return (48, 48, 48) if luma > 110 else (208, 208, 208)
+    return INK_DARK if luma > 110 else INK_LIGHT
 
 
 class Out:
@@ -158,7 +161,7 @@ class Picture:
             if ch != " ":
                 ink = ink_on(self.colors[k])
                 if ch.isdigit() and c in self.tens.get(r, ()):
-                    ink = (208, 208, 208) if ink[0] < 128 else (48, 48, 48)
+                    ink = INK_LIGHT if ink == INK_DARK else INK_DARK
             style = (k, ink)
             if style != last:
                 parts.append(RESET + bg(self.colors[k]) + (fg(ink) if ink else ""))

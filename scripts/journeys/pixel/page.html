@@ -16,7 +16,8 @@ ruler (a tick every 10 CSS px along the top and the left, inside the borders; lo
 block of 1-device-pixel stripes next to it, which shows crisp only when the canvas maps 1:1 to device pixels. The
 middle text shows innerWidth x innerHeight, devicePixelRatio, the device size and a requestAnimationFrame counter;
 each frame checks the size and redraws the canvas in the same frame when it changed. The ticks, stripes and text are
-grays, never one of the fixture's loud colors (the judge classes the pure corners of the color cube).
+grays with every channel between 96 and 160, never one of the fixture's color classes (the judge classes the corners of
+the color cube).
 -->
 <html>
 <head>
@@ -53,8 +54,9 @@ grays, never one of the fixture's loud colors (the judge classes the pure corner
     var n = parseInt(c.slice(1), 16);
     return 0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255);
   }
-  // Grays only (never a loud fixture color): dark on a light background, light on a dark one.
-  var ink = luma(bg) > 110 ? "#303030" : "#D0D0D0", other = luma(bg) > 110 ? "#D0D0D0" : "#303030";
+  // Grays whose every channel lies between the judge's 96 and 160: never a fixture color class (a ring, a fill, the
+  // shell); the darker one on a light background.
+  var ink = luma(bg) > 110 ? "#686868" : "#989898", other = luma(bg) > 110 ? "#989898" : "#686868";
   document.documentElement.style.background = bg;
   document.body.style.background = bg;
   document.body.style.color = ink;
