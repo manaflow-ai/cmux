@@ -3534,3 +3534,23 @@ async fn a_notice_through_a_peer_is_recorded_as_one_and_a_conflicting_one_is_ref
         "a refused notice ran: {messages:?}"
     );
 }
+
+/// A person who shows a chat through a peer daemon (a visible attach forwarded over the link) makes
+/// it one that gets a session recap on the daemon that owns it (`hub/away_recap.rs`); the
+/// `session/new` that made it does not.
+#[tokio::test]
+async fn a_person_viewing_through_a_peer_makes_the_chat_get_a_recap() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "recap").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "recapped"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    assert!(!b.recap_person_seen(&remote_id), "session/new is no person showing it");
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    ca.call("_acpmux/attach", json!({"sessionId": "b/recapped", "limit": 0})).await.unwrap();
+    assert!(b.recap_person_seen(&remote_id), "a visible attach through the peer is a person");
+}
