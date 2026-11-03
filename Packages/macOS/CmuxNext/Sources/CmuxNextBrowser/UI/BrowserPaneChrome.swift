@@ -7,8 +7,12 @@ public import AppKit
 @MainActor
 public final class BrowserPaneChrome {
     public private(set) var chrome: BrowserChromeView?
-    /// The page the chrome shows now: a replaced page (a woken hibernated one) is new content under the same chrome.
-    public var shownPage: NSView? { chrome?.tab.contentView }
+    /// The page the chrome shows while the pane shows `content` (nil when that is not this chrome): a replaced page
+    /// (a woken hibernated one) is new content under the same chrome, a change under a hidden chrome is none.
+    public func page(shown content: NSView?) -> NSView? {
+        guard let chrome, content === chrome else { return nil }
+        return chrome.tab.contentView
+    }
 
     public init() {}
 

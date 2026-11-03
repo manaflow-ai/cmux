@@ -21,6 +21,7 @@ public final class BrowserEntry {
         self.tab = tab
         state.suggestionEngine = suggestionEngine
         state.history = history
+        state.loads.follow(tab)  // its loads are recorded from the start, shown or not
     }
 
     public func close() {

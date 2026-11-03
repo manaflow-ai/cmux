@@ -156,11 +156,11 @@ extension PaneContentView {
         }
     }
 
-    /// Parked content whose tab closed, moved away or got a new view leaves the window. `liveViews`: the pane's tabs'
-    /// views now (`PaneController.existingContent(for:)`: every kind, so a page tab that parks is never dropped as closed).
-    func dropClosedParked(liveViews: () -> [NSView]) {
+    /// Parked content whose tab closed, moved away or got a new view leaves the window. `liveContent`: the pane's tabs' content
+    /// now (every kind: a page tab that parks is never dropped as closed); a browser tab keeps the pane's one browser chrome.
+    func dropClosedParked(liveContent: () -> [TabContent]) {
         guard !parked.isEmpty else { return }
-        let live = Set(liveViews().map(ObjectIdentifier.init))
+        let live = Set(liveContent().map { if case .browser = $0, let chrome = browserChrome.chrome { ObjectIdentifier(chrome) } else { ObjectIdentifier($0.view) } })
         prunePark { live.contains(ObjectIdentifier($0)) }
     }
 

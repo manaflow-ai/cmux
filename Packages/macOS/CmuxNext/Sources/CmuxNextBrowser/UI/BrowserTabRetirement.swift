@@ -24,6 +24,7 @@ public nonisolated struct BrowserTabRetirement: Sendable {
     }
 
     @MainActor private func close() {
+        state.loads.stop()
         if let chrome = state.chrome { BrowserChromeTabSwitch(chrome: chrome).release(state) }
         tab.close()
         tab.contentView.removeFromSuperview()
@@ -48,6 +49,7 @@ extension BrowserChromeTabSwitch {
         // Nothing of the tab stays: its hooks (closures that may hold its page), its modes, its page.
         let none = BrowserChromeTabState()
         BrowserChromeTabHooks(chrome: chrome, state: none).apply()
+        chrome.loads = BrowserPageLoads()
         let blank = DeferredBrowserTab(id: .random(), engine: chrome.tab.engineKind, url: nil, title: nil)
         chrome.toolbarButtons.bind(blank, modes: none.modes)
         chrome.tab = blank
@@ -57,7 +59,7 @@ extension BrowserChromeTabSwitch {
 extension BrowserChromeTabState {
     /// The address the page was restored at (history records it as restored, not as a new visit).
     public func markRestored(_ url: URL?) {
-        if let chrome { chrome.markRestored(url) } else if let url, recordedURL == nil { recordedURL = url }
+        loads.markRestored(url)
     }
 
     /// Shows `asleep`'s address while the tab's page wakes from hibernation (`BrowserChromeView.holdAddress`).

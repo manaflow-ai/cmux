@@ -17,7 +17,12 @@ public final class BrowserChromeTabState: Sendable {
 
     // MARK: The chrome's per-tab hooks (`BrowserChromeView`'s properties of the same names)
 
-    public var onPageFinished: ((URL) -> Void)? { didSet { chrome?.onPageFinished = onPageFinished } }
+    /// The tab's loads, followed while it lives, shown or not (`BrowserPageLoads`); history and finished pages go here.
+    let loads = BrowserPageLoads()
+    public var onPageFinished: ((URL) -> Void)? {
+        get { loads.onPageFinished }
+        set { loads.onPageFinished = newValue }
+    }
     public var loadOverride: ((URL) -> Bool)? { didSet { chrome?.loadOverride = loadOverride } }
     public var onOpenURL: ((URL, OmnibarDisposition) -> Void)? { didSet { chrome?.onOpenURL = onOpenURL } }
     public var onTypedCommit: (() -> Void)? { didSet { chrome?.onTypedCommit = onTypedCommit } }
@@ -30,7 +35,10 @@ public final class BrowserChromeTabState: Sendable {
     public var pageInfoCommandRouter: ((PageInfoCommand) -> Bool)? { didSet { chrome?.pageInfoCommandRouter = pageInfoCommandRouter } }
     public var extensionMenuHandler: (any ExtensionMenuHandling)? { didSet { chrome?.extensionMenuHandler = extensionMenuHandler } }
     public var onFocusModeBadgePress: (() -> Void)? { didSet { chrome?.onFocusModeBadgePress = onFocusModeBadgePress } }
-    public var history: (any BrowserHistoryStore)? { didSet { chrome?.history = history } }
+    public var history: (any BrowserHistoryStore)? {
+        get { loads.history }
+        set { loads.history = newValue }
+    }
 
     // MARK: The omnibar's per-tab parts
 
@@ -79,10 +87,8 @@ public final class BrowserChromeTabState: Sendable {
     var find: (query: String, matchCase: Bool)?
     var isOmnibarHidden = false
     var wakingAddress: BrowserTabState?
-    var httpsFallback = HTTPSUpgradeFallback()
-    var recordedURL: URL?
-    var recordedTitle: String?
-    var finishedURL: URL?
+    /// The chrome a cookie import offer waits in, hidden, for this tab (`BrowserCookieImportCard.heldFor`).
+    weak var cookieOfferHolder: BrowserChromeView?
 
     public init() {}
 }
@@ -100,6 +106,7 @@ struct BrowserChromeTabSwitch {
     let chrome: BrowserChromeView
 
     func bind(_ tab: any BrowserTab, _ state: BrowserChromeTabState) {
+        state.loads.follow(tab)
         guard state !== chrome.boundState else {
             if tab !== chrome.tab { chrome.tab = tab }
             return
@@ -109,14 +116,12 @@ struct BrowserChromeTabSwitch {
             save(into: previous)
             previous.chrome = nil
         }
-        var movedOffer: BrowserCookieImportCard?
-        if let other = state.chrome {
-            // The tab moved here from another pane: that chrome hands over what it shows for it, then lets it go.
-            let there = BrowserChromeTabSwitch(chrome: other)
-            there.save(into: state)
-            movedOffer = other.currentCookieImportCard.flatMap { $0.heldFor === state ? $0 : nil }
-            there.release(state)
-        }
+        // The tab moved here from another pane: that chrome hands over what it shows for it (a cookie import offer it
+        // holds for the tab comes along), then lets it go.
+        let other = state.chrome
+        if let other { BrowserChromeTabSwitch(chrome: other).save(into: state) }
+        let movedOffer = state.cookieOfferHolder.flatMap { $0 === chrome ? nil : $0.takeHeldCookieOffer(for: state) }
+        if let other { BrowserChromeTabSwitch(chrome: other).release(state) }
         state.chrome = chrome
         chrome.boundState = state
         restore(from: state)
@@ -138,6 +143,7 @@ struct BrowserChromeTabSwitch {
 
     /// The cookie import offer the tab left (it shows once per launch): shown again; one held for a tab that closed goes.
     private func restoreCookieOffer(_ state: BrowserChromeTabState, moved: BrowserCookieImportCard?) {
+        state.cookieOfferHolder = nil
         if let moved { chrome.showCookieImportOffer(moved.offer) { moved.onChoice?($0) } }
         guard let card = chrome.currentCookieImportCard, card.isHidden else { return }
         if card.heldFor === state {
@@ -168,15 +174,12 @@ struct BrowserChromeTabSwitch {
         // The cookie import offer waits, hidden, for its tab (it shows once per launch).
         if let card = chrome.currentCookieImportCard, !card.isHidden {
             card.heldFor = state
+            state.cookieOfferHolder = chrome
             card.isHidden = true
             chrome.syncPageOverlays()
         }
         state.isOmnibarHidden = chrome.isOmnibarHidden
         state.wakingAddress = chrome.wakingAddress
-        state.httpsFallback = chrome.httpsFallback
-        state.recordedURL = chrome.recordedURL
-        state.recordedTitle = chrome.recordedTitle
-        state.finishedURL = chrome.finishedURL
     }
 
     /// The tab that shows: its own toolbar state, before the page binds and renders.
@@ -184,10 +187,7 @@ struct BrowserChromeTabSwitch {
         chrome.addressBar.restore(state.omnibar ?? OmnibarState())
         chrome.isOmnibarHidden = state.isOmnibarHidden
         chrome.wakingAddress = state.wakingAddress
-        chrome.httpsFallback = state.httpsFallback
-        chrome.recordedURL = state.recordedURL
-        chrome.recordedTitle = state.recordedTitle
-        chrome.finishedURL = state.finishedURL
+        chrome.loads = state.loads
     }
 
     /// The tab's find pill, as it left it: shown with its query, not focused (the page keeps the keyboard).

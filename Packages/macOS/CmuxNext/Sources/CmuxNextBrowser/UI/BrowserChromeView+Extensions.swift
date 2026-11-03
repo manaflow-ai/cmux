@@ -187,19 +187,6 @@ extension BrowserChromeView {
             minimumAddress: BrowserMetrics.minimumAddressWidth
         )
     }
-
-    /// Records finished loads for omnibar suggestions.
-    func recordHistory(_ state: BrowserTabState) {
-        guard let history, case .finished = state.phase, let url = state.url else { return }
-        if url != recordedURL {
-            recordedURL = url
-            recordedTitle = state.title
-            history.recordVisit(url: url, title: state.title, at: Date())
-        } else if let title = state.title, title != recordedTitle {
-            recordedTitle = title
-            history.updateTitle(title, for: url)
-        }
-    }
 }
 
 /// The browser toolbar as laid out now, in chrome view coordinates.
@@ -235,8 +222,5 @@ public struct BrowserToolbarReport: Equatable, Sendable {
 extension BrowserChromeView {
     /// The tab was restored showing `url` (relaunch, hibernation wake): its
     /// first load of that page is not recorded as a new visit.
-    public func markRestored(_ url: URL?) {
-        guard let url, recordedURL == nil else { return }
-        recordedURL = url
-    }
+    public func markRestored(_ url: URL?) { loads.markRestored(url) }
 }

@@ -363,7 +363,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // Focus follows selection; the coordinator re-targets the keyboard
         // (only when this pane's tabs or selection changed).
         sendTopologyIfChanged()
-        view.dropClosedParked { snapshot.items.compactMap { existingContent(for: $0.id.rawValue)?.view } }
+        view.dropClosedParked { snapshot.items.compactMap { existingContent(for: $0.id.rawValue) } }
         remapViewedTab()
     }
 
@@ -465,7 +465,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         // What shows changed (a frame after selection; a new page under the pane's one browser chrome counts): focus
         // applies again if this pane has it; a re-show of the same content reports nothing.
-        if workspace?.isParked == false, presentedReport.changes(tab: key, views: [content?.view, view.browserChrome.shownPage, view.window], replacing: shownBefore) { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
+        if workspace?.isParked == false, presentedReport.changes(tab: key, views: [content?.view, view.browserChrome.page(shown: content?.view), view.window], replacing: shownBefore) { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
         BenchSpans.measure("switch.invariant") { services.surfaceInvariant.noteChange() }
         BenchSpans.measure("switch.neighbors") { noteNeighbors() }
         windowController?.revalidatePagePresentation() // a page that had the screen was switched away

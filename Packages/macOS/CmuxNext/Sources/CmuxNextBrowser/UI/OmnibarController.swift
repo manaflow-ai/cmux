@@ -77,10 +77,10 @@ import Foundation
         isRunning = true
         defer { isRunning = false }
         let handled = step(input)
-        while !queue.isEmpty { step(queue.removeFirst()) }
-        if let resting = restoreAfterRun {
-            restoreAfterRun = nil
-            put(resting)
+        putRestored()
+        while !queue.isEmpty {
+            step(queue.removeFirst())
+            putRestored()
         }
         return handled
     }
@@ -96,6 +96,13 @@ import Foundation
             restoreAfterRun = resting
             return
         }
+        put(resting)
+    }
+
+    /// A restore made inside a step goes back before the inputs queued after it (they are the new tab's).
+    private func putRestored() {
+        guard let resting = restoreAfterRun else { return }
+        restoreAfterRun = nil
         put(resting)
     }
 

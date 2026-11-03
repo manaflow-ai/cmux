@@ -8,7 +8,6 @@ struct BrowserChromeTabHooks {
     let state: BrowserChromeTabState
 
     func apply() {
-        chrome.onPageFinished = state.onPageFinished
         chrome.loadOverride = state.loadOverride
         chrome.onOpenURL = state.onOpenURL
         chrome.onTypedCommit = state.onTypedCommit
@@ -19,7 +18,6 @@ struct BrowserChromeTabHooks {
         chrome.pageInfoCommandRouter = state.pageInfoCommandRouter
         chrome.extensionMenuHandler = state.extensionMenuHandler
         chrome.onFocusModeBadgePress = state.onFocusModeBadgePress
-        chrome.history = state.history
         let bar = chrome.addressBar
         if let engine = state.suggestionEngine, engine !== bar.suggestionEngine { bar.suggestionEngine = engine }
         bar.tabKey = state.tabKey
