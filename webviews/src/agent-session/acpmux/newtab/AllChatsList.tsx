@@ -30,8 +30,14 @@ export type AllChatsDesign = "quiet" | "age" | "project";
 /// its state where the age would be.
 export type ActiveChat = {
   id: string;
+  /** Machine identity participates in row deduplication; opening it still uses the host's session API. */
+  peer?: string;
   title: string;
   harness?: string;
+  /** Machine on which this live chat runs. */
+  location?: string;
+  /** Direct reporting sessions and the leader itself waiting for the person. */
+  needsInput?: number;
   state: "input" | "running" | "failed" | "error" | "unread" | "idle";
   label: string;
 };
@@ -62,6 +68,9 @@ const FILTER_STATES: Record<Exclude<ChatStatusFilter, "all">, ReadonlySet<Active
 
 const PAGE = 100;
 const ROW_HEIGHT = 30;
+
+/** Match a live row on its machine, never on a session id that another machine can reuse. */
+const liveIdentity = (chat: ActiveChat) => JSON.stringify([chat.peer ?? "", chat.id]);
 
 type State = {
   query: string;
@@ -478,7 +487,11 @@ export function AllChatsList({
   const indexed = filter === "all" || filter === "done";
   const query = state.query.trim().toLowerCase();
   // A search hides live chats under All, as before; a live-only filter searches their titles.
-  const activeShown =
+  // Leaders lead the All view. The active list omits those same machine-qualified chats,
+  // while Working and Needs input filters continue to show every matching active chat.
+  const leadsShown = filter === "all" && !state.query ? leads : [];
+  const leadKeys = new Set(leadsShown.map(liveIdentity));
+  const activeShown = (
     filter === "all"
       ? state.query
         ? []
@@ -487,12 +500,11 @@ export function AllChatsList({
           (chat) =>
             FILTER_STATES[filter].has(chat.state) &&
             (indexed ? !state.query : chat.title.toLowerCase().includes(query)),
-        );
-  // The leaders show under All with no search; a filter or a search is about the chats.
-  const leadsShown = filter === "all" && !state.query ? leads : [];
+        )
+  ).filter((chat) => !leadKeys.has(liveIdentity(chat)));
   // A live chat's row, a leader's too: its right-click menu is Open, as its click (cx-2lm4).
   const liveRow = (chat: ActiveChat) => (
-    <li key={chat.id}>
+    <li key={liveIdentity(chat)}>
       <ContextMenu
         className="nt-row-host"
         items={[{ id: "open", label: nt("row.open"), onSelect: () => onOpenActive?.(chat.id) }]}
@@ -502,6 +514,7 @@ export function AllChatsList({
           className="nt-all-row"
           data-focus-ring="row"
           data-state={chat.state}
+          data-needs-input={chat.needsInput ? true : undefined}
           {...pressToOpen(() => onOpenActive?.(chat.id))}
         >
           <span className="nt-all-glyph">
@@ -510,7 +523,15 @@ export function AllChatsList({
           <span className="nt-all-title" title={chat.title}>
             {chat.title}
           </span>
-          <span className="nt-all-state">{chat.label}</span>
+          {chat.location && (
+            <span className="nt-all-project" title={chat.location}>
+              {chat.location}
+            </span>
+          )}
+          <span className="nt-all-state">
+            {chat.label}
+            {chat.needsInput ? ` · ${nt("card.input")} (${chat.needsInput})` : ""}
+          </span>
         </button>
       </ContextMenu>
     </li>
