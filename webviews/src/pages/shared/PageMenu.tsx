@@ -31,6 +31,10 @@ export interface PageMenuProps {
 }
 
 export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
+  useEffect(() => {
+    returnFocus?.setAttribute("data-popup-open", "");
+    return () => returnFocus?.removeAttribute("data-popup-open");
+  }, [returnFocus]);
   const popupHost = usePopupHost();
   if (popupHost?.native) {
     return <NativePageMenu x={x} y={y} items={items} onClose={onClose} returnFocus={returnFocus} />;
