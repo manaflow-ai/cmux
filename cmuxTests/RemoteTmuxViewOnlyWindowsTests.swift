@@ -451,7 +451,11 @@ private struct AttachedControlStream {
         connection.installStdinWriterForTesting(writer)
         connection.handleMessageForTesting(.enter)
         connection.handleMessageForTesting(.commandResult(commandNumber: 0, lines: [], isError: false))
-        connection.handleMessageForTesting(.commandResult(commandNumber: 1, lines: [], isError: false))
+        // Answer whatever the attach sent next (the window list, and any subscription), so the
+        // test's own commands start from an empty queue.
+        while !connection.pendingCommandKindsForTesting.isEmpty {
+            reply([])
+        }
     }
 
     /// Answers the oldest command still waiting for a reply.
