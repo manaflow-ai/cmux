@@ -33,7 +33,8 @@ const BUSY = /\b(?:rate.?limit|overloaded|too many requests|capacity)\b/i;
 /// names one ("Can't reach the model · retrying (7 of 10) · 503 server error"). Calm: no sweep and
 /// no clock, since nothing works on the reply while it waits.
 export function retryParts(t: Translate, retry: AcpmuxTurnRetry): { label: string; count: string; error?: string } {
-  const busy = retry.errorStatus === 429 || retry.errorStatus === 529 || BUSY.test(retry.error ?? "");
+  const words = retry.error?.replaceAll("_", " ");
+  const busy = retry.errorStatus === 429 || retry.errorStatus === 529 || BUSY.test(words ?? "");
   const label = t(busy ? "turn.live.retry.busy" : "turn.live.retry.unreachable");
   const count =
     retry.attempt === undefined
@@ -41,7 +42,6 @@ export function retryParts(t: Translate, retry: AcpmuxTurnRetry): { label: strin
       : retry.maxRetries === undefined
         ? t("turn.live.retry.attemptOnly", { attempt: retry.attempt })
         : t("turn.live.retry.attempt", { attempt: retry.attempt, max: retry.maxRetries });
-  const words = retry.error?.replaceAll("_", " ");
   const error = [retry.errorStatus, words].filter((part) => part !== undefined && part !== "").join(" ");
   return { label, count, ...(error && { error }) };
 }

@@ -141,6 +141,10 @@ test("the line says what is wrong, the retry's count and the harness's error", (
     count: "turn.live.retry.retrying",
     error: "rate limit",
   });
+  // Claude's status-less error codes carry a trailing "_error".
+  expect(retryParts(translate, { error: "rate_limit_error" }).label).toBe("turn.live.retry.busy");
+  expect(retryParts(translate, { error: "overloaded_error" }).label).toBe("turn.live.retry.busy");
+  expect(retryParts(translate, { error: "server_error" }).label).toBe("turn.live.retry.unreachable");
 });
 
 test("a turn_retrying record keeps only counts and words it can show", () => {
