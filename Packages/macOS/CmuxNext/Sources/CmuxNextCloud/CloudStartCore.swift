@@ -97,6 +97,38 @@ public nonisolated struct CloudStartCore: Sendable {
         return call("cloud_start_uploads", request, as: Reply.self)?.uploads ?? .no
     }
 
+    // MARK: Who answers an agent's Cloud ask (`ask`)
+
+    /// A CLI answer to an agent's Cloud ask, read: the card's choice it names, and whether its
+    /// caller may give it.
+    public struct AskAnswer: Sendable, Equatable {
+        public enum Choice: String, Sendable, Equatable, Decodable { case start, notNow }
+        /// Nil when the selection names neither Start nor Not now.
+        public var choice: Choice?
+        /// Whether the caller may give `choice`; false also when only the person may.
+        public var allowed: Bool
+        /// Whether the caller counts as the person (a CLI request that names no agent session).
+        public var person: Bool
+    }
+
+    /// Whether a caller with `origin` and `agentSession` (a control request's, or nil) may answer
+    /// `selection`, with the person's delegation `delegated` on or off. An FFI that does not answer
+    /// takes nothing: the person answers on the card.
+    public func askAnswer(origin: String?, agentSession: String?, delegated: Bool, selection: String) -> AskAnswer {
+        struct Request: Encodable { var origin: String?, agentSession: String?, delegated: Bool, selection: String }
+        struct Reply: Decodable { var caller: String, choice: AskAnswer.Choice?, verdict: String? }
+        let request = Request(origin: origin, agentSession: agentSession, delegated: delegated, selection: selection)
+        guard let reply = call("cloud_ask_answer", request, as: Reply.self) else { return AskAnswer(choice: nil, allowed: false, person: false) }
+        return AskAnswer(choice: reply.choice, allowed: reply.verdict == "allowed", person: reply.caller == "person")
+    }
+
+    /// Whether an agent's Cloud start asks the person first; an FFI that does not answer asks.
+    public func agentAsksFirst(delegated: Bool) -> Bool {
+        struct Request: Encodable { var delegated: Bool }
+        struct Reply: Decodable { var asks: Bool }
+        return call("cloud_ask_first", Request(delegated: delegated), as: Reply.self)?.asks ?? true
+    }
+
     // MARK: The `vmKind` word (`vm_kind`)
 
     /// What the Cloud API's caller-relative `vmKind` word grants. Only the exact `owner` owns the

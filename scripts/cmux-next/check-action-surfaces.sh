@@ -27,6 +27,9 @@ cmux_next_require_fleet check-action-surfaces.sh "swift test" "cmux-next generat
 source "$(dirname "${BASH_SOURCE[0]}")/lib/warm-swiftpm.sh"
 root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
 cd "$root"
+# Absolute from here: cmux_next_warm_build resolves it again, from this directory (a relative
+# PACKAGE-ROOT would otherwise name a folder inside itself).
+root="$PWD"
 # CMUX_ACTION_SURFACES_SKIP_BUILD=1: the package and its tests are already built
 # (the CI jobs run `swift build --build-tests` first), so swift test does not
 # plan the whole graph again.

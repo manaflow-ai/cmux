@@ -2826,7 +2826,7 @@ pre.cv-math-source {
   padding-inline-start: 2ch;
   text-indent: -2ch;
 }
-.cv-shell__command:has(+ .cv-shell__body:not(:empty)) {
+.cv-shell__command:is(:has(+ .cv-shell__body:not(:empty)), :has(+ .cv-shell__exit)) {
   padding-bottom: 8px;
   border-bottom: 1px solid var(--cv-card-ring);
 }
@@ -2837,9 +2837,14 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
   user-select: none;
 }
+/* "Exit code 1" between the command and its output, in the error tone and on the card's left edge,
+   as Claude Code desktop opens a failed call (ShellBlock.tsx). */
 .cv-shell__exit {
-  margin-top: 6px;
-  text-align: right;
+  margin-top: 8px;
+  color: var(--agent-status-failure);
+}
+.cv-shell__exit + .cv-shell__body {
+  margin-top: 8px;
 }
 /* The images a tool call returned or wrote (ToolRow): a row of capped thumbnails, so a long
    transcript stays light; a click opens the image viewer. */
@@ -3168,6 +3173,13 @@ button.cv-video-frames__frame:focus-visible {
 :root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool > .cv-command__meta {
   grid-column: 4;
 }
+/* A failed step's tag (CommandRow.tsx) has no column between the words and the chevron in these
+   gallery looks: it keeps their old place, at the end of the spacer before the trailing column. */
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-command > .cv-command__failed {
+  grid-column: 3;
+  justify-self: end;
+  margin-inline-start: 0;
+}
 /* A thought step: muted words, one line closed; open, its whole text with the disclosure at the
    top of the row's end. */
 .cv-step-thought {
@@ -3222,6 +3234,9 @@ button.cv-video-frames__frame:focus-visible {
 }
 :root[data-tool-steps-look="tree"] .cv-step > .cv-tool > .cv-command__meta {
   grid-column: 5;
+}
+:root[data-tool-steps-look="tree"] .cv-step > .cv-command > .cv-command__failed {
+  grid-column: 4;
 }
 :root[data-tool-steps-look="tree"] .cv-step-thought.is-open {
   grid-template-columns: var(--cv-disclosure-slot);
@@ -3292,6 +3307,42 @@ button.cv-video-frames__frame:focus-visible {
 .cv-tool__failed,
 .cv-command__failed {
   color: var(--agent-status-failure);
+}
+/* A run's "(2 failed)" after its summary reads in the summary's own tone, as Claude Code desktop's
+   header does; each failed call's own "Failed" tag stays red (FailedCount.tsx). */
+.cv-tool__failed.is-count {
+  color: inherit;
+}
+/* "Failed" right after a failed call's title, before its chevron (CommandRow.tsx): never cut, one
+   space from the words rather than the row's gap. */
+.cv-command > .cv-command__failed {
+  display: inline-block;
+  flex: none;
+  margin-inline-start: calc(0.3em - var(--cv-tool-gap));
+  white-space: nowrap;
+}
+/* A tag reads as one, "Failed", while its text stays the row's word ("failed") for Find and copy. */
+.cv-command > .cv-command__failed::first-letter {
+  text-transform: uppercase;
+}
+/* "Background command completed" muted, then what the command did in the transcript's ink, as
+   Claude Code desktop notes a background command's end (CommandRow.tsx, BackgroundTaskNote.tsx). */
+:is(.cv-command__title, .cv-bgtask__title) {
+  color: var(--cv-text);
+}
+/* An opened run's "1 background command completed, 1 failed, 1 running" (BackgroundStatusLine.tsx):
+   a quiet line after the steps, its words on their text column and their pitch; not a step or a
+   control, so it adds no row to the steps. */
+.cv-bgstatus {
+  display: flex;
+  align-items: center;
+  min-height: var(--cv-tool-row-height);
+  padding-inline-start: var(--cv-tool-text-inset);
+  overflow: hidden;
+  color: var(--cv-activity-text);
+  line-height: 20px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 /* A failed call's cause (ToolFailureCause.tsx, the `tool-error-look` experiment): one quiet line
    under the row, starting under its words (the 16px glyph and the 8px
