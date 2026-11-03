@@ -7,6 +7,7 @@ fn spec() -> RunRecord {
         id: "wf-test".into(),
         name: "Release".into(),
         owner_session_id: "owner".into(),
+        local_principal: false,
         source: "return agent('check');".into(),
         source_hash: String::new(),
         args: json!(["nightly"]),

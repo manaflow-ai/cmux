@@ -29,33 +29,64 @@ fn public(run: &RunRecord) -> Value {
 }
 
 fn owner(conn: &Conn, run: &RunRecord) -> Result<(), RpcError> {
-    if conn.caller() == Some(run.owner_session_id.as_str()) || conn.is_person() {
+    if conn.caller() == Some(run.owner_session_id.as_str())
+        || conn.is_person()
+        || (run.local_principal && conn.origin == super::Origin::Local && conn.caller().is_none())
+    {
         Ok(())
     } else {
         Err(RpcError::invalid_params("a chat reaches only its own workflow runs"))
     }
 }
 
-async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
     let text = |key| {
         str_param(params, key).ok_or_else(|| RpcError::invalid_params(format!("{key} is required")))
     };
     let action = text("action")?;
     let internal = |e: anyhow::Error| RpcError::internal(format!("{e:#}"));
     if action == "start" {
-        let session_id = text("sessionId")?;
-        let session = hub.resolve(session_id)?;
-        if conn.caller() != Some(session.id.as_str()) && !conn.is_person() {
-            return Err(RpcError::invalid_params(
-                "a workflow needs its owning chat's caller proof",
-            ));
-        }
+        let local_principal = str_param(params, "sessionId").is_none() && conn.caller().is_none();
+        let session = if let Some(session_id) =
+            str_param(params, "sessionId").or_else(|| conn.caller())
+        {
+            let session = hub.resolve(session_id)?;
+            if conn.caller() != Some(session.id.as_str()) && !conn.is_person() {
+                return Err(RpcError::invalid_params(
+                    "a workflow needs its owning chat's caller proof",
+                ));
+            }
+            session
+        } else {
+            if conn.origin != super::Origin::Local {
+                return Err(RpcError::invalid_params(
+                    "a standalone workflow starts over the local Unix socket",
+                ));
+            }
+            // Reuse every existing session/new policy, trust, admission and folder gate.
+            // Request only the asking mode; a same-uid CLI never receives person authority.
+            let create = json!({"cwd":text("cwd")?,"_meta":{"acpmux":{
+                "name":format!("Workflow {}",text("name")?),"policy":"ask"
+            }}});
+            let created = Box::pin(super::requests::handle_request(
+                hub,
+                conn,
+                crate::rpc::method::SESSION_NEW,
+                create,
+            ))
+            .await?;
+            let session_id = created.get("sessionId").and_then(Value::as_str).ok_or_else(|| {
+                RpcError::internal("workflow owner creation returned no sessionId")
+            })?;
+            hub.resolve(session_id)?
+        };
         let run = hub
             .workflow_start(
                 &session,
                 text("name")?.to_owned(),
                 text("source")?.to_owned(),
                 params.get("args").cloned().unwrap_or_else(|| json!([])),
+                local_principal,
             )
             .await
             .map_err(internal)?;
