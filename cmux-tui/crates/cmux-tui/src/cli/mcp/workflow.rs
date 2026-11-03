@@ -152,6 +152,11 @@ fn refresh_tools<B: Backend>(server: &mut Server<B>, check: &Value) -> Result<()
         ),
         None => return Err("workflow check omitted tool ceiling".into()),
     };
+    if let Some(names) = check.get("upstreamNames") {
+        let names: BTreeSet<String> = serde_json::from_value(names.clone())
+            .map_err(|_| "workflow check has invalid upstream names")?;
+        server.upstreams.retain(|upstream| names.contains(&upstream.name));
+    }
     Ok(())
 }
 
@@ -169,7 +174,12 @@ fn handle<B: Backend>(
     // Even replay and raw cmux.call are fenced before they can advance the
     // interpreter. A paused/replaced runner cannot dispatch another mutation.
     let check = proof.request(&server.backend, "check")?;
+    let previous = server.allowed.clone();
+    let upstreams = server.upstreams.len();
     refresh_tools(server, &check)?;
+    if previous != server.allowed || upstreams != server.upstreams.len() {
+        *tools = None;
+    }
     if let Some(refusal) = server.tool_refusal("cmux_workflow") {
         return Ok(code_mode::script_answer(Ok(refusal), images));
     }
