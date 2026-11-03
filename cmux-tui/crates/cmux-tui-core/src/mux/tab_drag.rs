@@ -567,7 +567,7 @@ impl Mux {
                     guard.check(state)?;
                 }
                 if keyed {
-                    super::resource_topology::ensure_client_pane_id_unused(
+                    resource_topology::ensure_client_pane_id_unused(
                         state,
                         registry,
                         &ids.pane_public,
