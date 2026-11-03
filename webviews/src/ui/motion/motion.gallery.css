@@ -32,7 +32,6 @@
   background: none;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
   font: inherit;
-  cursor: pointer;
 }
 
 .motion-demo-segment {
@@ -82,7 +81,6 @@
   color: inherit;
   font: inherit;
   text-align: left;
-  cursor: pointer;
 }
 
 .motion-demo-card span {
@@ -120,7 +118,6 @@
   background: none;
   color: inherit;
   font: inherit;
-  cursor: pointer;
 }
 
 /* Hover timing arms. "scale" is the primitives' own (80 fill, reveal in 120 / out 80). */
