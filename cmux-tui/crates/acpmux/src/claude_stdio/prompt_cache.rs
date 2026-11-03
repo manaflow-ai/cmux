@@ -8,6 +8,7 @@
 //! call wrote. A call that only read keeps the tier last seen. Until a call has named one, the
 //! TTL comes from the env Claude Code reads, in its own order (Claude Code 2.1.310):
 //! `FORCE_PROMPT_CACHING_5M`, then `CLAUDE_CODE_PROMPT_CACHE_TTL`, then `ENABLE_PROMPT_CACHING_1H`.
+//! Only the profile's env counts: the spawn removes the daemon's own switches from every agent.
 //! With none of those (Claude Code's "automatic": 1 hour on a subscription, 5 minutes on an API key)
 //! and no reported tier, the TTL is unknown and no expiry is sent. The `promptCacheTtl` setting is
 //! not read: the first call's reported tier covers it.
@@ -62,7 +63,14 @@ impl super::Translator {
     /// lives from now. Its usage may already name the tier.
     pub(super) fn cache_request_started(&self, usage: Option<&Value>, at_ms: u64) {
         self.cache_requested_at_ms.store(at_ms, Ordering::SeqCst);
-        if let Some(ttl) = usage.and_then(reported_ttl_ms) {
+        // Claude Code's start already names the cache the request read and wrote: the expiry
+        // moves now, so a call stopped before its `message_delta` still leaves it right.
+        let Some(usage) = usage else { return };
+        let tokens = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
+        let cache = tokens("cache_read_input_tokens") + tokens("cache_creation_input_tokens");
+        if cache > 0 {
+            self.cache_call_usage(usage, cache);
+        } else if let Some(ttl) = reported_ttl_ms(usage) {
             self.cache_ttl_ms.store(ttl, Ordering::SeqCst);
         }
     }
@@ -109,8 +117,10 @@ pub fn with_expiry(mut update: Value, expires_at_ms: Option<u64>) -> Value {
     update
 }
 
-/// `env_ttl_ms` for the env a profile's Claude Code starts with: the profile's own values over
-/// the daemon's, as the spawn merges them.
+/// `env_ttl_ms` for the env a profile's Claude Code starts with. Only the profile's own values
+/// count: the spawn removes the daemon's own prompt-cache switches from every agent
+/// (`config::inherited_caller_scoped_keys`, `agent/command.rs`). A switch from the login shell is
+/// not read here; the first call's reported tier covers it.
 pub fn profile_ttl_ms(profile: &crate::config::HarnessProfile) -> Option<u64> {
-    env_ttl_ms(|k| profile.env.get(k).cloned().or_else(|| std::env::var(k).ok()))
+    env_ttl_ms(|k| profile.env.get(k).cloned())
 }

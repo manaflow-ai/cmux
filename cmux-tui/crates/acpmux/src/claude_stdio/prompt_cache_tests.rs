@@ -125,3 +125,27 @@ async fn no_expiry_without_cache_use_a_known_ttl_or_for_a_subagent() {
     let msgs = t.inbound(&json!({"type": "stream_event", "parent_tool_use_id": "toolu_1", "event": {"type": "message_delta", "usage": usage(100, 9, 0)}})).await;
     assert!(expiries(&msgs).iter().all(Option::is_none), "{msgs:?}");
 }
+
+#[tokio::test]
+async fn a_call_stopped_before_its_delta_still_moves_the_expiry() {
+    let t = Translator::new("acp-1".into(), "default", "opus", "default");
+    let (msgs, _) = call(&t, usage(0, 0, 0), usage(9_000, 400, 0)).await;
+    let [Some(first)] = expiries(&msgs)[..] else { panic!("{msgs:?}") };
+    // A later call's start reads the cache; it is stopped before its message_delta.
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let before = now_ms();
+    t.inbound(&json!({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "m2", "usage": usage(9_400, 0, 0)}}})).await;
+    let result = json!({"type": "result", "subtype": "success", "result": "", "num_turns": 1, "modelUsage": {"claude-opus-5-5": {"contextWindow": 400000}}});
+    let msgs = t.inbound(&result).await;
+    let [Some(at)] = expiries(&msgs)[..] else { panic!("{msgs:?}") };
+    assert!(at > first && at >= before + FIVE_MINUTES_MS, "{first} -> {at}");
+}
+
+#[test]
+fn the_env_fallback_reads_the_profiles_env_only() {
+    let mut profile: crate::config::HarnessProfile =
+        serde_json::from_value(json!({"argv": ["claude"]})).unwrap();
+    assert_eq!(profile_ttl_ms(&profile), None);
+    profile.env.insert("ENABLE_PROMPT_CACHING_1H".into(), "1".into());
+    assert_eq!(profile_ttl_ms(&profile), Some(ONE_HOUR_MS));
+}

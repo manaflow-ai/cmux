@@ -6136,6 +6136,12 @@ export class AcpmuxDirectClient {
       // Keep unscoped boundaries from claiming completion; the turn's terminal result settles
       // any running row with the existing inferred outcome.
       if (this.compactionFenceSeq !== undefined && compaction.state !== "running") return;
+      // A finished compaction replaced the context: its prompt cache is gone until the next call
+      // writes one (acpmux sends that call's expiry), so the card stops counting down.
+      if (compaction.state === "completed" && this.usage?.cacheExpiresAt !== undefined) {
+        const { cacheExpiresAt: _gone, ...rest } = this.usage;
+        this.usage = rest;
+      }
       // A note between messages: the text and tool fold before it close.
       this.endAssistantSegment();
       this.streamingActivity = undefined;
