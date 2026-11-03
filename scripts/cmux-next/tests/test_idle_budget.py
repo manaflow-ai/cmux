@@ -30,6 +30,45 @@ def row(kind, threads, wakeups, cpu=0.0):
 
 
 class IdleBudgetTests(unittest.TestCase):
+    def test_newtabs_create_a_terminal_before_pages_and_return_to_its_stable_key(self):
+        class App:
+            def __init__(self):
+                self.terminal = self.created = False
+                self.selected = None
+                self.actions = []
+
+            def rpc(self, method, params=None, **kwargs):
+                if method == "action.run":
+                    self.actions.append(params)
+                    if params["action"] == "newSurface":
+                        assert not self.created, "creating a terminal must not replace a measured New Tab"
+                        self.terminal, self.selected = True, "tab_terminal"
+                    elif params["action"] == "newTab.page":
+                        self.created, self.selected = True, "tab_new"
+                    elif params["action"] == "tab.focus":
+                        self.selected = params["target"].removeprefix("tab:")
+                    # With one tab in the new pane, cycling selects that same tab.
+                    return {}
+                if method == "debug.agent_pane":
+                    return {"document_ready": True, "body_text_length": 100, "engine": "cef"}
+                panes = [{"pane": "home", "kind": "page", "focused": self.selected is None,
+                          "selected_tab": "tab_home", "shown_tab": "tab_home"}]
+                if self.selected:
+                    panes.append({"pane": "main", "kind": "terminal" if self.selected == "tab_terminal" else "agent",
+                                  "focused": True, "selected_tab": self.selected, "shown_tab": self.selected,
+                                  "content_installed": True, "content_in_window": True})
+                return {"windows": [{"panes": panes}],
+                        "hibernation": {"chat_pages": ["tab_new"] if self.created else []}}
+
+        app = App()
+        with patch.object(ib.time, "monotonic", side_effect=[0, 0, 0, 0, 0, 0, 2]), patch.object(ib.time, "sleep"):
+            opened = ib.build_newtabs(app, 1, limit=1)
+        self.assertEqual(opened["keys"], ["tab_new"])
+        self.assertEqual([p["action"] for p in app.actions], ["newSurface", "newTab.page", "tab.focus"])
+        self.assertEqual(app.actions[1]["target"], "pane:main")
+        self.assertEqual(app.actions[-1]["target"], "tab:tab_terminal")
+        self.assertEqual(ib.newtab_evidence(app, opened)["live_count"], 1)
+
     def test_newtab_sessions_build_each_page_before_hiding_without_replacing_it(self):
         class App:
             def __init__(self):
