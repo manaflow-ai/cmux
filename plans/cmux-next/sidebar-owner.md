@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-02: a group nobody colored draws no bar, chip or wash: a plain row with only its hover and drop fills. Leo,
+  on an uncolored group's header: "WTF IS THIS GROUP COLOUR????" / "THE GROUP COLOUR SOMEHOW BEING THE THEME COLOUR???"
+  / "IT'S USELESS". `GroupTint.none.headerChip` and `headerWash` were the opaque `sidebarBackground`, which drew the
+  theme's color as a solid bar over the translucent sidebar (visible since #32198). Machine groups start with no
+  color, the members' line falls back to none (not grey), and the editor's first dot (spoken "No color") stores none
+  like the menu's clear item instead of a grey band. Picked colors draw as before. Regression:
+  `GroupNoChosenColorTests.noColorHeaderDrawsNoBarAndNoColorDotClears`.
 - 2026-11-02: a row's fill keeps an even gap from both sidebar edges and has a rounder corner. Leo, comparing
   ChatGPT's selected sidebar row with ours: "CHATGPT HAS A SLIGHT GAP" / "WE DON'T" / "JUST ADD A SLIGHT GAP (PADDING)
   AND SMOOTH OUT A BIT MORE OF OUR CORNERS ON THE SIDEBAR WORKSPACES". `SidebarStyle.rowEdgeGap` (the fill to the
