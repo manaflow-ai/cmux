@@ -84,4 +84,9 @@ await requireBrowserLane("composer-capture.test.ts", async () => {
     const result = await play("attach-screenshot-failed");
     expect(playFailures(result.report)).toEqual([]);
   });
+
+  test("an unsupported original upload still attaches its preview and shows the recovery path", async () => {
+    const result = await play("attach-screenshot-unsupported");
+    expect(playFailures(result.report)).toEqual([]);
+  });
 });

@@ -625,7 +625,16 @@ test("a capture completing after a chat switch never attaches the source origina
   expect(screenshot).not.toBeNull();
   await dispatch(screenshot, new window.MouseEvent("mousedown", { bubbles: true }));
   expect(calls).toBe(1);
-  const destination = await composer(chat(), "Destination chat", undefined, false, undefined, undefined, undefined, capture);
+  const destination = await composer(
+    chat(),
+    "Destination chat",
+    undefined,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    capture,
+  );
   await act(async () => {
     finish({
       file: new File([], "Screenshot.png", { type: "application/octet-stream" }),
@@ -648,7 +657,8 @@ test("a capture failure is visible only in its originating composer", async () =
     await dispatch(plus, new window.MouseEvent("click", { bubbles: true }));
     const screenshot = document.querySelector<HTMLElement>('[data-value="add.screenshot"]')!;
     await dispatch(screenshot, new window.MouseEvent("mousedown", { bubbles: true }));
-    if (switchChat) await composer(chat(), "Destination chat", undefined, false, undefined, undefined, undefined, capture);
+    if (switchChat)
+      await composer(chat(), "Destination chat", undefined, false, undefined, undefined, undefined, capture);
     const message = "Original kept at /private/tmp/cmux-capture-recover.png";
     await act(async () => {
       fail(new Error(message));

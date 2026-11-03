@@ -31,7 +31,8 @@ struct AgentPaneCaptureTests {
         var received = Data()
         var captureFile: URL?
 
-        init(stages: Bool = true, session: String? = "s1", finishValue: [String: Any]? = nil, refusing: String? = nil) {
+        init(stages: Bool = true, session: String? = "s1", finishValue: [String: Any]? = nil, refusing: String? = nil,
+             refusalCode: String = "upload_failed") {
             model = AgentPaneModel(host: NoHost(), sessionId: session)
             guard stages else { return }
             model.onUploadStage = { [weak self] in
@@ -41,14 +42,14 @@ struct AgentPaneCaptureTests {
                     self.sessions.append(asked)
                     switch request {
                     case .begin(_, let size, _, _):
-                        if refusing == "begin" { return AgentPaneReply.failure(code: "upload_refused", message: "Refused") }
+                        if refusing == "begin" { return AgentPaneReply.failure(code: refusalCode, message: "Refused") }
                         return AgentPaneReply.success(["token": "t", "size": size, "chunkSize": 512 * 1024])
                     case .chunk(_, _, let data):
-                        if refusing == "chunk" { return AgentPaneReply.failure(code: "upload_failed", message: "Failed") }
+                        if refusing == "chunk" { return AgentPaneReply.failure(code: refusalCode, message: "Failed") }
                         self.received.append(data)
                         return AgentPaneReply.success(["offset": self.received.count])
                     case .finish:
-                        if refusing == "finish" { return AgentPaneReply.failure(code: "upload_failed", message: "Failed") }
+                        if refusing == "finish" { return AgentPaneReply.failure(code: refusalCode, message: "Failed") }
                         return AgentPaneReply.success(finishValue ?? ["path": AgentPaneCaptureTests.saved])
                     case .cancel: return AgentPaneReply.success()
                     }
@@ -171,6 +172,36 @@ struct AgentPaneCaptureTests {
         }
     }
 
+    /// An older peer's stager refuses at finish, after receiving the local chunks. A valid preview
+    /// must still attach, with the original's recovery path reported separately, never discarded.
+    @Test func anUnsupportedOriginalUploadKeepsThePreviewAndRecoverableOriginal() async throws {
+        for refusing in ["begin", "chunk", "finish"] {
+            let rig = Rig(refusing: refusing, refusalCode: "unsupported")
+            let reply = await rig.capture(Self.png)
+            let answer = try #require(Self.value(reply), "\(reply)")
+            #expect(reply["ok"] as? Bool == true)
+            #expect(answer["data"] as? String == Self.png.base64EncodedString())
+            #expect(answer["original"] == nil)
+            let file = try #require(rig.captureFile)
+            defer { try? FileManager.default.removeItem(at: file) }
+            let unavailable = try #require(answer["originalUnavailable"] as? [String: String])
+            #expect(unavailable["originalPath"] == file.path)
+            #expect(unavailable["userMessage"]?.contains(file.path) == true)
+            #expect(try Data(contentsOf: file) == Self.png)
+            #expect(rig.requests.contains(.cancel(token: "t")) == (refusing != "begin"))
+        }
+    }
+
+    @Test func anUnsupportedOriginalWithNoPreviewStillReportsFailure() async throws {
+        let rig = Rig(refusing: "finish", refusalCode: "unsupported")
+        let bytes = Data(repeating: 0, count: AgentPaneCapture.previewMaxBytes + 1)
+        let reply = await rig.capture(bytes)
+        let file = try #require(rig.captureFile)
+        defer { try? FileManager.default.removeItem(at: file) }
+        #expect(Self.errorCode(reply) == "capture_failed")
+        #expect(try Data(contentsOf: file) == bytes)
+    }
+
     @Test func successfulAndCancelledCapturesRemoveTheirTemporaryFiles() async throws {
         for picked in [true, false] {
             let rig = Rig()
@@ -205,7 +236,7 @@ struct AgentPaneCaptureTests {
     /// budget is saved as taken, byte for byte and chunk by chunk; only the preview is scaled.
     @Test func aLargeCaptureIsSavedAsTakenAndOnlyItsPreviewIsScaled() async throws {
         let large = try Self.noisePNG(width: 2400, height: 1600)
-        try #require(large.count > AgentPaneCapture.previewMaxBytes)
+        try #require(large.count > 5 * 1024 * 1024, "The original must exceed the former 5 MiB capture cap")
         let rig = Rig()
         let answer = try #require(Self.value(await rig.capture(large)))
         #expect((answer["original"] as? [String: Any])?["path"] as? String == Self.saved)

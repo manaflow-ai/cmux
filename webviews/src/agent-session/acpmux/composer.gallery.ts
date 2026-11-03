@@ -2067,6 +2067,44 @@ export default agentPaneEntry({
         if (sentBack) throw new Error(`the page sent the capture back: ${sentBack.method}`);
       },
     },
+    "attach-screenshot-unsupported": {
+      note: "An older chat host cannot receive the original: the preview still attaches and the composer shows where the original was kept.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      checks: {
+        anchorMovePx: {
+          value: 116,
+          reason: "The capture thumbnail row and existing recovery note open above the prompt.",
+        },
+        layoutShiftMax: { value: 0.12, reason: "The composer grows by its preview and recovery note." },
+      },
+      native: {
+        "composer.capture": {
+          name: "Screenshot.png",
+          mimeType: "image/png",
+          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+          originalUnavailable: {
+            userMessage:
+              "The screenshot preview was attached. This chat cannot receive the original; it was kept at /private/tmp/cmux-capture-recover.png.",
+            originalPath: "/private/tmp/cmux-capture-recover.png",
+          },
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.screenshot"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
+        await ctx.waitFor(() =>
+          ctx.document
+            .querySelector(".acpmux-attachment-note")
+            ?.textContent?.includes("/private/tmp/cmux-capture-recover.png"),
+        );
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog;
+        if (log.some(({ method }) => method === "chat.upload.begin" || method === "chat.upload"))
+          throw new Error("the preview was uploaded again after the capture's one gesture");
+      },
+    },
     "gesture-credit-once": {
       note: "The pane bridge's stand-in keeps the app's gesture rule: one click is one credit, so a second call that needs a gesture is refused until the next.",
       snapshot: chat(finished),
