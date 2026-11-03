@@ -77,7 +77,7 @@ extension NewTabPage {
         // A pane of another machine shows the same page, never a prewarmed spare: a spare is connected
         // to this Mac's acpmux, and that pane's chat starts on its machine at the first send (cx-k21v).
         let spare = seed == nil && pane.daemon.isLocal
-            ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: NewTabSparePool.newTabContentSize(in: pane)) })
+            ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: NewTabSparePool.newTabContentSize(in: pane), still: { [weak strip = pane.view.stripView] in strip?.whenStill($0) }) })
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
         guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view, then: then) }) else {
@@ -294,7 +294,7 @@ extension NewTabPage {
             Self.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane, paletteActions: false)
         }
         let actions = nativeActions(key, cwd: page.cwd, pane: pane)
-        let list: @MainActor () -> [AgentPaneOmnibar.Action] = { [weak services] in services.map(Self.paletteActions) ?? [] }
+        let list = services.newTabActions.request
         // Cmd-T took the prepared page: it takes this tab's context, already laid out.
         if let spare = services.newTabSpares.claimNative(key), let model = spare.model {
             model.adopt(page: page, actions: actions, paletteActions: list)

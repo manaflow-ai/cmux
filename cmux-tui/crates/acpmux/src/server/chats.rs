@@ -96,6 +96,10 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::secrets::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
+    // So do the MCP connect methods: the person answers the card (`mcp_connect.rs`).
+    if let Some(reply) = heap(|| super::mcp_connect::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
     // A one-shot completion runs a harness CLI with the user's own login:
     // the unix socket only. `Hub::complete` is its one gate (it never reaches
     // `remote_guard` or a peer).
@@ -125,6 +129,12 @@ pub(super) async fn route(
         return reply;
     }
     if let Some(reply) = heap(|| super::bg_tasks::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::workflow_runs::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::workflow_activity::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and

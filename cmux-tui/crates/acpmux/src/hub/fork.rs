@@ -336,6 +336,7 @@ impl Hub {
             created_at: now,
             updated_at: now,
             last_seq: 0,
+            transcript_seq: 0,
             parent_id: Some(session.id.clone()),
             fork_seq: if empty { None } else { Some(fork_seq) },
             fork_before: before.as_ref().map(|(_, b)| b.clone()),

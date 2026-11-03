@@ -921,3 +921,23 @@ test("hub inbox notices keep thread identity and participants without inventing 
   expect(incoming.notice.threads[0]?.fromSession).toBeUndefined();
   expect(incomingPrompt(text, { client: "app" })).toBeUndefined();
 });
+
+test("Claude Code's SendMessage ([from NAME]) draws as that session's message, signed once", () => {
+  const raw = "[from claude-sr2-coord] From claude-sr2-coord: Leo's screenshot is saved.\n**Do** this next.";
+  for (const client of ["adopt", "watch"]) {
+    expect(incomingPrompt(raw, { client })).toEqual({
+      kind: "message",
+      message: { name: "claude-sr2-coord", text: "Leo's screenshot is saved.\n**Do** this next.", raw },
+    });
+  }
+  expect(incomingPrompt("[from lane-a] rebase when free", { client: "acpmux-cli#a1b2c3" })).toMatchObject({
+    kind: "message",
+    message: { name: "lane-a", text: "rebase when free" },
+  });
+  // The person's own prompt in a live chat stays theirs.
+  expect(incomingPrompt("[from lane-a] rebase when free", { client: "app" })).toBeUndefined();
+  // Not a sender: no name, or no message after it.
+  expect(incomingPrompt("[from] hi", adopted)).toBeUndefined();
+  expect(incomingPrompt("[from lane-a]", adopted)).toBeUndefined();
+  expect(unsigned("[from lane-a] From lane-a: done", "lane-a")).toBe("done");
+});

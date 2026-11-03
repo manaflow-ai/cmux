@@ -721,7 +721,9 @@ mark {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  width: 260px;
+  /* Fixed, so filtering never resizes it, and no wider than a font row plus its Recent tag and
+     check need (design/menus.md menu-fit: at most 112 px spare past the fullest row). */
+  width: 240px;
 }
 
 .domain-list {

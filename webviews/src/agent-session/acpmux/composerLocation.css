@@ -1063,7 +1063,8 @@
 .acpmux-menu.acpmux-location-menu.acpmux-folder-popover {
   display: flex;
   flex-direction: column;
-  min-width: 240px;
+  /* No floor of its own: the location menu's 200 px, so a short folder list is no wider than its
+     fullest row plus the menu-fit spare (design/menus.md, gallery invariants.ts menu-fit). */
   max-height: min(360px, calc(100dvh - 36px));
   overflow: hidden;
 }
@@ -1447,7 +1448,8 @@
    "Where should this chat run?" (Leo, 2026-10-31): This Mac and Cloud; every machine is a list of
    its own (Machines…). No section headers and no second lines; each of the first nine machines ends
    with its ⌥⌘ digit, then the current one's check. */
-.acpmux-env-popover { min-width: 220px; }
+/* Its floor beats the folder popover's own rules, whose classes it carries. */
+.acpmux-menu.acpmux-location-menu.acpmux-env-popover { min-width: 220px; }
 /* Its rows as the model picker's and every other menu's (design/menus.md, popupSurface.css): the
    neutral menu wash (--acpmux-menu-hover, as .acpmux-quick-item), no accent tint and no focus bar,
    inset 5 from the popup's edges at radius 5, the icon at the shared 15 leading. The highlight is
