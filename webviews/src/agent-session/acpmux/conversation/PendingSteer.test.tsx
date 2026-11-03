@@ -115,6 +115,46 @@ test("with several steers waiting only the newest offers Send now; each keeps it
   expect(container.querySelectorAll(".cv-user__take-back").length).toBe(3);
 });
 
+// Leo, 2026-11-03: "this looks kinda weird when i send now and there was a previously steered
+// message". Send now on the newest steer stops the agent's step, and the agent then reads every
+// waiting steer, so the earlier steers it covered drop their X and Copy line with it; left behind,
+// the earlier one looked held back while the newer one looked sent.
+test("Send now on the newest steer clears the earlier steers it covers", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const rows: AcpmuxRow[] = [1, 2].map((n) => ({
+    ...waiting,
+    id: `user-cover-${n}`,
+    at: n,
+    steerPromptId: `p-cover-${n}`,
+  }));
+  const draw = (list: AcpmuxRow[], newest: string) =>
+    act(async () =>
+      root!.render(
+        <TurnActionsContext.Provider value={{ unsteer: async () => "back" as const }}>
+          <NewestSteerContext.Provider value={newest}>
+            {list.map((row) => (
+              <div key={row.id} data-row={row.id}>
+                <PendingSteer row={row} send={async () => true} />
+              </div>
+            ))}
+          </NewestSteerContext.Provider>
+        </TurnActionsContext.Provider>,
+      ),
+    );
+  await draw(rows, "user-cover-2");
+  expect(container.querySelectorAll(".cv-user__pending").length).toBe(2);
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-user__send-now")!.click());
+  // acpmux still says both wait until the agent reads them.
+  expect(container.querySelectorAll(".cv-user__pending").length).toBe(0);
+  // A steer sent after that one waits on its own: it offers Send now, and the covered ones stay clear.
+  const later: AcpmuxRow = { ...waiting, id: "user-cover-3", at: 3, steerPromptId: "p-cover-3" };
+  await draw([...rows, later], "user-cover-3");
+  const pending = [...container.querySelectorAll(".cv-user__pending")];
+  expect(pending.map((node) => node.closest("[data-row]")?.getAttribute("data-row"))).toEqual(["user-cover-3"]);
+  expect(container.querySelectorAll(".cv-user__send-now").length).toBe(1);
+});
+
 test("Send now remains available when delivery fails", async () => {
   const failed = await render(false);
   const failureButton = failed.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
