@@ -673652,6 +673652,242 @@
           }
         }
       }
+    },
+    "settings.browser.terminalLinkBrowserPlacement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Link Placement"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موضع روابط الطرفية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Platzierung von Terminal-Links"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ubicación de los enlaces del terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emplacement des liens du terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルリンクの開き方"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 링크 위치"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端链接打开位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機連結開啟位置"
+          }
+        }
+      }
+    },
+    "settings.browser.terminalLinkBrowserPlacement.samePane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab in Same Pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة تبويب في نفس الجزء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab im selben Bereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pestaña en el mismo panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onglet dans le même volet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じペインのタブ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "같은 창의 탭"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一窗格中的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一窗格中的標籤頁"
+          }
+        }
+      }
+    },
+    "settings.browser.terminalLinkBrowserPlacement.split": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تقسيم"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dividir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diviser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분할"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拆分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割"
+          }
+        }
+      }
+    },
+    "settings.browser.terminalLinkBrowserPlacement.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where terminal links and intercepted `open` commands open in the cmux browser. Split uses the pane to the right or makes a new split. Tab in Same Pane adds a tab next to the terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مكان فتح روابط الطرفية وأوامر `open` المعترضة في متصفح cmux. يستخدم «تقسيم» الجزء الموجود على اليمين أو ينشئ تقسيمًا جديدًا. يضيف «علامة تبويب في نفس الجزء» علامة تبويب بجوار الطرفية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wo Terminal-Links und abgefangene `open`-Befehle im cmux-Browser geöffnet werden. „Teilen“ verwendet den Bereich rechts oder erstellt eine neue Teilung. „Tab im selben Bereich“ fügt einen Tab neben dem Terminal hinzu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dónde se abren en el navegador de cmux los enlaces del terminal y los comandos `open` interceptados. «Dividir» usa el panel de la derecha o crea una nueva división. «Pestaña en el mismo panel» añade una pestaña junto al terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Où les liens du terminal et les commandes `open` interceptées s’ouvrent dans le navigateur cmux. « Diviser » utilise le volet de droite ou crée une nouvelle division. « Onglet dans le même volet » ajoute un onglet à côté du terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのリンクと横取りした `open` コマンドを cmux ブラウザのどこで開くかを指定します。「分割」は右側のペインを使うか、新しい分割を作成します。「同じペインのタブ」はターミナルの隣にタブを追加します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 링크와 가로챈 `open` 명령이 cmux 브라우저에서 열리는 위치입니다. 분할은 오른쪽 창을 사용하거나 새 분할을 만듭니다. 같은 창의 탭은 터미널 옆에 탭을 추가합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端链接和被拦截的 `open` 命令在 cmux 浏览器中的打开位置。“拆分”会使用右侧窗格或创建新的拆分。“同一窗格中的标签页”会在终端旁添加标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機連結與被攔截的 `open` 指令在 cmux 瀏覽器中的開啟位置。「分割」會使用右側窗格或建立新的分割。「同一窗格中的標籤頁」會在終端機旁新增標籤頁。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

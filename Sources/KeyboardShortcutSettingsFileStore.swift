@@ -976,7 +976,7 @@ final class CmuxSettingsFileStore {
         snapshot: inout ResolvedSettingsSnapshot
     ) {
         let browserSearchSettings = BrowserSearchSettingsStore()
-
+        parseTerminalLinkBrowserPlacement(section, sourcePath: sourcePath, snapshot: &snapshot)
         if section.keys.contains("defaultZoomLevel") {
             if let rawZoom = jsonDouble(section["defaultZoomLevel"]), rawZoom.isFinite {
                 snapshot.managedUserDefaults[BrowserZoomSettings.userDefaultsKey] = .double(

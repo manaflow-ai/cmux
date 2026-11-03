@@ -98,6 +98,7 @@ struct SettingsRowAnchorResolutionTests {
         "browser.reactGrabVersion",
         "browser.showLinkHoverURL",
         "browser.showSearchSuggestions",
+        "browser.terminalLinkBrowserPlacement",
         "browser.theme",
         "browser.urlsToAlwaysOpenExternally",
         "canvas.paneGap",

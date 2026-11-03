@@ -1,6 +1,7 @@
 import CmuxCloud
 import CmuxCore
 import CmuxPanes
+import CmuxSettings
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -75,6 +76,10 @@ extension Workspace: TerminalLinkOpenContainer {
 
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool = true) -> Bool {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
+        if BrowserLinkOpenSettings.terminalLinkBrowserPlacement() == .samePane,
+           let sourcePane = paneId(forPanelId: target.containerPanelID) {
+            return newBrowserSurface(inPane: sourcePane, url: url, focus: focus) != nil
+        }
         if let targetPane = preferredRightSideTargetPane(fromPanelId: target.containerPanelID) {
             return newBrowserSurface(inPane: targetPane, url: url, focus: focus) != nil
         }

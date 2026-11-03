@@ -1,5 +1,6 @@
 import AppKit
 import CmuxPanes
+import CmuxSettings
 import Foundation
 
 extension DockSplitStore: TerminalLinkOpenContainer {
@@ -43,10 +44,10 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool = true) -> Bool {
         guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId),
               let sourcePane = paneId(forPanelId: panelId) else { return false }
-        if let targetPane = BrowserRightSidePaneResolver().preferredPane(
-            from: sourcePane,
-            in: bonsplitController
-        ) {
+        let targetPane = BrowserLinkOpenSettings.terminalLinkBrowserPlacement() == .samePane
+            ? sourcePane
+            : BrowserRightSidePaneResolver().preferredPane(from: sourcePane, in: bonsplitController)
+        if let targetPane {
             if focus { noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow) }
             guard let panelId = newSurface(
                 kind: .browser,
