@@ -26,7 +26,7 @@ export type NativeInfoButton = {
 export type NativeInfoRow = {
   /// Stable within its section, so the App keeps the row's hover and focus across updates.
   id: string;
-  /// An SF Symbol name.
+  /// An SF Symbol name, or NATIVE_PACK_ICON and a cmux pack icon name (Changes' pull requests).
   symbol?: string;
   title: string;
   /// The row's existing harness mark, when it is an agent.
@@ -161,3 +161,7 @@ export class NativeInfoActions {
     return true;
   }
 }
+
+/// A row symbol that starts with this names a cmux pack icon (icons/cmuxIcons.json) the App draws
+/// with CmuxNextIcons, so a native row shows the page's own glyph (AgentPaneSessionInfoContent.swift).
+export const NATIVE_PACK_ICON = "cmux:";

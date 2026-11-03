@@ -212,13 +212,14 @@ fn the_wire_is_the_apps_shape() {
     assert_eq!(reply["reason"], "caller-not-owner");
 }
 
-/// The setting wins, else only DEV and dogfood builds pass a login (moved from the app's
-/// `CloudStartChatLoginTests.theSettingWinsElseOnlyDogfoodBuildsPassALogin`).
+/// Only DEV and dogfood builds pass a login; the setting can turn it off there and never turns it
+/// on in Release (moved from the app's `CloudStartChatLoginTests.theSettingWinsElseOnlyDogfoodBuildsPassALogin`).
 #[test]
 fn the_setting_wins_else_only_dogfood_builds_pass_a_login() {
     assert!(passes_harness_login(true, None));
     assert!(!passes_harness_login(false, None));
-    assert!(passes_harness_login(false, Some(true)));
+    // `defaults write ... cmux.cloud.passHarnessLogin -bool YES` in Release passes nothing.
+    assert!(!passes_harness_login(false, Some(true)));
     assert!(passes_harness_login(true, Some(true)));
     // `defaults write ... cmux.cloud.passHarnessLogin -bool NO`: a DEV build behaves as production.
     assert!(!passes_harness_login(true, Some(false)));
@@ -234,7 +235,7 @@ fn the_setting_wins_else_only_dogfood_builds_pass_a_login() {
     assert!(decide(&d(true, None)).gate);
     assert_eq!(decide(&d(true, Some(false))).reason, Reason::BuildGateOff);
     assert_eq!(decide(&d(false, None)).reason, Reason::BuildGateOff);
-    assert_eq!(decide(&d(false, Some(true))).step, Step::Install);
+    assert_eq!(decide(&d(false, Some(true))).reason, Reason::BuildGateOff);
 }
 
 /// The chat's harness, the guest probe's output and the machine probe's output go into the one

@@ -206,15 +206,16 @@ export const RUN_CHILD = {
   pending: undefined as string | undefined,
 } as const;
 
-/** The footer's icon buttons (design/transcript-spacing.md, "Reply footer"): ChatGPT's sizes (Leo:
- * "didn't i always say we can do it like chatgpt"), Claude's placement (the gaps above). */
+/** The footer's icon buttons (design/transcript-spacing.md, "Reply footer"): Claude's sizes in
+ * ChatGPT's 32 line (Leo, 2026-11-02, of ChatGPT's 20 in 32: "WHY ARE THESE SO BIG"), Claude's
+ * placement (the gaps above). */
 export const FOOTER = {
-  /** Icon glyph box, CSS px: chatgpt.com 20 (Claude 16). */
-  glyph: 20,
-  /** Button hit box: chatgpt.com 32 (Claude 24). */
-  button: 32,
+  /** Icon glyph box, CSS px: Claude 16 (chatgpt.com 20). */
+  glyph: 16,
+  /** Button hit box: grid transcript-action-control 28 (chatgpt.com 32, Claude 24). */
+  button: 28,
   /** Button to button, left edge to left edge: the buttons touch in both apps. */
-  pitch: 32,
+  pitch: 28,
   pending: undefined as string | undefined,
 } as const;
 
