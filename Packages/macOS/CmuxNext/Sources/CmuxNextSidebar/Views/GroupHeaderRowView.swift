@@ -288,7 +288,8 @@ final class GroupHeaderRowView: SidebarRowView {
             // and a drop take tonal steps over it (the open editor lights its more button only).
             let tokens = themeTokens
             let look = look
-            if look.style != .band { return paintQuiet(tokens, look) }
+            // A group nobody colored draws as a plain row: no bar, only the row's own hover and drop fills.
+            if look.style != .band || tint.isNone { return paintQuiet(tokens, look) }
             let chip = tint.headerChip(themed: look.themed)
             var fill = chip.fill
             if isHovered { fill = tokens.hoverFill.composited(over: fill) }
@@ -348,7 +349,7 @@ final class GroupHeaderRowView: SidebarRowView {
         layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
         layer?.cornerRadius = SidebarStyle.rowCornerRadius
         CATransaction.commit()
-        guard look.style == .wash else {
+        guard look.style == .wash, !tint.isNone else {
             pill.backgroundColor = nil
             return paintFill(isDropTarget ? tokens.pressedFill.nsColor : isHovered ? tokens.hoverFill.nsColor : nil)
         }
