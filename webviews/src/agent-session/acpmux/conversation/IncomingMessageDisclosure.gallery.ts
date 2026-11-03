@@ -69,6 +69,11 @@ const snapshot = chat(
 /// Opens the group of messages that wait (ios-remote's steer, artifacts' queued one), which shows
 /// collapsed after the turn, so all five lines show.
 const openWaiting: Play = async (ctx) => {
+  // The delivered ones sit in one "Received N messages" row (#32720): open it too.
+  const received = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
+  await ctx.waitFor(() => ctx.document.querySelector(received));
+  if (ctx.document.querySelector(received)?.getAttribute("aria-expanded") !== "true")
+    ctx.document.querySelector<HTMLButtonElement>(received)!.click();
   await ctx.waitFor(() => ctx.document.querySelector(".cv-pending__toggle"));
   if (ctx.document.querySelector('.cv-pending__toggle[aria-expanded="false"]'))
     ctx.document.querySelector<HTMLButtonElement>(".cv-pending__toggle")!.click();
@@ -142,7 +147,7 @@ export default agentPaneEntry({
   ],
   variants: {
     "a-shipped": {
-      note: "A (ships): each delivered message is one line where it arrived: the sender, then its first line muted, then ›. Three delivered between the replies; ios-remote's unread steer and artifacts' queued message wait in one collapsed group after the turn, no Read after this turn. Nothing cut without a way to open it.",
+      note: "A (ships): each delivered message is one line: the sender, then its first line muted, then ›. The three delivered between the replies gather in one \"Received 3 messages\" row (#32720); ios-remote's unread steer and artifacts' queued message wait in one collapsed group after the turn, no Read after this turn. Nothing cut without a way to open it.",
       snapshot,
     },
     "a-shipped-open": {
