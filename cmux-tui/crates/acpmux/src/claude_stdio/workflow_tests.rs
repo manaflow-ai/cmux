@@ -363,7 +363,11 @@ async fn a_background_agents_progress_and_end_carry_its_agent_id() {
     assert_eq!(of_kind(&out, "subagent_progress")[0]["agentId"], "a6ab68f9e2c41d07b", "{out:?}");
     let done = json!({"type": "system", "subtype": "task_notification", "task_id": "a6ab68f9e2c41d07b", "status": "completed"});
     let out = updates(&t.inbound(&done).await);
-    assert_eq!(of_kind(&out, "subagent_state_update")[0]["agentId"], "a6ab68f9e2c41d07b", "{out:?}");
+    assert_eq!(
+        of_kind(&out, "subagent_state_update")[0]["agentId"],
+        "a6ab68f9e2c41d07b",
+        "{out:?}"
+    );
 }
 
 /// A secret behind a long blank run is masked whole: the preview folds the blanks before it cuts

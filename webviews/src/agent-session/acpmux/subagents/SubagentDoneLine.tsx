@@ -30,7 +30,7 @@ import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
 import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
-import { subagentDisplayName, useSubsessionInfo } from "./subsessions";
+import { subagentTaskLabel, useSubsessionInfo } from "./subsessions";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -78,7 +78,9 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   const phase = subagentRetry(agent, retryCapabilities, child);
   const waiting = phase.kind === "retrying" ? phase.retry : undefined;
   const action = retryAgent && phase.kind === "failed" ? phase.action : undefined;
-  const name = subagentDisplayName(t, agent);
+  // What it was asked to do (Claude's Agent `description`) first, as the running tray names it;
+  // then its name, its prompt's first line, its kind; "Subagent" only when nothing names it.
+  const name = subagentTaskLabel(t, agent);
   const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
   const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));

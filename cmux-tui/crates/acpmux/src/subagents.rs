@@ -81,6 +81,12 @@ struct ChildPreview {
     message_id: Option<String>,
     streaming: bool,
     tokens: Option<u64>,
+    /// What its spawn (or a later progress) named it by: its `name` and `task` (Claude's Agent
+    /// `description`). A state or progress update that names neither carries them, so a reader
+    /// whose page starts after the spawn still names it (Leo, 2026-11-03: a background agent's
+    /// end read "Subagent finished: Subagent").
+    name: Option<String>,
+    task: Option<String>,
 }
 
 impl SubagentTree {
@@ -215,7 +221,18 @@ impl SubagentTree {
             self.pending.entry(sender).or_default().extend(children);
         }
         for (id, preview) in log.previews {
-            self.previews.entry(id).or_insert(preview);
+            match self.previews.entry(id) {
+                std::collections::hash_map::Entry::Occupied(mut known) => {
+                    let known = known.get_mut();
+                    if known.name.is_none() && known.task.is_none() {
+                        known.name = preview.name;
+                        known.task = preview.task;
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(slot) => {
+                    slot.insert(preview);
+                }
+            }
         }
         self.background.extend(log.background.into_iter().filter(|id| !known.contains(id)));
         for (id, label) in log.running {
@@ -354,6 +371,7 @@ impl SubagentTree {
                     event.insert("background".into(), json!(true));
                 }
                 event.insert("state".into(), json!("running"));
+                self.remember_label(&id, &event);
                 vec![Value::Object(event)]
             }
             Some("subagent_state_update") => {
@@ -378,6 +396,7 @@ impl SubagentTree {
                 if let Some(tokens) = update.get("tokens").and_then(Value::as_u64) {
                     event.insert("tokens".into(), json!(tokens));
                 }
+                self.label(&id, &mut event);
                 vec![Value::Object(event)]
             }
             // A running subagent's or workflow's live numbers (claude_stdio/workflows.rs).
@@ -405,6 +424,7 @@ impl SubagentTree {
                     "reasoningEffort",
                     "lastMessage",
                     "last_message",
+                    "agentId",
                 ] {
                     if let Some(v) = update.get(key).filter(|v| !v.is_null()) {
                         let key = if key == "reasoningEffort" {
@@ -425,6 +445,8 @@ impl SubagentTree {
                         event.insert(key.into(), value);
                     }
                 }
+                self.remember_label(&id, &event);
+                self.label(&id, &mut event);
                 vec![Value::Object(event)]
             }
             Some("tool_call" | "tool_call_update") => self.codex_legacy(update, owner),
@@ -579,6 +601,29 @@ impl SubagentTree {
         event.insert("state".into(), json!(state));
         event.insert("background".into(), json!(true));
         vec![Value::Object(event)]
+    }
+
+    /// Keeps the name and task an event of `id` gives (each at most a label's length, so a task
+    /// that is a whole prompt is never repeated on every later event).
+    fn remember_label(&mut self, id: &str, event: &Map<String, Value>) {
+        let preview = self.previews.entry(id.to_owned()).or_default();
+        for (key, slot) in [("name", &mut preview.name), ("task", &mut preview.task)] {
+            if let Some(v) = event.get(key).and_then(Value::as_str).filter(|v| !v.is_empty()) {
+                *slot = (v.chars().count() <= LAST_MESSAGE_CHARS).then(|| v.to_owned());
+            }
+        }
+    }
+
+    /// Writes the name and task `id` was given into an event that says neither.
+    fn label(&self, id: &str, event: &mut Map<String, Value>) {
+        let Some(preview) = self.previews.get(id) else { return };
+        for (key, slot) in [("name", &preview.name), ("task", &preview.task)] {
+            if let Some(v) = slot
+                && !event.contains_key(key)
+            {
+                event.insert(key.into(), json!(v));
+            }
+        }
     }
 
     /// Records `id` under `owner` the first time it appears and starts its
@@ -840,7 +885,8 @@ mod codex_tests {
         assert_eq!(
             end,
             [
-                json!({"id": "s1/t1", "parent": null, "state": "failed", "agentId": "a8e1", "error": "API Error: 503"})
+                json!({"id": "s1/t1", "parent": null, "state": "failed", "agentId": "a8e1", "error": "API Error: 503",
+                       "name": "Push relay"})
             ]
         );
     }
