@@ -74,7 +74,7 @@ def tree(root):
 
 def ptmx_holders():
     """{pid: (command, fd count)} of every process holding /dev/ptmx (lsof field output)."""
-    done = subprocess.run(["lsof", "-n", "-P", "-F", "pcf", "/dev/ptmx"], capture_output=True, text=True, timeout=60)
+    done = subprocess.run(["lsof", "-w", "-n", "-P", "-F", "pcf", "/dev/ptmx"], capture_output=True, text=True, timeout=60)
     held, pid, cmd = {}, None, ""
     for line in done.stdout.splitlines():
         if line.startswith("p"):
@@ -92,7 +92,7 @@ def pids_fds(pids):
     that has exited counts 0 (lsof skips it)."""
     if not pids:
         return None
-    done = subprocess.run(["lsof", "-a", "-n", "-P", "-p", ",".join(str(p) for p in sorted(pids)), "-F", "f",
+    done = subprocess.run(["lsof", "-w", "-a", "-n", "-P", "-p", ",".join(str(p) for p in sorted(pids)), "-F", "f",
                            "/dev/ptmx"], capture_output=True, text=True, timeout=30)
     if done.stderr.strip() or not done.stdout.strip():  # a failed scan is no count (0 would read as all released)
         return None
@@ -115,7 +115,10 @@ def sample(at, t0, root):
     by_command = {}
     for pid, (cmd, n) in held.items():
         by_command[cmd] = by_command.get(cmd, 0) + n
+    in_tree = {str(pid): [cmd, n] for pid, (cmd, n) in sorted(held.items(), key=lambda kv: -kv[1][1]) if pid in mine}
     return {"at": at, "t_s": None if t0 is None else round(start - t0, 3), "lsof_ms": round((time.monotonic() - start) * 1000, 1),
+            # which process of the daemon tree holds how many (lead 01:3xZ: the per-process PTY split)
+            "tree_by_pid": in_tree, "daemon_pid": root,
             "total": sum(n for _, n in held.values()),
             "daemon_tree": sum(n for pid, (_, n) in held.items() if pid in mine),
             "by_command": dict(sorted(by_command.items(), key=lambda kv: -kv[1]))}
@@ -189,6 +192,11 @@ def measure(app, a, result, root, wid, pane):
     if left > 0:
         time.sleep(left)
     result["samples"].append(sample("10 s after the burst", t0, root))
+    # A late release (lead 01:3xZ): the same count 60 s after the burst, the workspace still open.
+    left = t0 + 60.0 - time.monotonic()
+    if left > 0:
+        time.sleep(left)
+    result["samples"].append(sample("60 s after the burst", t0, root))
     result["workspace_closed"] = close_workspace(app, result["workspace"])
     time.sleep(5.0)
 
@@ -219,6 +227,9 @@ def verdict(result):
     if at1 is not None:
         v["at_1s"] = {"t_s": at1["t_s"], "count": at1["daemon_tree"], "released": before[key] - at1["daemon_tree"]}
     ten = by.get("10 s after the burst")
+    sixty = by.get("60 s after the burst")
+    if sixty is not None:
+        v["at_60s"] = {"t_s": sixty["t_s"], "count": sixty[key], "released": before[key] - sixty[key]}
     if ten is not None:
         v["at_10s"] = {"t_s": ten["t_s"], "count": ten[key], "released": before[key] - ten[key]}
     v["first_full_release_s"] = next((f["t_s"] for f in fast_ if before[key] - f["daemon_tree"] >= 0.9 * expect), None)

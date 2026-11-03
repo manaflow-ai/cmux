@@ -215,7 +215,11 @@ def step_pty_release(j, step):
     if done.returncode != 0 or not result.get("verdict"):
         raise D.NotRun(f"pty_release: exit {done.returncode}: {(done.stderr or done.stdout)[-300:]}")
     return {"verdict": result["verdict"], "made": result.get("made"), "burst_s": result.get("burst_s"),
-            "samples": [{k: s.get(k) for k in ("at", "t_s", "total", "daemon_tree")} for s in result["samples"]]}
+            "workspace_closed": result.get("workspace_closed"), "daemon_pid": result.get("daemon_pid"),
+            # the per-process split comes back in the step result (run.py does not fetch OUT/pty)
+            "samples": [{k: s.get(k) for k in ("at", "t_s", "total", "daemon_tree", "tree_by_pid", "by_command")}
+                        for s in result["samples"]],
+            "fast": result.get("fast")}
 
 
 def step_typist_play(j, step):
