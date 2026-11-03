@@ -100,7 +100,7 @@ const draftLines = scene("composer.box", "agent-pane.composer-row", "grid-draft-
   value("mid: trailing control", ".acpmux-mic", "cy", point(plus, "cy")),
 ]);
 const running = composer("grid-running");
-running.textIncludes = { selector: placeholder, text: "↵ steer · ⌘↵ queue" };
+running.textIncludes = { selector: placeholder, text: "Type / for commands" };
 // The capture fixture's prompt shows no placeholder (MarkdownField hides it whenever the field holds
 // markdown), so its text lines are a design absence; the empty prompt's text line is measured in
 // composer.box/claude-auto and grid-running. The box's controls and radius are still measured here.

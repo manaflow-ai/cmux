@@ -160,10 +160,17 @@ import Testing
         }
         settle()
         let toolbar = try #require(pane.toolbar?.view)
+        let plate = { toolbar.layer?.sublayers?.first { $0.backgroundColor != nil && $0.backgroundColor == fill } }
         #expect(pane.contentHost.frame.minY < pane.stripView.frame.maxY, "the chat shares the row")
-        #expect(toolbar.layer?.backgroundColor == fill)
+        let shown = try #require(plate(), "the toolbar paints the chat's surface")
+        // The window's lit top rim runs on over the toolbar (#33346): the fill starts below it.
+        let rim = PaneTabRowRim.height, bounds = toolbar.bounds
+        let top = toolbar.isFlipped ? shown.frame.minY : bounds.height - shown.frame.maxY
+        #expect(abs(top - rim) < 0.01 && abs(shown.frame.height - (bounds.height - rim)) < 0.01 && shown.frame.width == bounds.width,
+                "the fill \(shown.frame) in \(bounds) covers the rim")
+        #expect(toolbar.layer?.backgroundColor == nil, "the toolbar's own background stays clear")
         chat.tabRowHoleFill = nil
         settle()
-        #expect(toolbar.layer?.backgroundColor == nil)
+        #expect(plate() == nil)
     }
 }

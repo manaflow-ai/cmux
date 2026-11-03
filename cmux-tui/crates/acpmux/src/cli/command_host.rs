@@ -176,6 +176,10 @@ pub enum PeerCmd {
     Enroll {
         /// ssh target, e.g. huge-blue or user@host
         host: String,
+        /// Trust and record a previously unknown SSH host key on the first reach check.
+        /// A changed key is still refused; later connections use normal host key checks.
+        #[arg(long)]
+        accept_new_host_key: bool,
         /// Name here (default: the ssh host's first label).
         #[arg(long)]
         name: Option<String>,

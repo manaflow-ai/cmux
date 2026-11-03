@@ -135,7 +135,7 @@ final class PaneContentView: NSView, PaneContentChrome {
             }
         }
         loneTabObservation = Task { [weak self] in // a lone tab gives a chat the whole row (layout)
-            for await _ in ObservationStream({ stripModel.tabs.count == 1 && stripModel.groups.isEmpty }) { self?.needsLayout = true }
+            for await _ in ObservationStream({ stripModel.hasLoneTab }) { self?.needsLayout = true }
         }
         paneBackgroundsObservation = Task { [weak self] in
             for await _ in ObservationStream({ DesignSettings.shared.paneBackgrounds }) { self?.paintPaneBackdrop() }
@@ -178,9 +178,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         toolbar?.view.isHidden = shown <= 0
         let tools = toolbarWidth(shown: shown), room = bounds.width - tools, row = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
         let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0 // a chat's tools in the row when they fit (PaneTabRowSharing)
-        // A chat alone in its pane draws no tab beside its tools: the page shows through the rest of the
-        // row (Leo 2026-11-03, "isn't it kinda arbitrary anyway if you literally only have one tab there?").
-        let loneTab = rowTools > 0 && rowContent?.tabRowTakesLoneTab == true && stripView.model.tabs.count == 1 && stripView.model.groups.isEmpty
+        let loneTab = rowTools > 0 && rowContent?.tabRowTakesLoneTab == true && stripView.model.hasLoneTab // TabStripModel.hasLoneTab
         stripView.isHidden = shown <= 0 || loneTab
         if !isBandActive {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)

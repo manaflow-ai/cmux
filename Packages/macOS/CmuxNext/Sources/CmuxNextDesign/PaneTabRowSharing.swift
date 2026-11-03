@@ -53,8 +53,14 @@ extension PaneTabRowSharing {
         }
         setTabRowTabs(shown: tabs || height <= 0)
         setTabRow(height: height, trailingInset: height > 0 ? trailingInset : 0)
-        toolbar?.paintTabRowHole(height > 0 ? tabRowHoleFill : nil)
+        toolbar?.paintTabRowHole(height > 0 ? tabRowHoleFill : nil, rim: PaneTabRowRim.height)
     }
+}
+
+/// The window's lit top rim where a shared tab row meets the window's top edge: nothing over the row covers its
+/// top `height` points (a Chromium chat's page, #33346; the toolbar's fill, ``NSView/paintTabRowHole(_:rim:)``).
+public enum PaneTabRowRim {
+    public static let height: CGFloat = 1
 }
 
 /// A pane's hosted view that shares the tab row through the view it wraps (a page tab's view over
@@ -109,9 +115,29 @@ extension NSView {
 
     /// Fills a pane's toolbar with `fill` (``PaneTabRowSharing/tabRowHoleFill``: a Chromium chat alone in its pane
     /// paints its surface across the row and leaves the toolbar a hole, which would show the pane's own shade beside
-    /// the chat's tools, #33261); nil leaves it clear.
-    public func paintTabRowHole(_ fill: CGColor?) {
-        if fill != nil { wantsLayer = true }
-        if layer?.backgroundColor != fill { layer?.backgroundColor = fill }
+    /// the chat's tools, #33261) below its top `rim` points, so the window's lit top rim runs on over it as it does
+    /// over the chat's tools (#33346); nil takes the fill away. A plate under the toolbar's buttons, not the view's
+    /// own background, so it can leave the rim.
+    public func paintTabRowHole(_ fill: CGColor?, rim: CGFloat = 0) {
+        let existing = layer?.sublayers?.first { $0.name == Self.tabRowHoleID }
+        guard let fill else {
+            existing?.removeFromSuperlayer()
+            return
+        }
+        wantsLayer = true
+        guard let host = layer else { return }
+        let plate = existing ?? {
+            let plate = CALayer()
+            plate.name = Self.tabRowHoleID
+            plate.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
+            host.insertSublayer(plate, at: 0)
+            return plate
+        }()
+        // A flipped view's layer is geometry-flipped too: its top is y 0, else bounds.maxY.
+        let top = min(max(0, rim), bounds.height)
+        plate.frame = CGRect(x: 0, y: isFlipped ? top : 0, width: bounds.width, height: bounds.height - top)
+        if plate.backgroundColor != fill { plate.backgroundColor = fill }
     }
+
+    private static let tabRowHoleID = "cmux.tabRowHoleFill"
 }
