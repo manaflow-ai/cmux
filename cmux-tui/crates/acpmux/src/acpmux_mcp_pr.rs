@@ -119,10 +119,10 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, args: &Value) -> V
         Err(e) => return error_result(format!("gh pr view gave no JSON: {e}")),
     };
     let (text, mut structured) = pr_state(&pr);
-    if let Some(d) = arg(args, "description") {
-        if let Some(obj) = structured.as_object_mut() {
-            obj.insert("description".to_owned(), json!(d));
-        }
+    if let Some(d) = arg(args, "description")
+        && let Some(obj) = structured.as_object_mut()
+    {
+        obj.insert("description".to_owned(), json!(d));
     }
     ok(text, structured)
 }
