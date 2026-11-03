@@ -67,6 +67,34 @@ function dropScreenshotAndVideo(ctx: PlayContext) {
   ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
 }
 
+/// The `attachment-inline-reorder` scenes: two screenshots, 1 (blue) and 2 (amber), pasted side by
+/// side at the end of the prompt's text.
+async function pasteTwoScreenshots(ctx: PlayContext) {
+  const view = ctx.document.defaultView!;
+  view.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+  const files = await Promise.all(
+    ["#5b8def", "#e0a84f"].map(async (color, index) => {
+      const canvas = ctx.document.createElement("canvas");
+      canvas.width = 480;
+      canvas.height = 300;
+      const drawing = canvas.getContext("2d")!;
+      drawing.fillStyle = color;
+      drawing.fillRect(0, 0, 480, 300);
+      drawing.fillStyle = "white";
+      drawing.font = "160px system-ui";
+      drawing.fillText(String(index + 1), 200, 210);
+      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+      return new view.File([blob], `Screenshot ${index + 1}.png`, { type: "image/png" });
+    }),
+  );
+  const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
+  field.acpmuxMarkdownField!.setCaret("Which layout reads better?".length);
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"], getData: () => "" } });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-md [data-inline-attachment] img").length === 2);
+}
+
 /// The `attachment-inline-caret` scene: a screenshot pasted between "Compare this" and "with".
 async function pasteComparison(ctx: PlayContext) {
   const view = ctx.document.defaultView!;
@@ -1278,6 +1306,21 @@ export default agentPaneEntry({
       snapshot: chat(finished),
       ready: { draft: "Compare this with the previous result." },
       play: pasteComparison,
+    },
+    "attachment-inline-reorder": {
+      note: 'Leo, 2026-11-02: "I can\'t drag to reorder these inline attachments very easily anymore". Two screenshots in the text, the pointer away: no × shows. A press anywhere on a thumbnail and a drag moves it in the text (composer-inline-reorder.browser.test.ts).',
+      snapshot: chat(finished),
+      ready: { draft: "Which layout reads better?" },
+      play: pasteTwoScreenshots,
+    },
+    "attachment-inline-reorder-hover": {
+      note: "The pointer on the first screenshot: its small × shows in the top-right corner, and only there; the rest of the thumbnail is where a drag starts.",
+      snapshot: chat(finished),
+      ready: { draft: "Which layout reads better?" },
+      play: async (ctx) => {
+        await pasteTwoScreenshots(ctx);
+        await ctx.hover({ selector: ".acpmux-md [data-inline-attachment] .acpmux-attachment-image" });
+      },
     },
     "attachment-inline-arrow": {
       note: 'Leo: "i dont want left arrow to be selecting them??? just jump over them treat them like it\'s one character". The screenshot pasted after "Compare this", then Left: the caret jumps to before the chip, which stays unselected. Right jumps back after it; Shift+arrow takes it as one unit.',

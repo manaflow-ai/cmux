@@ -411,10 +411,15 @@
   overflow: auto;
 }
 
-/* A prompt the Chief sent a subagent: a quiet "From the Chief" line above it, and a long task
-   collapsed to its first lines, with Show all leading its action row on the left so the toggle
-   adds no row of its own (ChiefPromptBubble.tsx; Leo 2026-10-31). */
+/* A prompt the Chief sent a subagent: a quiet "Sent from <Chief>" line with the Chief's avatar
+   above it, right-aligned with the bubble as ChatGPT's "Sent from" line (Leo 2026-11-02), and a
+   long task collapsed to its first lines, with Show all leading its action row on the left so the
+   toggle adds no row of its own (ChiefPromptBubble.tsx; Leo 2026-10-31). */
 .cv-user__from {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
   margin-bottom: 2px;
   padding-right: 4px;
   font-family: var(--cv-font);
@@ -422,6 +427,20 @@
   line-height: 18px;
   color: var(--cv-text-muted);
   letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-user__from-avatar {
+  flex: none;
+  width: 14px;
+  aspect-ratio: 1;
+}
+.cv-user__from-avatar.cv-chief-text-avatar {
+  width: 14px;
+}
+.cv-user__from-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* The clamp is on an inner box: on the bubble itself, its bottom padding showed half of the next
    line under the sixth (Leo 2026-10-31). */
@@ -2160,6 +2179,75 @@ pre.cv-math-source {
   /* Plain lit words and timed slots use generated content so the DOM holds the line once. */
   :root:not([data-status-indicators="static"]) .cv-shimmer__lit::before {
     content: attr(data-text);
+  }
+}
+
+/* A running tool row's words shimmer (ShimmerText.tsx RowShimmer; ToolRow.tsx, CommandRow.tsx), as
+   Claude desktop's and ChatGPT's running rows do, in place of a mark at the row's far edge (Leo,
+   2026-11-03: "this is kinda weird looking" / "doesn't claude desktop have the thinking shimmer go
+   across stuff"). While it runs the words rest a step dimmer than a finished row's, as ChatGPT's
+   in-flight row does, and a soft band of the full text colour crosses them on the Thinking line's
+   clock and keyframes, so the line and its rows sweep together. Reduce Motion, the motion gate
+   (`data-cmux-motion` off or reduced) and the static status look keep the dimmed words still; a
+   hidden page pauses the loop (desktop.css); the row's copy unmounts once the call ends. Focus
+   lifts the words to the text colour, as on every row. Gallery: agent-pane.tool-row-shimmer. */
+.cv-tool {
+  --cv-row-shimmer-period: var(--cmux-shimmer-period, 2.8s);
+  /* The band's width, a share of the words', as the Thinking line's (30% to 70% of its mask). */
+  --cv-row-shimmer-width: 40%;
+  --cv-row-shimmer-lit: var(--cv-text);
+}
+.cv-tool.is-live:not(:focus-within) > :is(.cv-tool__text, .cv-command__text):has(> .cv-row-shimmer) {
+  color: var(--cv-text-dim);
+}
+.cv-tool.is-live > :is(.cv-tool__text, .cv-command__text):has(> .cv-row-shimmer) {
+  position: relative;
+}
+.cv-row-shimmer {
+  display: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-status-indicators="static"]):not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"])
+    .cv-tool.is-live
+    .cv-row-shimmer {
+    /* A still clip: the band moves inside it, so the words' box (ToolRow's cut-label check) never grows. */
+    display: block;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .cv-tool.is-live .cv-row-shimmer__band {
+    display: block;
+    width: 100%;
+    height: 100%;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 50%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 50%, transparent);
+    -webkit-mask-size: var(--cv-row-shimmer-width) 100%;
+    mask-size: var(--cv-row-shimmer-width) 100%;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    animation: cmux-shimmer-band var(--cv-row-shimmer-period) linear infinite;
+  }
+  /* The lit copy lays out as the words do (one line cut with an ellipsis, or wrapped when opened). */
+  .cv-tool.is-live .cv-row-shimmer__lit {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    /* The words' own ellipsis (the band between them clips): a cut label ends in "…" under the band too. */
+    text-overflow: ellipsis;
+    white-space: inherit;
+    overflow-wrap: inherit;
+    color: var(--cv-row-shimmer-lit);
+    animation: cmux-shimmer-lit var(--cv-row-shimmer-period) linear infinite;
+  }
+  /* Marks with their own colour (edit counts, a failure word) keep it inside the band. */
+  .cv-tool.is-live .cv-row-shimmer__lit *:not(.cv-edit-diff__add, .cv-edit-diff__del, .cv-tool__failed) {
+    color: inherit;
   }
 }
 
@@ -4908,9 +4996,11 @@ a.cv-sha:focus-visible {
 
 /* Jump to latest (App.tsx JumpToLatest): a glass circle centered above the composer, at the
    transcript stage's bottom edge, shown while the reader is scrolled up. The liquid glass
-   (.ui-glass, ui/glass/glass.css): the lens bends the wallpaper across the whole disc, under the
-   glass's rim in its own ring tone and a soft shadow; Plain glass keeps the look from before the
-   lens (the page at 72% through the shared blur), and Reduce Transparency makes it opaque. Its
+   (.ui-glass, ui/glass/glass.css) is a fisheye lens (.ui-glass-fisheye, ui/glass/Fisheye.tsx): in
+   Chromium the disc magnifies and bends the transcript under it (Leo 2026-10-21: "I want more
+   fisheye!"). WebKit, which cannot run the fisheye, keeps the shared glass: the lens bends the
+   wallpaper across the whole disc, and Plain glass keeps the page at 72% through the shared blur.
+   Reduce Transparency makes it opaque. Its
    arrow stays static while a reply streams below. It fades in and out with the pane's motion tokens,
    in place: it never slides, so the frames of its fade all draw it on the same pixels (Leo
    2026-10-28: "I don't want to see that fucking, like, jump to bottom button be jumping around").
@@ -4969,6 +5059,23 @@ a.cv-sha:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+/* Through the fisheye (Chromium: glass.css FISHEYE) the words under the disc read large behind the
+   arrow, so the arrow sits on a soft pool of the surface that fades out well inside the rim and
+   stays legible over them (a gradient, not a drop-shadow filter: no elevation, no extra pass). */
+@media not (prefers-reduced-transparency: reduce) {
+  @supports not (-webkit-backdrop-filter: none) {
+    :root:not([data-reduce-transparency]) .acpmux-jump-latest.ui-glass-fisheye .acpmux-jump-latest__arrow {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: radial-gradient(
+        closest-side,
+        color-mix(in srgb, var(--glass-surface) 72%, transparent) 45%,
+        transparent
+      );
+    }
+  }
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-jump-latest {
@@ -5170,7 +5277,7 @@ a.cv-sha:focus-visible {
     .cv-plan:not([data-ended])
     .cv-plan__item[data-status="in_progress"]
     .cv-plan__mark {
-    animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
+    animation: cmux-spin var(--cmux-spinner-period, 1400ms) linear infinite;
   }
 }
 

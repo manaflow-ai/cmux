@@ -42,27 +42,32 @@ test("the spinner brings its own hidden dot and turning ring, not only conversat
   expect(conversation).not.toMatch(/\.cv-spinner \{\s*animation: cmux-spin /);
 });
 
-// The agent working-state mark is a faint full ring with a short bright sweep turning smoothly, as
-// in Claude and ChatGPT and as the native rows draw it: never the 3/4 arc alone (Leo 2026-10-31: "who
-// even decided to put that 3/4 circle") and never the macOS activity indicator's segmented spokes
-// stepping round (#29903; Leo 2026-11-01: "why the f*** did you make the spinner into this????").
-test("agent work draws a faint ring track with a short turning sweep, never the 3/4 arc or spokes", async () => {
+// The agent working-state mark is ChatGPT's ring with one gap, turning slowly (Leo 2026-11-02, on
+// ChatGPT's beside ours: "THIS IS CHATGPT", "IT GOES SLOWER"): a bright arc of 0.72 of the ring
+// (round caps, stroke 2 on the 16 viewBox) over a faint 22% track, one turn per 1400ms on the shared
+// clock, as the native rows draw it. Not #31455's faint ring with a short 80° sweep, and never the
+// macOS activity indicator's segmented spokes stepping round (#29903; Leo 2026-11-01: "why the f***
+// did you make the spinner into this????").
+test("agent work draws ChatGPT's gap ring: a 0.72 arc at stroke 2 over a faint track, turning once per 1.4 s", async () => {
   const working = renderToStaticMarkup(<Spinner />);
   const track = working.match(/<circle class="cv-spinner__track"[^>]*>/)?.[0] ?? "";
   expect(track).toContain('r="5.25"');
+  expect(track).toContain('stroke-width="2"');
   const opacity = Number(track.match(/opacity="([\d.]+)"/)?.[1]);
   expect(opacity).toBeGreaterThanOrEqual(0.15);
-  expect(opacity).toBeLessThanOrEqual(0.25);
-  const sweep = working.match(/<path class="cv-spinner__sweep"[^>]*>/)?.[0] ?? "";
-  expect(sweep).toContain('stroke-linecap="round"');
-  // A short sweep: one small-arc segment (large-arc flag 0), not the 3/4 arc's large one.
-  expect(sweep).toMatch(/d="M8 2\.75a5\.25 5\.25 0 0 1 [\d.]+ [\d.]+"/);
+  expect(opacity).toBeLessThanOrEqual(0.3);
+  const arc = working.match(/<path class="cv-spinner__sweep"[^>]*>/)?.[0] ?? "";
+  expect(arc).toContain('stroke-linecap="round"');
+  expect(arc).toContain('stroke-width="2"');
+  // 0.72 of the ring from 12 o'clock clockwise: one large-arc segment ending at about 259°.
+  expect(arc).toContain('d="M8 2.75a5.25 5.25 0 1 1 2.84 8.98"');
   expect(working).not.toContain("cv-spinner__arc");
   expect(working).not.toContain("cv-spinner__spokes");
   expect(working).not.toContain("<line");
   // Loading (a check, a page) keeps its thin arc.
   const loading = renderToStaticMarkup(<Spinner loading />);
   expect(loading).toContain("cv-spinner__arc");
+  expect(loading).toContain('stroke-width="1.5"');
   expect(loading).not.toContain("cv-spinner__sweep");
   const dir = import.meta.dir;
   for (const sheet of ["spinner.css", "conversation.css"]) {
@@ -70,4 +75,8 @@ test("agent work draws a faint ring track with a short turning sweep, never the 
     expect(css).not.toMatch(/\.cv-spinner\[data-working\][^{]*\{[^}]*steps\(/);
     expect(css).not.toContain("cv-spinner__spokes");
   }
+  // One turn per 1.4 s, on the page clock and as the fallback (ChatGPT's turns slower than our old 900ms).
+  const desktop = await Bun.file(`${dir}/../../../pages/shared/desktop.css`).text();
+  expect(desktop).toMatch(/--cmux-spinner-period: 1400ms;/);
+  expect(await Bun.file(`${dir}/spinner.css`).text()).toContain("var(--cmux-spinner-period, 1400ms)");
 });
