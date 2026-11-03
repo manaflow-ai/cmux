@@ -412,6 +412,22 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
       play: openFolder,
     },
+    "folder-menu-hover": {
+      note: "Hover uses the neutral menu wash; the current folder keeps only its check.",
+      props: baseProps,
+      play: async (ctx) => {
+        await openFolder(ctx);
+        await ctx.hover({ role: "option", name: /atlas-web/ });
+      },
+    },
+    "folder-menu-keyboard": {
+      note: "Arrow navigation uses the same neutral wash as hover.",
+      props: baseProps,
+      play: async (ctx) => {
+        await openFolder(ctx);
+        await ctx.press("ArrowDown");
+      },
+    },
     "menu-grid-legacy": {
       note: "Experiment arm: the old 8px row inset and icon gap, which leaves environment labels off the shared menu column.",
       props: { ...baseProps, environments: true },

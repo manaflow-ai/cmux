@@ -109,6 +109,14 @@ export default componentEntry<ComponentProps<typeof SavedEnvironmentPanel>>({
       props: { ...baseProps, environment: sshEnvironment },
       play: openHost,
     },
+    "ssh-host-hover": {
+      note: "Hover on build-server is neutral; gpu-box remains selected by its check alone.",
+      props: { ...baseProps, environment: sshEnvironment },
+      play: async (ctx) => {
+        await openHost(ctx);
+        await ctx.hover({ role: "menuitemradio", name: "build-server" });
+      },
+    },
     "ssh-host-long-open": {
       note: "A long Host name keeps the drop-down within the compact location-menu width.",
       props: { ...baseProps, environment: longHostEnvironment },

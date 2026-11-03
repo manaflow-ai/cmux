@@ -2838,7 +2838,7 @@ export default agentPaneEntry({
       }),
     },
     "access-menu": {
-      note: "A Claude chat's mode menu is Claude Code's own: Mode, then Auto (Recommended), Manual, Accept edits, Plan and Bypass permissions with their descriptions and keys 1 to 5, tight rows, the accent check on the chosen one. The button is the mode's symbol and its name, no pill at rest.",
+      note: "A Claude chat's mode menu is Claude Code's own: Mode, then Auto (Recommended), Manual, Accept edits, Plan and Bypass permissions with their descriptions and keys 1 to 5, tight rows, the accent check on the chosen one. The button is the mode's symbol and its name, no pill at rest. Manual is hovered with a neutral wash; Bypass keeps only its check.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-access",
@@ -2869,6 +2869,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: '[aria-label="Mode"]' });
         await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+        await ctx.hover({ role: "menuitemradio", name: /Manual/ });
       },
     },
     "access-menu-codex": {
