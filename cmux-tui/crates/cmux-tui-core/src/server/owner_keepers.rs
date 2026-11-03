@@ -18,11 +18,14 @@
 //!   except the owner's own journal plugin;
 //! - a live terminal (launching, adopting or running): this includes a
 //!   closed terminal in its Reopen hold until the reaper ends it, and a
-//!   terminal marked `keep`; and a terminal whose new shell is on its way (a
-//!   lost host's respawn in its backoff, or an `on_exit` shell restart);
+//!   terminal marked `keep`; a terminal whose new shell is on its way (a
+//!   lost host's respawn in its backoff, or an `on_exit` shell restart); and
+//!   an ended `on_exit` keep or shell terminal whose tabs and final screen
+//!   only this owner holds (a new owner detaches them);
 //! - its running browser host (an agent in one of its terminals may use it);
 //! - a running app server (an `always` server, or an on-demand server until
-//!   its idle stop).
+//!   its idle stop), and an `always` server that crashed and waits for its
+//!   restart.
 //!
 //! When none holds, it stops as a plain `server stop` does
 //! ([`stop_orphaned_owner`]): no terminal is ended (none is live) and no
@@ -34,9 +37,9 @@
 //! (the reaper's filter) and is woken by client arrivals and departures (and
 //! a connection's role-main hello), by browser host starts and stops, and by
 //! app server starts and stops. Each wake drains what woke it and reads the
-//! keepers cheap-first: while the app runs, one client count answers; the
-//! terminal count (a registry read) runs only when no client, browser host or
-//! app server keeps the owner.
+//! keepers cheap-first: the client count, the browser host state and the
+//! apps supervisor's count; the terminal count (a registry read) runs only
+//! when none of those keeps the owner. All of it runs on the watch thread.
 //!
 //! The headless owner starts the watch (cmux-tui `headless.rs`) behind
 //! `CMUX_TUI_OWNER_KEEPERS=1`, the stage's switch, which is deleted when the

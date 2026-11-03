@@ -260,8 +260,10 @@ pub struct Supervisor {
     /// Deployed instances of apps with a `deploy` block (`deploy.rs`).
     pub(super) deployments: super::deploy::Deployments,
     /// The owner's keepers observers (`AppsSlot::add_server_observer`),
-    /// told outside the lock after an app server starts or stops.
+    /// told outside the lock when [`Self::kept_servers`] changes.
     server_observers: OnceLock<super::ServerObservers>,
+    /// The last [`Self::kept_servers`] the observers were told of.
+    kept_servers_told: Mutex<usize>,
 }
 
 pub(super) fn now_ms() -> u64 {
@@ -367,6 +369,7 @@ impl Supervisor {
             link_changed: Mutex::new((false, false)),
             deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
             server_observers: OnceLock::new(),
+            kept_servers_told: Mutex::new(0),
         });
         if seeded {
             let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
@@ -544,9 +547,20 @@ impl Supervisor {
     }
 
     /// App servers that keep the daemon's owner (server/owner_keepers.rs):
-    /// the running ones.
+    /// the running ones, and each `always` server that crashed and waits for
+    /// its restart (`schedule_server_restart_locked`; it starts again with
+    /// no request).
     pub(super) fn kept_servers(&self) -> usize {
-        self.inner.lock().recover_poison().servers.len()
+        Self::kept_servers_locked(&self.inner.lock().recover_poison())
+    }
+
+    fn kept_servers_locked(inner: &Inner) -> usize {
+        let restarting = inner
+            .server_crashes
+            .iter()
+            .filter(|(app, crashes)| crashes.restart.is_some() && !inner.servers.contains_key(*app))
+            .count();
+        inner.servers.len().saturating_add(restarting)
     }
 
     /// Hands over the owner's keepers observers (`AppsSlot`), once.
@@ -554,20 +568,31 @@ impl Supervisor {
         let _ = self.server_observers.set(observers);
     }
 
-    fn notify_kept_servers(&self) {
-        if let Some(observers) = self.server_observers.get() {
-            for observer in observers.lock().recover_poison().iter() {
-                observer();
+    /// Tells the observers when the kept count differs from the last one
+    /// they were told of. Every change of the count (a start, an exit, a
+    /// restart scheduled, fired or cancelled, a disable) is made under the
+    /// lock by work that ends in [`Self::emit`], which reads it here.
+    fn notify_kept_servers(&self, kept: usize) {
+        let Some(observers) = self.server_observers.get() else { return };
+        {
+            let mut told = self.kept_servers_told.lock().recover_poison();
+            if *told == kept {
+                return;
             }
+            *told = kept;
+        }
+        for observer in observers.lock().recover_poison().iter() {
+            observer();
         }
     }
 
     pub(super) fn emit(&self, mut outs: Vec<Out>) {
-        let sinks = {
+        let (sinks, kept) = {
             let mut inner = self.inner.lock().unwrap();
             outs.extend(Self::inventory_demand_locked(&mut inner));
-            inner.sinks.clone()
+            (inner.sinks.clone(), Self::kept_servers_locked(&inner))
         };
+        self.notify_kept_servers(kept);
         if outs.is_empty() {
             return;
         }
@@ -592,9 +617,6 @@ impl Supervisor {
                 Out::Broadcast(value) => {
                     for sink in sinks.values() {
                         sink(&value);
-                    }
-                    if value.get("event").and_then(Value::as_str) == Some("apps-server") {
-                        self.notify_kept_servers();
                     }
                 }
                 Out::Respond(responder, result) => responder(result),

@@ -219,9 +219,10 @@ impl AppsSlot {
         }
     }
 
-    /// Calls `observer` after each app server start and stop. It runs from
-    /// the supervisor's event delivery, outside the supervisor's lock, and
-    /// must not call back into the supervisor.
+    /// Calls `observer` each time [`Self::kept_servers`] changes (a server
+    /// starts or stops, a crash restart is scheduled, fired or cancelled).
+    /// It runs from the supervisor's event delivery, outside the
+    /// supervisor's lock, and must not call back into the supervisor.
     pub(crate) fn add_server_observer(&self, observer: impl Fn() + Send + Sync + 'static) {
         self.server_observers.lock().recover_poison().push(Box::new(observer));
     }

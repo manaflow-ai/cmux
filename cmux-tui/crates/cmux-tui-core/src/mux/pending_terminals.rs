@@ -52,8 +52,46 @@ impl Mux {
             .values()
             .filter(|(_, pending)| *pending == PendingTerminal::Respawning)
             .count();
+        let held = self.terminals_held_by_this_owner_locked(&registry)?;
         drop(registry);
-        Ok(live.saturating_add(respawning))
+        Ok(live.saturating_add(respawning).saturating_add(held))
+    }
+
+    /// Ended terminals whose tabs only this owner holds: an `on_exit` keep
+    /// or shell terminal whose process ended keeps its tabs and final screen
+    /// while its runtime lives here, and a new owner detaches those tabs at
+    /// its start (`detach_exited_terminal_topology_only`). Each such
+    /// terminal keeps the owner until it is closed, restarted or reaped. The
+    /// check is that detach's own, in its order: a host loss, a tab the
+    /// store keeps (`kept_tabs`) and a terminal without tabs are not held
+    /// here (the next owner keeps or has nothing to lose). Under the
+    /// registry lock the caller holds.
+    fn terminals_held_by_this_owner_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+    ) -> anyhow::Result<usize> {
+        let exited = registry.exited_view_keeping_terminals()?;
+        if exited.is_empty() {
+            return Ok(0);
+        }
+        let state = self.lock_state_pinned(registry).unwrap_or_else(PoisonError::into_inner);
+        let mut held = 0_usize;
+        for (terminal_id, exit) in exited {
+            if TerminalEnd::from_receipt(exit.as_ref()).detach_proof().is_none() {
+                continue;
+            }
+            let Some(public_id) = registry.terminal_resource_id(&terminal_id)? else { continue };
+            if !state.terminal_catalog.contains_key(&public_id)
+                || state
+                    .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
+                    .is_empty()
+                || Self::terminal_tabs_kept_locked(registry, &state, &public_id)?
+            {
+                continue;
+            }
+            held = held.saturating_add(1);
+        }
+        Ok(held)
     }
 
     /// Whether a terminal's host may run while it has no runtime here.
