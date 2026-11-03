@@ -11,7 +11,7 @@
 //! | 16..24 | journal id: random, the same in every segment of one journal |
 //! | 24..32 | segment number: +1 for each new segment, also in the file name |
 //! | 32..40 | first LSN: the LSN of this segment's first record |
-//! | 40..48 | previous last LSN: the journal's last LSN before this segment. Recovery reads the earlier segments only through it, so bytes a failed segment holds after it are not part of the journal (a writer starts a new segment after any failed write or sync) |
+//! | 40..48 | previous last LSN: the journal's last LSN before this segment. Recovery reads the earlier segments only through it, so bytes an earlier segment holds after it are not part of the journal (the writer starts a new segment after a failed sync, and recovery at every open) |
 //! | 48..52 | reserved, 0 |
 //! | 52..56 | CRC-32 of bytes 0..52 |
 //!
@@ -24,9 +24,14 @@
 //! | 8..16 | LSN |
 //! | 16..18 | kind (the daemon's) |
 //! | 18 | class: 1 ack, 2 stream |
-//! | 19 | flags, 0 |
+//! | 19 | flags: 0 for a record, 1 for a sync marker |
 //!
-//! A run of zero bytes never reads as a record: the CRC of a zero header is not zero.
+//! A sync marker (flags 1, kind 0, class 0, no payload) says that every record of its segment
+//! before it is synced; its LSN field is the LSN of the last of them, and it takes no LSN of its
+//! own. The writer writes one after each successful sync, before anything else it writes there.
+//! Recovery re-writes a segment's records after its last marker (`recovery.rs`, step 4).
+//!
+//! A run of zero bytes never reads as an entry: the CRC of a zero header is not zero.
 
 use crate::{Class, Lsn};
 
@@ -37,6 +42,8 @@ pub(crate) const SEGMENT_HEADER_LEN: usize = 56;
 pub const RECORD_HEADER_LEN: usize = 20;
 /// The largest payload one record may carry. A length field above it is damage.
 pub const MAX_PAYLOAD_LEN: usize = 64 * 1024 * 1024;
+/// The `flags` of a sync marker.
+pub(crate) const MARKER: u8 = 1;
 
 /// One segment's header, as written and as read back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,28 +123,44 @@ impl RecordHeader {
         })
     }
 
-    /// The record's class when the header and `payload` are whole and the LSN is `expected`;
-    /// else why not.
-    pub(crate) fn verify(
-        &self,
-        header: &[u8],
-        payload: &[u8],
-        expected: Lsn,
-    ) -> Result<Class, &'static str> {
+    /// What the entry is when its header and `payload` are whole, whatever its LSN; else why not.
+    pub(crate) fn check(&self, header: &[u8], payload: &[u8]) -> Result<Entry, &'static str> {
         let mut crc = crc32fast::Hasher::new();
         crc.update(header.get(4..RECORD_HEADER_LEN).ok_or("short record header")?);
         crc.update(payload);
         if crc.finalize() != self.crc {
             return Err("record checksum");
         }
-        if self.lsn != expected {
-            return Err("record out of sequence");
+        match self.flags {
+            0 => Class::from_code(self.class_code).map(Entry::Record).ok_or("unknown record class"),
+            MARKER if self.len == 0 && self.kind == 0 && self.class_code == 0 => Ok(Entry::Marker),
+            _ => Err("unknown record flags"),
         }
-        if self.flags != 0 {
-            return Err("unknown record flags");
-        }
-        Class::from_code(self.class_code).ok_or("unknown record class")
     }
+}
+
+/// What one checked entry of a segment is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Entry {
+    Record(Class),
+    /// A sync marker (module docs).
+    Marker,
+}
+
+/// Appends a sync marker for `synced_through` (module docs) to `out`.
+pub(crate) fn encode_marker(out: &mut Vec<u8>, synced_through: Lsn) {
+    let mut head = [0u8; RECORD_HEADER_LEN];
+    let mut at = Cursor::new(&mut head);
+    at.put(&0u32.to_le_bytes());
+    at.put(&0u32.to_le_bytes());
+    at.put(&synced_through.to_le_bytes());
+    at.put(&0u16.to_le_bytes());
+    at.put(&[0, MARKER]);
+    let crc = head.get(4..).map_or(0, crc32fast::hash);
+    if let Some(field) = head.get_mut(..4) {
+        field.copy_from_slice(&crc.to_le_bytes());
+    }
+    out.extend_from_slice(&head);
 }
 
 /// Appends one encoded record to `out`. `payload_crc` is the CRC-32 state of the payload alone,
