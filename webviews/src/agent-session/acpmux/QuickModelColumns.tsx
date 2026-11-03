@@ -9,6 +9,7 @@ import React, { Fragment, useCallback, useContext, useLayoutEffect, useMemo, use
 import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
+import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
 import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
@@ -123,37 +124,6 @@ const PlusIcon = () => (
     <path d="M6 2v8M2 6h8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
   </svg>
 );
-
-/// A row of a column. The search field keeps the keyboard and names the row the arrows reach
-/// (aria-activedescendant), as the slash menu's rows do; a press never takes focus from it.
-function Row({
-  kind,
-  onPick,
-  tabbable,
-  ...rest
-}: {
-  kind: "option" | "radio" | "button" | "tab" | "switch";
-  onPick(): void;
-  /// The card's rows and Add harness take Tab (0); the columns' rows stay with the field (-1).
-  tabbable?: boolean;
-} & Omit<React.HTMLAttributes<HTMLDivElement>, "role" | "onClick"> & { [data: `data-${string}`]: string | undefined }) {
-  return (
-    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- `kind` is the row's role (option, radio, button, tab)
-    <div
-      {...rest}
-      role={kind}
-      tabIndex={tabbable ? 0 : -1}
-      onPointerDown={(event) => event.preventDefault()}
-      onClick={onPick}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        event.stopPropagation();
-        onPick();
-      }}
-    />
-  );
-}
 
 /// Marks a scrolling column with the edges that have more rows past them (`data-fade-top`,
 /// `data-fade-bottom`), so CSS fades that edge: a sign the column scrolls.
@@ -792,8 +762,7 @@ function Columns({
   const canSignIn = signedOut && (!!owner?.logIn || (onChatTab && !!auth?.onLogin));
 
   const card = profileOpen && (
-    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a card inside the popover, not a modal <dialog>
-    <div className="acpmux-cols-card" role="dialog" aria-label={`${ownerName} · ${t("picker.account")}`}>
+    <InlineCard className="acpmux-cols-card" label={`${ownerName} · ${t("picker.account")}`}>
       <div className="acpmux-cols-card-head">
         <Avatar face={face} size={40} {...(badge ? { badge } : {})} />
         <span className="acpmux-cols-card-who">
@@ -833,7 +802,7 @@ function Columns({
               </div>
             )}
             {others.map((other) => (
-              <Row
+              <DrivenRow
                 tabbable
                 key={other.key}
                 kind="button"
@@ -847,7 +816,7 @@ function Columns({
                 <Avatar face={other.face} size={20} />
                 <span className="acpmux-cols-name">{other.name}</span>
                 {other.detail && <span className="acpmux-cols-detail">{other.detail}</span>}
-              </Row>
+              </DrivenRow>
             ))}
           </div>
         </>
@@ -857,22 +826,22 @@ function Columns({
           <hr className="acpmux-cols-sep" />
           <div className="acpmux-cols-card-list">
             {canAdd && (
-              <Row tabbable kind="button" className="acpmux-cols-row acpmux-cols-add" onPick={openAdd}>
+              <DrivenRow tabbable kind="button" className="acpmux-cols-row acpmux-cols-add" onPick={openAdd}>
                 <span className="acpmux-cols-addicon">
                   <PlusIcon />
                 </span>
                 <span className="acpmux-cols-name">{t(signedOut ? "picker.useApiKey" : "picker.addAccountMore")}</span>
-              </Row>
+              </DrivenRow>
             )}
             {signedOut && onChatTab && auth?.onRefresh && (
-              <Row tabbable kind="button" className="acpmux-cols-row" onPick={() => auth.onRefresh?.()}>
+              <DrivenRow tabbable kind="button" className="acpmux-cols-row" onPick={() => auth.onRefresh?.()}>
                 <span className="acpmux-cols-name">{t("harnesses.checkAgain")}</span>
-              </Row>
+              </DrivenRow>
             )}
           </div>
         </>
       )}
-    </div>
+    </InlineCard>
   );
 
   const modelRow = (model: QuickModel, index: number) => {
@@ -880,7 +849,7 @@ function Columns({
     const starred = stars?.has(model) ?? false;
     const running = isChosen(model);
     return (
-      <Row
+      <DrivenRow
         key={`${model.family}\u0000${model.id}`}
         id={`acpmux-cols-model-${index}`}
         kind="option"
@@ -923,7 +892,7 @@ function Columns({
           </button>
         )}
         <span className="acpmux-cols-check">{running && <CheckIcon />}</span>
-      </Row>
+      </DrivenRow>
     );
   };
 
@@ -966,7 +935,7 @@ function Columns({
     tuneIndex += 1;
     const index = tuneIndex;
     return (
-      <Row
+      <DrivenRow
         key={key}
         kind={kind}
         aria-checked={checked}
@@ -982,7 +951,7 @@ function Columns({
         }}
       >
         {body}
-      </Row>
+      </DrivenRow>
     );
   };
 
@@ -1101,19 +1070,19 @@ function Columns({
           </div>
           <hr className="acpmux-cols-sep" />
           <div ref={bodyRef} className="acpmux-cols-body">
-            <div
+            <DrivenList
               ref={railList}
+              kind="tablist"
+              label={t("picker.harness")}
               className="acpmux-cols-list acpmux-cols-rail"
               onScroll={(event) => markFades(event.currentTarget)}
               data-col-focus={col === 0 && railKeys ? "" : undefined}
-              role="tablist"
-              aria-label={t("picker.harness")}
             >
               {tabs.map((entry, index) => {
                 const family = entry === shownTab && shown ? shown : leadRoute(entry, families.current);
                 const selected = !query && entry === shownTab;
                 return (
-                  <Row
+                  <DrivenRow
                     key={entry.key}
                     kind="tab"
                     aria-selected={selected}
@@ -1140,11 +1109,11 @@ function Columns({
                         {initialOf(entry.name)}
                       </span>
                     )}
-                  </Row>
+                  </DrivenRow>
                 );
               })}
               {families.onAddHarness && (
-                <Row
+                <DrivenRow
                   tabbable
                   kind="button"
                   className="acpmux-cols-tab acpmux-cols-tab-add"
@@ -1156,23 +1125,22 @@ function Columns({
                   }}
                 >
                   <PlusIcon />
-                </Row>
+                </DrivenRow>
               )}
-            </div>
+            </DrivenList>
 
-            <div
+            <DrivenList
               ref={modelsList}
+              kind="listbox"
+              label={t("picker.model")}
               className="acpmux-cols-list"
               onScroll={(event) => markFades(event.currentTarget)}
               data-col-focus={col === 1 ? "" : undefined}
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a listbox of Row options the search field drives
-              role="listbox"
-              aria-label={t("picker.model")}
             >
               {!query && shown?.fork ? (
                 <>
                   <div className="acpmux-cols-caption">{tabName}</div>
-                  <Row
+                  <DrivenRow
                     kind="button"
                     className="acpmux-cols-row"
                     data-hl=""
@@ -1184,7 +1152,7 @@ function Columns({
                     }}
                   >
                     <span className="acpmux-cols-name">{t("picker.forkTo", { harness: shown.name })}</span>
-                  </Row>
+                  </DrivenRow>
                 </>
               ) : (
                 models
@@ -1207,7 +1175,7 @@ function Columns({
                 </div>
               )}
               {!query && shown?.note && shown.logIn && (
-                <Row
+                <DrivenRow
                   kind="button"
                   className="acpmux-cols-row"
                   onPick={() => {
@@ -1216,10 +1184,10 @@ function Columns({
                   }}
                 >
                   <span className="acpmux-cols-name">{t("harness.logIn")}</span>
-                </Row>
+                </DrivenRow>
               )}
               {!query && shown?.note && shown.setUp && (
-                <Row
+                <DrivenRow
                   kind="button"
                   className="acpmux-cols-row"
                   onPick={() => {
@@ -1228,9 +1196,9 @@ function Columns({
                   }}
                 >
                   <span className="acpmux-cols-name">{t("harnesses.install")}</span>
-                </Row>
+                </DrivenRow>
               )}
-            </div>
+            </DrivenList>
 
             <div
               className="acpmux-cols-list acpmux-cols-tune"
