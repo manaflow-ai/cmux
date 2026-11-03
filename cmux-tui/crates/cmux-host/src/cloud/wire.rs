@@ -37,13 +37,15 @@ pub const CLOUD_GATED_DAEMON_CAPABILITIES: [&str; 2] = ["fs-v1", "loopback-forwa
 pub const AGENT_CAPABILITY: &str = "vm-agent-v1";
 /// Advertised only while the activity stream to the daemon is live.
 pub const ACTIVITY_CAPABILITY: &str = "activity";
-/// Advertised with `activity`: the report's `active_sessions` also counts acpmux's sessions
-/// at work (a turn running, queued or waiting on a permission or question, a background task),
-/// and their agents' actions move `last_agent_action_at`. The Cloud idle-pauses a machine only
-/// when its report advertises this, so a chat mid-turn with no app attached is never paused.
+/// Advertised with `activity` while acpmux's `acp_activity` lines arrive (each within
+/// [`ACP_ACTIVITY_TTL_MS`] of the last): the report's `active_sessions` also counts acpmux's
+/// sessions at work (a turn running, queued or waiting on a permission or question, a
+/// background task or subagent), and their agents' actions move `last_agent_action_at`. The
+/// Cloud short-idle-pauses a machine only when its report advertises this, so a chat mid-turn
+/// with no app attached is never paused, also not right after the agent restarted.
 pub const ACTIVITY_TURNS_CAPABILITY: &str = "activity-turns";
 /// How long acpmux's count of sessions at work holds without a new `acp_activity` line
-/// (acpmux renews it every 20 s while any session is at work, `daemon/cloud_activity.rs`): a
+/// (acpmux renews it every 20 s, `daemon/cloud_activity.rs`): a
 /// daemon that died mid-turn does not keep the machine awake for good.
 pub const ACP_ACTIVITY_TTL_MS: u64 = 90_000;
 /// The daemon capability that serves `subscribe-activity`.
@@ -186,13 +188,16 @@ pub struct DaemonInfo {
 }
 
 impl DaemonInfo {
-    /// The same block with `activity` on (the stream is live) or off.
-    pub fn with_activity(&self, on: bool) -> DaemonInfo {
+    /// The same block with `activity` on (the stream is live) or off, and `activity-turns` with
+    /// it while acpmux's count is known (`turns`).
+    pub fn with_activity(&self, on: bool, turns: bool) -> DaemonInfo {
         let mut capabilities: Vec<String> =
             self.capabilities.iter().filter(|c| !is_activity_capability(c)).cloned().collect();
         if on {
             capabilities.push(ACTIVITY_CAPABILITY.to_owned());
-            capabilities.push(ACTIVITY_TURNS_CAPABILITY.to_owned());
+            if turns {
+                capabilities.push(ACTIVITY_TURNS_CAPABILITY.to_owned());
+            }
         }
         DaemonInfo { version: self.version.clone(), capabilities }
     }
@@ -223,7 +228,6 @@ pub fn daemon_info_from_identify(identify: &Value, activity_sender: bool) -> Dae
     capabilities.push(AGENT_CAPABILITY.to_owned());
     if activity_sender {
         capabilities.push(ACTIVITY_CAPABILITY.to_owned());
-        capabilities.push(ACTIVITY_TURNS_CAPABILITY.to_owned());
     }
     let version = identify.field("version").as_str().filter(|v| !v.is_empty()).unwrap_or("unknown");
     let build = identify

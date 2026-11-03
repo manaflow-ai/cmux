@@ -112,5 +112,9 @@ async fn sessions_at_work_counts_a_running_turn_until_it_ends() {
         assert_eq!(hub.sessions_at_work(), 1, "an agent request on its way");
     }
     assert_eq!(hub.sessions_at_work(), 0, "the turn ended");
+    *session.work_below_since.lock().unwrap() = 1;
+    assert_eq!(hub.sessions_at_work(), 1, "a sub-session or background subagent at work");
+    *session.work_below_since.lock().unwrap() = 0;
+    assert_eq!(hub.sessions_at_work(), 0);
     hub.shutdown_all().await;
 }

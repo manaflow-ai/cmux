@@ -10,13 +10,15 @@
 //! So this daemon tells the agent, as one `{"acp_activity": {"turns": n,
 //! "last_agent_action_at": ms}}` line per connection on its socket, how many of its own sessions
 //! are at work ([`crate::hub::Hub::sessions_at_work`]: a turn running, queued, awaiting a
-//! permission or question, a continuation pending, or a background task running) and when its
-//! agents last acted (a turn's start or end, a tool call, a permission request). A line goes when
-//! the count changes and, while any session is at work, every [`RENEW`]: the agent forgets the
-//! count 90 s after the last line, so a daemon that died mid-turn does not keep the
-//! machine awake forever, and an agent that restarted learns the count again within [`RENEW`].
-//! A tool call between lines reaches the agent with the next line; while a session is at work the
-//! machine is not idle anyway, and the turn's end carries its own time.
+//! permission or question, a continuation pending, a background task, subagent or sub-session at
+//! work) and when its agents last acted (a turn's start or end, a tool call, a permission
+//! request). A line goes when the count changes, when an agent acted with none at work (a turn's
+//! `turn_result` read after its end already counted 0), and every [`RENEW`] in any case. The
+//! agent forgets the count 90 s after the last line, so a daemon that died mid-turn does not keep
+//! the machine awake forever, and it advertises `activity-turns` (the Cloud's go-ahead for a
+//! short idle pause) only while these lines arrive, so an agent that restarted never reports 0
+//! sessions as known before acpmux told it. A tool call between lines reaches the agent with the
+//! next line; while a session is at work the machine is not idle anyway.
 //!
 //! A machine without the agent's socket (every machine that is not a Cloud machine) sends nothing.
 
@@ -27,7 +29,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 
-/// How often a line goes while any session is at work. The agent keeps a count for 90 s
+/// How often a line goes in any case. The agent keeps a count for 90 s
 /// (cmux-host `cloud/wire.rs` `ACP_ACTIVITY_TTL_MS`), so two lines can be lost before it forgets.
 pub(super) const RENEW: Duration = Duration::from_secs(20);
 /// A line must not hold this loop on a dead socket.
@@ -36,8 +38,8 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(2);
 /// What was sent and what is known, sans I/O.
 #[derive(Debug, Default)]
 pub(super) struct Tracker {
-    /// The count the agent last got, if a line went.
-    sent: Option<u64>,
+    /// The count and the action time the agent last got, if a line went.
+    sent: Option<(u64, Option<u64>)>,
     /// When this daemon's agents last acted (Unix ms).
     last_action: Option<u64>,
 }
@@ -60,15 +62,18 @@ impl Tracker {
         }
     }
 
-    /// The line to send with `turns` sessions at work, or None: when the count changed, and on
-    /// a renewal (`renew`) while any session is at work.
+    /// The line to send with `turns` sessions at work, or None: on a renewal (`renew`), when the
+    /// count changed, and with none at work when an agent acted since the last line.
     pub(super) fn line(&mut self, turns: u64, renew: bool) -> Option<Value> {
-        let changed = self.sent != Some(turns);
-        let renewal = renew && turns > 0;
-        if !(changed || renewal) {
+        let changed = match self.sent {
+            None => true,
+            Some((sent, _)) if sent != turns => true,
+            Some((_, at)) => turns == 0 && at != self.last_action,
+        };
+        if !(changed || renew) {
             return None;
         }
-        self.sent = Some(turns);
+        self.sent = Some((turns, self.last_action));
         let mut activity = json!({"turns": turns});
         if let Some(at) = self.last_action {
             activity["last_agent_action_at"] = json!(at);

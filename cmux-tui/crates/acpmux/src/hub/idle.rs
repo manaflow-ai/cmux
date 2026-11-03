@@ -484,12 +484,21 @@ impl Hub {
             || self.continuation_pending(session)
     }
 
-    /// This daemon's own sessions at work: a turn or anything one waits on, or a background
-    /// task running. A Cloud machine counts them as open sessions in its activity report
+    /// This daemon's own sessions at work: a turn or anything one waits on, a background task
+    /// running, or a background subagent or sub-session at work. A Cloud machine counts them as open sessions in its activity report
     /// (`daemon/cloud_activity.rs`), so it is never paused for idleness mid-turn. Reads each
     /// chat's background-task records, so call it off the async workers.
     pub(crate) fn sessions_at_work(&self) -> usize {
-        self.sessions().iter().filter(|s| self.turn_at_work(s) || self.bg_running(s)).count()
+        self.sessions()
+            .iter()
+            .filter(|s| {
+                self.turn_at_work(s)
+                    || s.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running()
+                        > 0
+                    || s.work_below_since.lock().map_or(true, |v| *v != 0)
+                    || self.bg_running(s)
+            })
+            .count()
     }
 }
 

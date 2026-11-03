@@ -22,9 +22,12 @@ pub struct Session {
     own: Activity,
     /// acpmux's sessions at work (`acp_activity` lines), added to [`Self::own`].
     acp: AcpActivity,
+    /// The daemon's activity stream is live.
+    stream_live: bool,
 }
 
-/// What acpmux last said: its sessions at work until `expires_at`, and its agents' last action.
+/// What acpmux last said: its sessions at work, its agents' last action, and until when it holds
+/// (`expires_at`: set while acpmux's lines arrive, so the count is known).
 #[derive(Debug, Default)]
 struct AcpActivity {
     sessions: u64,
@@ -37,7 +40,7 @@ pub type Note = Option<String>;
 
 impl Session {
     pub fn new(machine: &str, daemon: DaemonInfo, heartbeat_ms: u64) -> Session {
-        let base = daemon.with_activity(false);
+        let base = daemon.with_activity(false, false);
         Session {
             reporter: Reporter::new(machine, base.clone()).with_heartbeat_ms(heartbeat_ms),
             events: EventQueue::new(machine),
@@ -45,6 +48,7 @@ impl Session {
             base,
             own: Activity::default(),
             acp: AcpActivity::default(),
+            stream_live: false,
         }
     }
 
@@ -77,8 +81,13 @@ impl Session {
         self.acp.sessions = line.field("turns").as_u64().unwrap_or(0);
         let at = line.field("last_agent_action_at").as_u64().filter(|ms| *ms > 0);
         self.acp.last_action_at = self.acp.last_action_at.max(at);
-        self.acp.expires_at = (self.acp.sessions > 0).then_some(now + ACP_ACTIVITY_TTL_MS);
-        self.acp_changed(now)
+        let known = self.acp.expires_at.is_some();
+        self.acp.expires_at = Some(now + ACP_ACTIVITY_TTL_MS);
+        let mut out = self.acp_changed(now);
+        if !known {
+            out.extend(self.daemon_block(now));
+        }
+        out
     }
 
     /// A report is due when the number of open sessions changed, or, with none open, when a
@@ -100,7 +109,14 @@ impl Session {
     /// The activity stream connected or dropped: `activity` is advertised
     /// only while it is live.
     pub fn activity_stream(&mut self, connected: bool, now: u64) -> Vec<OpRequest> {
-        let daemon = self.base.with_activity(connected);
+        self.stream_live = connected;
+        self.daemon_block(now)
+    }
+
+    /// The daemon block as it stands: `activity` while the stream is live, `activity-turns` with
+    /// it while acpmux's count is known.
+    fn daemon_block(&mut self, now: u64) -> Vec<OpRequest> {
+        let daemon = self.base.with_activity(self.stream_live, self.acp.expires_at.is_some());
         if &daemon == self.reporter.daemon() {
             return Vec::new();
         }
@@ -152,10 +168,12 @@ impl Session {
     pub fn fire(&mut self, now: u64) -> Vec<OpRequest> {
         let mut out = Vec::new();
         if self.acp.expires_at.is_some_and(|at| at <= now) {
-            // acpmux went quiet mid-turn (it stopped or died): its sessions no longer count.
+            // acpmux went quiet (it stopped or died): its sessions no longer count, and the
+            // report no longer says it knows them.
             self.acp.sessions = 0;
             self.acp.expires_at = None;
             out.extend(self.acp_changed(now));
+            out.extend(self.daemon_block(now));
         }
         out.extend(self.reporter.fire(now));
         out.extend(self.events.fire(now));
@@ -311,7 +329,7 @@ mod tests {
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].params["activity"]["active_sessions"], 0);
         assert_eq!(r[0].params["activity"]["last_agent_action_at"], end);
-        assert!(s.acp.expires_at.is_none(), "a count of 0 needs no renewal");
+        assert_eq!(s.acp.expires_at, Some(90_000 + ACP_ACTIVITY_TTL_MS), "known until then");
     }
 
     /// Counts add up: an attached client and a running turn are two open sessions.
@@ -346,15 +364,26 @@ mod tests {
         assert_eq!(r[0].params["activity"]["last_agent_action_at"], 5);
     }
 
-    /// `activity-turns` travels with `activity`, and only while the stream is live.
+    /// `activity-turns` travels with `activity`, only while acpmux's count is known: an agent
+    /// that just started has not heard from acpmux, so its 0 is not a known 0.
     #[test]
-    fn activity_turns_is_advertised_with_activity() {
+    fn activity_turns_is_advertised_only_while_acpmux_reports() {
         use super::super::wire::{ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY};
         let base = DaemonInfo { version: "v".into(), capabilities: vec!["fs-v1".into()] };
-        let on = base.with_activity(true);
-        assert!(on.capabilities.iter().any(|c| c == ACTIVITY_CAPABILITY));
-        assert!(on.capabilities.iter().any(|c| c == ACTIVITY_TURNS_CAPABILITY));
-        assert_eq!(on.with_activity(true), on, "never twice");
-        assert_eq!(on.with_activity(false), base);
+        let both = base.with_activity(true, true);
+        assert_eq!(both.capabilities, ["fs-v1", ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY]);
+        assert_eq!(both.with_activity(true, true), both, "never twice");
+        assert_eq!(both.with_activity(true, false).capabilities, ["fs-v1", ACTIVITY_CAPABILITY]);
+        assert_eq!(both.with_activity(false, true), base, "never without `activity`");
+
+        let caps = |s: &Session| s.reporter.daemon().capabilities.clone();
+        let mut s = session();
+        s.activity_stream(true, 0);
+        assert_eq!(caps(&s), [ACTIVITY_CAPABILITY], "a fresh agent: no word from acpmux yet");
+        s.line(&acp(0, None), 1_000);
+        assert_eq!(caps(&s), [ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY]);
+        s.line(&acp(0, None), 21_000);
+        s.fire(21_000 + ACP_ACTIVITY_TTL_MS);
+        assert_eq!(caps(&s), [ACTIVITY_CAPABILITY], "acpmux went quiet");
     }
 }
