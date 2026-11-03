@@ -29,6 +29,8 @@ use crate::migrate_cloud::{self as cloud, Api, LOCAL_CHIEF, LOCAL_USER};
 
 /// Messages per memory export page (the route's cap is 1000).
 const EXPORT_PAGE: usize = 1000;
+/// The largest text file whose home path is rewritten (as `restore`).
+const REWRITE_LIMIT: u64 = 4 << 20;
 /// Messages per history page (the owner's cap is 200).
 const HISTORY_PAGE: u64 = 200;
 
@@ -390,6 +392,8 @@ fn reseal(ckpt: &Path, mut manifest: Manifest) -> Result<(), String> {
 pub fn restore_over(ckpt: &Path, home: &Path) -> Result<usize, String> {
     let manifest = migrate::verify_checkpoint(ckpt)?;
     let to_session = migrate::session_dir_for(home);
+    let old_root = manifest.source.root.as_str();
+    let new_root = home.to_string_lossy();
     let mut written = 0;
     for file in &manifest.files {
         let rel = migrate::target_rel(&file.path, manifest.session_dir.as_deref(), &to_session);
@@ -398,8 +402,21 @@ pub fn restore_over(ckpt: &Path, home: &Path) -> Result<usize, String> {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
         let part = to.with_extension("chief-return");
-        std::fs::copy(ckpt.join("files").join(&file.path), &part)
-            .map_err(|e| format!("restoring {rel}: {e}"))?;
+        let from = ckpt.join("files").join(&file.path);
+        let text_file = [".json", ".toml", ".md"].iter().any(|e| rel.ends_with(e))
+            && file.size <= REWRITE_LIMIT;
+        let text = if text_file {
+            std::fs::read_to_string(&from).ok()
+        } else {
+            None
+        };
+        match text.filter(|t| !old_root.is_empty() && old_root != new_root && t.contains(old_root))
+        {
+            // A preset or setting that names the old machine's home names this one (as `restore`).
+            Some(t) => std::fs::write(&part, t.replace(old_root, &new_root)),
+            None => std::fs::copy(&from, &part).map(|_| ()),
+        }
+        .map_err(|e| format!("restoring {rel}: {e}"))?;
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&part, std::fs::Permissions::from_mode(file.mode))
             .map_err(|e| format!("{rel}: {e}"))?;
@@ -624,10 +641,10 @@ pub fn watch(home: &Path, template: &MoveOptions, every: Duration) -> Result<Str
 }
 
 /// The pending request of the Chief at `moved_to`, if any, and how to clear it.
-fn pending(
-    template: &MoveOptions,
-    moved_to: &str,
-) -> Result<Option<(Request, Box<dyn Fn()>)>, String> {
+/// Clears a request once it is taken.
+type Clear = Box<dyn Fn()>;
+
+fn pending(template: &MoveOptions, moved_to: &str) -> Result<Option<(Request, Clear)>, String> {
     if let Some((base, chief)) = cloud_source(moved_to) {
         let token = cloud::session_token(template.session_token_file.as_deref(), Some(&base))?;
         let api = Api::new(base.clone(), token);
@@ -636,7 +653,7 @@ fn pending(
             return Err(format!("reading the Cloud Chief: HTTP {status}"));
         }
         return Ok(request_of(&value).map(|r| {
-            let clear: Box<dyn Fn()> = Box::new(move || {
+            let clear: Clear = Box::new(move || {
                 let _ = api.call(
                     "PUT",
                     &format!("/v1/chiefs/{chief}/brain"),
@@ -661,7 +678,7 @@ fn pending(
             },
             _ => return Ok(None),
         };
-        let clear: Box<dyn Fn()> = Box::new(move || {
+        let clear: Clear = Box::new(move || {
             let _ = migrate::ssh(&host, &format!("rm -f {}", migrate::sh_quote(&file)), None);
         });
         return Ok(Some((request, clear)));
