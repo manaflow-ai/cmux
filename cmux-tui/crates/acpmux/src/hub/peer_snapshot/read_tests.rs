@@ -286,6 +286,8 @@ fn peer_opener_tracks_read_caps_and_store_eviction_without_steers() {
     assert_eq!(seqs(&got), vec![54, 55]);
 }
 
+// Safety guard, not red/green proof: before opener support, snapshots ignored this
+// field altogether, so rejection and tail-preservation assertions passed then too.
 #[test]
 fn peer_opener_rejects_other_sessions_and_does_not_discard_the_tail_when_oversized() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-psr");
