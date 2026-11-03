@@ -3237,7 +3237,10 @@ async fn an_agent_link_resolves_to_its_session_here_or_on_a_peer() {
 /// `_acpmux/resolve` and an opaque agent link (`?id=aid-...`, a public PR's footer): with the
 /// key in this daemon's home, the id resolves to the session here or on a peer it is the keyed
 /// hash of; an id of no listed session, or any id without the key, is the same not-found as any
-/// unknown session, so the caller opens the web page.
+/// unknown session, so the caller opens the web page. Unix only: it writes and removes the key in
+/// this process's acpmux home, which is the hermetic scratch HOME only where `daemon_env` starts the
+/// process again (Windows runs with the host's HOME, where that is a person's real key).
+#[cfg(unix)]
 #[tokio::test]
 async fn an_opaque_agent_link_resolves_to_its_session_where_the_key_is() {
     let b = hub(config(PermissionPolicy::Ask)).await;
@@ -3263,8 +3266,15 @@ async fn an_opaque_agent_link_resolves_to_its_session_where_the_key_is() {
     let link = |id: &str| format!("https://cmux.com/deeplink/agent?id={id}");
     let unknown = "aid-0123456789abcdef0123";
 
-    // No key here: nothing resolves, as before.
+    // No key here: nothing resolves, as before. The key file is this process's own: refuse to
+    // touch it unless the home is the hermetic scratch one.
     let home = acpmux::config::home();
+    let scratch = std::path::PathBuf::from(std::env::var_os("HOME").expect("the hermetic HOME"));
+    assert!(
+        std::env::var_os("ACPMUX_TEST_HERMETIC").is_some() && home.starts_with(&scratch),
+        "not a hermetic acpmux home: {}",
+        home.display()
+    );
     let key_file = home.join(acpmux::opaque_agent_id::KEY_FILE);
     let _ = std::fs::remove_file(&key_file);
     let e = ca.call("_acpmux/resolve", json!({"query": link(unknown)})).await.unwrap_err();
