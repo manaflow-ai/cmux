@@ -50,7 +50,9 @@ export const machineSignInURL = (raw: unknown, harness: MachineHarness): string 
     const url = new URL(raw)
     if (url.protocol !== "https:" || url.username || url.password || url.port || !SIGN_IN_HOSTS.has(url.hostname.toLowerCase())) return null
     const path = url.pathname.replace(/\/$/, "")
-    if (harness === "codex" ? url.hostname !== "auth.openai.com" || !["/codex/device", "/deviceauth", "/device"].includes(path) : url.hostname === "auth.openai.com" || path !== "/oauth/authorize") return null
+    if (harness === "codex") {
+      if (url.hostname !== "auth.openai.com" || !["/codex/device", "/deviceauth", "/device"].includes(path)) return null
+    } else if (url.hostname === "auth.openai.com" || !(path === "/oauth/authorize" || (url.hostname === "claude.com" && path === "/cai/oauth/authorize"))) return null
     return url.toString()
   } catch { return null }
 }
