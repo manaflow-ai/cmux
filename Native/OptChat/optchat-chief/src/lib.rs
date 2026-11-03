@@ -52,6 +52,7 @@ pub mod memory_sync_state;
 pub mod migrate;
 pub mod migrate_cloud;
 pub mod migrate_reach;
+pub mod migrate_return;
 pub mod native;
 pub mod pacing;
 pub mod paths;
