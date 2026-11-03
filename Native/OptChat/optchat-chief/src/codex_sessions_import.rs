@@ -102,9 +102,74 @@ fn message_text(content: &Value) -> String {
 /// One transcript's items; empty for a non-interactive (`exec`) session.
 /// `seen_pastes` carries long user messages across sessions.
 pub fn convert_session(text: &str, seen_pastes: &mut HashSet<String>) -> Vec<CodexItem> {
-    // Red: not converted yet.
-    let _ = (text, seen_pastes, injected(""), message_text(&Value::Null));
-    Vec::new()
+    let mut out = Vec::new();
+    let mut reply: Option<CodexItem> = None;
+    for line in text.lines() {
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        let p = &v["payload"];
+        let date = v["timestamp"]
+            .as_str()
+            .or(p["timestamp"].as_str())
+            .unwrap_or("")
+            .to_owned();
+        match v["type"].as_str() {
+            Some("session_meta") => {
+                if p["source"].as_str() == Some("exec")
+                    || p["originator"].as_str() == Some("codex_exec")
+                {
+                    return Vec::new();
+                }
+                let cwd = p["cwd"].as_str().unwrap_or("");
+                let id = p["id"].as_str().unwrap_or("");
+                out.push(CodexItem {
+                    kind: "note",
+                    text: format!("Codex session {id} in {cwd}"),
+                    date,
+                });
+            }
+            Some("response_item") if p["type"] == "message" => {
+                let body = message_text(&p["content"]);
+                if body.trim().is_empty() {
+                    continue;
+                }
+                match p["role"].as_str() {
+                    Some("user") => {
+                        if injected(&body) {
+                            continue;
+                        }
+                        out.extend(reply.take());
+                        if body.chars().count() >= crate::claude_import::PASTE_CHARS
+                            && !seen_pastes.insert(body.clone())
+                        {
+                            continue;
+                        }
+                        out.push(CodexItem {
+                            kind: "user",
+                            text: body,
+                            date,
+                        });
+                    }
+                    Some("assistant") => {
+                        reply = Some(CodexItem {
+                            kind: "ai",
+                            text: body,
+                            date,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+    out.extend(reply);
+    // A session with only its header says nothing.
+    if out.iter().all(|i| i.kind == "note") {
+        return Vec::new();
+    }
+    out
 }
 
 /// Every interactive session under `dir`, oldest first.
