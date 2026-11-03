@@ -258,7 +258,7 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   writing in its chat) reports again when it finishes.
 
 - Any number of subagents work at once by default; `OPTCHAT_MAX_LIVE_SUBAGENTS=N`
-  caps it (one spawn takes at most 8 tasks; call spawn again for more). A spawn
+  caps it (one spawn takes at most 24 tasks; call spawn again for more). A spawn
   over the cap answers `a<N>: queued`, naming the cap's source (`control cap N`
   or the env) and that `control cap 0` removes it; a queued subagent starts, with the view
   of that moment and its task, when another finishes. Its record keeps its
