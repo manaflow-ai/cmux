@@ -73,7 +73,7 @@ const COORDINATOR_PARENT_TAG: &str = "mux.parent";
 
 /// The direct parent has the same precedence as lineage_of(), without walking
 /// ancestors to calculate a root that chat decoration never uses.
-fn activity_parent(m: &SessionMeta) -> Option<&str> {
+pub(super) fn activity_parent(m: &SessionMeta) -> Option<&str> {
     m.lineage
         .as_ref()
         .map(|l| l.parent.as_str())

@@ -463,6 +463,14 @@ if it never answers. Only a turn nobody holds: no client that shows the chat, no
 secret waiting, and its recorded owner (a sub-session's parent, the session a `spawnedBy` tag
 names) not running or waiting. The chat stays open and its idle agent exits as any unused one
 does; the next prompt resumes it.
+`autoArchiveHours` (off by default; unset or 0 is off, 6 is the suggested value): a finished chat (ready or hibernated, no turn
+running, queued or waiting on the person, no background task, subagent, sub-session or harness
+process at work) that nobody prompted, opened or typed into for that long archives itself: the
+`archived` tag the chat menu's Archive sets, plus `autoArchived`. Nothing is closed or deleted. A
+chat another chat started archives only while that chat is finished too, a chat only after every
+chat it started that is still listed, and a person's own chat stays while its last reply is unread.
+A prompt, opening it or typing into it brings an auto-archived chat back; one archived by hand
+stays. A chat's `autoArchive` tag (`off`, or a number of hours) wins (`hub/auto_archive.rs`).
 Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`) are
 deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
 (default 30; 0 keeps them), checked at the daemon's start and daily.

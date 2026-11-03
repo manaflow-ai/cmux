@@ -82,6 +82,7 @@ impl Hub {
             current.queue_max_bytes = next.queue_max_bytes;
             current.stalled_turn_ms = next.stalled_turn_ms;
             current.stalled_turn_end_ms = next.stalled_turn_end_ms;
+            current.auto_archive_hours = next.auto_archive_hours;
             // The next summary read warns by the new thresholds (`usage_warnings.rs`).
             *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner()) =
                 next.usage_warnings.limits();
@@ -100,6 +101,7 @@ impl Hub {
         };
         // A new `stalledTurnEndMs` moves the stalled turns' deadlines (`stalled_turn.rs`).
         self.idle_wake.notify_one();
+        self.auto_archive_wake();
         // Pooled sessions started under the old catalog are never served.
         self.drain_pool();
         // Nor do live agents keep running a profile's old launch: each restarts on the new

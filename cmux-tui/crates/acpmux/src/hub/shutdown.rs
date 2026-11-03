@@ -114,6 +114,7 @@ impl Hub {
         };
         // The log retention worker sees the shutdown begun and ends (`retention.rs`).
         self.retention_wake.notify_one();
+        self.auto_archive_wake();
         let sessions = self.sessions();
         // A scheduled provider retry must not survive an explicit daemon shutdown: settle it
         // before teardown so restart restoration cannot replay it. A turn this shutdown cuts

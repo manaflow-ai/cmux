@@ -2038,9 +2038,12 @@ async fn dispatch_request(
             if archived {
                 let mut set = serde_json::Map::new();
                 set.insert(ARCHIVED_TAG.into(), Value::String(crate::store::now_ms().to_string()));
-                hub.set_tags_answered(&s, Some(&set), &[], None)?;
+                // Archived by hand: it stays archived when opened (`hub/auto_archive.rs`).
+                let auto = [crate::hub::AUTO_ARCHIVED_TAG.to_owned()];
+                hub.set_tags_answered(&s, Some(&set), &auto, None)?;
             } else {
-                hub.set_tags_answered(&s, None, &[ARCHIVED_TAG.to_owned()], None)?;
+                let remove = [ARCHIVED_TAG.to_owned(), crate::hub::AUTO_ARCHIVED_TAG.to_owned()];
+                hub.set_tags_answered(&s, None, &remove, None)?;
             }
             Ok(hub.session_summary(&s))
         }

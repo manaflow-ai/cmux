@@ -1236,6 +1236,10 @@ pub struct Config {
     /// gone or not busy. Default 21600000 (6 h); 0 turns it off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stalled_turn_end_ms: Option<u64>,
+    /// `autoArchiveHours`: hours a finished chat stays unused before it archives itself
+    /// (`hub/auto_archive.rs`). Unset or 0: off (the default). A chat's `autoArchive` tag wins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_archive_hours: Option<u32>,
     /// `queueMaxPrompts`: the most prompts one chat holds waiting for their turn (`hub/queue.rs`).
     /// One more is refused with `queue.full` before anything is copied or written, so a client
     /// that sends faster than the agent runs cannot grow the queue, its log and every later
@@ -1475,6 +1479,14 @@ impl Config {
         match self.stalled_turn_ms.unwrap_or(600_000) {
             0 => None,
             ms => Some(ms),
+        }
+    }
+
+    /// `autoArchiveHours`; None when it is unset or 0 (off, the default).
+    pub fn auto_archive_after(&self) -> Option<std::time::Duration> {
+        match self.auto_archive_hours.unwrap_or(0) {
+            0 => None,
+            hours => Some(std::time::Duration::from_secs(u64::from(hours) * 3_600)),
         }
     }
 

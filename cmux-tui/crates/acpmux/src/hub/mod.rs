@@ -99,7 +99,9 @@ mod lifecycle;
 mod log_deferral;
 mod log_load;
 mod retention;
+mod auto_archive;
 pub use retention::RetentionRequest;
+pub(crate) use auto_archive::AUTO_ARCHIVED_TAG;
 pub(crate) mod model_availability;
 pub(crate) use log_load::AdoptionReady;
 mod model_options;
@@ -592,6 +594,8 @@ pub struct Hub {
     pub(super) clone_boot: std::sync::OnceLock<String>,
     /// A chat closed: wakes the log retention worker (`retention.rs`).
     pub(super) retention_wake: Arc<Notify>,
+    /// Finished chats archive themselves (`auto_archive.rs`).
+    pub(super) auto_archive: auto_archive::AutoArchive,
     /// False from a deferred start with running agent hosts until adoption ends: prompts to
     /// those chats wait for it (`log_load.rs` `wait_adopted`).
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
@@ -878,6 +882,7 @@ impl Hub {
             queues_resumed: AtomicBool::new(false),
             clone_boot: std::sync::OnceLock::new(),
             retention_wake: Arc::new(Notify::new()),
+            auto_archive: Default::default(),
             adoption_ready: tokio::sync::watch::channel(true).0,
             catalog_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),

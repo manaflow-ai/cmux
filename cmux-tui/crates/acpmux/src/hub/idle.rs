@@ -378,8 +378,10 @@ impl Hub {
     /// prompt that follows starts the agent itself (and shows its error, with Retry, if that
     /// fails too).
     pub fn wake_for(self: &Arc<Self>, session: &Arc<Session>, web: bool, cause: &'static str) {
-        // Use: a chat being typed into or opened does not hibernate meanwhile.
+        // Use: a chat being typed into or opened does not hibernate meanwhile, and an
+        // auto-archived one comes back (`auto_archive.rs`).
         self.touch(session);
+        self.auto_archive_used(session);
         // The person asked for it: what a daemon start held in its protected folder goes on.
         self.release_protected_hold(session);
         let stops = session.stops.load(Ordering::SeqCst);
@@ -492,14 +494,16 @@ impl Hub {
     pub(crate) fn sessions_at_work(&self) -> usize {
         self.sessions()
             .iter()
-            .filter(|s| {
-                self.turn_at_work(s)
-                    || s.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running()
-                        > 0
-                    || s.work_below_since.lock().map_or(true, |v| *v != 0)
-                    || self.bg_running(s)
-            })
+            .filter(|s| self.session_at_work(s))
             .count()
+    }
+
+    /// [`Self::sessions_at_work`] for one chat (also `auto_archive.rs`).
+    pub(super) fn session_at_work(&self, s: &Session) -> bool {
+        self.turn_at_work(s)
+            || s.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
+            || s.work_below_since.lock().map_or(true, |v| *v != 0)
+            || self.bg_running(s)
     }
 }
 

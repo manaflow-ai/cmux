@@ -157,6 +157,8 @@ impl Hub {
         self.session_log(session).await;
         self.wait_adopted(session).await;
         self.pair_logs(opts.provenance.as_ref()).await;
+        // A prompt is a use: an auto-archived chat comes back (`auto_archive.rs`).
+        self.auto_archive_used(session);
         // A person's own prompt is the person asking for the chat: what a daemon start held in
         // its protected folder goes on, ahead of this prompt (`protected_hold.rs`).
         if opts.agent.is_none() && opts.provenance.is_none() && opts.after_turn.is_none() {
@@ -1751,6 +1753,7 @@ impl Hub {
             }
         }
         last.insert("endedAt".into(), json!(now_ms()));
+        self.auto_archive_wake();
         for key in ["turnCount", "turnSeq"] {
             if let Some(value) = turn_result.get(key) {
                 last.insert(key.into(), value.clone());
