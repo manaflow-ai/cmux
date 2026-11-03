@@ -41,7 +41,7 @@ struct WorkspaceBlueprintBuilder: Sendable {
         var previous = pane
         for column in screen.columns.dropFirst() {
             let created = try await connection.newColumn(rightOf: previous, width: column.width, options: options(for: column.root))
-            let next = try await pane(of: created)
+            let next = try await self.pane(of: created)
             try await fill(column.root, pane: next, initial: created.surface)
             previous = next
         }
@@ -52,7 +52,7 @@ struct WorkspaceBlueprintBuilder: Sendable {
         switch node {
         case .split(let direction, _, let a, let b):
             let created = try await connection.split(pane, direction: direction, options: options(for: b))
-            let other = try await pane(of: created)
+            let other = try await self.pane(of: created)
             try await fill(a, pane: pane, initial: initial)
             try await fill(b, pane: other, initial: created.surface)
         case .pane(let tabs):
