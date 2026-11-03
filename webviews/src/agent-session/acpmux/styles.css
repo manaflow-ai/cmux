@@ -764,7 +764,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question[data-preview-layout=split] .acpmux-question-preview{flex:3 1 280px}
 .acpmux-question[data-preview-layout=below] .acpmux-question-body{flex-direction:column;gap:0;padding-right:0}
 .acpmux-question[data-preview-layout=below] .acpmux-question-rows{flex:none}
-.acpmux-question[data-preview-layout=below] .acpmux-question-preview{flex:none;margin:2px var(--ds-space-3) var(--ds-space-3)}
+.acpmux-question[data-preview-layout=below] .acpmux-question-preview{flex:none;margin:var(--grid-half-step) var(--ds-space-3) var(--ds-space-3)}
 .acpmux-question[data-preview-layout=inline] .acpmux-question-body{padding-right:0}
 .acpmux-question-preview[data-inline]{flex:none;margin:0 var(--ds-space-3) var(--ds-space-3) var(--grid-cards-text)}
 /* A refused reply: why, above Skip and Submit, which work again for a retry. */

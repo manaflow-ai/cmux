@@ -3817,7 +3817,7 @@ a.cv-sha:focus-visible {
 .cv-mcp-call {
   display: grid;
   gap: var(--ds-space-2);
-  margin: 2px 0 var(--ds-space-2);
+  margin: var(--grid-half-step) 0 var(--ds-space-2);
 }
 /* The call's machine name (`mcp__<server>__<tool>`) over its request, quiet and copyable. */
 .cv-mcp-call__name {

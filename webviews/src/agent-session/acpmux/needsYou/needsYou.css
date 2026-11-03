@@ -238,7 +238,7 @@
 }
 /* The ask, under the name (past the 16px mark and its 8px gap): two lines at most. */
 .acpmux-needs-you-ask {
-  margin: 1px 0 0 var(--ds-space-5);
+  margin: calc(var(--grid-half-step) / 2) 0 0 var(--ds-space-5);
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -272,7 +272,7 @@
   overflow-wrap: anywhere;
 }
 .acpmux-needs-you-detail {
-  margin: 2px 0 0 var(--ds-space-5);
+  margin: var(--grid-half-step) 0 0 var(--ds-space-5);
   overflow: hidden;
   color: var(--agent-soft, var(--agent-muted));
   font-size: var(--text-detail);
