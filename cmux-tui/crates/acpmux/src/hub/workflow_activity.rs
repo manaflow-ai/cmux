@@ -23,6 +23,8 @@ struct Policy {
     route_nudge: bool,
     #[serde(default)]
     waiting_for: Option<String>,
+    #[serde(default)]
+    restart_prompt_id: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -207,11 +209,13 @@ impl Hub {
                     let restarted = recovery.key.generation > 0;
                     let allowed = self.workflow_activity_scope(run, "agent").await?;
                     if restarted && let Ok(previous) = self.resolve(session_id) {
-                        let previous_id = format!(
-                            "{prompt_id}-g{}-0-{}",
-                            state.epoch,
-                            if state.correction.is_some() { 1 } else { 0 }
-                        );
+                        let previous_id = state.restart_prompt_id.clone().unwrap_or_else(|| {
+                            format!(
+                                "{prompt_id}-g{}-0-{}",
+                                state.epoch,
+                                if state.correction.is_some() { 1 } else { 0 }
+                            )
+                        });
                         self.remove_queued(&previous, &previous_id);
                         self.cancel_prompt(&previous, &previous_id).await?;
                     }
@@ -442,6 +446,7 @@ impl Hub {
                                     // The daemon retry belongs to the original session. A
                                     // fallback must reserve its own prompt identity before
                                     // admission, including after recovery from this write.
+                                    state.restart_prompt_id = Some(current_id.clone());
                                     state.waiting_for = None;
                                     state.route_nudge = false;
                                 }
@@ -521,6 +526,7 @@ impl Hub {
                                     if !alternate {
                                         return Err(RpcError::internal("workflow route failed after nudge; no different permitted fallback harness or route configured").with_data(json!({"original":error.message})));
                                     }
+                                    state.restart_prompt_id = Some(current_id.clone());
                                     state.route_nudge = false;
                                     state.waiting_for = None;
                                 }
@@ -1237,6 +1243,102 @@ mod tests {
         );
         assert_eq!(turns(&hub, &child), 1);
         cleanup(hub, resumed).await;
+    }
+
+    #[tokio::test]
+    async fn workflow_restart_reconciles_persisted_automatic_retry_target() {
+        let (hub, run, child) = activity_chat();
+        let Child::Agent { session_id, prompt_id, .. } = &child.child else { unreachable!() };
+        let session = hub
+            .new_session_with_id(
+                NewRequest {
+                    harness: Some("fake".into()),
+                    name: Some("Original retry".into()),
+                    cwd: Some(run.cwd.clone()),
+                    ..Default::default()
+                },
+                Some(session_id.clone()),
+            )
+            .await
+            .unwrap();
+        let retry_id = format!("{prompt_id}-g1-0-0~resume-1");
+        let worker_hub = hub.clone();
+        let worker_session = session.clone();
+        let worker_id = retry_id.clone();
+        let mut events = hub.subscribe();
+        let worker = tokio::spawn(async move {
+            worker_hub
+                .prompt_with(
+                    &worker_session,
+                    vec![json!({"type":"text","text":"until-cancel"})],
+                    "workflow",
+                    false,
+                    PromptOptions { prompt_id: Some(worker_id), ..Default::default() },
+                )
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            loop {
+                let event = events.recv().await.unwrap();
+                if event.session_id == session.id && event.record.kind == "agent_message_chunk" {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let key = AttemptKey::new(&child.id);
+        let mut recovery = RecoveryState::new(key.clone());
+        assert_eq!(recovery.observe(&key, 1, RecoveryEvent::Stalled), RecoveryAction::Nudge);
+        assert!(matches!(
+            recovery.observe(&key, 2, RecoveryEvent::Stalled),
+            RecoveryAction::Restart { .. }
+        ));
+        // Simulate a crash after persisting Restart but before cancelling the actual retry.
+        let policy = Policy {
+            recovery: Some(recovery),
+            epoch: run.generation,
+            observation: 2,
+            restart_prompt_id: Some(retry_id),
+            ..Default::default()
+        };
+        hub.workflow_runs
+            .store()
+            .update_activity_policy(
+                &run.id,
+                run.generation,
+                "owner",
+                &child.id,
+                serde_json::to_value(policy).unwrap(),
+            )
+            .unwrap();
+        let saved = hub
+            .workflow_runs
+            .store()
+            .activity(&run.id, run.generation, "owner", &child.id)
+            .unwrap()
+            .unwrap();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            hub.workflow_execute(
+                &run,
+                run.generation,
+                &saved,
+                "test",
+                &json!({"harness":"fake","fallbackHarness":"fake-alternate"}),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(result, json!("{\"ok\":true}"));
+        tokio::time::timeout(std::time::Duration::from_secs(15), worker)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(session.turn().is_none(), "the original retry cannot outlive fallback admission");
+        cleanup(hub, run).await;
     }
 
     #[tokio::test]
