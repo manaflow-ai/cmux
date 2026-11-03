@@ -2046,7 +2046,6 @@ jobs:
           EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
           DECIDE_TRACK: ${{ needs.decide.outputs.track }}
           DECIDE_CHANNEL: ${{ needs.decide.outputs.channel }}
-          NIGHTLY_ONLY_BUILDER: ${{ vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER != '' && needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.owned == vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER }}
         run: bash scripts/ci/nightly-steps/app-start-release-derived-data-empty.sh
 
       # Reuse the unsigned app of an earlier nightly-next build on the same inputs
