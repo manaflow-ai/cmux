@@ -14,7 +14,7 @@ pub(crate) struct InputLaneSwitch(AtomicBool);
 impl InputLaneSwitch {
     /// The switch as the daemon's environment sets it.
     pub(crate) fn from_env() -> Self {
-        Self(AtomicBool::new(std::env::var("CMUX_TUI_RDS_INPUT").is_ok_and(|value| value == "1")))
+        Self(AtomicBool::new(!std::env::var("CMUX_TUI_RDS_INPUT").is_ok_and(|value| value == "0")))
     }
 
     /// Whether stage S1 is on for this mux.
