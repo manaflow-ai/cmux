@@ -16,6 +16,9 @@ public actor CloudCodexBroker {
     private let home: URL
     /// The machines this holder delivered to, on disk, so the next run renews or erases them.
     private let record: CloudCodexDeliveryRecord
+    private var holderIDValue: String?
+    /// When the scheduled renewal runs; a machine taken back whose access ends sooner renews at once.
+    private var nextRenewalAt: Date?
     private var session: CodexBrokerSession?
     private var stopped = false
     /// Set by ``detach()``: a quit or an update, after which delivered access stays where it is.
@@ -328,6 +331,7 @@ public actor CloudCodexBroker {
                 "chatgptAccountId": grant.chatgptAccountID,
                 "expiresAt": Int64(grant.expiresAt.timeIntervalSince1970),
                 "installationID": UUID().uuidString,
+                "holder": holderID(),
                 "previousMode": previous.map { $0.base64EncodedString() } ?? NSNull(),
             ]
             guard JSONSerialization.isValidJSONObject(object),
@@ -438,8 +442,13 @@ public actor CloudCodexBroker {
     /// machine that holds none of this holder's access is forgotten; a paused one stays recorded.
     public func resume(target: CloudCodexBrokerTarget, erase: Bool) async {
         let id = target.machineID
-        guard !stopped, targets[id] == nil, !pendingRevocations.contains(id), await currentScope() == scope,
+        guard !stopped, targets[id] == nil, await currentScope() == scope,
               (try? await target.isLive()) == true else { return }
+        if pendingRevocations.contains(id) {
+            // An erase this run could not finish (the machine was paused): it is back, so finish it.
+            try? await revoke(target: revocationTargets[id] ?? target)
+            return
+        }
         let generation = targetGenerations[id, default: 0]
         await lockTarget(id)
         let left: Data?
@@ -448,7 +457,7 @@ public actor CloudCodexBroker {
                   targetGenerations[id, default: 0] == generation else { unlockTarget(id); return }
             // Renewing needs the same owner check as a delivery; erasing only removes this holder's file.
             if !erase { try await validate(target: target, confirmed: true) }
-            left = try await Self.accessLeftByBroker(target)
+            left = try await Self.accessLeftByBroker(target, holder: holderID())
             if left != nil {
                 previousModeByMachine[id] = try await Self.modeBeforeBroker(target)
                 loadedPreviousMode.insert(id)
@@ -470,22 +479,37 @@ public actor CloudCodexBroker {
             try? await revoke(target: target)
             return
         }
+        let renewBy = Self.grant(in: left).expiresAt.addingTimeInterval(-120)
         if let cached, cached.expiresAt > Date().addingTimeInterval(120) {
             // Renewal already runs for this holder: the machine joins it with the current grant.
-            _ = try? await deliver(cached, target: target, expectedGeneration: generation)
+            try? await deliver(cached, target: target, expectedGeneration: generation)
+        } else if refreshTask != nil, let nextRenewalAt, renewBy < nextRenewalAt {
+            // The scheduled renewal comes after this machine's access ends: it gets fresh access now.
+            if let fresh = try? await refreshAccess(schedule: true) {
+                try? await deliver(fresh, target: target, expectedGeneration: generation)
+            }
         } else {
             scheduleRefresh(grant: Self.grant(in: left))
         }
     }
 
-    /// The access file a broker delivery left on `target` under the `own` marker, or nil when the
-    /// machine holds none (the person signed Codex in some other way since, or nothing is there).
-    static func accessLeftByBroker(_ target: CloudCodexBrokerTarget) async throws -> Data? {
+    /// The access file this holder's delivery left on `target` under the `own` marker, or nil when the
+    /// machine holds none of it (the person signed Codex in some other way since, another Mac or
+    /// account delivered over it, or nothing is there).
+    static func accessLeftByBroker(_ target: CloudCodexBrokerTarget, holder: String) async throws -> Data? {
         guard try await target.readFile(modePath) == Data("own\n".utf8),
               let access = try await target.readFile(accessPath),
               let object = try? JSONSerialization.jsonObject(with: access) as? [String: Any],
-              object["bridge"] as? String == "codex-external-access-v1" else { return nil }
+              object["bridge"] as? String == "codex-external-access-v1",
+              object["holder"] as? String == holder else { return nil }
         return access
+    }
+
+    private func holderID() -> String {
+        if let holderIDValue { return holderIDValue }
+        let id = record.holderID()
+        holderIDValue = id
+        return id
     }
 
     /// The grant a left access file carries; only its expiry is used, to time the next renewal. An
@@ -616,6 +640,7 @@ public actor CloudCodexBroker {
         refreshCycle += 1
         let cycle = refreshCycle
         let wait: Duration = failures == 0 ? .seconds(max(1, grant.expiresAt.timeIntervalSinceNow - 120)) : renewalRetryDelay(failures)
+        nextRenewalAt = Date().addingTimeInterval(Double(wait.components.seconds))
         let expectedScope = scope
         refreshTask = Task { [weak self] in
             do {

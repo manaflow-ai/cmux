@@ -9,8 +9,24 @@ public import Foundation
 /// renewing it.
 nonisolated public struct CloudCodexDeliveryRecord: Sendable {
     public let file: URL
+    private let holderFile: URL
 
-    public init(home: URL) { file = home.appendingPathComponent("delivered-machines.json", isDirectory: false) }
+    public init(home: URL) {
+        file = home.appendingPathComponent("delivered-machines.json", isDirectory: false)
+        holderFile = home.appendingPathComponent("holder-id", isDirectory: false)
+    }
+
+    /// This holder's opaque ID, made on first use. Each delivered access file carries it, so a run takes
+    /// back only what this holder delivered, never another Mac's or account's delivery to the machine.
+    public func holderID() -> String {
+        if let data = try? Data(blockingContentsOf: holderFile),
+           let id = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty {
+            return id
+        }
+        let id = UUID().uuidString.lowercased()
+        write(Data((id + "\n").utf8), to: holderFile)
+        return id
+    }
 
     /// Machine ID to whether it waits to be erased.
     public func entries() -> [String: Bool] {
@@ -42,11 +58,15 @@ nonisolated public struct CloudCodexDeliveryRecord: Sendable {
         if entries.isEmpty { try? FileManager.checked.removeItem(at: file); return }
         let object: [String: Any] = ["schema": 1, "machines": entries.mapValues { ["erase": $0] }]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return }
+        write(data, to: file)
+    }
+
+    private func write(_ data: Data, to url: URL) {
         do {
-            try FileManager.checked.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
+            try FileManager.checked.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
-            try data.blockingWrite(to: file, options: [.atomic])
-            try FileManager.checked.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+            try data.blockingWrite(to: url, options: [.atomic])
+            try FileManager.checked.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         } catch {}
     }
 }

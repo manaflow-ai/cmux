@@ -26,7 +26,11 @@ struct CloudCodexBrokerAdapterTests {
             if pausedChecks >= 2 { return }
             await withCheckedContinuation { pausedWaiter = $0 }
         }
+        /// Answers the next liveness checks in order before falling back to `live`.
+        var scriptedLive: [Bool] = []
+        func scriptLive(_ answers: [Bool]) { scriptedLive = answers }
         func isLive() -> Bool {
+            if !scriptedLive.isEmpty { return scriptedLive.removeFirst() }
             if !live {
                 pausedChecks += 1
                 if pausedChecks >= 2 { pausedWaiter?.resume(); pausedWaiter = nil }
@@ -289,6 +293,58 @@ done
         #expect(await files.read("three", CloudCodexBroker.modePath) == nil)
         #expect(CloudCodexDeliveryRecord(home: switching.home(for: personal)).entries() == ["two": true])
         await switching.shutdown()
+    }
+
+    /// Review of cmux#33877: a relaunch takes back only this holder's delivery. Another Mac's (or
+    /// account's) delivery over it is not renewed or erased by this one.
+    @Test func resumeLeavesAnotherHoldersDeliveryAlone() async throws {
+        let (root, launch) = try fixture()
+        let (otherRoot, otherLaunch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: otherRoot) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let first = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        try await first.run(machineID: "vm", scope: scope, confirmed: true) { _ in true }
+        await first.detachForQuit()
+        let otherMac = CloudCodexBrokerAdapter(root: otherRoot, registry: .init(), currentScope: { scope }, launch: { otherLaunch }, target: { _, id in files.target(id) })
+        try await otherMac.run(machineID: "vm", scope: scope, confirmed: true) { _ in true }
+        let theirs = try #require(await files.read("vm", CloudCodexBroker.accessPath))
+
+        let relaunched = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        await relaunched.resume(scope: scope, liveMachineIDs: ["vm"])
+        #expect(await !relaunched.delivers(machineID: "vm", scope: scope))
+        #expect(CloudCodexDeliveryRecord(home: relaunched.home(for: scope)).entries().isEmpty)
+        await relaunched.signOut()
+        #expect(await files.read("vm", CloudCodexBroker.accessPath) == theirs)
+        await otherMac.shutdown()
+    }
+
+    /// Review of cmux#33877: a sign-out before any machine list still marks what the record holds for
+    /// erasure, and an erase that fails (the machine paused mid-way) finishes on a later pass.
+    @Test func signOutBeforeAnyListAndAFailedEraseStillErase() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        try await adapter.run(machineID: "vm", scope: scope, confirmed: true) { _ in true }
+        await adapter.detachForQuit()
+
+        let relaunched = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        await relaunched.signOut()
+        #expect(CloudCodexDeliveryRecord(home: relaunched.home(for: scope)).entries() == ["vm": true])
+
+        let later = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        // Live when the pass starts, paused by the time the erase reaches it.
+        await files.scriptLive([true, false])
+        let left = await later.resume(scope: scope, liveMachineIDs: ["vm"])
+        #expect(left == ["vm"])
+        #expect(await files.read("vm", CloudCodexBroker.accessPath) != nil)
+        #expect(await later.resume(scope: scope, liveMachineIDs: ["vm"]).isEmpty)
+        #expect(await files.read("vm", CloudCodexBroker.accessPath) == nil)
+        #expect(await files.read("vm", CloudCodexBroker.modePath) == nil)
+        #expect(CloudCodexDeliveryRecord(home: later.home(for: scope)).entries().isEmpty)
+        await later.shutdown()
     }
 
     @Test func revokeRestoresAnOwnModeThePersonChose() async throws {
