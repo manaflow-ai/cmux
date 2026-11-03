@@ -9538,6 +9538,10 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
       "/respawn": {
         "ty": "object",
         "nullable": true

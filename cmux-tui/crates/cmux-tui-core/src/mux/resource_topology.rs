@@ -86,6 +86,7 @@ use registry_layout::set_layout_split_ratio;
 use registry_layout::swap_layout_panes;
 mod batch_close;
 mod client_ids;
+pub(crate) use client_ids::ensure_client_pane_id_unused;
 mod close_effects;
 mod column_update;
 mod creation_burst_seams;

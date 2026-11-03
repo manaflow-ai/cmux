@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b. */
+/* cmux-tui mux protocol 12, IR fabfba1bcd97ac5c3a54de28f3bdbd11036eaf321b2694500f9bec05aeaecb8a. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b" as const;
+export const SDK_IR_SHA256 = "fabfba1bcd97ac5c3a54de28f3bdbd11036eaf321b2694500f9bec05aeaecb8a" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1831,6 +1831,10 @@ export const COMMAND_METADATA = {
       "keep_focus": {
         "since": 12,
         "capability": "tab-split-keep-focus-v1"
+      },
+      "pane_id": {
+        "since": 12,
+        "capability": "tab-column-client-pane-v1"
       },
       "respawn": {
         "since": 12,
@@ -21371,6 +21375,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        },
+        "pane_id": {
+          "capability": "tab-column-client-pane-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "respawn": {

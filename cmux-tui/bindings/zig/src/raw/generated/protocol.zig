@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b";
+pub const ir_sha256 = "fabfba1bcd97ac5c3a54de28f3bdbd11036eaf321b2694500f9bec05aeaecb8a";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -7001,6 +7001,7 @@ pub const MoveTabToColumnRequest = struct {
     dock: wire.Field(ColumnPin) = .absent,
     keep_focus: ?bool = null,
     pane: wire.Field(Id) = .absent,
+    pane_id: wire.Field([]const u8) = .absent,
     respawn: wire.Field(SplitRespawn) = .absent,
     screen: wire.Field(Id) = .absent,
     surface: Id,
@@ -7025,6 +7026,7 @@ pub fn moveTabToColumn(client: anytype, request: MoveTabToColumnRequest) !wire.D
             .fields = &.{
                 .{ .name = "dock", .since = 12, .capability = "dock-columns-v1" },
                 .{ .name = "keep_focus", .since = 12, .capability = "tab-split-keep-focus-v1" },
+                .{ .name = "pane_id", .since = 12, .capability = "tab-column-client-pane-v1" },
                 .{ .name = "respawn", .since = 12, .capability = "tab-column-respawn-v1" },
             },
         },
