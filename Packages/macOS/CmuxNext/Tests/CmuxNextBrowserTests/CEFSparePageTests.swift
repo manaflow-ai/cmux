@@ -119,15 +119,118 @@ import Testing
         #expect(runtime.tabsByBrowser[page] == nil, "the spare page waits for the next tab")
     }
 
+    /// The waiting spare page is frozen as soon as it is made (no one sees it, so it must cost no
+    /// frames or timers): through the renderer path on fork API 29, through DevTools when that path
+    /// refuses it or the fork is older. A tab that takes it thaws it in the same turn, before it
+    /// moves and shows, by the path that froze it.
+    @Test(arguments: [FreezeCase(forkAPI: 27, rendererFreezes: true, viaDevTools: true),
+                      FreezeCase(forkAPI: 29, rendererFreezes: true, viaDevTools: false),
+                      FreezeCase(forkAPI: 29, rendererFreezes: false, viaDevTools: true)])
+    func theWaitingSparePageIsFrozenAndATakeThawsItBeforeItShows(_ freeze: FreezeCase) throws {
+        let (runtime, root) = try Self.runtime(forkAPI: freeze.forkAPI)
+        defer { Self.tearDown(runtime, root) }
+        let (host, _, container) = try Self.liveHost(runtime)
+        SpareSpy.setFrozenAnswer = freeze.rendererFreezes ? 1 : 0
+        let suffix = freeze.viaDevTools ? " devtools" : ""
+        SpareSpy.clearRecords()
+        #expect(CEFSpareWindow.shared.prepare(runtime: runtime))
+        let spare = try #require(CEFSpareWindow.shared.host)
+        let request = try #require(runtime.pendingWindows.first { $0.value === spare }?.key)
+        SpareSpy.windows[20] = 2
+        runtime.handle(.afterCreated(browser: 20, request: request, window: 2))
+        SpareSpy.log = []
+        CEFSpareWindow.shared.prepare(runtime: runtime)
+        let page = try #require(SpareSpy.added.first?.browser)
+        #expect(SpareSpy.log == ["freeze \(page)\(suffix)"], "the waiting page is frozen when it is made")
+
+        SpareSpy.log = []
+        let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        link.load(Self.address)
+        host.add(link)
+        host.present(link, in: container)
+        host.createDeferred()
+
+        #expect(link.browserID == page)
+        #expect(SpareSpy.log == ["thaw \(page)\(suffix)", "move \(page)", "activate \(page)", "load \(page)"],
+                "thawed, then moved, shown and loaded in the take's turn")
+        #expect(host.hostView.layerHosting.browser == page, "shown in the same turn")
+    }
+
+    /// Only a tab the person sees takes the spare page. A tab made hidden (an agent drives a
+    /// background tab, `CEFAgentRelay.createBrowser`) and an agent-driven tab use `tab_add`, so
+    /// automation never uses up the page that makes the person's next Cmd-T fast; that tab takes it.
+    @Test func aHiddenOrAgentDrivenTabLeavesTheSparePageForThePersonsNextTab() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { Self.tearDown(runtime, root) }
+        let (host, _, container) = try Self.liveHost(runtime)
+        let page = try Self.spareWithPage(runtime)
+
+        let background = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(background)
+        background.agentRelay.createBrowser()
+        #expect(SpareSpy.added.map(\.anchor) == [10], "a hidden tab joins with tab_add")
+        #expect(background.browserID != page)
+
+        let agent = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        agent.isAgentDriven = true
+        host.add(agent)
+        host.present(agent, in: container)
+        host.createDeferred()
+        #expect(SpareSpy.added.map(\.anchor) == [10, 10], "an agent-driven tab joins with tab_add")
+        #expect(agent.browserID != page)
+        #expect(runtime.tabsByBrowser[page] == nil, "the spare page still waits")
+
+        let person = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(person)
+        host.present(person, in: container)
+        host.createDeferred()
+        #expect(person.browserID == page, "the person's tab takes it")
+        #expect(SpareSpy.added.count == 2, "with no tab_add")
+    }
+
+    /// The fork has no way to keep the spare page out of `chrome.tabs` and `chrome.windows`, so an
+    /// extension can close it while it waits. The slot clears and asks for a new page; the next
+    /// Cmd-T, before that page is made, joins with `tab_add` as it did before the spare page.
+    @Test func anExtensionClosingTheWaitingPageClearsTheSlotAndTheNextTabFallsBack() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { Self.tearDown(runtime, root) }
+        let (host, _, container) = try Self.liveHost(runtime)
+        let page = try Self.spareWithPage(runtime)
+        let needed = Count()
+        CEFSpareWindow.shared.onNeeded = { needed.value += 1 }
+
+        runtime.handle(.beforeClose(browser: page))
+        #expect(CEFSpareWindow.shared.page == nil, "the slot clears")
+        #expect(needed.value == 1, "the next idle moment makes a new page")
+
+        let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(link)
+        host.present(link, in: container)
+        host.createDeferred()
+        #expect(SpareSpy.added.map(\.anchor) == [10], "joins with tab_add")
+        #expect(SpareSpy.added.map(\.activate) == [1])
+        #expect(link.browserID == SpareSpy.added.first?.browser && link.browserID != page)
+        #expect(SpareSpy.moved.isEmpty && SpareSpy.closed.isEmpty, "nothing touches the closed page")
+        #expect(host.lastActivated == link.browserID)
+    }
+
     // MARK: Fixture
 
     static let address = URL(string: "https://example.com/")!
 
     final class Count { var value = 0 }
 
+    /// A fork, whether its renderer-path freeze takes the page, and the path the page is frozen by.
+    struct FreezeCase: Sendable, CustomTestStringConvertible {
+        var forkAPI: Int32
+        var rendererFreezes: Bool
+        var viaDevTools: Bool
+        var testDescription: String { "fork API \(forkAPI), renderer freeze \(rendererFreezes ? "takes" : "refuses")" }
+    }
+
     /// A runtime that outlives the test (as in `CEFDeferredTabShowTests`), and no spare left by another test.
-    private static func runtime() throws -> (CEFRuntime, URL) {
-        SpareSpy.reset()
+    private static func runtime(forkAPI: Int32 = 27) throws -> (CEFRuntime, URL) {
+        SpareSpy.reset(forkAPI: forkAPI)
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-spare-page-\(UUID().uuidString)", directoryHint: .isDirectory)
         let runtime = CEFRuntime(shim: try SpareSpy.library(), storage: CEFProfileStorage(root: root))
         _ = Unmanaged.passRetained(runtime)
@@ -186,7 +289,9 @@ import Testing
 /// window and, as production's shim does, runs its OnAfterCreated before it returns;
 /// `cmux_shim_tab_move_to_window` moves a browser into its anchor's window; `cmux_shim_tab_window_id`
 /// reads those windows; `cmux_shim_tab_activate`, `cmux_shim_close`, `cmux_shim_load_url` and
-/// `cmux_shim_create_window` are recorded; `cmux_shim_fork_api_version` is 27 (layer hosting);
+/// `cmux_shim_create_window` are recorded; `cmux_shim_tab_set_frozen` and DevTools
+/// `Page.setWebLifecycleState` (`cmux_shim_devtools_call`) are logged as freezes and thaws;
+/// `cmux_shim_fork_api_version` is `forkAPI` (27 by default: layer hosting, no renderer paths);
 /// every other function does nothing and returns 0.
 private nonisolated enum SpareSpy {
     nonisolated(unsafe) static var added: [(anchor: Int32, url: String, activate: Int32, browser: Int32)] = []
@@ -197,12 +302,19 @@ private nonisolated enum SpareSpy {
     nonisolated(unsafe) static var createWindowCalls = 0
     nonisolated(unsafe) static var windows: [Int32: Int32] = [:]
     nonisolated(unsafe) static var nextBrowser: Int32 = 30
+    /// Every page-state call in order: `freeze <b>`, `thaw <b>` (either freeze path), `move <b>`, `activate <b>`, `load <b>`.
+    nonisolated(unsafe) static var log: [String] = []
+    /// What `cmux_shim_tab_set_frozen` answers (1: the renderer-path freeze took the page).
+    nonisolated(unsafe) static var setFrozenAnswer: Int32 = 1
+    nonisolated(unsafe) static var forkAPI: Int32 = 27
     nonisolated(unsafe) static weak var runtime: CEFRuntime?
 
-    static func reset() {
+    static func reset(forkAPI: Int32 = 27) {
         clearRecords()
         windows = [:]
         nextBrowser = 30
+        setFrozenAnswer = 1
+        self.forkAPI = forkAPI
         runtime = nil
     }
 
@@ -212,6 +324,7 @@ private nonisolated enum SpareSpy {
         activated = []
         closed = []
         loads = []
+        log = []
         createWindowCalls = 0
     }
 
@@ -233,19 +346,34 @@ private nonisolated enum SpareSpy {
         }
         let tabMove: @convention(c) (Int32, Int32, Int32) -> Int32 = { browser, anchor, _ in
             SpareSpy.moved.append((browser, anchor))
+            SpareSpy.log.append("move \(browser)")
             SpareSpy.windows[browser] = SpareSpy.windows[anchor] ?? 0
             return 1
         }
         let tabWindowID: @convention(c) (Int32) -> Int32 = { browser in SpareSpy.windows[browser] ?? 0 }
         let tabActivate: @convention(c) (Int32) -> Int32 = { browser in
             SpareSpy.activated.append(browser)
+            SpareSpy.log.append("activate \(browser)")
             return 1
         }
         let close: @convention(c) (Int32) -> Void = { browser in SpareSpy.closed.append(browser) }
         let loadURL: @convention(c) (Int32, UnsafePointer<CChar>?) -> Void = { browser, url in
             SpareSpy.loads.append((browser, url.map { String(cString: $0) } ?? ""))
+            SpareSpy.log.append("load \(browser)")
         }
-        let forkAPIVersion: @convention(c) () -> Int32 = { 27 }
+        let setFrozen: @convention(c) (Int32, Int32) -> Int32 = { browser, frozen in
+            guard SpareSpy.setFrozenAnswer == 1 else { return 0 }
+            SpareSpy.log.append("\(frozen == 1 ? "freeze" : "thaw") \(browser)")
+            return 1
+        }
+        let devToolsCall: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { browser, method, params in
+            let text = params.map { String(cString: $0) } ?? ""
+            if method.map({ String(cString: $0) }) == "Page.setWebLifecycleState" {
+                SpareSpy.log.append("\(text.contains("frozen") ? "freeze" : "thaw") \(browser) devtools")
+            }
+            return 1
+        }
+        let forkAPIVersion: @convention(c) () -> Int32 = { SpareSpy.forkAPI }
         let nothing: @convention(c) () -> Int = { 0 }
         return try CEFShimLibrary.resolving { name in
             switch name {
@@ -256,6 +384,8 @@ private nonisolated enum SpareSpy {
             case "cmux_shim_tab_activate": unsafeBitCast(tabActivate, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_close": unsafeBitCast(close, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_load_url": unsafeBitCast(loadURL, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_tab_set_frozen": unsafeBitCast(setFrozen, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_devtools_call": unsafeBitCast(devToolsCall, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_fork_api_version": unsafeBitCast(forkAPIVersion, to: UnsafeMutableRawPointer.self)
             default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
             }
