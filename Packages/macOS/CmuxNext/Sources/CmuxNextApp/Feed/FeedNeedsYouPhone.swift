@@ -15,8 +15,14 @@ import Foundation
 enum FeedNeedsYouPhone {
     /// The open requests the Feed pins, as the phone gets them.
     static func requests(_ pinned: [FeedItem], detail: (FeedItem) -> GitHubFeedDetail?) -> [MobileHostNeedsYouRequest] {
-        _ = pinned  // red: not written yet
-        return []
+        pinned.compactMap { item in
+            // An agent's approval reaches the phone from acpmux (its own pinned ask).
+            guard item.isOpenRequest, item.context.acpSession == nil else { return nil }
+            let github = detail(item)
+            return MobileHostNeedsYouRequest(
+                id: item.id, title: github?.title ?? item.title, body: item.body, kind: item.kind,
+                source: item.poster.label, url: item.context.url ?? github?.url, createdAt: item.createdAt)
+        }
     }
 
     /// Follows the Feed's pinned requests and hands each new set to the iPhone host.

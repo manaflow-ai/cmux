@@ -309,8 +309,9 @@ public final class FeedStore {
     /// cmux-mobile-host `needs_you.rs`) on `mac` closed: that Mac's live list no longer has it,
     /// or it was marked done. False until that Mac's list was read on its live link.
     public func isClosedMacRequest(eventID: String, mac: String?) -> Bool {
-        _ = (eventID, mac)  // red: not written yet
-        return false
+        guard eventID.hasPrefix("feed-"), let mac, macRequestsRead.contains(mac) else { return false }
+        guard let item = item(id: "macreq-\(mac)-\(eventID.dropFirst(5))") else { return true }
+        return item.isDone || !item.needsYou
     }
 
     /// Persisted read flags (`FeedReadMarks`); nil keeps them in memory only (tests).

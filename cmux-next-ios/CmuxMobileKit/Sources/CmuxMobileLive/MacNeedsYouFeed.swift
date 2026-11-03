@@ -60,7 +60,16 @@ public final class MacNeedsYouFeed {
     }
 
     func apply(_ requests: [Request], macID: String) {
-        _ = (requests, macID, shown)  // red: not written yet
+        var next: Set<String> = []
+        for request in requests {
+            let item = Self.item(request, macID: macID)
+            next.insert(item.id)
+            store.upsert(item, atTop: true)
+        }
+        // Answered, cancelled or expired on the Mac: it leaves the Feed (and its push, NeedsYouNotices).
+        for id in shown.subtracting(next) where store.item(id: id) != nil { store.remove(id) }
+        shown = next
+        store.macRequestsRead.insert(macID)
     }
 
     /// The link to the Mac closed: its rows stay as last read, but none counts as read now.

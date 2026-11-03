@@ -140,7 +140,7 @@ pub const CAPABILITIES: [&str; 6] = [
     "localhost-forward-v1",
     "cloud-directory-v1",
     "cloud-acpmux-v1",
-    "needs-you-v1-red",
+    "needs-you-v1",
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = "browser-stream-v1";

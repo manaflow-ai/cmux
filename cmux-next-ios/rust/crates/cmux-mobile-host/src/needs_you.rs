@@ -58,14 +58,42 @@ pub struct Request {
 /// The app's list made safe to serve and push: valid ids only, each once, texts cut and
 /// redacted, `https` links only, at most [`MAX_ITEMS`]. A request with no title is dropped.
 pub fn sanitize(items: Vec<Request>) -> Vec<Request> {
-    items // red: not written yet
+    let mut seen = HashSet::new();
+    items
+        .into_iter()
+        .filter_map(|item| {
+            let id = valid_id(&item.id, 128)?;
+            let title = text_label(&item.title, 200);
+            if title.is_empty() || !seen.insert(id.clone()) {
+                return None;
+            }
+            let url = item.url.filter(|url| url.len() <= 2048 && url.starts_with("https://"));
+            Some(Request {
+                id,
+                title,
+                body: text_label(&item.body, 400),
+                kind: valid_id(&item.kind, 64).unwrap_or_default(),
+                source: text_label(&item.source, 60),
+                url,
+                created_at_ms: item.created_at_ms.max(0),
+            })
+        })
+        .take(MAX_ITEMS)
+        .collect()
 }
 
 /// The push for `request`: an ask (kind `question`, so every phone that wants asks gets it)
 /// with no options, which opens the Feed where it is pinned.
 pub fn push_event(request: &Request) -> NotifyEvent {
-    let _ = request; // red: not written yet
-    NotifyEvent::default()
+    NotifyEvent {
+        event_id: format!("{EVENT_PREFIX}{}", request.id).chars().take(64).collect(),
+        kind: "question".into(),
+        agent: Some(if request.source.is_empty() { "cmux".into() } else { request.source.clone() }),
+        title: Some(request.title.clone()),
+        body: Some(request.body.clone()).filter(|b| !b.is_empty()),
+        state: Some("waiting".into()),
+        ..NotifyEvent::default()
+    }
 }
 
 /// Which requests were pushed, on disk when given a path.
@@ -95,8 +123,28 @@ impl Pushed {
 
     /// The pushes for the requests of `open` never pushed before, recorded (and saved).
     pub fn pushes(&mut self, open: &[Request]) -> Vec<NotifyEvent> {
-        let _ = (open, &self.path); // red: not written yet
-        Vec::new()
+        let fresh: Vec<&Request> = open.iter().filter(|r| !self.seen.contains(&r.id)).collect();
+        if fresh.is_empty() {
+            return Vec::new();
+        }
+        for request in &fresh {
+            self.seen.insert(request.id.clone());
+            self.order.push_back(request.id.clone());
+        }
+        // Forget the oldest closed ones first; an open one is never forgotten (it would push again).
+        let open_ids: HashSet<&str> = open.iter().map(|r| r.id.as_str()).collect();
+        while self.order.len() > PUSHED_LIMIT {
+            let Some(index) = self.order.iter().position(|id| !open_ids.contains(id.as_str())) else { break };
+            if let Some(old) = self.order.remove(index) {
+                self.seen.remove(&old);
+            }
+        }
+        if let Some(path) = &self.path
+            && let Err(error) = save(path, &self.order)
+        {
+            tracing::warn!(error, "could not save the pushed Needs you ids");
+        }
+        fresh.into_iter().map(push_event).collect()
     }
 }
 
@@ -117,7 +165,14 @@ fn open_sender() -> &'static watch::Sender<Vec<Request>> {
 /// The app's whole set of open requests (`needs_you` control line). Phones and the pusher hear
 /// it only when it changed.
 pub fn set(items: Vec<Request>) {
-    let _ = (items, open_sender()); // red: not written yet
+    let items = sanitize(items);
+    open_sender().send_if_modified(|current| {
+        if *current == items {
+            return false;
+        }
+        *current = items;
+        true
+    });
 }
 
 /// The open requests now and as they change.

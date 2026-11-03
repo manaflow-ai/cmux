@@ -28,7 +28,16 @@ public struct MobileHostNeedsYouRequest: Sendable, Equatable {
 extension MobileHostLaunch {
     /// The control line with the Feed's whole set of open requests (`needs_you`).
     public static func needsYouLine(_ requests: [MobileHostNeedsYouRequest]) -> Data {
-        _ = requests  // red: not written yet
-        return Data()
+        anyLine([
+            "type": "needs_you",
+            "items": requests.map { request -> [String: Any] in
+                var item: [String: Any] = [
+                    "id": request.id, "title": request.title, "body": request.body, "kind": request.kind,
+                    "source": request.source, "created_at_ms": Int64(request.createdAt.timeIntervalSince1970 * 1000),
+                ]
+                if let url = request.url { item["url"] = url.absoluteString }
+                return item
+            },
+        ])
     }
 }

@@ -538,6 +538,7 @@ fn exposure_allows(state: &crate::control::SessionExposure, event: &NotifyEvent)
         && event.session_id.is_none()
         && event.notification_id.is_none()
         && event.agent.as_deref() != Some("Terminal")
+        && !event.event_id.starts_with(crate::needs_you::EVENT_PREFIX)
     {
         return false;
     }
