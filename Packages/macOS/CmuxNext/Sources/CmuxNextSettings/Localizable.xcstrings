@@ -57,6 +57,78 @@
             "state": "translated",
             "value": "iMessageに接続"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poveži iMessage"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind iMessage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connetti iMessage"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ iMessage"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble til iMessage"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz z iMessage"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar ao iMessage"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключить iMessage"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อ iMessage"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iMessage’a bağlan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Під’єднати iMessage"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối iMessage"
+          }
         }
       }
     },
@@ -115,6 +187,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "セッション情報から接続すると、このMacのメッセージの会話を読み取れます。送信には引き続きあなたのクリックが必要です。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopusti čitanje razgovora iz aplikacije Poruke na ovom Macu nakon povezivanja u informacijama o sesiji. Slanje i dalje zahtijeva tvoj klik."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad læsning af samtaler i Beskeder på denne Mac efter tilslutning i sessionsoplysninger. Afsendelse kræver stadig dit klik."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti la lettura delle conversazioni di Messaggi su questo Mac dopo la connessione dalle informazioni della sessione. Per inviare è comunque necessario un tuo clic."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យអានការសន្ទនាក្នុងកម្មវិធីសារនៅលើ Mac នេះ បន្ទាប់ពីភ្ជាប់ក្នុងព័ត៌មានសម័យ។ ការផ្ញើនៅតែត្រូវការការចុចរបស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat lesing av samtaler i Meldinger på denne Macen etter tilkobling i øktinformasjonen. Sending krever fortsatt at du klikker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwalaj na odczytywanie rozmów z Wiadomości na tym Macu po połączeniu w informacjach o sesji. Wysyłanie nadal wymaga Twojego kliknięcia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permita ler conversas do app Mensagens neste Mac após conectar nas informações da sessão. O envio ainda exige seu clique."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить чтение разговоров в приложении «Сообщения» на этом Mac после подключения в сведениях о сеансе. Для отправки по-прежнему требуется ваш щелчок."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้อ่านการสนทนาในแอปข้อความบน Mac เครื่องนี้หลังจากเชื่อมต่อในข้อมูลเซสชัน การส่งยังคงต้องให้คุณคลิกเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum Bilgileri’nden bağlandıktan sonra bu Mac’teki Mesajlar konuşmalarının okunmasına izin verin. Göndermek için yine sizin tıklamanız gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити читання розмов у програмі «Повідомлення» на цьому Mac після підключення у відомостях про сеанс. Для надсилання все одно потрібне ваше натискання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép đọc các cuộc trò chuyện trong Tin nhắn trên máy Mac này sau khi kết nối trong Thông tin phiên. Việc gửi vẫn cần bạn bấm."
           }
         }
       }
@@ -175,6 +319,78 @@
             "state": "translated",
             "value": "メッセージのオートメーションをスキップ"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preskoči automatizaciju aplikacije Poruke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spring automatisering af Beskeder over"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salta l’automazione di Messaggi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រំលងស្វ័យប្រវត្តិកម្មសារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hopp over automatisering av Meldinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomiń automatyzację Wiadomości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pular automação do Mensagens"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропустить автоматизацию «Сообщений»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้ามการทำงานอัตโนมัติของข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesajlar otomasyonunu atla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропустити автоматизацію «Повідомлень»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bỏ qua tự động hóa Tin nhắn"
+          }
         }
       }
     },
@@ -233,6 +449,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "メッセージのオートメーション手順をスキップした選択を記憶します。アクセス権や送信の許可は付与されません。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapamti preskakanje koraka automatizacije aplikacije Poruke. To ne daje pristup niti odobrava slanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Husk valget om at springe automatisering af Beskeder over. Dette giver ikke adgang eller tilladelse til at sende."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ricorda la scelta di saltare il passaggio di automazione di Messaggi. Questo non concede l’accesso né autorizza l’invio."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចងចាំការរំលងជំហានស្វ័យប្រវត្តិកម្មសារ។ វាមិនផ្តល់សិទ្ធិចូលប្រើ ឬអនុញ្ញាតឱ្យផ្ញើទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Husk valget om å hoppe over automatisering av Meldinger. Dette gir verken tilgang eller tillatelse til å sende."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapamiętaj pominięcie kroku automatyzacji Wiadomości. Nie przyznaje to dostępu ani nie upoważnia do wysyłania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lembrar a escolha de pular a etapa de automação do Mensagens. Isso não concede acesso nem autoriza o envio."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запомнить пропуск шага автоматизации «Сообщений». Это не предоставляет доступ и не разрешает отправку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จดจำการข้ามขั้นตอนการทำงานอัตโนมัติของข้อความ การตั้งค่านี้ไม่ให้สิทธิ์เข้าถึงหรืออนุญาตให้ส่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesajlar otomasyonu adımının atlandığını hatırla. Bu, erişim izni veya gönderme yetkisi vermez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запам’ятати пропуск кроку автоматизації «Повідомлень». Це не надає доступу й не дозволяє надсилання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghi nhớ việc bỏ qua bước tự động hóa Tin nhắn. Thao tác này không cấp quyền truy cập hoặc cho phép gửi."
           }
         }
       }
