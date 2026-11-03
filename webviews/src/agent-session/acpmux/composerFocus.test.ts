@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import React from "react";
-import { shouldBlurComposerOnPress, useComposerKeyboard } from "./composerFocus";
+import { ACTIVATION_SETTLE_MS, shouldBlurComposerOnPress, useComposerKeyboard } from "./composerFocus";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -159,6 +159,41 @@ describe("composer click-away focus", () => {
       dom!.window.dispatchEvent(new dom!.window.Event("blur"));
     });
     expect(dom!.window.document.activeElement).not.toBe(editor);
+  });
+
+  // Two chats side by side (agent-pane.subagent-split-pair): each pane's activation claim fired
+  // after the other pane had taken the keyboard, took it back, and the other's did the same, every
+  // 120 ms for as long as both were open.
+  test("an activation claim is dropped when the pane loses the keyboard before it settles", async () => {
+    const container = installDom();
+    let claims = 0;
+    function Counting() {
+      useComposerKeyboard(() => {
+        claims += 1;
+        return true;
+      });
+      return React.createElement("div", { className: "acpmux-composer-box" });
+    }
+    await act(async () => {
+      root = createRoot(container);
+      root.render(React.createElement(Counting));
+    });
+    const settle = () => new Promise((resolve) => setTimeout(resolve, ACTIVATION_SETTLE_MS + 30));
+    // Past the first-paint claim, so only the activations below count.
+    await act(settle);
+    claims = 0;
+    await act(async () => {
+      dom!.window.dispatchEvent(new dom!.window.Event("focus"));
+      dom!.window.dispatchEvent(new dom!.window.Event("blur"));
+      await settle();
+    });
+    expect(claims).toBe(0);
+    // Activation that holds still claims an idle keyboard.
+    await act(async () => {
+      dom!.window.dispatchEvent(new dom!.window.Event("focus"));
+      await settle();
+    });
+    expect(claims).toBe(1);
   });
 });
 
