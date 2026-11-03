@@ -528,3 +528,42 @@ test("a fold change after the reused turns draws the turns before it again", () 
   const loud = turnViewFrom([...head, line(false)], folds, { now }, quiet);
   expect(loud.rows.map((item) => item.id)).toEqual(fresh.rows.map((item) => item.id));
 });
+
+// A chat's log as Leo's chat had it (2026-11-02): four background tasks ended one after another, the
+// agent answered each with a lone "·" in its own message, and the session's bookkeeping came between.
+// The four lines fold into one, and no "·" draws ("why do you still do these").
+test("quiet background turns answered with a lone dot fold into one line with no dots", async () => {
+  const dotSay = (messageId: string): Step => [
+    "in",
+    "agent_message_chunk",
+    update({ sessionUpdate: "agent_message_chunk", messageId, content: { type: "text", text: "·" } }),
+  ];
+  const quietTask = (id: string): Step[] => [
+    ["in", "config_option_update", update({ sessionUpdate: "config_option_update", configOptions: [] })],
+    started(id),
+    dotSay(`msg-${id}`),
+    ended(id, true),
+  ];
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Run the four suites in the background", "Started them.", "t1"),
+      ...quietTask("bg-a"),
+      ...quietTask("bg-b"),
+      ...quietTask("bg-c"),
+      ...quietTask("bg-d"),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const dots = rows().filter((row) => row.text === "·");
+    expect(dots).toHaveLength(4);
+    expect(dots.map((row) => row.inBackground)).toEqual(["bg-a", "bg-b", "bg-c", "bg-d"]);
+    const view = drawn(rows());
+    expect(view.some((row) => row.text === "·")).toBe(false);
+    const lines = view.filter((row) => row.kind === BACKGROUND_TURN);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.backgroundRun).toMatchObject({ finished: 4 });
+  } finally {
+    client.close();
+  }
+});

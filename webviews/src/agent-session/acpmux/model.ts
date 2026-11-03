@@ -123,6 +123,17 @@ export type AcpmuxBackgroundTurn = {
   reason?: string;
 };
 
+/// What a run of background-task notifications' line counts (conversation/backgroundRuns.ts): quiet
+/// task turns and finished shells, stopped shells, scheduled checks, other quiet background turns,
+/// and the ids of the rows it folds (Find and links open it for one).
+export type AcpmuxBackgroundRun = {
+  finished: number;
+  stopped: number;
+  scheduled: number;
+  other: number;
+  rows: string[];
+};
+
 /// The chat's permission policy (an acpmux policy id narrower than approve-all) that its harness
 /// cannot keep (a `policy_unenforced` record): OpenCode's own settings decide what it asks
 /// (`ownSettings`); another harness has no mode that asks (`noAskingMode`).
@@ -310,6 +321,9 @@ export type AcpmuxRow = {
   background?: AcpmuxBackgroundTurn;
   /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
   inBackground?: string;
+  /// A run of background-task notifications folded under one line (conversation/backgroundRuns.ts):
+  /// drawn as a background turn's line, with what it counts and the rows it folds.
+  backgroundRun?: AcpmuxBackgroundRun;
   /// A policy note's policy and why the chat's harness cannot keep it.
   policyUnenforced?: AcpmuxPolicyUnenforced;
   /// An agent pair row's pause (conversation/AgentPairNote.tsx).
