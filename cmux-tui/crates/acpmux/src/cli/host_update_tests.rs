@@ -626,7 +626,9 @@ fn a_host_that_goes_away_during_the_push_is_unreachable() {
             (Outcome::Failed, Some("unreachable")),
             "{why}: {up:?}"
         );
-        assert!(!peer.take_calls().iter().any(|c| c.contains("restart")), "{why}");
+        // Nothing was installed or restarted: the next connect runs it again.
+        assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)), "{why}");
+        assert_eq!(peer.daemon(), OLD, "{why}");
     }
 }
 
