@@ -9,6 +9,7 @@ public enum CloudPreviewUI {
                                present: (CmuxDialogSpec) async -> CmuxDialogAnswer,
                                share: (Int, String, String?) async throws -> String,
                                open: (CloudMachinePreview) async throws -> Void,
+                               refreshOpen: (Int) async throws -> Void,
                                show: (String, String) -> Void, copy: (String) -> Void) async throws {
         guard !inventory.previews.isEmpty else {
             show(CloudPortStrings.title, CloudPortStrings.noPreviews)
@@ -25,7 +26,11 @@ public enum CloudPreviewUI {
             copy(url)
             show(CloudPortStrings.shareTitle, url)
         } else if choice.button == "open" {
-            try await open(preview)
+            if preview.expiresAt <= Date().timeIntervalSince1970 * 1000 {
+                try await refreshOpen(port)
+            } else {
+                try await open(preview)
+            }
         }
     }
 

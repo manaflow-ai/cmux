@@ -309,8 +309,8 @@ extension CloudHandlers {
                 share: { port, audience, user in
                     guard let api = context.services.cloud.previewAPI else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
                     return try await api.sharePreview(session.machineID, port: port, audience: audience, userID: user).url
-                }, open: { preview in
-                    _ = try await openBrowser(session, port: preview.port, path: "/", names: CloudPortNames(session, port: preview.port),
+                }, open: { _ = try await openPreview($0, session: session, viewChange: true, context) }, refreshOpen: { port in
+                    _ = try await openBrowser(session, port: port, path: "/", names: CloudPortNames(session, port: port),
                                               viewChange: true, invocation, context)
                 }, show: { CloudPresenter.show($0, $1, in: window) }, copy: { CloudPresenter.copy($0) })
         }

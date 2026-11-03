@@ -1,6 +1,7 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDesign
 import Foundation
 import Testing
@@ -19,13 +20,39 @@ struct CloudLivePreviewTests {
             guard let url = request.url,
                   let reply = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
                                               headerFields: ["Content-Type": "application/json"]) else { return }
-            Self.seen.append(request)
+            var captured = request
+            captured.httpBody = Self.body(of: request)
+            Self.seen.append(captured)
+            let data: Data
+            if url.path.hasSuffix("/links") {
+                data = Data(#"{"url":"https://shared.standin.invalid/preview/shared-one"}"#.utf8)
+            } else if url.path.hasSuffix("/grants") {
+                data = Data(#"{"grants":[{"kind":"team","id":"team-one"}]}"#.utf8)
+            } else {
+                data = Self.response
+            }
             client?.urlProtocol(self, didReceive: reply, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Self.response)
+            client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)
         }
 
         override func stopLoading() {}
+
+        /// URLSession presents request bodies as streams to URLProtocol.
+        private static func body(of request: URLRequest) -> Data? {
+            if let data = request.httpBody { return data }
+            guard let stream = request.httpBodyStream else { return nil }
+            stream.open()
+            defer { stream.close() }
+            var data = Data()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                guard count > 0 else { break }
+                data.append(buffer, count: count)
+            }
+            return data
+        }
     }
 
     private func inventory() throws -> CloudMachinePreviews {
@@ -55,6 +82,47 @@ struct CloudLivePreviewTests {
         #expect(request.value(forHTTPHeaderField: "x-cmux-team") == "team-one")
         #expect(request.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == nil)
         #expect(request.value(forHTTPHeaderField: "X-Cmux-Team-Id") == nil)
+    }
+
+    @Test func linkShareMintsTheSharedURLWithThePersonsAccountSession() async throws {
+        let api = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.standin.invalid")),
+                                                accessToken: { "person-access" }, teamID: { "team-one" }, session: session())
+            .previewClient(baseURL: try #require(URL(string: "https://machines.standin.invalid")))
+        let result = try await api.sharePreview("vm-one", port: 3000, audience: "link")
+        #expect(result.url == "https://shared.standin.invalid/preview/shared-one")
+        #expect(!result.url.contains("temporary"))
+        #expect(PreviewAPI.seen.count == 2)
+        let request = try #require(PreviewAPI.seen.last)
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.absoluteString == "https://machines.standin.invalid/v1/cloud/machines/vm-one/previews/3000/links")
+        let body = try JSONSerialization.jsonObject(with: try #require(request.httpBody)) as? [String: String]
+        #expect(body == [:])
+        for sent in PreviewAPI.seen {
+            #expect(sent.value(forHTTPHeaderField: "Authorization") == "Bearer person-access")
+            #expect(sent.value(forHTTPHeaderField: "x-cmux-team") == "team-one")
+            #expect(sent.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == nil)
+        }
+    }
+
+    @Test func restrictedSharesGrantTheSelectedTeamOrPersonAndReturnTheBareOrigin() async throws {
+        for (audience, userID, recipient) in [("team", Optional("ignored-user"), "team-one"), ("user", Optional("user-recipient"), "user-recipient")] {
+            let api = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.standin.invalid")),
+                                                    accessToken: { "person-access" }, teamID: { "team-one" }, session: session())
+                .previewClient(baseURL: try #require(URL(string: "https://machines.standin.invalid")))
+            let result = try await api.sharePreview("vm-one", port: 3000, audience: audience, userID: userID)
+            #expect(result.url == "https://preview.standin.invalid")
+            #expect(!result.url.contains("temporary"))
+            #expect(!result.url.contains("token="))
+            #expect(PreviewAPI.seen.count == 2)
+            let request = try #require(PreviewAPI.seen.last)
+            #expect(request.httpMethod == "PUT")
+            #expect(request.url?.absoluteString == "https://machines.standin.invalid/v1/cloud/machines/vm-one/previews/3000/grants")
+            let body = try JSONSerialization.jsonObject(with: try #require(request.httpBody)) as? [String: String]
+            #expect(body == ["kind": audience, "id": recipient])
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer person-access")
+            #expect(request.value(forHTTPHeaderField: "x-cmux-team") == "team-one")
+            #expect(request.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == nil)
+        }
     }
 
     @Test func stagingAndDevelopmentPreviewsUseTheirPlatformWhileOtherOwnersKeepTheirExistingBrowserRoute() {
