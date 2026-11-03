@@ -29,6 +29,19 @@ impl Brain {
                 self.agents_up = true;
                 self.reap_closed_compactor_sessions(&sessions);
                 self.reconcile_spawns(&sessions);
+                // Restore the watchdog for pending requests whose Home card
+                // had no durable acknowledgement before the host restarted.
+                let pending: Vec<String> = self
+                    .state
+                    .spawns
+                    .values()
+                    .flat_map(|r| &r.subs)
+                    .filter(|s| s.permission.is_some())
+                    .map(|s| s.id.clone())
+                    .collect();
+                for id in pending {
+                    self.rewatch_permission(&id);
+                }
                 let sessions_listed: Vec<String> =
                     sessions.iter().map(|s| s.name.clone()).collect();
                 // Only the Chief's own children: the compactor and turn

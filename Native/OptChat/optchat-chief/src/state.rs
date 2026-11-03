@@ -531,6 +531,9 @@ pub struct InboxMessage {
 pub struct PendingPermission {
     pub id: String,
     pub request: Value,
+    /// The conversation owner acknowledged this request's Home card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home_message: Option<String>,
 }
 
 fn is_zero(n: &u32) -> bool {

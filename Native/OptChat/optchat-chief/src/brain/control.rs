@@ -205,7 +205,7 @@ pub(super) fn permission_note(id: &str, request: &Value, shown: bool) -> String 
     };
     let who = if shown {
         format!(
-            "Only the user can allow it, with the Allow button in {id}'s workspace; tell them in one line if it matters."
+            "Only the user can allow it, with the Allow button in Home or {id}'s workspace; tell them in one line if it matters."
         )
     } else {
         format!(
@@ -658,6 +658,7 @@ impl Brain {
         };
         match self.agents.respond_permission(&session, &p.id, answer) {
             Ok(()) => {
+                self.cancel_home_approval(id);
                 if let Some(sub) = self.state.sub_mut(id) {
                     sub.permission = None;
                 }
@@ -691,13 +692,13 @@ impl Brain {
                     self.tell_person_once(
                         &p.id,
                         &format!(
-                            "{id} waits for your approval to {what}: use the Allow button in its workspace."
+                            "{id} waits for your approval to {what}: use the Allow button in Home or its workspace."
                         ),
                     );
                     return outcome(
                         "refused",
                         format!(
-                            "{id}'s prompt was not allowed: only the user can allow, with the Allow button in {id}'s workspace, and they were just told so in the chat. Do not try to allow it again; you may deny it or steer it: control(action: \"interrupt\", id: \"{id}\", message: \"...\")"
+                            "{id}'s prompt was not allowed: only the user can allow, with the Allow button in Home or {id}'s workspace, and they were just told so in the chat. Do not try to allow it again; you may deny it or steer it: control(action: \"interrupt\", id: \"{id}\", message: \"...\")"
                         ),
                     );
                 }
@@ -749,7 +750,7 @@ impl Brain {
     /// Posts `text` to the person in the main conversation, in the front
     /// desk's voice, once per `permission` (a model that relays the same
     /// "allow" again posts nothing more).
-    fn tell_person_once(&mut self, permission: &str, text: &str) {
+    pub(super) fn tell_person_once(&mut self, permission: &str, text: &str) {
         let Some(conversation) = self.state.conversation.clone() else {
             return;
         };

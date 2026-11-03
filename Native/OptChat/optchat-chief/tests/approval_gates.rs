@@ -602,6 +602,19 @@ fn drain(h: &mut Harness) {
 /// `make deploy` pending; with a workspace (its agent tab shows the
 /// prompt with an Allow button) when `workspace`. Returns its session.
 fn subagent_asking(h: &mut Harness, workspace: bool) -> String {
+    subagent_asking_with_allow(h, workspace, true)
+}
+
+fn subagent_asking_with_allow(h: &mut Harness, workspace: bool, allow_once: bool) -> String {
+    subagent_asking_with_delivery(h, workspace, allow_once, None)
+}
+
+fn subagent_asking_with_delivery(
+    h: &mut Harness,
+    workspace: bool,
+    allow_once: bool,
+    reject: Option<&str>,
+) -> String {
     use optchat_chief::tools::Orchestrator;
     let spawner = owner_spawner(h);
     let spawned = run_with(h, move || {
@@ -625,12 +638,27 @@ fn subagent_asking(h: &mut Harness, workspace: bool) -> String {
             ws: None,
         });
     }
-    h.brain.step(permission_in(
-        &session,
-        "p1",
-        "Bash",
-        json!({"command": "make deploy"}),
-    ));
+    let mut event = permission_in(&session, "p1", "Bash", json!({"command": "make deploy"}));
+    if !allow_once {
+        if let Input::Agents(event) = &mut event {
+            if let AgentEvent::Permission { request, .. } = event.as_mut() {
+                request["options"]
+                    .as_array_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .filter(|o| o["kind"] == "allow_once")
+                    .for_each(|o| o["kind"] = json!("allow_always"));
+            }
+        }
+    }
+    if let Some(reject) = reject {
+        h.owner
+            .lock()
+            .unwrap()
+            .rejects
+            .push_back(Some(reject.into()));
+    }
+    h.brain.step(event);
     drain(h);
     session
 }
@@ -722,7 +750,7 @@ fn a_relayed_allow_acpmux_refuses_tells_the_person_where_to_allow_once_and_keeps
     let lines = approval_lines(&h, "p1");
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(
-        lines[0].contains("a1 waits for your approval to run `make deploy`: use the Allow button in its workspace."),
+        lines[0].contains("a1 waits for your approval to run `make deploy`: use the Allow button in Home or its workspace."),
         "{lines:?}"
     );
     // The app shows the prompt with a working button: it stays for the person.
@@ -737,9 +765,9 @@ fn a_relayed_allow_acpmux_refuses_tells_the_person_where_to_allow_once_and_keeps
 }
 
 #[test]
-fn a_relayed_allow_for_a_prompt_the_app_does_not_show_denies_it_and_says_so() {
+fn a_relayed_allow_for_an_unanswerable_prompt_denies_it_and_says_so() {
     let mut h = harness(None, false, default_script());
-    subagent_asking(&mut h, false);
+    subagent_asking_with_allow(&mut h, false, false);
     h.agents.inner.lock().unwrap().refuse_allows = true;
     let answer = relay_allow(&mut h);
     assert!(answer.contains("It was denied."), "{answer}");
@@ -757,7 +785,7 @@ fn a_prompt_nobody_can_answer_is_denied_once_it_waits_two_minutes() {
     let mut h = harness(None, false, default_script());
     const T0: u64 = 1_800_000_000_000;
     h.brain.set_clock(Arc::new(|| T0));
-    let session = subagent_asking(&mut h, false);
+    let session = subagent_asking_with_allow(&mut h, false, false);
     assert_eq!(
         h.brain.unanswered_permissions(),
         vec![(session.clone(), "p1".to_owned())]
@@ -1090,4 +1118,149 @@ fn a_tell_to_a_session_points_at_acpmux_send_and_sends_nothing() {
         "{:?}",
         inner.finds
     );
+}
+
+#[test]
+fn hidden_card_is_not_answerable_until_the_owner_acknowledges_it() {
+    let mut h = harness(None, false, default_script());
+    // A rejected send is not a displayed card, and keeps the fail-closed watchdog.
+    let session = subagent_asking_with_delivery(&mut h, false, true, Some("agent_budget"));
+    assert_eq!(
+        h.brain.unanswered_permissions(),
+        vec![(session, "p1".into())]
+    );
+    assert!(
+        h.brain
+            .state()
+            .sub("a1")
+            .unwrap()
+            .1
+            .permission
+            .as_ref()
+            .unwrap()
+            .home_message
+            .is_none()
+    );
+}
+
+#[test]
+fn hidden_card_relays_do_not_deny_a_request_the_person_can_answer() {
+    let mut h = harness(None, false, default_script());
+    subagent_asking(&mut h, false);
+    h.agents.inner.lock().unwrap().refuse_allows = true;
+    let answer = relay_allow(&mut h);
+    assert!(answer.contains("Home"), "{answer}");
+    assert_eq!(answered(&h, "p1"), None);
+    assert!(pending_prompt(&h));
+    assert_eq!(questions(&h), 1);
+}
+
+#[test]
+fn a_home_card_keeps_the_full_request_snapshot_and_replaces_changed_requests() {
+    let mut h = harness(None, false, default_script());
+    let session = subagent_asking(&mut h, false);
+    h.brain.step(permission_in(
+        &session,
+        "p1",
+        "Bash",
+        json!({"command": "printf '你好 /tmp/a'", "nested": {"n": 1.25}}),
+    ));
+    h.settle_posts();
+    let owner = h.owner.lock().unwrap();
+    let cards: Vec<_> = owner
+        .messages
+        .iter()
+        .flat_map(|m| &m.parts)
+        .filter_map(|p| {
+            if let Part::Question(q) = p {
+                Some(q)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(cards.len(), 2);
+    let raw: Value =
+        serde_json::from_str(&cards[1].items[0].options[0].preview.as_ref().unwrap().text).unwrap();
+    assert_eq!(
+        raw["toolCall"]["rawInput"]["command"],
+        "printf '你好 /tmp/a'"
+    );
+    assert_ne!(cards[0].items[0].id, cards[1].items[0].id);
+    assert!(owner.ops.iter().any(|(_, op)| matches!(op, Op::MessageEdit { parts, .. } if matches!(&parts[0], Part::Question(q) if q.state == cmux_conversation::QuestionState::Cancelled))));
+}
+
+fn settled_session(session: &str) -> cmux_chief::acp::SessionSummary {
+    serde_json::from_value(json!({"sessionId": session, "name": "a1", "status": "idle",
+        "harness": "claude-sr", "pendingPermissions": 0}))
+    .unwrap()
+}
+
+#[test]
+fn a_settled_hidden_request_retires_its_card_durably() {
+    let mut h = harness(None, false, default_script());
+    let session = subagent_asking(&mut h, false);
+    assert_eq!(questions(&h), 1);
+    h.brain
+        .step(Input::from(AgentEvent::SessionChanged(settled_session(
+            &session,
+        ))));
+    assert!(!pending_prompt(&h));
+    let edits: Vec<_> = h
+        .brain
+        .state()
+        .outbox
+        .iter()
+        .filter(|e| e.idempotency_key.starts_with("home-approval-ended:"))
+        .collect();
+    assert_eq!(
+        edits.len(),
+        1,
+        "the app's card-write failure still has a durable fallback"
+    );
+    assert!(
+        edits[0].not_before.is_some(),
+        "give the app time to record its actual answer"
+    );
+}
+
+#[test]
+fn an_attempted_card_delivered_after_expiry_is_immediately_retired() {
+    let mut h = harness(None, false, default_script());
+    const T0: u64 = 1_800_000_000_000;
+    h.brain.set_clock(Arc::new(|| T0));
+    subagent_asking_with_delivery(&mut h, false, true, Some("agent_rate"));
+    assert_eq!(questions(&h), 0);
+    assert!(!h.brain.unanswered_permissions().is_empty());
+    h.brain.deny_overdue_permissions_at(T0 + 3_600_000);
+    assert_eq!(answered(&h, "p1"), Some(Some("reject".into())));
+    h.settle_posts();
+    let owner = h.owner.lock().unwrap();
+    assert!(owner.ops.iter().any(|(_, op)| matches!(op, Op::MessageEdit { parts, .. }
+        if matches!(&parts[0], Part::Question(q) if q.state == cmux_conversation::QuestionState::Cancelled))));
+}
+
+#[test]
+fn replacing_a_watched_request_forgets_its_old_expiry() {
+    let mut h = harness(None, false, default_script());
+    let session = subagent_asking_with_allow(&mut h, false, false);
+    assert_eq!(
+        h.brain.unanswered_permissions(),
+        vec![(session.clone(), "p1".into())]
+    );
+    h.brain.step(permission_in(
+        &session,
+        "p2",
+        "Bash",
+        json!({"command": "make test"}),
+    ));
+    assert!(
+        !h.brain
+            .unanswered_permissions()
+            .iter()
+            .any(|(_, p)| p == "p1")
+    );
+    h.settle_posts();
+    assert_eq!(questions(&h), 1);
+    assert_eq!(answered(&h, "p2"), None);
 }
