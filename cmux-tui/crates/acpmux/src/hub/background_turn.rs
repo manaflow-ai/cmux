@@ -127,10 +127,10 @@ impl BackgroundTurns {
             let (trigger, seq) = self.pending.take().unwrap_or(("system", seq));
             let id = format!("bg-{seq}");
             let mut record = json!({"state": "started", "id": id, "trigger": trigger});
-            if let Some(cause) = self.causes.take().filter(|_| trigger == "task_notification") {
-                if let Some(fields) = record.as_object_mut() {
-                    fields.insert("cause".into(), cause);
-                }
+            if let Some(cause) = self.causes.take().filter(|_| trigger == "task_notification")
+                && let Some(fields) = record.as_object_mut()
+            {
+                fields.insert("cause".into(), cause);
             }
             started = Some(record);
             self.running =
