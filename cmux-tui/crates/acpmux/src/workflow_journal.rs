@@ -30,6 +30,7 @@ struct Entry {
     id: String,
     fingerprint: String,
     result: Option<Result<Value, Value>>,
+    completed_at: Option<usize>,
 }
 
 /// The next activity is either already finished or belongs to this stable identity.
@@ -59,6 +60,16 @@ pub struct Journal {
     fresh_call_limit: usize,
     poisoned: bool,
     stop: Option<Stop>,
+    completions: usize,
+}
+
+impl Drop for Journal {
+    fn drop(&mut self) {
+        // flock belongs to the open file description. A concurrent process
+        // launch can inherit it briefly before exec closes its descriptor;
+        // explicitly release our ownership instead of waiting for that copy.
+        let _ = self._owner.unlock();
+    }
 }
 
 impl Journal {
@@ -68,6 +79,39 @@ impl Journal {
         crate::config::private_state_dir(directory)?;
         let owner = private_file(&directory.join("resume.lock"))?;
         owner.try_lock().context("another execution owns this workflow run")?;
+        Self::open_owned(directory, source, fresh_call_limit, owner)
+    }
+
+    /// A daemon restart may launch the successor just before the old runner
+    /// notices its disconnected socket. Wait on the kernel lock, with a bounded
+    /// deadline, rather than racing it or polling. No work starts until claimed.
+    pub fn open_handoff(
+        directory: &Path,
+        source: &str,
+        fresh_call_limit: usize,
+        timeout: std::time::Duration,
+    ) -> Result<Self> {
+        crate::config::private_state_dir(directory)?;
+        let owner = private_file(&directory.join("resume.lock"))?;
+        let (send, receive) = std::sync::mpsc::sync_channel(1);
+        std::thread::Builder::new().name("workflow-handoff".into()).spawn(move || {
+            let result = owner.lock().map(|()| owner);
+            // On timeout, dropping the unreceived File releases the eventual
+            // lock. This thread performs no dispatch or journal mutation.
+            let _ = send.send(result);
+        })?;
+        let owner = receive
+            .recv_timeout(timeout)
+            .context("previous workflow runner did not release its journal")??;
+        Self::open_owned(directory, source, fresh_call_limit, owner)
+    }
+
+    fn open_owned(
+        directory: &Path,
+        source: &str,
+        fresh_call_limit: usize,
+        owner: File,
+    ) -> Result<Self> {
         let path = directory.join("activities.jsonl");
         if !path.exists() {
             let record = Record::Run {
@@ -95,6 +139,7 @@ impl Journal {
             fresh_call_limit,
             poisoned: false,
             stop: None,
+            completions: 0,
         };
         journal.restore()?;
         if journal.source != source {
@@ -137,7 +182,7 @@ impl Journal {
             id: id.clone(),
             fingerprint: fingerprint.clone(),
         })?;
-        self.entries.push(Entry { id: id.clone(), fingerprint, result: None });
+        self.entries.push(Entry { id: id.clone(), fingerprint, result: None, completed_at: None });
         self.cursor += 1;
         self.fresh_calls += 1;
         Ok(Activity::Work { id, recovered: false })
@@ -157,8 +202,28 @@ impl Journal {
         self.append(&Record::Completed { id: id.into(), result: result.clone() })?;
         if let Some(entry) = self.entries.get_mut(ordinal) {
             entry.result = Some(result);
+            entry.completed_at = Some(self.completions);
         }
+        self.completions += 1;
         Ok(())
+    }
+
+    /// Identity reserved by the most recent successful begin, including a replay.
+    pub fn last_id(&self) -> Option<&str> {
+        self.cursor.checked_sub(1).and_then(|n| self.entries.get(n)).map(|entry| entry.id.as_str())
+    }
+
+    /// Resume settles parallel promises in the exact order their outcomes were
+    /// delivered to the original interpreter, rather than current executor timing.
+    pub fn next_replay(&self, pending: &[String]) -> Option<String> {
+        pending
+            .iter()
+            .filter_map(|id| {
+                let entry = self.entries.get(self.ordinal(id)?)?;
+                Some((entry.completed_at?, id))
+            })
+            .min_by_key(|(order, _)| *order)
+            .map(|(_, id)| id.clone())
     }
 
     /// Called before marking a run successful. A script taking a shorter path
@@ -243,7 +308,7 @@ impl Journal {
                     {
                         bail!("invalid workflow activity order or identity");
                     }
-                    self.entries.push(Entry { id, fingerprint, result: None });
+                    self.entries.push(Entry { id, fingerprint, result: None, completed_at: None });
                 }
                 Record::Completed { id, result } => {
                     let ordinal =
@@ -256,6 +321,8 @@ impl Journal {
                         bail!("duplicate workflow completion");
                     }
                     entry.result = Some(result);
+                    entry.completed_at = Some(self.completions);
+                    self.completions += 1;
                 }
             }
             complete_bytes += line.len() as u64;

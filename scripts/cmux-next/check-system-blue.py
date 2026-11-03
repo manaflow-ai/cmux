@@ -38,6 +38,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 TREES = ("webviews/src", "Packages/macOS/CmuxNext/Sources", "Packages/Shared")
+# What this check reads. scripts/web_lint_prepush.py runs it alone when a push touches one (declared_inputs()).
+INPUTS = (*TREES,)
 EXTENSIONS = (".swift", ".css", ".ts", ".tsx")
 # Theme data, generated catalogs, vendor code and fixtures: colors there are content, not chrome.
 SKIP = (

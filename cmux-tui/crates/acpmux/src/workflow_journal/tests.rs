@@ -86,6 +86,23 @@ fn native_workflow_journal_has_only_one_resume_owner() {
     assert!(Journal::open(directory.path(), "script", 1).is_ok());
 }
 
+#[cfg(unix)]
+#[test]
+fn native_workflow_journal_releases_ownership_with_an_inherited_descriptor() {
+    let directory = tempfile::tempdir().unwrap();
+    let owner = Journal::open(directory.path(), "script", 1).unwrap();
+    // A dup shares the same open file description as an inherited pre-exec FD,
+    // without needing to fork a multithreaded test process.
+    let inherited = owner._owner.try_clone().unwrap();
+    assert!(Journal::open(directory.path(), "script", 1).is_err());
+    drop(owner);
+    let resumed = Journal::open(directory.path(), "script", 1).unwrap();
+    drop(inherited);
+    assert!(Journal::open(directory.path(), "script", 1).is_err());
+    drop(resumed);
+    assert!(Journal::open(directory.path(), "script", 1).is_ok());
+}
+
 #[test]
 fn native_workflow_journal_canonical_options_but_distinct_prompt_kind_and_options() {
     for (kind, prompt, options) in [
@@ -177,4 +194,30 @@ fn native_workflow_journal_binds_completion_and_never_replaces_an_outcome() {
     journal.complete(&id, Ok(json!(1))).unwrap();
     journal.complete(&id, Ok(json!(1))).unwrap();
     assert!(journal.complete(&id, Ok(json!(2))).is_err());
+}
+#[test]
+fn native_workflow_journal_restores_parallel_delivery_order() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut journal = super::Journal::open(directory.path(), "parallel", 2).unwrap();
+    let id = |activity| match activity {
+        super::Activity::Work { id, .. } => id,
+        _ => panic!(),
+    };
+    let first = id(journal.begin("agent", "first", &serde_json::json!({})).unwrap());
+    let second = id(journal.begin("agent", "second", &serde_json::json!({})).unwrap());
+    journal.complete(&second, Ok(serde_json::json!(2))).unwrap();
+    journal.complete(&first, Ok(serde_json::json!(1))).unwrap();
+    drop(journal);
+    let mut journal = super::Journal::open(directory.path(), "parallel", 0).unwrap();
+    assert!(matches!(
+        journal.begin("agent", "first", &serde_json::json!({})).unwrap(),
+        super::Activity::Replay(_)
+    ));
+    assert_eq!(journal.last_id(), Some(first.as_str()));
+    assert!(matches!(
+        journal.begin("agent", "second", &serde_json::json!({})).unwrap(),
+        super::Activity::Replay(_)
+    ));
+    assert_eq!(journal.next_replay(&[first.clone(), second.clone()]), Some(second));
+    assert_eq!(journal.next_replay(std::slice::from_ref(&first)), Some(first));
 }

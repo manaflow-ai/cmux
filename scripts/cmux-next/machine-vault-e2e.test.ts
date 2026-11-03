@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   CANCEL_BUDGET_MS,
+  KILL_GRACE_MS,
   DEV_API,
   DEV_PLATFORM,
   KEY_VAR,
@@ -62,6 +63,9 @@ interface Knobs {
   stall?: string[]
   /** The first `vault rm MACHINE_VAULT_E2E` hangs until its signal aborts. */
   firstRmHangs?: boolean
+  /** Cleanup's `vault rm` and `vault ls` ignore their signal and answer only at their timeout plus the
+   * kill grace, as a child that holds out to its SIGKILL does with the real runner. */
+  cleanupCmdsHang?: boolean
   /** The agent run hangs until its signal aborts. */
   agentHangs?: boolean
   /** A revoke answers 200 but the machine stays live. */
@@ -143,7 +147,7 @@ function fakes(k: Knobs = {}) {
       if (url.endsWith("/auth/sessions/current")) return json(k.signOutStatus ?? 200, {})
       return json(404, { code: "not_found" })
     },
-    run: async (argv, { stdin, signal }) => {
+    run: async (argv, { stdin, signal, timeoutMs }) => {
       calls.push(argv)
       const text = argv.join(" ")
       if (argv[0] === opts.cmux) {
@@ -156,6 +160,11 @@ function fakes(k: Knobs = {}) {
           stdins[name] = stdin ?? ""
           vault.add(name)
           return ok("")
+        }
+        if (k.cleanupCmdsHang && (text.includes("vault rm") || (text.includes("vault ls") && rms > 0))) {
+          rms++
+          await Bun.sleep(timeoutMs + KILL_GRACE_MS)
+          return { code: null, stdout: "", stderr: "" }
         }
         if (text.includes("vault rm")) {
           if (k.firstRmHangs && argv.includes(NONCE_VAR) && rms++ === 0) {
@@ -189,7 +198,10 @@ function fakes(k: Knobs = {}) {
     },
     write: (line) => lines.push(line),
     writeFile: (path, text) => files.set(path, text),
-    removeFile: (path) => removed.push(path),
+    removeFile: (path) => {
+      removed.push(path)
+      files.delete(path)
+    },
     now: () => Date.now(),
     sleep: (ms, signal) => Promise.race([Bun.sleep(ms), aborted(signal)]),
     random: () => NONCE
@@ -225,8 +237,9 @@ describe("machine-vault-e2e", () => {
     expect(e.cleanup.tokenFileRemoved).toBe(true)
     expect(e.cleanup.installRevoked).toBe(true)
     expect(f.removed).toEqual([`${opts.work}/cloud-token`])
-    // The token file held the access token; the evidence and the log hold no secret.
-    expect(f.files.get(`${opts.work}/cloud-token`)).toBe(`${ACCESS}\n`)
+    // The token file held the access token (and is gone); the evidence and the log hold no secret.
+    expect(f.files.has(`${opts.work}/cloud-token`)).toBe(false)
+    expect(f.lines.join("\n")).toContain(`::add-mask::${ACCESS}`)
     const evidence = f.files.get(opts.evidence)!
     for (const s of [EMAIL, PASSWORD, STACK_ACCESS, ACCESS, API_KEY]) {
       expect(evidence).not.toContain(s)
@@ -457,6 +470,38 @@ describe("machine-vault-e2e", () => {
     expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR, KEY_VAR])
     expect(e.reason).not.toContain("interrupted")
   }, 15_000)
+
+  test("a cancel during the install revoke leaves no token file, though the fresh pass writes it again", async () => {
+    const f = fakes({ reply: "wrong", stall: ["install.revoke"] })
+    let cancel: () => Promise<void> = async () => undefined
+    const running = runE2E(opts, env(), f.deps, (c) => (cancel = c))
+    // The run fails on its own; its cleanup stalls on the install revoke, after the vault (which wrote the token).
+    for (let i = 0; i < 2_000 && !f.requests.some((r) => r.includes("install.revoke")); i++) await Bun.sleep(1)
+    const writesBefore = f.calls.filter((a) => a[0] === opts.cmux).length
+    await cancel()
+    const e = await running
+    // The fresh pass ran the CLI again (so wrote the token file again), and the file is gone all the same.
+    expect(f.calls.filter((a) => a[0] === opts.cmux).length).toBeGreaterThan(writesBefore)
+    expect(f.files.has(`${opts.work}/cloud-token`)).toBe(false)
+    expect(e.cleanup.tokenFileRemoved).toBe(true)
+    expect(e.result).toBe("fail")
+  }, 15_000)
+
+  test("cleanup ends by the cancel deadline when requests stall and commands run to their timeouts", async () => {
+    const f = fakes({ agentHangs: true, stall: ["/revoke", "install.revoke", "sessions/current"], cleanupCmdsHang: true })
+    let cancel: () => Promise<void> = async () => undefined
+    const running = runE2E(opts, env(), f.deps, (c) => (cancel = c))
+    for (let i = 0; i < 2_000 && !f.calls.some((a) => a.includes("run")); i++) await Bun.sleep(1)
+    const started = Date.now()
+    await cancel()
+    const took = Date.now() - started
+    const e = await running
+    // No floor past the deadline, and a killed child's grace is inside it.
+    expect(took).toBeLessThanOrEqual(CANCEL_BUDGET_MS + 100)
+    expect(e.cleanup.cancelCleanupMs!).toBeLessThanOrEqual(CANCEL_BUDGET_MS + 100)
+    expect(e.result).toBe("fail")
+    expect(f.files.has(`${opts.work}/cloud-token`)).toBe(false)
+  }, 20_000)
 
   test("reads the CLIs' JSON", () => {
     expect(lastJson('noise\n{"a":1}\n{"b":2}\n')).toEqual({ b: 2 })
