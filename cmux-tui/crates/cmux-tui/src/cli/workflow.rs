@@ -204,32 +204,6 @@ fn nonempty(value: &str, name: &str) -> Result<String, String> {
         .ok_or_else(|| format!("{name} must be nonempty"))
 }
 
-/// Wire shape consumed by `_acpmux/workflow`; kept here so CLI and MCP cannot
-/// drift in field spelling.  The hidden runner is handled by `mcp::workflow_run`.
-pub(crate) fn request(invocation: &Invocation) -> Value {
-    match invocation {
-        Invocation::Start { name, source, args, session_id, cwd } => {
-            let mut request = json!({"action": "start", "name": name, "source": source, "args": args, "cwd": cwd});
-            if let Some(session_id) = session_id {
-                request["sessionId"] = Value::String(session_id.clone());
-            }
-            request
-        }
-        Invocation::Status { run_id } => {
-            let mut request = json!({"action": "status"});
-            if let Some(run_id) = run_id {
-                request["runId"] = Value::String(run_id.clone());
-            }
-            request
-        }
-        Invocation::Pause { run_id } => json!({"action": "pause", "runId": run_id}),
-        Invocation::Resume { run_id } => json!({"action": "resume", "runId": run_id}),
-        Invocation::Run { run_id, generation } => {
-            json!({"runId": run_id, "generation": generation})
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,8 +222,12 @@ mod tests {
         let (dir, _) = fixture();
         let invocation =
             parse(&["start".into(), "nightly.workflow.js".into()], dir.path()).unwrap();
-        assert_eq!(request(&invocation)["name"], "nightly");
-        assert_eq!(request(&invocation)["source"], "return 42;");
+        let Invocation::Start { name, source, args, .. } = invocation else {
+            panic!("expected start")
+        };
+        assert_eq!(name, "nightly");
+        assert_eq!(source, "return 42;");
+        assert_eq!(args, json!([]));
     }
 
     #[test]
@@ -270,6 +248,6 @@ mod tests {
             Path::new("."),
         )
         .unwrap();
-        assert_eq!(request(&run)["generation"], 7);
+        assert!(matches!(run, Invocation::Run { generation: 7, .. }));
     }
 }
