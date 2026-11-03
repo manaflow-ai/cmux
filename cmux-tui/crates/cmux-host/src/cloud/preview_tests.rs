@@ -208,7 +208,7 @@ fn preview_client_uses_bound_identity_and_platform_origin_with_one_401_refresh()
     let fresh = preview(3000, "fresh");
     let (mut client, fake) = client([
         (401, json!({"error":{"code":"auth.required"}})),
-        (200, inventory(vec![fresh.clone()])),
+        (200, inventory(vec![fresh])),
     ]);
     let reply = client.preview(&ask(PreviewOperation::Url, Some(3000)), NOW);
     assert_eq!(reply["ok"], true);

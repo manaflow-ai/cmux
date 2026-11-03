@@ -180,10 +180,11 @@ pub fn answer(
         return refusal("preview.bad_answer", "The preview service returned no shared URL.");
     };
     let mut value = json!({"port":ask.port, "url":url});
-    if ask.audience == Some(ShareAudience::Link) {
-        if let Some(id) = shared.pointer("/link/linkId") {
-            value["linkId"] = id.clone();
-        }
+    if ask.audience == Some(ShareAudience::Link)
+        && let Some(id) = shared.pointer("/link/linkId")
+        && let Some(map) = value.as_object_mut()
+    {
+        map.insert("linkId".to_owned(), id.clone());
     }
     json!({"ok":true, "value":value})
 }
@@ -228,8 +229,8 @@ pub fn preview_row(row: &Value, bootstrap: bool) -> Result<Value, String> {
     }
     let mut result = json!({"port":row.get("port"), "url":address, "origin":origin});
     for key in ["expiresAt", "expires_at"] {
-        if let Some(value) = row.get(key) {
-            result[key] = value.clone();
+        if let (Some(value), Some(map)) = (row.get(key), result.as_object_mut()) {
+            map.insert(key.to_owned(), value.clone());
         }
     }
     Ok(result)
@@ -244,8 +245,8 @@ pub fn plain_inventory(inventory: &Value) -> Result<Value, String> {
     let rows = rows.iter().map(|row| preview_row(row, false)).collect::<Result<Vec<_>, _>>()?;
     let mut result = json!({"machine":inventory.get("machine"), "previews":rows});
     for key in ["listening", "unavailable"] {
-        if let Some(value) = inventory.get(key) {
-            result[key] = value.clone();
+        if let (Some(value), Some(map)) = (inventory.get(key), result.as_object_mut()) {
+            map.insert(key.to_owned(), value.clone());
         }
     }
     Ok(result)
