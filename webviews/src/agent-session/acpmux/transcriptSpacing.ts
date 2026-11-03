@@ -261,8 +261,9 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & { variant: "working-
  * sender inline, underlined, at the row's size; ChatGPT draws a name as plain text. Measured over
  * gallery variant `reply-received` by test/transcript-spacing-kinds.test.ts. */
 export const SESSION_CHIP = {
-  /** The chip's box over its label's glyph box, CSS px: at most this much taller. */
-  overText: 2,
+  /** The chip's box over its label's glyph box, CSS px: at most this much taller (ours 1em + 4px,
+   * 18 at 14px, about 1.5 over the glyphs; the 22 chip it replaces stood 5 over them). */
+  overText: 3,
   /** The chip's label is the row's own size: its font size over the row's text's, CSS px. */
   fontDelta: 0,
   pending: undefined as string | undefined,

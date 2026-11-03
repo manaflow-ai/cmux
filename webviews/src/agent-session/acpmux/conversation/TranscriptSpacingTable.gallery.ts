@@ -9,6 +9,7 @@
 // from 2 sessions". transcript-spacing-table.test.ts measures it against transcriptSpacing.ts.
 import { minutesAgo } from "../../../gallery/clock";
 import { agentPaneEntry } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
 import {
   SESSION_ID,
   activity,
@@ -105,7 +106,7 @@ function allKinds(): AcpmuxSnapshot {
       fromLane("Deployed; the lander is on 59c1e0a.", 9, "kinds-received"),
       row(BACKGROUND_TURN, 8.5, {
         id: backgroundTurnRowId("spacing-scheduled"),
-        background: { id: "spacing-scheduled", trigger: "scheduled", running: false, quiet: true },
+        background: { id: "spacing-scheduled", trigger: "scheduled", running: false, quiet: true, hasRows: true },
       }),
       activity([tool("git fetch origin", "execute", "completed", { command: "git fetch origin" })], 8.4, {
         inBackground: "spacing-scheduled",
@@ -332,6 +333,20 @@ function replyReceived(): AcpmuxSnapshot {
   );
 }
 
+/// The session chip's looks compared over `reply-received` (the pick, shipped in AgentTag.css: the
+/// row's words on a light wash, 1em + 4px tall, no ring): the 22 bordered chip it replaces, and
+/// Claude Code desktop's underlined name with no wash (reference claude/live/transcript-peer-session-message).
+/// Gallery only: a style laid over the shipped rule.
+const chipLook =
+  (css: string): Play =>
+  async (ctx) => {
+    const style = ctx.document.createElement("style");
+    style.textContent = css;
+    ctx.document.head.append(style);
+  };
+const CHIP_BEFORE = `button.cv-agent-tag.is-open { height: 22px; line-height: 22px; font-size: var(--text-control); border-radius: 6px; background: color-mix(in srgb, var(--cv-text) 9%, transparent); box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 18%, transparent); }`;
+const CHIP_UNDERLINE = `button.cv-agent-tag.is-open { padding: 0; background: none; box-shadow: none; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 3px; }`;
+
 export default agentPaneEntry({
   id: "agent-pane.transcript-spacing-table",
   title: "Transcript spacing: every row kind against the settled values",
@@ -388,8 +403,18 @@ export default agentPaneEntry({
       snapshot: workingBottom(),
     },
     "reply-received": {
-      note: "Leo's 2026-11-03 capture after a reply: another machine's lane's message, \"Sent to\" and \"Thinking\", 16 from the reply's room and 22 apart, the session chips at the row's size.",
+      note: "The pick (version B). Leo's 2026-11-03 capture after a reply: another machine's lane's message, \"Sent to\" and \"Thinking\" 22 apart, each session chip the row's words on a light wash, no ring.",
       snapshot: replyReceived(),
+    },
+    "reply-received-before": {
+      note: "Version A, the replaced look: the 22 bordered chip at the control size, taller than its row's words.",
+      snapshot: replyReceived(),
+      play: chipLook(CHIP_BEFORE),
+    },
+    "reply-received-underline": {
+      note: "Version C: Claude Code desktop's underlined name, no wash. Lightest, but reads as prose, not a way to another chat.",
+      snapshot: replyReceived(),
+      play: chipLook(CHIP_UNDERLINE),
     },
     "peer-lines": {
       note: "A reply's footer, a lane on another machine's message, then \"Ran 2 commands, received a message\": one line height, one icon column, the sender once.",

@@ -184,7 +184,6 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
     return page;
   };
 
-
   type StatusMeasured = {
     gaps: Record<string, number | null>;
     chips: { overText: number; fontDelta: number }[];
@@ -232,7 +231,9 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       };
       const diff = (a: number | null | undefined, b: number | null | undefined) =>
         a == null || b == null ? null : Math.round((b - a) * 100) / 100;
-      const live = rows.find((row) => row.classList.contains("acpmux-thinking") || row.classList.contains("acpmux-working"));
+      const live = rows.find(
+        (row) => row.classList.contains("acpmux-thinking") || row.classList.contains("acpmux-working"),
+      );
       const footer = document
         .querySelector('[data-row-id="received-footer"] .cv-turn-actions button svg')
         ?.getBoundingClientRect();
