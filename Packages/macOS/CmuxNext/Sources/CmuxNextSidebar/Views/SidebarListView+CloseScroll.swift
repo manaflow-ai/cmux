@@ -72,6 +72,16 @@ extension SidebarListViewComponents {
                 isShiftingViewport = false
             }
         }
+        // A reload with no motion (a launch's restore, a space switch) jumps to the reveal in the frame it commits: the clip
+        // goes there first and apply realizes the rows once, around it (REOPEN-F7: applied at the anchor and then
+        // jumped, a reopened window far down its list built its rows twice before its first frame).
+        if !animated, !toNewRow, abs(target - clip.bounds.minY) > 0.25 {
+            if frame.height < after.content { setFrameSize(NSSize(width: frame.width, height: after.content)) }
+            isShiftingViewport = true
+            clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX, y: target))
+            enclosingScrollView?.reflectScrolledClipView(clip)
+            isShiftingViewport = false
+        }
         apply(layout, animated: animated, newRowsInPlace: toNewRow && !keepsOffset && abs(target - clip.bounds.minY) > 0.25)
         if abs(target - clip.bounds.minY) > 0.25 { scrollClip(to: target, animated: animated && !toNewRow) }
     }
