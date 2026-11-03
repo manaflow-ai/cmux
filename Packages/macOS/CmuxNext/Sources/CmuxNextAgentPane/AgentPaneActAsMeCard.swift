@@ -21,6 +21,11 @@ public final class AgentPaneActAsMeCard: NSPanel {
     private var personDown: (event: NSEvent, allow: NSControl)?
     /// The last mouse-up that answered Allow: each click answers once.
     private var spentUp: (number: Int, time: TimeInterval)?
+    /// When ``show()`` put the card up (the events' clock, the system uptime); nil until it shows.
+    var shownAt: TimeInterval?
+    /// How long after the card shows a mouse-down on Allow is ignored: the card appears when an agent's Send
+    /// is refused, so a click the person was already making elsewhere cannot land on Allow and turn it on.
+    static let armDelay: TimeInterval = 0.5
 
     public init(grant: AgentPaneActAsMe) {
         self.grant = grant
@@ -52,7 +57,9 @@ public final class AgentPaneActAsMeCard: NSPanel {
         switch event.type {
         case .leftMouseDown:
             personDown = nil
-            if let allow = content.allow, allow.isEnabled, isPersonEvent(event) { personDown = (event: event, allow: allow) }
+            if let allow = content.allow, allow.isEnabled, isArmed(at: event.timestamp), isPersonEvent(event) {
+                personDown = (event: event, allow: allow)
+            }
             body()
             if let up = eventInHand(), up.type == .leftMouseUp { endClick(up) }
         case .leftMouseDragged, .pressure:
@@ -88,9 +95,15 @@ public final class AgentPaneActAsMeCard: NSPanel {
         return true
     }
 
+    /// SECURITY: whether a mouse-down at `time` may begin a click on Allow: not within ``armDelay`` of ``show()``.
+    func isArmed(at time: TimeInterval) -> Bool {
+        shownAt.map { time - $0 >= Self.armDelay } ?? true
+    }
+
     /// Shows the card (at once, no fade) with the grant's current state.
     public func show() {
         animationBehavior = .none
+        shownAt = ProcessInfo.processInfo.systemUptime
         content.rebuild()
         let size = content.fittingSize
         let area = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(origin: .zero, size: size)

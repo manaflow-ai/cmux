@@ -315,4 +315,30 @@ struct AgentPaneActAsMeTests {
         card.dispatch(try #require(click(.leftMouseUp, number: 4))) {}
         #expect(grant.holder == .person)
     }
+
+    /// The card shows when an agent's Send is refused: a person's click that lands on Allow right then was
+    /// meant for something else, and turns nothing on.
+    @Test func allowIgnoresAClickRightAfterTheCardShows() throws {
+        _ = NSApplication.shared
+        let grant = AgentPaneActAsMe()
+        let card = AgentPaneActAsMeCard(grant: grant)
+        card.content.rebuild()
+        card.setContentSize(card.content.fittingSize)
+        card.contentView?.layoutSubtreeIfNeeded()
+        card.eventInHand = { nil }
+        card.isPersonEvent = { _ in true }
+        card.shownAt = 100
+        let allow = try #require(card.content.allow)
+        let point = allow.convert(NSPoint(x: allow.bounds.midX, y: allow.bounds.midY), to: nil)
+        func click(_ type: NSEvent.EventType, at time: TimeInterval, number: Int) -> NSEvent? {
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: time,
+                               windowNumber: card.windowNumber, context: nil, eventNumber: number, clickCount: 1, pressure: 1)
+        }
+        card.dispatch(try #require(click(.leftMouseDown, at: 100.1, number: 1))) {}
+        card.dispatch(try #require(click(.leftMouseUp, at: 100.6, number: 2))) {}
+        #expect(!grant.isOn, "a click begun as the card appeared turned it on")
+        card.dispatch(try #require(click(.leftMouseDown, at: 100.7, number: 3))) {}
+        card.dispatch(try #require(click(.leftMouseUp, at: 100.8, number: 4))) {}
+        #expect(grant.holder == .person)
+    }
 }
