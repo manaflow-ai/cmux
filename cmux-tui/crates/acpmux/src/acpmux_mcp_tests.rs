@@ -699,7 +699,7 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
     let big = "x".repeat(4000);
     let mut sessions: Vec<Value> = (0..3000)
         .map(|i| {
-            json!({"name": format!("old-{i}"), "status": "closed", "title": "done", "peer": "big-red",
+            json!({"name": format!("old-{i}"), "status": "closed", "title": "done", "peer": "peer-a",
                 "sessionId": format!("c{i}"), "updatedAt": i, "lastPrompt": big, "sessionReceipt": big})
         })
         .collect();
@@ -737,7 +737,14 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
     );
     let r = ls_result(&all, &json!({"status": "closed", "limit": 5}));
     assert_eq!(r["structuredContent"]["sessions"].as_array().unwrap().len(), 5);
-    assert!(text(&r).starts_with("big-red/old-2999  [closed]"), "{}", text(&r));
+    assert!(text(&r).starts_with("peer-a/old-2999  [closed]"), "{}", text(&r));
+    assert!(text(&r).contains("raise limit (up to 500)"), "{}", text(&r));
+
+    // A closed session is found by query once status asks for closed ones, and only then.
+    let r = ls_result(&all, &json!({"query": "old-42", "status": "closed"}));
+    assert!(text(&r).lines().any(|l| l.starts_with("peer-a/old-42  [closed]")), "{}", text(&r));
+    let r = ls_result(&all, &json!({"query": "old-42"}));
+    assert_eq!(text(&r), "No sessions.", "{r}");
 }
 
 #[tokio::test]
