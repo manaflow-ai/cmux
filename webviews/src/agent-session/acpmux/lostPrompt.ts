@@ -11,8 +11,17 @@ export const LOST_PROMPT_CONNECT_MS = 30_000;
 /// How long the next connection waits for the prompt the host sent again to show.
 export const LOST_PROMPT_SHOW_MS = 10_000;
 
-/// What `AcpmuxDirectClient.send` adds to the error of a prompt it lost with its connection.
-export type LostPrompt = { sessionId: string; promptId: string };
+/// What `AcpmuxDirectClient.send` adds to the error of a prompt it lost with its connection: the
+/// `session/prompt` params it sent (`params`), so the pane can send it again itself under the same
+/// promptId, and whether the host's journal sends it again (`hostResends`, a chat of this Mac's
+/// acpmux). acpmux applies a promptId once, whoever sends it again (`prompt_ids.rs`), so the pane's
+/// copy is harmless when the first one got through (HQ#6740).
+export type LostPrompt = {
+  sessionId: string;
+  promptId: string;
+  params?: Record<string, unknown>;
+  hostResends?: boolean;
+};
 
 /// The connection went while the request waited (`rejectPending`), not the request's own time.
 export function isLostConnection(error: unknown): boolean {
@@ -21,9 +30,14 @@ export function isLostConnection(error: unknown): boolean {
 
 export function lostPrompt(error: unknown): LostPrompt | undefined {
   const lost = (error as { lostPrompt?: Partial<LostPrompt> } | null)?.lostPrompt;
-  return typeof lost?.sessionId === "string" && typeof lost.promptId === "string"
-    ? { sessionId: lost.sessionId, promptId: lost.promptId }
-    : undefined;
+  if (typeof lost?.sessionId !== "string" || typeof lost.promptId !== "string") return undefined;
+  const params = lost.params !== null && typeof lost.params === "object" ? lost.params : undefined;
+  return {
+    sessionId: lost.sessionId,
+    promptId: lost.promptId,
+    ...(params ? { params } : {}),
+    ...(typeof lost.hostResends === "boolean" ? { hostResends: lost.hostResends } : {}),
+  };
 }
 
 /// The pane's connected clients, one after another: `next` settles with the first client that
@@ -55,12 +69,16 @@ export function clientWaiter<Client>() {
 export type ResendWaiter = {
   readonly isClosed: boolean;
   awaitResent(sessionId: string, promptId: string, timeoutMs: number): Promise<boolean>;
+  /// Sends `lost` again on this connection under its promptId; true once it shows or acpmux took it.
+  resendLost?(lost: LostPrompt, timeoutMs: number): Promise<boolean>;
 };
 
-/// Waits for the host to send `lost` again on a connection after `from`: the connection it shows
-/// on, or undefined when none comes within `connectMs` or the prompt does not show within
-/// `showMs` on one that stays. A connection that drops first hands the wait on to the next: the
-/// host's journal sends the prompt again there.
+/// Waits for `lost` to go again on a connection after `from`: the connection it shows on, or
+/// undefined when none comes within `connectMs` or the prompt does not show within `showMs` on one
+/// that stays. The host's journal sends it again on a chat of this Mac's acpmux; the pane sends it
+/// itself, under the same promptId, on any other chat at once, and on this Mac's when the journal
+/// did not within `showMs` (its Debug switch is off). A connection that drops first hands the wait
+/// on to the next.
 export async function waitForResend<Client extends ResendWaiter>(
   clients: { next(previous: Client, timeoutMs: number): Promise<Client | undefined> },
   from: Client,
@@ -72,7 +90,9 @@ export async function waitForResend<Client extends ResendWaiter>(
   for (;;) {
     const next = await clients.next(previous, connectMs);
     if (!next) return undefined;
-    if (await next.awaitResent(lost.sessionId, lost.promptId, showMs)) return next;
+    if (lost.hostResends !== false && (await next.awaitResent(lost.sessionId, lost.promptId, showMs)))
+      return next;
+    if (!next.isClosed && lost.params && next.resendLost && (await next.resendLost(lost, showMs))) return next;
     if (!next.isClosed) return undefined;
     previous = next;
   }

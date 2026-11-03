@@ -7393,23 +7393,26 @@ export class AcpmuxDirectClient {
     );
     this.emit();
     const gesture = await ticket;
-    try {
-      await this.request("session/prompt", {
-        sessionId,
-        // A recording goes only to a harness that takes voice input; one moved to another
-        // harness (a switch, a held prompt put back) goes as its transcript.
-        prompt: blocks,
-        _meta: {
-          acpmux: {
-            promptId,
-            ...(steer ? { steer: true } : {}),
-            ...(context ? { context } : {}),
-            ...(fileDisplay.length ? { inlineParts: fileDisplay } : {}),
-            ...promptSurfaceMeta(),
-          },
-          ...(gesture ? { cmuxGesture: gesture } : {}),
+    // Kept for a resend under the same promptId if the connection goes before acpmux takes it
+    // (`lostPrompt.ts`).
+    const wire: Record<string, unknown> = {
+      sessionId,
+      // A recording goes only to a harness that takes voice input; one moved to another
+      // harness (a switch, a held prompt put back) goes as its transcript.
+      prompt: blocks,
+      _meta: {
+        acpmux: {
+          promptId,
+          ...(steer ? { steer: true } : {}),
+          ...(context ? { context } : {}),
+          ...(fileDisplay.length ? { inlineParts: fileDisplay } : {}),
+          ...promptSurfaceMeta(),
         },
-      });
+        ...(gesture ? { cmuxGesture: gesture } : {}),
+      },
+    };
+    try {
+      await this.request("session/prompt", wire);
       accept();
       // A steer's answer comes once the agent read it (Claude Code's `steered`) or its turn ended.
       if (
@@ -7461,11 +7464,19 @@ export class AcpmuxDirectClient {
       // a sender that holds its prompt (`accepted`) keeps every refused one: the prompt never
       // went, so it leaves no bubble, and the pane keeps it in (or puts it back in) the composer.
       const held = !released && accepted !== undefined;
-      // The connection went before acpmux took it, on a chat of this Mac's acpmux: the host's prompt
-      // journal sends it again, under its promptId, on the pane's next connection (lostPrompt.ts),
-      // so its sender waits for it to show there instead of saying "Not sent" at once.
-      if (!taken && isLostConnection(error) && this.journalsPrompts())
-        Object.assign(error as object, { lostPrompt: { sessionId, promptId } satisfies LostPrompt });
+      // The connection went before acpmux took it: it goes again, under its promptId, on the pane's
+      // next connection (lostPrompt.ts), sent by the host's prompt journal on a chat of this Mac's
+      // acpmux and by the pane on any other, so its sender waits for it to show there instead of
+      // saying "Not sent" at once. acpmux runs a promptId once (`prompt_ids.rs`).
+      if (!taken && isLostConnection(error))
+        Object.assign(error as object, {
+          lostPrompt: {
+            sessionId,
+            promptId,
+            params: wire,
+            hostResends: this.journalsPrompts(),
+          } satisfies LostPrompt,
+        });
       // The folder's trust question (the one route); the pane's sender adds the re-send.
       if (here && trustCancellation === this.trustCancellation) this.routeTrustRefusal(error);
       if (held) {
@@ -9150,6 +9161,19 @@ export class AcpmuxDirectClient {
       this.promptAccepts.set(promptId, accept);
       this.resendWaits.set(gone, sessionId);
     });
+  }
+  /// Sends again on this connection, under its promptId and marked a resend, a prompt an earlier
+  /// connection lost before acpmux took it (`lostPrompt.ts`). acpmux applies a promptId once
+  /// (`prompt_ids.rs`), so a copy that got through the first time is answered, not run again. True
+  /// once this chat shows it or acpmux took it within `timeoutMs`, as `awaitResent`.
+  resendLost(lost: LostPrompt, timeoutMs: number): Promise<boolean> {
+    if (this.closed || !lost.params || this.selectedSessionId !== lost.sessionId) return Promise.resolve(false);
+    const meta = (lost.params._meta ?? {}) as Record<string, unknown>;
+    const acpmux = { ...(meta.acpmux as Record<string, unknown> | undefined), resend: true };
+    const shown = this.awaitResent(lost.sessionId, lost.promptId, timeoutMs);
+    // Its answer is the transcript's (the turn's end); a refusal leaves it unshown, so `shown` says no.
+    this.request("session/prompt", { ...lost.params, _meta: { ...meta, acpmux } }).catch(() => undefined);
+    return shown;
   }
   /// Takes over the watched chat shown here (`_acpmux/watch_take_over`), so it runs the
   /// conversation itself. While the app that runs it still does, acpmux refuses (`adopt.live`) and
