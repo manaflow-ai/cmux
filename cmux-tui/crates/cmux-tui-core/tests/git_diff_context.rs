@@ -438,12 +438,13 @@ fn git_diff_untracked_pages_include_every_file_and_large_line_counts() {
     assert_eq!(first["untracked_skipped"], 525, "commit preview must name omitted files: {first}");
 
     let mut names = Vec::new();
-    let mut after = json!("");
+    let mut after: Option<String> = None;
     loop {
-        let page = client.read(
-            "git.diff",
-            json!({"path":path,"scope":"uncommitted","max_files":73,"after_path":after}),
-        );
+        let mut params = json!({"path":path,"scope":"uncommitted","max_files":73});
+        if let Some(after) = &after {
+            params["after_path"] = json!(after);
+        }
+        let page = client.read("git.diff", params);
         assert_eq!(page["total_files"], 1025, "{page}");
         assert_eq!(page["additions"], additions, "{page}");
         assert_eq!(
@@ -462,8 +463,8 @@ fn git_diff_untracked_pages_include_every_file_and_large_line_counts() {
             break;
         }
         let next = page["next_path"].as_str().unwrap();
-        assert_ne!(after.as_str(), Some(next));
-        after = json!(next);
+        assert_ne!(after.as_deref(), Some(next));
+        after = Some(next.to_owned());
         assert!(names.len() < 1025);
     }
     assert_eq!(names, (0..1025).map(|index| format!("files/{index:04}.txt")).collect::<Vec<_>>());
