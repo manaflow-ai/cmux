@@ -203,9 +203,11 @@ fn write_all_at(file: &std::fs::File, mut offset: u64, mut bytes: &[u8]) -> io::
     Ok(())
 }
 
-/// [`SyncLevel`] on macOS: `F_BARRIERFSYNC` or `F_FULLFSYNC`, and a plain `fsync` where the file
-/// system refuses them (a network or FAT volume). std's `sync_data` and `sync_all` are both
-/// `F_FULLFSYNC` there, so they are not used.
+/// [`SyncLevel`] on macOS: `F_BARRIERFSYNC` or `F_FULLFSYNC`. A plain `fsync` is used only where
+/// the file system does not support the call (a network, FAT or other volume that answers
+/// ENOTSUP, EOPNOTSUPP, EINVAL or ENOTTY); there no stronger sync exists. Any other error (EIO) is
+/// returned: the data is not known to be on the disk, and the caller must not count it as
+/// durable. std's `sync_data` and `sync_all` are both `F_FULLFSYNC` here, so they are not used.
 #[cfg(target_os = "macos")]
 fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
     use std::os::fd::AsRawFd;
@@ -213,9 +215,17 @@ fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
         SyncLevel::Barrier => libc::F_BARRIERFSYNC,
         SyncLevel::Full => libc::F_FULLFSYNC,
     };
-    // SAFETY: fcntl and fsync on a descriptor that `file` owns for the whole call.
+    // SAFETY: fcntl on a descriptor that `file` owns for the whole call.
     if unsafe { libc::fcntl(file.as_raw_fd(), command) } != -1 {
         return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    let unsupported = matches!(
+        error.raw_os_error(),
+        Some(libc::ENOTSUP | libc::EOPNOTSUPP | libc::EINVAL | libc::ENOTTY)
+    );
+    if !unsupported {
+        return Err(error);
     }
     // SAFETY: as above.
     if unsafe { libc::fsync(file.as_raw_fd()) } == 0 {

@@ -20,8 +20,11 @@ use crate::{
 
 const WAIT: Duration = Duration::from_secs(10);
 
-/// What a replay saw: (lsn, kind, class, payload) per record.
-type Seen = Vec<(Lsn, u16, Class, Vec<u8>)>;
+/// One record as a replay saw it: (lsn, kind, class, payload).
+type SeenRecord = (Lsn, u16, Class, Vec<u8>);
+type Seen = Vec<SeenRecord>;
+/// What the crash runs appended: LSN to (class, payload).
+type Model = Arc<Mutex<BTreeMap<Lsn, (Class, Vec<u8>)>>>;
 
 fn dir() -> PathBuf {
     PathBuf::from("/sim/journal")
@@ -55,7 +58,7 @@ fn open(storage: &SimStorage) -> (Journal, OpenReport, Seen) {
     open_at(storage, quick(), 0).unwrap_or_else(|error| panic!("open: {error}"))
 }
 
-fn lsns(seen: &Seen) -> Vec<Lsn> {
+fn lsns(seen: &[SeenRecord]) -> Vec<Lsn> {
     seen.iter().map(|record| record.0).collect()
 }
 
@@ -390,7 +393,7 @@ fn a_damaged_segment_in_the_middle_is_quarantined_and_its_lsns_are_never_reused(
     let restarted = storage.restart(Crash::Process);
     let (journal, report, seen) = open_at(&restarted, config, 0).unwrap_or_else(|e| panic!("{e}"));
     let kept = Lsn::try_from(seen.len()).unwrap_or(0);
-    assert!(kept > 0 && kept < 30, "the valid prefix stays: {kept}");
+    assert!((1..30).contains(&kept), "the valid prefix stays: {kept}");
     assert_eq!(lsns(&seen), (1..=kept).collect::<Vec<_>>());
     match report.damage.first() {
         Some(Damage::Corrupt { moved, lost_after, lost_through, .. }) => {
@@ -487,7 +490,7 @@ fn crash_run(seed: u64, crash: Crash) -> Result<(), String> {
     };
     let (journal, _, _) = open_at(&storage, config.clone(), 0).map_err(|e| e.to_string())?;
     let journal = Arc::new(journal);
-    let appended: Arc<Mutex<BTreeMap<Lsn, (Class, Vec<u8>)>>> = Arc::default();
+    let appended: Model = Arc::default();
     let durable = Arc::new(AtomicU64::new(0));
     let full_durable = Arc::new(AtomicU64::new(0));
     storage.crash_after(1 + rng.below(80));

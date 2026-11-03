@@ -336,8 +336,8 @@ fn surviving_bytes(file: &SimFile, cut: Option<u64>, rng: &mut SimRng) -> Vec<u8
         match rng.below(3) {
             0 => {
                 let from = base.len().saturating_add(rng.index(keep));
-                for byte in out.get_mut(from..).unwrap_or_default() {
-                    *byte = 0;
+                if let Some(tail) = out.get_mut(from..) {
+                    tail.fill(0);
                 }
             }
             1 => {
@@ -535,8 +535,7 @@ impl StorageFile for SimHandle {
             }
             Step::Crash => {
                 let keep = fs.rng.index(bytes.len().saturating_add(1));
-                let torn = bytes.get(..keep).unwrap_or_default().to_vec();
-                fs.file(self.inode)?.data.extend_from_slice(&torn);
+                fs.file(self.inode)?.data.extend_from_slice(bytes.get(..keep).unwrap_or_default());
                 Err(crashed())
             }
         }

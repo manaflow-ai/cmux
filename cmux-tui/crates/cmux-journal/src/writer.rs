@@ -215,10 +215,12 @@ impl Writer {
 
     fn deadline(&self) -> Option<Instant> {
         let config = &self.shared.config;
-        let stream = (!self.retained.is_empty() && self.written == self.retained.len())
-            .then_some(self.unsynced_since)
-            .flatten()
-            .and_then(|since| since.checked_add(config.stream_sync_delay));
+        let written = !self.retained.is_empty() && self.written == self.retained.len();
+        let stream = if written {
+            self.unsynced_since.and_then(|since| since.checked_add(config.stream_sync_delay))
+        } else {
+            None
+        };
         let full = self.unfull_since.and_then(|since| since.checked_add(config.full_sync_interval));
         match (stream, full) {
             (Some(a), Some(b)) => Some(a.min(b)),
@@ -227,7 +229,16 @@ impl Writer {
     }
 
     fn work(&mut self, close: bool) -> Result<(), Failure> {
+        // Records to write or sync, or synced records a full sync still owes. A rotation closes a
+        // fully synced segment, so it owes nothing and the next segment waits for the next record.
+        let owed = !self.retained.is_empty() || self.durable > self.full_durable;
         if self.active.is_none() {
+            if !owed {
+                return Ok(());
+            }
+            // After a failed sync or full sync, the records after `durable` (in `retained`) go into
+            // the new segment, and its full syncs flush the drive cache for every file, so the
+            // records the failed segment holds through `durable` become fully durable too.
             self.create_segment().map_err(Failure::Segment)?;
         }
         let now = Instant::now();
@@ -260,7 +271,6 @@ impl Writer {
             && (self.retained_ack
                 || self.retained.len() >= MAX_UNSYNCED_BYTES
                 || self.unsynced_since.is_some_and(|since| passed(since, stream_delay, now)));
-        let owed = held || self.durable > self.full_durable;
         if due || (full && owed) {
             let level = if full { SyncLevel::Full } else { SyncLevel::Barrier };
             self.sync(level).map_err(Failure::Segment)?;

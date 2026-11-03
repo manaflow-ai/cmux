@@ -269,8 +269,8 @@ fn read_headers(
         let file = storage.open(&dir.join(name), OpenMode::Read).map_err(io("open a segment"))?;
         let size = file.size().map_err(io("read a segment's size"))?;
         let last = index.saturating_add(1) == listed.len();
-        match read_header(file.as_ref(), size)?.and_then(|header| follows(&segments, header, *seq))
-        {
+        let decoded = read_header(file.as_ref(), size)?;
+        match decoded.and_then(|header| follows(&segments, header, *seq)) {
             Ok(header) => {
                 segments.push(Segment { seq: *seq, name: name.clone(), file, size, header });
             }
