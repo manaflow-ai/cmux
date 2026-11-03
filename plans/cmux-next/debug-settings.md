@@ -21,6 +21,32 @@ and RC the `isDebugOnly` actions are unavailable in every surface and the
 store never activates, so every tunable reads its code default and no file
 is read. `isDebugOnly` now means DEV and NIGHTLY (no action used it before).
 
+Bench builds (Release with `CMUX_BENCH_HOOKS`, the fleet's film and bench
+builds) are not `DevTools` either, so launch leaves the store off there too,
+but they have the `debug.tunables` socket method. Its `activate` action turns
+the store on for that launch: it registers the catalog and activates the
+store with no file, so overrides live in memory only, nothing is written, and
+the next launch starts off again. It does nothing on a store that is already
+on (DEV, NIGHTLY), and nothing changes unless a client calls it: a bench that
+never calls it keeps the inert store (every read one atomic load). What a
+`set` after `activate` reaches (FRAME OWNER REFACTOR S0):
+
+- A reader at each use (`Tunable.value` read per frame, a spring read when its
+  motion starts, `MotionSpring.base`): its next read.
+- A reader that tracks the key after `activate` (`withObservationTracking`, a
+  view): it is told of each change.
+- A reader that tracked the key before `activate` (a view drawn at launch,
+  `SidebarTunablesWatch`): an off store returns before it registers the
+  dependency, so it is not told. It shows the value only when it reads again
+  for another reason.
+- A reader at one moment: the `synced` choice of `browserResize.dragResize`
+  when Chromium starts (`dragResizeAtLaunch`; set it before the launch's first
+  Chromium page, else it applies at the next start: relaunch, `activate`,
+  `set`, then open a page); `browserResize.layerHosting` at a page's next
+  show. Each tunable's help says when it applies. `icons.family` (native icons
+  read it at launch) and `auth.signInWindow` (wired by
+  `DebugSettingsService.start()` only) change nothing in a bench build.
+
 ## Registry
 
 - `Tunable<Value>` (constant default) and `DerivedTunable` / `ComputedTunable`

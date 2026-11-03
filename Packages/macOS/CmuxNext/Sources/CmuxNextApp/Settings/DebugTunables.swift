@@ -5,18 +5,15 @@ import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 
-// `debug.tunables` (DEBUG builds): drives Debug Settings and the tunable
-// store the way the window's controls do, so automation can open the
-// window, search, change values and export without synthesizing input.
-// Params: `action`:
-// - `state` (default): availability, the override file, change count, and
-//   the window (open, visible, key, CGWindowID, query, selection, rows);
+// `debug.tunables` (DEBUG and bench builds) drives Debug Settings and the tunable store as the window's controls do,
+// so automation can open the window, search, change values and export without synthesizing input. Params `action`:
+// - `state` (default): availability, `active` (the store is on), the override file, change count, and the window
+//   (open, visible, key, CGWindowID, query, selection, rows);
+// - `activate`: turns on a store that launch left off (bench builds), for this launch, in memory only (debug-settings.md);
 // - `list` (`query`, `section`, `changed`): tunables with value and default;
-// - `get` / `set` (`key`, `value` JSON; null resets) / `reset` (`key`,
-//   `section`, or `all: true`);
+// - `get` / `set` (`key`, `value` JSON; null resets) / `reset` (`key`, `section`, or `all: true`);
 // - `export` (`format`: json | swift): the hand-off text;
-// - `open` (`query`, `section`), `query` (`text`), `section` (`id`, or
-//   `all` / `changed`), `close`: the window.
+// - `open` (`query`, `section`), `query` (`text`), `section` (`id`, or `all` / `changed`), `close`: the window.
 enum DebugTunables {
     static func handle(_ params: [String: JSONValue], services: AppServices, store: TunableStore = .shared) -> JSONValue {
         let service = services.debugSettings
@@ -68,7 +65,10 @@ enum DebugTunables {
             model.selection = DebugSettingsSelection(id: params["id"]?.stringValue ?? "all")
         case "close":
             service.close()
-        case "state":
+        case "activate" where !store.isActive:
+            store.register(TunableCatalog.all)
+            store.activate(file: nil)
+        case "activate", "state":
             break
         default:
             return error("unknown action")
