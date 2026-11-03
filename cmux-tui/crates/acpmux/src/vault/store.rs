@@ -304,7 +304,10 @@ pub fn capture_until(
         _ => {
             let _ = child.kill();
             let _ = child.wait();
-            let _ = reader.join();
+            // Not joined: a process the command started may still hold the
+            // pipe open; the reader ends when it closes, and the caller
+            // returns at the deadline.
+            drop(reader);
             return Err("vault.secret_store_timeout");
         }
     };
