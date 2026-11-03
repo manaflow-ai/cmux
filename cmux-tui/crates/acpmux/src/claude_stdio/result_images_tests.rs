@@ -199,7 +199,12 @@ async fn adopted_and_replayed_results_keep_every_original_image() {
     let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
     bytes.resize(4 << 20, 81);
     let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    let result = result("many-images", json!([image(&data), image(&data), image(&data)]));
+    let result = result(
+        "many-images",
+        json!([
+            {"type": "text", "text": ""}, image(&data), image(&data), image(&data)
+        ]),
+    );
     let adopted = crate::adopt_tools::claude_tool_results_for_session(
         &result["message"]["content"],
         None,
