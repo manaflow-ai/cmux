@@ -587,16 +587,14 @@ export function minimapTurns(
       return { ...prior!, ...base, pendingCount: pending };
     const earlier = sameEarlier
       ? prior!.earlierTurns!
-      : [
-          ...earlierRows.map((row): MinimapTurn => ({
-            index: -1,
-            id: row.id,
-            key: turnKey(sessionId, row),
-            prompt: (row.text ?? "").trim(),
-            ...withSender(row),
-            reply: [],
-          })),
-        ];
+      : earlierRows.map((row): MinimapTurn => ({
+          index: -1,
+          id: row.id,
+          key: turnKey(sessionId, row),
+          prompt: (row.text ?? "").trim(),
+          ...withSender(row),
+          reply: [],
+        }));
     const turns = [...earlier, ...loadedTurns];
     return {
       ...base,
