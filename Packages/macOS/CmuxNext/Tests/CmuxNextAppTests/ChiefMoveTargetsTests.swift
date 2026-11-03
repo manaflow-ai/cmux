@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextHomeEngine
 import Testing
 
 /// "Move Chief To…" targets (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): This Mac,
@@ -63,6 +64,23 @@ struct ChiefMoveTargetsTests {
     @Test func aHostThatIsNotARemoteGroupIsNotListed() {
         #expect(target("ssh-plain") == nil)
     }
+
+    /// The Teleport menu lists the same targets, in the same order, with the same `--to` ids
+    /// (one list for Cmd-Shift-P, the header chip and the Chief card), each placed so the menu can
+    /// check where the Chief runs now; a greyed-out target stays greyed out.
+    @Test func theTeleportMenuListsTheSameTargets() {
+        let destinations = targets.map(\.teleportDestination)
+        #expect(destinations.map(\.id) == targets.map(\.machineID))
+        #expect(destinations.first?.place == .thisMac)
+        #expect(destinations.first { $0.id == "ssh-mini" }?.place == .host("lawrence@cmux-mini"))
+        #expect(destinations.first { $0.id == "srv" }?.place == .host("brain-box"))
+        #expect(destinations.first { $0.id == ChiefMoveTargets.cloudID }?.place == .cloud)
+        #expect(destinations.first { $0.id == "ssh-gcp" }?.isAvailable == false)
+        #expect(destinations.first { $0.id == "srv-noroute" }?.isAvailable == false)
+        #expect(destinations.first { $0.id == "ssh-mini" }?.isAvailable == true)
+        let menu = ChiefTeleportMenu(location: .host("cmux-mini"), destinations: destinations, phase: .idle)
+        #expect(menu.rows.first { $0.id == "ssh-mini" }?.state == .current)
+    }
 }
 
 /// The steps of one move (chief-migration-DESIGN.md 8a): a dry run whose report the person reads,
@@ -71,29 +89,48 @@ struct ChiefMoveTargetsTests {
 struct ChiefMovePlanTests {
     @Test func sshRunsDryRunThenMoveThenReachOnTheHost() {
         // The target home is the moving home's path under the user's home folder (chief-migration-DESIGN.md 8a).
-        let plan = ChiefMovePlan(to: "ssh:cmux-mini", kind: .ssh(destination: "cmux-mini"), targetHome: "~/.cmux/chief/default", tokenFile: nil)
-        #expect(plan.dryRun == ["chief", "move", "--to", "ssh:cmux-mini", "--dry-run"])
-        #expect(plan.move == ["chief", "move", "--to", "ssh:cmux-mini"])
+        let plan = ChiefMovePlan(to: "ssh:cmux-mini", kind: .ssh(destination: "cmux-mini"), sourceHome: "/Users/me/.cmux/chief/dev", targetHome: "~/.cmux/chief/default", tokenFile: nil)
+        #expect(plan.dryRun == ["chief", "move", "--to", "ssh:cmux-mini", "--dry-run", "--chief-home", "/Users/me/.cmux/chief/dev"])
+        #expect(plan.move == ["chief", "move", "--to", "ssh:cmux-mini", "--chief-home", "/Users/me/.cmux/chief/dev"])
         #expect(plan.reach == .remote(["ssh", "-o", "BatchMode=yes", "cmux-mini", "optchat-chief", "move", "reach", "--home", "~/.cmux/chief/default"]))
     }
 
     @Test func aServerRunsTheSameStepsAsAnSSHHost() {
-        let plan = ChiefMovePlan(to: "ssh:brain-box", kind: .server(destination: "brain-box"), targetHome: "~/.cmux/chief/default", tokenFile: nil)
-        #expect(plan.dryRun == ["chief", "move", "--to", "ssh:brain-box", "--dry-run"])
-        #expect(plan.move == ["chief", "move", "--to", "ssh:brain-box"])
+        let plan = ChiefMovePlan(to: "ssh:brain-box", kind: .server(destination: "brain-box"), sourceHome: "/Users/me/.cmux/chief/dev", targetHome: "~/.cmux/chief/default", tokenFile: nil)
+        #expect(plan.dryRun == ["chief", "move", "--to", "ssh:brain-box", "--dry-run", "--chief-home", "/Users/me/.cmux/chief/dev"])
+        #expect(plan.move == ["chief", "move", "--to", "ssh:brain-box", "--chief-home", "/Users/me/.cmux/chief/dev"])
         #expect(plan.reach == .remote(["ssh", "-o", "BatchMode=yes", "brain-box", "optchat-chief", "move", "reach", "--home", "~/.cmux/chief/default"]))
     }
 
     @Test func aLocalHomeReachesThroughTheCLI() {
-        let plan = ChiefMovePlan(to: "local:/h/new", kind: .local(home: "/h/new"), targetHome: "~/.cmux/chief/default", tokenFile: nil)
+        let plan = ChiefMovePlan(to: "local:/h/new", kind: .local(home: "/h/new"), sourceHome: "/Users/me/.cmux/chief/dev", targetHome: "~/.cmux/chief/default", tokenFile: nil)
         #expect(plan.reach == .cli(["chief", "move", "reach", "--chief-home", "/h/new"]))
     }
 
     @Test func aCloudMovePassesTheTokenFileAndNeverTheToken() {
-        let plan = ChiefMovePlan(to: "cloud:staging", kind: .cloud(staging: true), targetHome: "~/.cmux/chief/default", tokenFile: "/tmp/x/token")
-        #expect(plan.dryRun == ["chief", "move", "--to", "cloud:staging", "--dry-run", "--session-token-file", "/tmp/x/token"])
-        #expect(plan.move == ["chief", "move", "--to", "cloud:staging", "--session-token-file", "/tmp/x/token"])
+        let plan = ChiefMovePlan(to: "cloud:staging", kind: .cloud(staging: true), sourceHome: "/Users/me/.cmux/chief/dev", targetHome: "~/.cmux/chief/default", tokenFile: "/tmp/x/token")
+        #expect(plan.dryRun == ["chief", "move", "--to", "cloud:staging", "--dry-run", "--chief-home", "/Users/me/.cmux/chief/dev",
+                                "--session-token-file", "/tmp/x/token"])
+        #expect(plan.move == ["chief", "move", "--to", "cloud:staging", "--chief-home", "/Users/me/.cmux/chief/dev",
+                              "--session-token-file", "/tmp/x/token"])
         #expect(plan.reach == ChiefMovePlan.Reach.none, "a cloud Chief has no home to probe")
+    }
+
+    /// The move acts on the home the app shows (a tagged build's own home), never on whatever home
+    /// the CLI would pick by itself (the person's real Chief).
+    @Test func everyStepNamesTheAppsChiefHome() {
+        let plan = ChiefMovePlan(to: "cloud", kind: .cloud(staging: false), sourceHome: "/h/tagged", targetHome: "~/x", tokenFile: nil)
+        for step in [plan.dryRun, plan.move] {
+            #expect(step.firstIndex(of: "--chief-home").map { step[$0 + 1] } == "/h/tagged")
+        }
+    }
+
+    /// Roll Back runs `cmux chief move rollback` on the same home; out of the cloud it needs the
+    /// session (the hosted brain is turned off), through the same 0600 file.
+    @Test func rollbackRunsOnTheAppsHome() {
+        #expect(ChiefMovePlan.rollback(sourceHome: "/h/tagged", tokenFile: nil) == ["chief", "move", "rollback", "--chief-home", "/h/tagged"])
+        #expect(ChiefMovePlan.rollback(sourceHome: "/h/tagged", tokenFile: "/tmp/t/token")
+            == ["chief", "move", "rollback", "--chief-home", "/h/tagged", "--session-token-file", "/tmp/t/token"])
     }
 }
 
