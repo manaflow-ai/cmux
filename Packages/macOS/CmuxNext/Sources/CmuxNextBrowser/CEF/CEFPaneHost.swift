@@ -27,7 +27,7 @@ final class CEFPaneHost {
     /// The tab whose creation created the window.
     private var windowTab: CEFTab?
     /// The tab currently shown in `hostView`.
-    private(set) weak var visibleTab: CEFTab?
+    private(set) weak var visibleTab: CEFTab? { didSet { if let visibleTab { runtime.extensionActionReads.tabShown(visibleTab) } } }
     /// The browser this host last made Chromium's active tab (its own
     /// `cmux_tab_activate`, or the window's first tab). Chromium echoes an
     /// activation for it, often after the user has moved on.
@@ -419,7 +419,7 @@ final class CEFPaneHost {
     }
 
     func refreshExtensionActions() {
-        for tab in tabs { tab.refreshExtensionActions() }
+        for tab in tabs { runtime.extensionActionReads.refresh(tab) }
     }
 }
 

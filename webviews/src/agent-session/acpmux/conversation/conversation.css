@@ -2175,6 +2175,11 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The live line's action in full ink, the rest of its words at the line's muted tone, as Claude Code
+   desktop draws "Using repo: repo grep" (Thinking.tsx `liveLead`). */
+.cv-worked__lead {
+  color: var(--cv-text);
+}
 .cv-shimmer__band {
   display: none;
 }
@@ -5108,10 +5113,16 @@ a.cv-sha:focus-visible {
   z-index: var(--layer-sticky, 10);
   height: 0;
 }
+/* The bar belongs to the chat's column: with Session Info open it sits left of the panel in every stage
+   (float, push, over the chat), keeping the panel's reach into the chat (--acpmux-session-info-clear,
+   SessionInfo.tsx sessionInfoClear) and its inset, and narrows (its field shrinks) to the room left of
+   it, never under the panel (Leo, 2026-11-03: "oh no the command f overlaps with the session info..").
+   Where even its narrowest does not fit, the panel steps aside when Find opens and Find closes when the toggle opens the panel (findBarCramped). */
 .acpmux-find__bar {
   position: absolute;
   top: var(--find-pill-inset, 10px);
-  right: var(--find-pill-inset, 10px);
+  right: calc(var(--find-pill-inset, 10px) + var(--acpmux-session-info-clear, 0px));
+  max-width: calc(100% - 2 * var(--find-pill-inset, 10px) - var(--acpmux-session-info-clear, 0px));
 }
 /* Find matches: the theme's highlight (the yellow is only for an unthemed preview). */
 ::highlight(acpmux-find) {

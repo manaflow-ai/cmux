@@ -10,15 +10,17 @@
 // never "Thinking" while the agent is blocked on them.
 import { useContext, useLayoutEffect, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
-import { useT } from "../i18n";
+import { usePaneLanguage, useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
+import { liveLineTokens } from "./liveLineTokens.experiment";
 import { Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
 import { formatDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
-import { TurnTokens } from "./TurnTokens";
+import { compactTokens, hasTokens, tokenDetail, TurnTokens } from "./TurnTokens";
+import { verbLeads } from "./ToolVerb";
 import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
 
 /// How long streaming text must hold still before the live line comes back under it.
@@ -44,6 +46,18 @@ function useQuiet(key: string | undefined, ms = QUIET_MS): boolean {
   return quiet;
 }
 
+/// The live line's words split as Claude Code draws them: the action in full ink ("Using repo",
+/// "Running", "Sending"), the rest muted (": repo grep", " bun test"). An MCP call's action runs to
+/// its server's colon (`call`: the line names a call, not a command or a send); any other line's is
+/// its first word. Undefined when the line is one word, or in a language whose verb does not lead.
+export function liveLead(label: string, leads: boolean, call: boolean): { lead: string; rest: string } | undefined {
+  if (!leads) return undefined;
+  const server = call ? /^(\p{L}+ [^\s:]+)(: \S[\s\S]*)$/u.exec(label) : null;
+  if (server) return { lead: server[1]!, rest: server[2]! };
+  const word = /^(\p{L}+)( \S[\s\S]*)$/u.exec(label);
+  return word ? { lead: word[1]!, rest: word[2]! } : undefined;
+}
+
 /// `doing`, `doingAt`, `doingShell`, `draft`, `untimed`, `quietKey`: the Codex-style live line at the
 /// bottom of a running turn (conversation/turns.ts `codexLiveTurn`), the turn's one live block, which
 /// each step replaces in place: "Thinking 18s" (the turn's time, and its tokens when the harness
@@ -51,10 +65,13 @@ function useQuiet(key: string | undefined, ms = QUIET_MS): boolean {
 /// web tests 13s"), the latest finished step until the next starts (`done`, "Ran grep … 15s"), or
 /// "Writing a command 9s" while the agent still writes the command (`draft`). With no call it names
 /// what the turn does instead: "Waiting on 2 subagents", "Writing", else "Thinking" (`liveState`).
-/// One clock and one token count for all of them, the turn's, so the line just keeps going; past the
-/// turn's first step (`turnTotal`) that clock reads "· 4m total", after a finished step's own time,
-/// so a long wait never reads as that long a think or call. All shimmer. While text streams
-/// (`quietKey` moves) the line keeps its height but draws nothing.
+/// One clock and one token count for all of them, the turn's, so the line just keeps going: "Using
+/// repo: repo grep 3m 2s · 47.4K tokens", as Claude Code desktop's live line reads, with no mark
+/// before it: the shimmer is its only working sign (Leo, 2026-11-03: "we don't want the claude
+/// symbol ellipsis thing btw we just keep the shimmer ONLY"). Past the turn's first step
+/// (`turnTotal`) that clock reads "· 4m total", after a finished step's own time, so a long wait
+/// never reads as that long a think or call. All shimmer. While text streams (`quietKey` moves) the
+/// line keeps its height but draws nothing.
 export function Thinking({
   starting = false,
   since,
@@ -110,6 +127,7 @@ export function Thinking({
   command?: boolean;
 } = {}) {
   const t = useT();
+  const language = usePaneLanguage();
   const waiting = useContext(WaitingOnContext);
   const startLook = starting && !waiting ? experimentArm(agentStartLook) : "thinking";
   // The turn's time, from the prompt, whatever the line names: it keeps counting across steps and
@@ -140,6 +158,7 @@ export function Thinking({
               ? t("tools.writingCommand")
               : t(done ? "tools.ranUnnamed" : "tools.runningUnnamed")
           : doing;
+  const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
   const turnTime = timed ? formatDuration(Math.max(0, time - from)) : undefined;
   // Past the first step the turn's time is labelled as the whole turn's, after the finished step's
   // own time when it has one: "Ran grep -n x 2s · 15s total", "Waiting on 2 subagents · 1h 24m total"
@@ -159,6 +178,9 @@ export function Thinking({
   const counts = useContext(WorkingCountsContext);
   const tokens = counts?.tokens;
   const showTokens = Boolean(tokens) && timed;
+  // One count, as Claude Code's live line says it ("47.4K tokens"): the turn's output, with the
+  // split on hover (liveLineTokens.experiment.ts).
+  const oneCount = experimentArm(liveLineTokens) === "total";
   // The label already names the subagents it waits on: no second count of them.
   const parts = (counts && !waiting ? workingParts(t, counts) : []).filter(
     (part) => !(liveState === "subagents" && part.key === "agents"),
@@ -185,7 +207,16 @@ export function Thinking({
           <output className="cv-thinking is-shimmer">
             <ShimmerText
               text={label}
-              baseText={label}
+              baseText={
+                lead ? (
+                  <>
+                    <span className="cv-worked__lead">{lead.lead}</span>
+                    {lead.rest}
+                  </>
+                ) : (
+                  label
+                )
+              }
               lit={
                 <>
                   <span className="cv-shimmer__lit-label" data-text={label} />
@@ -212,7 +243,16 @@ export function Thinking({
           <span className="cv-worked__sep" aria-hidden="true">
             ·
           </span>
-          <TurnTokens total={tokens} split={counts?.split} />
+          {oneCount && tokens ? (
+            <span
+              className="cv-worked__tokens"
+              title={hasTokens(counts?.split) ? tokenDetail(t, language, counts.split) : undefined}
+            >
+              {t("turn.working.tokens", { n: tokens, tokens: compactTokens(language, tokens) })}
+            </span>
+          ) : (
+            <TurnTokens total={tokens} split={counts?.split} />
+          )}
         </span>
       )}
       {parts.map((part) => (

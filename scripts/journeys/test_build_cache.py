@@ -38,6 +38,8 @@ import sys, zipfile
 with zipfile.ZipFile(sys.argv[1], "w") as z:
     z.writestr("cmux DEV t.app/Contents/Info.plist", "<plist/>")
 ' "$3"
+# As the real client does: a progress line on stderr, the digest on stdout (Python: a closed pipe fails its exit).
+python3 -c 'import sys; print("cmux-ci: progress", file=sys.stderr); print("digest")'
 """
 
 FAKE_DITTO = r"""#!/bin/sh
@@ -124,8 +126,8 @@ class OneDownload(unittest.TestCase):
         self.assertEqual(len(self.log.read_text().splitlines()), 1)
 
 
-class Fill(unittest.TestCase):
-    """build_cache.py alone: the store URL (curl, sha256 checked), its fallback, and an older copy's download."""
+class FillBase(unittest.TestCase):
+    """build_cache.py alone, against a local web server that serves a small app zip."""
     def setUp(self):
         t = OneDownload("test_a_filled_cache_makes_no_download")
         t.setUp()
@@ -152,6 +154,11 @@ class Fill(unittest.TestCase):
 
     def downloads(self):
         return self.t.log.read_text().splitlines() if self.t.log.exists() else []
+
+
+
+class Fill(FillBase):
+    """The store URL (curl, sha256 checked), its fallback, and an older copy's download."""
 
     def test_the_store_url_is_read_and_checked(self):
         done = self.fill(self.sha, self.url)
@@ -188,6 +195,66 @@ class Fill(unittest.TestCase):
             time.sleep(1.1)
         builds = self.t.home / ".cache" / "cmux-journeys" / "builds"
         self.assertEqual(sorted(p.name for p in builds.iterdir()), ["J2", "J3", "J4"])
+
+
+class FollowUps(FillBase):
+    """The review of #33108 (findings 1, 6 and 7): an older copy at the install, a closed stderr, dead temporaries."""
+
+    def test_a_killed_fills_folder_is_removed_and_a_live_ones_kept(self):
+        builds = self.t.home / ".cache" / "cmux-journeys" / "builds"
+        builds.mkdir(parents=True, exist_ok=True)
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        live = subprocess.Popen(["sleep", "60"])
+        try:
+            (builds / f"JOBX.tmp.{dead.pid}").mkdir()
+            (builds / f"JOBY.tmp.{live.pid}").mkdir()
+            self.assertEqual(self.fill(self.sha, self.url).returncode, 0)
+            self.assertFalse((builds / f"JOBX.tmp.{dead.pid}").exists())  # its fill was killed: nobody writes there
+            self.assertTrue((builds / f"JOBY.tmp.{live.pid}").exists())  # a live download keeps its folder
+        finally:
+            live.kill()
+            live.wait()
+
+    def test_a_closed_stderr_does_not_stop_the_fill(self):
+        # run.py's ssh timed out: the fill keeps going for the next round, and its first message must not end it.
+        p = subprocess.Popen([sys.executable, "-I", str(HERE / "build_cache.py"), "JOB3", "1" * 64, "3"],
+                             env=self.env, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        p.stderr.close()  # nobody reads it any more
+        p.stdin.write((self.url + "\n").encode())  # a wrong hash: it says so, then reads it with cmux-ci
+        p.stdin.close()
+        p.wait(timeout=60)
+        self.assertTrue((self.t.home / ".cache" / "cmux-journeys" / "builds" / "JOB3" / "ok").exists())
+
+    def test_an_older_copy_moved_in_at_the_install_is_kept(self):
+        import importlib.util
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location("build_cache_under_test", HERE / "build_cache.py")
+        bc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bc)
+        cache = self.t.home / ".cache" / "cmux-journeys" / "builds" / "JOB4"
+        real = os.rename
+
+        def rename(src, dst):
+            if str(dst) == str(cache) and not cache.exists():
+                # An older harness copy (no lock) moves its own copy in first: `mv "$t" "$c"; touch "$c/ok"`.
+                (cache / "build" / "cmux DEV old.app").mkdir(parents=True)
+                (cache / "ok").write_text("")
+            return real(src, dst)
+
+        with mock.patch.dict(os.environ, self.env), mock.patch.object(bc.os, "rename", rename):
+            app = bc.fill("JOB4", "-", 3, "")
+        self.assertTrue(app.endswith("cmux DEV old.app"), app)
+        self.assertEqual(sorted(p.name for p in cache.parent.iterdir()), ["JOB4"])  # no temporary left
+
+    def test_a_plain_file_at_the_cache_path_is_replaced(self):
+        # An older copy's `touch "$c"` after its folder was removed leaves a plain file where the cache goes.
+        cache = self.t.home / ".cache" / "cmux-journeys" / "builds" / "JOB5"
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text("")
+        done = self.fill(self.sha, self.url, "JOB5")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue((cache / "ok").exists())
 
 
 if __name__ == "__main__":

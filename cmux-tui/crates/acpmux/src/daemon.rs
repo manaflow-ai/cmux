@@ -37,6 +37,10 @@ pub(crate) mod login_session;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_handoff;
+// Counts this daemon's chats at work toward the Cloud machine's activity (idle pause).
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod cloud_activity;
 mod handover;
 mod home_watch;
 mod notify;
@@ -419,7 +423,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             }
         }
         let pending = hub.outbox.open(&home().join("outbox.json"));
-        crate::server::outbox::resume(&hub, pending);
+        // Whatever the rename did: a rename that failed leaves the copied outbox in place, and
+        // none of it is this machine's to deliver.
+        if !cloned {
+            crate::server::outbox::resume(&hub, pending);
+        }
         hub.watches.open(&home().join("watches.json"));
     }
     crate::hub::watches::Watches::start(&hub);
@@ -682,6 +690,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tokio::spawn(notify::notify_loop(hub.clone()));
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
+    #[cfg(target_os = "linux")]
+    tokio::spawn(cloud_activity::activity_loop(hub.clone()));
 
     #[cfg(all(unix, feature = "tailnet"))]
     let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());
