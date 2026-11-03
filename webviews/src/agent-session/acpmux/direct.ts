@@ -100,6 +100,7 @@ import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
 import { inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
+import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage, startCancelled } from "./transportErrors";
@@ -1178,10 +1179,13 @@ export function mergeToolItem(
       status,
       inputSummary: hasRawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
       output:
-        output || formattedOutput(update.rawOutput) || (update.content === undefined ? before?.output : undefined),
+        output ||
+        formattedOutput(update.rawOutput) ||
+        terminalOutput(update, before?.output) ||
+        (update.content === undefined ? before?.output : undefined),
       command: shellCommand(update.rawInput) ?? before?.command,
       description: callDescription(update.rawInput) ?? before?.description,
-      exitCode: exitCode(update.rawOutput) ?? before?.exitCode,
+      exitCode: exitCode(update) ?? before?.exitCode,
       startedAt: before?.startedAt ?? at,
       endedAt: before?.endedAt ?? (ended ? at : undefined),
       // A shell that went to the background stays there as its call's result comes in.
@@ -1220,9 +1224,21 @@ export function shellCommand(rawInput: any): string | undefined {
     .join(" ");
 }
 
-function exitCode(rawOutput: any): number | undefined {
-  const code = rawOutput?.exit_code ?? rawOutput?.exitCode;
+/// A finished shell call's exit status: `rawOutput.exit_code` (Codex; acpmux puts the others'
+/// there too, hub/tool_shell.rs), else where an agent reported it in a record logged before acpmux
+/// did: pi's `_meta.terminal_exit.exit_code`, OpenCode's `rawOutput.metadata.exit`.
+function exitCode(update: any): number | undefined {
+  const raw = update.rawOutput;
+  const code = raw?.exit_code ?? raw?.exitCode ?? update._meta?.terminal_exit?.exit_code ?? raw?.metadata?.exit;
   return typeof code === "number" ? code : undefined;
+}
+
+/// pi (pi-acp) streams a bash call's output only as `_meta.terminal_output.data`, each update the
+/// part printed since the last (the terminal-in-a-tool-call `_meta` extension): it adds to what
+/// the call printed so far. Undefined for an update without it.
+function terminalOutput(update: any, before: string | undefined): string | undefined {
+  const data = update._meta?.terminal_output?.data;
+  return typeof data === "string" && data ? (before ?? "") + data : undefined;
 }
 
 /// Codex reports a shell call's output in `rawOutput` when the call carries no content.
@@ -5907,6 +5923,22 @@ export class AcpmuxDirectClient {
             failover: { from: msg.from, to: msg.to },
           });
         }
+      } else if (event.kind === "recap") {
+        // The person came back after 5+ minutes away (`hub/away_recap.rs`): Claude Code's recap
+        // of where the chat stands. A record without text, or one the person dismissed on this
+        // device, is skipped; never a turn of its own. Its key names the chat too: seqs repeat
+        // across chats.
+        const key = `${this.selectedSessionId ?? ""}:${event.seq}`;
+        if (typeof msg.text === "string" && msg.text.trim() && !recapDismissed(key)) {
+          const id = `recap-${event.seq}`;
+          this.rows.set(id, {
+            id,
+            version: 1,
+            at: event.at,
+            kind: "recap",
+            recap: { key, text: msg.text.trim(), awayMs: typeof msg.awayMs === "number" ? msg.awayMs : undefined },
+          });
+        }
       } else if (event.kind === BACKGROUND_TURN_KIND) {
         this.reduceBackgroundTurn(event, msg);
       } else if (event.kind === "host_notice") {
@@ -6523,6 +6555,7 @@ export class AcpmuxDirectClient {
     const background: AcpmuxBackgroundState = {
       state: task.state,
       ...(task.reason ? { reason: task.reason } : {}),
+      ...(task.exitCode !== undefined ? { exitCode: task.exitCode } : {}),
       ...(ended ? { endedAt: at } : {}),
     };
     items[index] = { ...item, tool: { ...tool, background } };
@@ -9174,6 +9207,14 @@ export class AcpmuxDirectClient {
     this.rows.set(id, { id, version: 1, at, kind: "notice", text });
     this.emit();
     return id;
+  }
+  /// The recap's ×: it stays dismissed on this device, and its row goes.
+  dismissRecap(rowId: string): void {
+    const recap = this.rows.get(rowId)?.recap;
+    if (!recap) return;
+    rememberRecapDismissed(recap.key);
+    this.rows.delete(rowId);
+    this.emit();
   }
   /// Takes out a line `notice` put in (a lost prompt's "Not sent" once the host sent it after all).
   dismissNotice(id: string): void {

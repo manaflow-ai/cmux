@@ -75,6 +75,18 @@ def row_drift(watch):
             "scroll_jumps": len(watch.get("scroll_jumps") or []), "page_first_content_ms": watch.get("first_content_ms")}
 
 
+def watch_started_ms(watch, asked, clicked, clicked_wall):
+    """When the page's layout_watch began, in ms from the click: from the page's own `started_wall_ms` (the
+    app and the bench share the Mac's clock) when it reports one, since the ask may reach the page well after
+    it was sent (a Chromium page still starting waits in PageWebView.callPageScript); else from when the bench
+    asked (`asked` and `clicked` monotonic s), an older page's only anchor. None without a watch."""
+    if not isinstance(watch, dict) or not _number(asked):
+        return None
+    if _number(watch.get("started_wall_ms")) and _number(clicked_wall):
+        return round(watch["started_wall_ms"] - clicked_wall * 1000)
+    return round((asked - clicked) * 1000)
+
+
 def transcript_ms(watch, watch_started_ms, strip_ms):
     """When the page first drew its transcript, in ms from the click (when the watch started plus its first paint
     when that had rows, else plus the first row that appeared later), or None when it drew none inside the strip.
