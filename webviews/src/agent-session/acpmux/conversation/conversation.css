@@ -4314,7 +4314,9 @@ a.cv-sha:focus-visible {
   all: unset;
   box-sizing: border-box;
   min-height: var(--ds-control-row);
-  padding: var(--ds-space-1) var(--ds-space-3);
+  /* 8 across, not 12: the error card's actions keep the width they had at 9, so a late action (the
+     CodeRouter offer) joins their line instead of wrapping it. */
+  padding: var(--ds-space-1) var(--ds-space-2);
   border: 1px solid color-mix(in srgb, var(--agent-accent) 34%, transparent);
   border-radius: var(--ds-radius-control);
   color: var(--agent-accent);

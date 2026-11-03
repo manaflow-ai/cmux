@@ -97,8 +97,9 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
       const chat = await open("agent-pane.chat-width", "standard", interfaceScale, chatZoom);
       const chatBox = await measure(chat, ".acpmux-row", effectiveScale);
       await chat.close();
-      expect(chatBox.width, `chat width at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(transcriptBox(effectiveScale).width, -0.5);
-      expect(chatBox.left, `chat inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(transcriptBox(effectiveScale).left, -0.5);
+      const drawn = transcriptBox(effectiveScale);
+      expect(chatBox.width, `chat width at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(drawn.width, -0.5);
+      expect(chatBox.left, `chat inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(drawn.left, -0.5);
 
       const newTab = await open("agent-pane.new-tab", "chats-unavailable", interfaceScale, chatZoom);
       const newTabBox = await measure(newTab, ".nt-box", effectiveScale);
