@@ -458,6 +458,7 @@ def step_px_record_start(j, step):
             "springs_source": st["springs_source"], "store": st.get("store"), "input": step.get("input"),
             "page_backdrop": backdrop, "tunables": st["tunables"], "pages": getattr(j, "px_pages", {}),
             "frame": [width, height], "window_frame": win_frame, "screen_frame": screen_frame,
+            "main_pane": window.get("main_pane"),
             "lines": {"rows": rows, "columns": cols, "strip_rows": strip_rows, "dropped": dropped, "scan_bytes_planned": used},
             "recorder": recorder,
             "panes": {keys[name]: {"kind": "page" if info.get("kind") == "agent" else info.get("kind"), "agent": info.get("kind") == "agent",

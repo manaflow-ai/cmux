@@ -92,6 +92,7 @@ TOL_PX = 1.0                # device px: an edge this close is in place
 SKIP_PT = 24.0              # points walked over (fill and "other": the rulers, glyphs) from the fill to ring 3
 NEAR_PT = 48.0              # the walk starts this close to the pane edge
 GAP_CAP_PX = 16.0           # a gap counts to the pane's own edge and this far past it (a divider's band)
+GROUND_PAD_MAX_PX = 16      # a terminal's ground strip: at most one cell and this much padding (device px); longer: merged
 MAX_CANDIDATES = 8          # walks tried per side
 LAG_SEARCH = list(range(0, 13)) + [-1, -2, -3]
 COMMIT_SLACK_S = 0.0005
@@ -168,6 +169,19 @@ class Film:
         self.window_x = float(frame[0]) if frame else None
         self.strip_rows = {str(k): int(v) for k, v in ((self.note.get("lines") or {}).get("strip_rows") or {}).items()}
         self.chrome = {str(c.get("pane")): c for c in self.note.get("chrome") or [] if isinstance(c, dict)}
+        # The panes' visible area (debug.pane_chrome's main_pane, window points): a pane's part outside it (a column the
+        # strip scrolled under the sidebar or past the window's edge) is not on screen and is not read.
+        main = self.note.get("main_pane")
+        self.main_pane = [float(v) for v in main] if isinstance(main, list) and len(main) == 4 else None
+        self.main_pane_source = "note" if self.main_pane else None
+        if self.main_pane is None and self.samples and self.samples[0].window[0] > 0:
+            # A film from before the note had it: the first sample's leftmost on-screen pane edge (the sidebar's edge at
+            # rest) to the window's right edge.
+            xs = [float(p[1]) for p in self.samples[0].panes.values() if len(p) >= 5 and float(p[1]) >= 0]
+            win_w, win_h = self.samples[0].window
+            x0 = min(xs) if xs else 0.0
+            self.main_pane = [x0, 0.0, win_w - x0, win_h]
+            self.main_pane_source = "the first trace sample (no main_pane in the note)"
         # The tab strip's height (points) above each pane's content: rows through it are the strip judge's, not a side's.
         self.headers = {}
         for pid, c in self.chrome.items():
@@ -304,6 +318,8 @@ def walk_side(codes, start, step, kind, roles, fill, skip_px):
 
     expected = ["ring3", "ring2", "ring1"] + (["theme"] if kind == "tui" else [])
     widths, edges, pos, cue_px = {}, {}, i, 0.0
+    cell = 0.0  # ring 1's width: one terminal cell along this line
+    merged = False
     for role in expected:
         if 0 <= pos < L and codes[pos] == CUE:
             j = run_end(pos, CUE)
@@ -319,7 +335,14 @@ def walk_side(codes, start, step, kind, roles, fill, skip_px):
             continue
         a = pos
         pos = run_end(pos, want)
+        if role == "theme" and cell > 0 and abs(pos - a) > cell + GROUND_PAD_MAX_PX:
+            # The ground strip is Ghostty's padding and the whole-cell remainder: at most a cell and the padding. A longer
+            # run goes on into a neighbour that shows ground color too (an empty terminal): this pane's view edge does
+            # not show on this line.
+            merged = True
         widths[role] = float(abs(pos - a))
+        if role == "ring1":
+            cell = widths[role]
         outer = boundary(pos) if 0 <= pos < L else (float(L) if step > 0 else 0.0)
         edges[role] = (boundary(a), outer)
         if 0 <= pos < L and codes[pos] == OTHER and 0 <= pos + step < L and codes[pos + step] not in (OTHER, CUE):
@@ -346,7 +369,8 @@ def walk_side(codes, start, step, kind, roles, fill, skip_px):
             gap = beyond_px
     return {"rings": [widths["ring1"], widths["ring2"], widths["ring3"]],
             "strip": widths["theme"] if kind == "tui" else None, "ring_edge": ring_edge, "view_edge": view_edge,
-            "beyond": beyond, "beyond_px": beyond_px, "gap": gap, "skipped": skipped, "found": found, "cue_px": cue_px}
+            "beyond": beyond, "beyond_px": beyond_px, "gap": gap, "skipped": skipped, "found": found, "cue_px": cue_px,
+            "merged": merged}
 
 
 def find_side(codes, a, b, edge, step, kind, roles, fill, near, skip):
@@ -367,13 +391,15 @@ def find_side(codes, a, b, edge, step, kind, roles, fill, near, skip):
     e = int(round(edge))
     for c in candidates(e - near, e + near):
         w = walk_side(codes, c, step, kind, roles, fill, skip)
+        if w["found"] >= 2 and w["merged"]:
+            return {"status": "not found", "why": "its ground strip runs on into a neighbour's ground"}
         if w["found"] >= 2:
             return dict(w, status="found")
         if w["cue_px"] > 0:
             return dict(w, status="cue")
     for c in candidates(a, b):
         w = walk_side(codes, c, step, kind, roles, fill, skip)
-        if w["found"] == 3:
+        if w["found"] == 3 and not w["merged"]:
             return dict(w, status="found")
     if kind == "tui":
         # The grid shrank before the program redrew: inside the pane, near the edge, the fill borders the ground strip.
@@ -405,6 +431,16 @@ def pane_rect(row):
     return (x, y, w, h), content
 
 
+def visible_span(film, lo_pt, hi_pt, axis):
+    """[lo, hi) points of a pane's span along a line inside the main pane area, and whether each end is its real edge
+    (False: the pane runs on under the sidebar or past the window, so that edge is not on screen)."""
+    if not film.main_pane:
+        return lo_pt, hi_pt, True, True
+    mx, my, mw, mh = film.main_pane
+    a, b = (mx, mx + mw) if axis == "row" else (my, my + mh)
+    return max(lo_pt, a), min(hi_pt, b), lo_pt >= a - 0.5, hi_pt <= b + 0.5
+
+
 def measure(film, codes, axis, coord_px, sample):
     """{pane id: {"lo": side, "hi": side, "span": [lo, hi], "shell_in": px, "has_fill": bool}} for the fixture panes whose
     content (below their tab strip) this line crosses."""
@@ -423,10 +459,16 @@ def measure(film, codes, axis, coord_px, sample):
             across, lo_pt, hi_pt = (max(x, cx), min(x + w, cx + cw)), y, y + h
         if not across[0] * s + 2 <= coord_px <= across[1] * s - 2:
             continue
+        vlo, vhi, lo_shown, hi_shown = visible_span(film, lo_pt, hi_pt, axis)
+        if vhi - vlo < 1:
+            continue
         lo, hi = lo_pt * s, hi_pt * s
-        a, b = max(0, int(math.floor(lo))), min(len(codes), int(math.ceil(hi)))
+        a, b = max(0, int(math.floor(vlo * s))), min(len(codes), int(math.ceil(vhi * s)))
         sides = {}
-        for side, step, edge in (("lo", -1, lo), ("hi", +1, hi)):
+        for side, step, edge, shown_edge in (("lo", -1, lo, lo_shown), ("hi", +1, hi, hi_shown)):
+            if not shown_edge:
+                sides[side] = None  # this edge is not on screen
+                continue
             m = find_side(codes, a, b, edge, step, info["kind"], film.roles, info["fill"], near, skip)
             if m.get("view_edge") is not None:
                 m["gap"] = min(m.get("gap", 0.0), max(0.0, (edge - m["view_edge"]) * step) + GAP_CAP_PX)
@@ -914,6 +956,8 @@ def judge(base, all_frames=False):
                                                            divider=did)
     judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, line_codes)
     judge_page_windows(film, shown, measured, summary, add_frame)
+    if film.main_pane_source and film.main_pane_source != "note" and film.main_pane[0] > 0:
+        report["notes"].append(f"the panes' visible area {film.main_pane} is from {film.main_pane_source}")
     if film.note.get("page_backdrop") is not False and any(i["kind"] == "page" for i in film.panes.values()):
         report["notes"].append("the page backdrop was on (browserResize.pageBackdrop: "
                                f"{film.note.get('page_backdrop')!r}): a page that lags a growing pane shows its own fill past its "
@@ -952,14 +996,30 @@ def judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, l
             top = (py + off_y) * film.scale
             if not top + 1 <= y <= top + strip_h * film.scale - 1:
                 continue
+            vlo, vhi, lo_shown, hi_shown = visible_span(film, x, x + w, "row")
+            if vhi - vlo < 1:
+                continue
             codes = np.where(codes_line[f] == CUE, shell, codes_line[f])  # the cue is not the strip
-            ext[f] = strip_extent(codes, (x + w / 2) * film.scale, shell, x * film.scale, (x + w) * film.scale,
-                                  int(STRIP_REACH_PT * film.scale))
-        whole = [e if e and e[0] is not None and e[1] is not None else None for e in ext]
-        rest = [f for f in rest_frames if whole[f]] or [f for f in range(film.n) if whole[f]][:REST_FALLBACK]
+            e = strip_extent(codes, (vlo + vhi) / 2 * film.scale, shell, vlo * film.scale, vhi * film.scale,
+                             int(STRIP_REACH_PT * film.scale) if lo_shown and hi_shown else 0)
+            ext[f] = (e[0] if lo_shown else None, e[1] if hi_shown else None) if e else None
+        # A side hidden under the sidebar or past the window is None; the run between the strip's shown ends (a hidden
+        # end: the visible area's edge) gives the ground and the pill.
+        spans = [None] * film.n
+        for f in range(film.n):
+            k = shown[f]
+            if ext[f] is None or k is None or film.samples[k].panes.get(pid) is None:
+                continue
+            (x, _, w, _), _ = pane_rect(film.samples[k].panes[pid])
+            vlo, vhi, _, _ = visible_span(film, x, x + w, "row")
+            lo_px = ext[f][0] if ext[f][0] is not None else int(math.ceil(vlo * film.scale))
+            hi_px = ext[f][1] if ext[f][1] is not None else int(math.floor(vhi * film.scale))
+            spans[f] = (lo_px, hi_px) if hi_px > lo_px else None
+        rest = [f for f in rest_frames if spans[f]] or [f for f in range(film.n) if spans[f]][:REST_FALLBACK]
         if not rest:
             continue
-        ground = ground_color(film, [rgb_all[f] for f in rest[:REST_FALLBACK]], [whole[f] for f in rest[:REST_FALLBACK]])
+        ground = ground_color(film, [rgb_all[f] for f in rest[:REST_FALLBACK]], [spans[f] for f in rest[:REST_FALLBACK]])
+        whole = [e if e and e[0] is not None and e[1] is not None else None for e in ext]  # the pill needs both real ends
         pill = [pill_run(rgb_all[f], whole[f][0], whole[f][1], ground) if whole[f] else None for f in range(film.n)]
         # The selected tab's pill keeps its width unless the tabs reflow: a run far from its rest width is a reflow or
         # another run (a title, the next tab), not the pill: not found.
