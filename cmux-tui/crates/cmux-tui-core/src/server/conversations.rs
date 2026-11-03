@@ -4,6 +4,9 @@
 //! only after that commit and never for a replay. Rejects carry `error_code`
 //! `conversation_rejected` and the reason code as the error text.
 
+#[path = "conversation_question.rs"]
+mod question;
+
 use crate::panic_free::JsonFields;
 use std::sync::Arc;
 
@@ -256,7 +259,8 @@ pub(super) fn error_details(error: &anyhow::Error) -> Option<Value> {
 
 /// The `error_code` of a conversation reject.
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
-    let rejected = error.downcast_ref::<ConversationRejected>().is_some()
+    let rejected = error.downcast_ref::<question::Refusal>().is_some()
+        || error.downcast_ref::<ConversationRejected>().is_some()
         || error.downcast_ref::<ConversationSearchRejected>().is_some();
     if error.downcast_ref::<AttachmentRejected>().is_some() {
         return Some(AttachmentRejected::CODE.to_string());
@@ -590,6 +594,7 @@ pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Val
     let OpParams { conversation, idempotency_key, actor, transaction, op } = params;
     let actor = resolve_actor(mux, client, actor)?;
     validate_client_transaction(transaction.as_deref())?;
+    let decision = op.pointer("/answer/decision").cloned();
     let op: Op = decode(op, "op")?;
     if let Op::ParticipantsAdd { participant } = &op
         && is_device_id(&participant.id)
@@ -597,7 +602,27 @@ pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Val
         return Err(device_id_refused());
     }
     let transaction: Option<Arc<str>> = transaction.map(Arc::from);
-    let outcome = commit_op(mux, &conversation, &idempotency_key, &actor, &op, &transaction)?;
+    let outcome = if let Op::QuestionAnswer { answer, .. } = &op {
+        mux.conversation_write(
+            |store| {
+                store.answer_question(&conversation, &idempotency_key, &actor, &op, |asked| {
+                    question::deliver(mux, asked, answer, decision.as_ref())
+                })
+            },
+            |outcome| {
+                (!outcome.replayed).then(|| {
+                    MuxEvent::Conversation(Arc::new(ConversationEvent::Changed {
+                        conversation: conversation.clone(),
+                        rev: outcome.result.rev,
+                        transaction: transaction.clone(),
+                        change: outcome.result.change.clone(),
+                    }))
+                })
+            },
+        )?
+    } else {
+        commit_op(mux, &conversation, &idempotency_key, &actor, &op, &transaction)?
+    };
     Ok(op_reply(&outcome, outcome.result.change.clone(), transaction))
 }
 

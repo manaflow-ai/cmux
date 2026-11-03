@@ -446,6 +446,35 @@ impl ConversationStore {
         Ok(outcome)
     }
 
+    /// Validate and reserve a question in the same transaction as its answer. Delivery runs
+    /// only after reducer validation and before commit; a refusal rolls the answer back.
+    /// The caller bounds delivery. A successful ledger replay never sends twice.
+    pub(crate) fn answer_question(
+        &mut self,
+        conversation: &str,
+        key: &str,
+        actor: &str,
+        op: &Op,
+        deliver: impl FnOnce(&cmux_conversation::Question) -> anyhow::Result<()>,
+    ) -> anyhow::Result<OpOutcome> {
+        let Op::QuestionAnswer { message_id, part_index, .. } = op else {
+            anyhow::bail!("not a question answer");
+        };
+        let transaction =
+            self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let target = load_message_by_id(&transaction, message_id)?;
+        let outcome = apply_op_in(&transaction, conversation, key, actor, op)?;
+        if !outcome.replayed {
+            let question = target.as_ref().and_then(|m| m.parts.get(*part_index as usize));
+            let Some(cmux_conversation::Part::Question(question)) = question else {
+                return Err(rejected(Reject::InvalidPartIndex));
+            };
+            deliver(question)?;
+        }
+        transaction.commit()?;
+        Ok(outcome)
+    }
+
     /// Apply every op in one transaction: all commit or none does (pairing a
     /// device into every conversation of its person).
     pub(crate) fn apply_ops_atomically(
