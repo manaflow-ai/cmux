@@ -98,8 +98,13 @@ final class HomeService {
     @ObservationIgnored let debugHostViews = NSHashTable<HomeHostView>.weakObjects()
     #endif
     /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief, also
-    /// whenever it is the default Chief: ``prefersLocalChief``).
-    var cloudChief: CloudChief? { prefersLocalChief ? nil : tabChiefs.shown(choice: hostedChief.choice) }
+    /// whenever it is the default Chief: ``prefersLocalChief``). After a teleport to cmux Cloud, the
+    /// Chief it moved into when the tab's two cloud Chiefs include it (HomeService+ChiefRoster).
+    var cloudChief: CloudChief? {
+        guard !prefersLocalChief else { return nil }
+        if let followed = chiefFollow.conversation, let chief = tabChiefs.chief(for: followed) { return chief }
+        return tabChiefs.shown(choice: hostedChief.choice)
+    }
     /// This Mac's optchat-chief held the Chief home's lock at the last Chief tab check (HomeService+ChiefDefault).
     var localChiefRunning = false
     /// How many reads of that lock have started, and the newest one that published its answer, so
@@ -112,6 +117,11 @@ final class HomeService {
     /// The one-time copy of this Mac's Chief into the Hosted Chief and its brain check (HomeService+HostedChief).
     @ObservationIgnored let hostedChief = HostedChiefMigration()
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
+    /// Re-runs the Chief tab check when this Mac's Chief teleports or comes back (HomeService+ChiefRoster).
+    @ObservationIgnored var chiefTeleportObservation: Task<Void, Never>?
+    /// The Chief conversations Home followed a teleported Chief to this launch, whose tabs give way
+    /// to the Chief's next place (HomeService+ChiefRoster).
+    @ObservationIgnored var followedChiefConversations: Set<String> = []
     /// Re-runs the Chief tab check when Settings > Chief's Engine changes (HomeService+ChiefDefault).
     @ObservationIgnored var chiefEngineObservation: Task<Void, Never>?
     /// Shows the Feed's notices in the default Chief's transcript (HomeService+ChiefRoster).
@@ -243,6 +253,7 @@ final class HomeService {
             }
         }
         observeChiefEngine()
+        observeChiefTeleport()
         observeFeedRows()
         // The active team behind the list's teammate rows and New Message's To:, read again once
         // the launch restore signs in, on another account, on another active team, and when the

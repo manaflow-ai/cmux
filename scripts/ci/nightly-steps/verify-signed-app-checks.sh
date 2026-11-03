@@ -6,4 +6,4 @@
 set -euo pipefail
 flags=()
 if [[ "${REQUIRE_HELPER_TICKET:-false}" == true ]]; then flags+=(--require-helper-ticket); fi
-./scripts/ci/check-signed-app.sh "$CHANNEL_APP_PATH" "$CHANNEL_ENTITLEMENTS" ${flags[@]+"${flags[@]}"}
+./scripts/ci/check-signed-app.sh "$CHANNEL_APP_PATH" "${CMUX_APP_TUNNEL_ENTITLEMENTS:-$CHANNEL_ENTITLEMENTS}" ${flags[@]+"${flags[@]}"}
