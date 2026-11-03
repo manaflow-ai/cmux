@@ -999,6 +999,15 @@ button.cv-subagent > :last-child {
   flex: none;
   pointer-events: none;
 }
+/* In the transcript its mark follows the line's words, before the hover buttons; the time stays at
+   the line's end (conversation.css "chevron right after its words"). It opens a chat, not a fold,
+   so it keeps pointing right. */
+.acpmux-row .cv-subagent-done-row > .cv-subagent-done__chevron {
+  order: 1;
+}
+.acpmux-row .cv-subagent-done-row > .cv-subagent-done__note {
+  order: 2;
+}
 .cv-subagent-done-row > .cv-tool__chevron.is-idle {
   visibility: hidden;
 }

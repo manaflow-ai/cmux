@@ -2,7 +2,8 @@
 // finished", "Scheduled check" or "Background update". While the turn runs it leads with the working
 // spinner; once it ended quiet it leads with the clock. A click opens the turn's rows under it, which
 // the transcript draws as its own rows (turns.ts), so the open state is the transcript's fold set,
-// kept per chat like a "Worked for" fold, and survives virtualization.
+// kept per chat like a "Worked for" fold, and survives virtualization. One with no row of its own
+// yet has nothing to open, so it has no chevron and is no button.
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { backgroundTurnLabel } from "./backgroundTurns";
@@ -22,19 +23,22 @@ export function BackgroundTurnLine({
   const turn = row.background;
   if (!turn) return null;
   const label = backgroundTurnLabel(t, turn);
+  // Until a row of its own draws, there is nothing to open: a plain line, no chevron, no button.
+  const opens = turn.hasRows === true;
   return (
     <TranscriptActivityRow
       icon={turn.running ? <Spinner /> : <Clock />}
       before={label}
       className="cv-background-turn"
       ariaLabel={label}
-      expanded={expanded}
+      expanded={opens && expanded}
+      chevron={opens}
       attributes={{
-        "aria-expanded": String(expanded),
+        ...(opens && { "aria-expanded": String(expanded) }),
         "data-find-skip": "",
         "data-background-turn": turn.running ? "running" : "quiet",
       }}
-      onClick={onToggle}
+      onClick={opens ? onToggle : undefined}
     />
   );
 }

@@ -142,6 +142,7 @@ function fixturePatch(): string {
     );
     return [...rewritten, ...smallFiles(50)].join("");
   }
+  if (fixture === "comments") return smallFiles(1).join("");
   if (fixture === "mixed") return mixedPatch();
   if (fixture === "huge") {
     const bundle = addedFilePatch(

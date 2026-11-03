@@ -76,7 +76,7 @@ import Testing
         let counts = ActionMainMenu.allCases.reduce(into: [ActionMainMenu: Int]()) { result, menu in
             result[menu] = Self.topMenu(menu, in: bar)?.items.filter { !$0.isSeparatorItem && !$0.isAlternate }.count ?? 0
         }
-        #expect(counts[.app] == 8)
+        #expect(counts[.app] == 9) // Install an Earlier Nightly… (Leo 2026-11-02)
         #expect(counts[.file] == 15)
         #expect(counts[.edit] == 7)
         #expect(counts[.view] == 12)

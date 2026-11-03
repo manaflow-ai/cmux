@@ -768,7 +768,7 @@ final class CloudService {
         let idlePause = request.persistent ? 0 : nil
         var machine = try await CloudMachineCap.creating(person: startedByPerson, cap: { [weak self] error in
             guard case CloudMachineCreateFlow.Failure.upgradeRequired(let reason) = error else { return CloudMachineCap.refusal(error) }
-            return self.map { CloudMachineCap.plan(freePlan: reason == .freePlan, machines: $0.machines.cloud.map(\.machine), user: $0.auth.user?.id) }
+            return self.map { CloudMachineCap.plan(freePlan: reason == .freePlan, pauseFrees: reason == .pool, machines: $0.machines.cloud.map(\.machine), user: $0.auth.user?.id) }
         }, choose: { [weak self] in await self?.chooseAtCap?($0) },
                                                          pause: { [weak self] in try await self?.pauseMachine($0) }) { again in
             var request = request // after a Pause, a new key: the first one's stored answer is the refusal
@@ -839,7 +839,7 @@ final class CloudService {
     func pauseMachine(_ machineID: String) async throws {
         try await changes.run(.pausing, machineID: machineID, of: { machines.session(machineID) },
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
-            try await api.pauseMachine(machineID)
+            try await configuration.linkSource == .appServer ? CloudMachinePower.run("cloud.machine.pause", machine: machineID, ops: appOps) : api.pauseMachine(machineID)
         }
         changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("paused machine \(machineID, privacy: .public)")
     }
@@ -847,7 +847,7 @@ final class CloudService {
     func resumeMachine(_ machineID: String) async throws {
         try await changes.run(.starting, machineID: machineID, of: { machines.session(machineID) },
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
-            try await api.resumeMachine(machineID)
+            try await configuration.linkSource == .appServer ? CloudMachinePower.run("cloud.machine.start", machine: machineID, ops: appOps) : api.resumeMachine(machineID)
         }
         changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("resumed machine \(machineID, privacy: .public)")
     }
