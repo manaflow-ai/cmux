@@ -8,7 +8,7 @@
 // the first output (cx-ncc.58). Only the status is the live region. While the chat waits on the person (an
 // ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
 // never "Thinking" while the agent is blocked on them.
-import { useContext, useLayoutEffect, useState } from "react";
+import { useContext, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { usePaneLanguage, useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
@@ -29,8 +29,14 @@ export const QUIET_MS = 1200;
 export const WRITING_MS = 5000;
 
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
-function useQuiet(key: string | undefined, ms = QUIET_MS): boolean {
-  const [quiet, setQuiet] = useState(key === undefined);
+/// `since`, when known, is when the key's text was written: a key that was already that old when the
+/// line mounted (a chat opened long after its reply paused) is quiet from the first frame, instead
+/// of counting `ms` from the mount as if it had just moved.
+function useQuiet(key: string | undefined, ms = QUIET_MS, since?: number, now: () => number = Date.now): boolean {
+  const age = () => (since === undefined ? 0 : Math.max(0, now() - since));
+  const [quiet, setQuiet] = useState(() => key === undefined || age() >= ms);
+  // The key the line mounted with: only that one is timed from `since`; a later key just moved.
+  const mounted = useRef(key);
   // The first streamed assistant chunk inserts the answer and changes `key` in the same commit.
   // Hide the live line before that commit paints; an effect would leave one frame of "Thinking"
   // underneath the first token. The timer remains an ordinary effect so it never blocks layout.
@@ -39,9 +45,15 @@ function useQuiet(key: string | undefined, ms = QUIET_MS): boolean {
       setQuiet(true);
       return;
     }
+    const left = key === mounted.current ? ms - age() : ms;
+    if (left <= 0) {
+      setQuiet(true);
+      return;
+    }
     setQuiet(false);
-    const timer = setTimeout(() => setQuiet(true), ms);
+    const timer = setTimeout(() => setQuiet(true), left);
     return () => clearTimeout(timer);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `since` only seeds the mounted key
   }, [key, ms]);
   return quiet;
 }
@@ -90,6 +102,7 @@ export function Thinking({
   turnTotal = false,
   untimed = false,
   quietKey,
+  quietAt,
   below = false,
   command = false,
 }: {
@@ -120,6 +133,9 @@ export function Thinking({
   turnTotal?: boolean;
   untimed?: boolean;
   quietKey?: string;
+  /// When the reply `quietKey` names was written (turns.ts `codexLiveTurn`): a reply already
+  /// still past WRITING_MS when the line mounts reads "Thinking" at once.
+  quietAt?: number;
   /// The turn's last row (conversation/turns.ts): as tall as the footer that replaces it.
   below?: boolean;
   /// The call in flight is a command: the line offers ⌃B, as the command's own row does
@@ -138,7 +154,7 @@ export function Thinking({
   const quiet = useQuiet(waiting || doing !== undefined ? undefined : quietKey);
   // A reply that paused only a moment is still being written; one silent for longer is the agent
   // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
-  const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS);
+  const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
   const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
   const waitsOnAgents = liveState === "subagents" && liveAgents > 0;
   const writing = liveState === "writing" && stillWriting;
@@ -196,8 +212,13 @@ export function Thinking({
       </div>
     );
   return (
-    // `cv-worked--live`: its words start on the icon rows' text column (conversation.css).
-    <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
+    // `cv-worked--live`: its words start on the icon rows' text column (conversation.css), its icon
+    // slot empty (`data-lead-slot`: gallery/invariants.ts reads its lead edge from the box, not the words).
+    <div
+      className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`}
+      data-find-skip
+      data-lead-slot
+    >
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}

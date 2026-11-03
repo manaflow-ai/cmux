@@ -4,20 +4,7 @@ import CmuxNextCloudCredentials
 import CmuxNextSettings
 import Foundation
 
-/// The Release copy of the person's own Claude login to their own Cloud machine (Leo, 2026-11-02),
-/// on his three conditions:
-///
-/// 1. "Consent first. It's on only after a clear one-time prompt: 'use my Claude login on my own
-///    Cloud machines'." The answer is kept in cmux.json (``CloudLoginCopyConsentSetting``), which
-///    only the person sets and Settings > Machines takes back.
-/// 2. "Your token only: your own token, to your own machine. Never stored by us, never on team
-///    machines, never shared." Only where the platform says the caller owns the machine and its
-///    guest is an `owner` one (cmux-cloud-start-core; never a team guest in Release), written from
-///    this Mac to the machine's disk over the machine routes, which keep and log none of it.
-/// 3. "A remote off switch": ``CloudHarnessLoginCopySwitch``, read before each copy. Off, the copy
-///    is skipped and the machine's chat offers the one-click "Sign in to Claude".
-///
-/// DEV and NIGHTLY builds keep their dogfood gate: none of this is read there.
+/// The Release copy of the person's Claude login: the rules are ``CloudLoginCopyGate``'s; this reads the app's parts.
 extension CloudService {
     /// Reads the remote switch now (5 s at most) and answers it: nil (off) on any failure.
     @discardableResult func readHarnessLoginCopySwitch() async -> Bool? {
@@ -44,24 +31,13 @@ extension CloudStartChat {
         return answer
     }
 
-    /// The transfer's last check before it writes the login (``CloudCredentialTransfer`` `stillAllowed`):
-    /// in Release, the switch read again and the person's consent still yes. DEV and NIGHTLY: always.
-    static func releaseStillAllowed(_ services: AppServices) -> @Sendable () async -> Bool {
-        guard !DevTools.isEnabled else { return { true } }
-        return { [weak services] in await recheck(services) }
-    }
-
-    @MainActor private static func recheck(_ services: AppServices?) async -> Bool {
-        guard let services, await services.cloud.readHarnessLoginCopySwitch() == true else { return false }
-        return loginCopyConsent(services) == true
-    }
-
-    /// Whether a Release turn card may copy the login now (its recovery): the switch read fresh,
-    /// then the person's consent, asked once. DEV and NIGHTLY builds answer true (their own gate).
-    @MainActor static func releaseCopyAllowed(_ services: AppServices) async -> Bool {
-        guard !DevTools.isEnabled else { return true }
-        guard await services.cloud.readHarnessLoginCopySwitch() == true else { return false }
-        if let consent = loginCopyConsent(services) { return consent }
-        return await askLoginCopyConsent(services)
+    /// The Release copy's gate (``CloudLoginCopyGate``) over this app's switch, cmux.json and consent dialog.
+    @MainActor static func loginCopyGate(_ services: AppServices) -> CloudLoginCopyGate {
+        CloudLoginCopyGate(dogfood: DevTools.isEnabled, readSwitch: { [weak services] in await services?.cloud.readHarnessLoginCopySwitch() },
+                           consent: { [weak services] in services.flatMap(loginCopyConsent) },
+                           ask: { [weak services] in
+                               guard let services else { return false }
+                               return await askLoginCopyConsent(services)
+                           })
     }
 }

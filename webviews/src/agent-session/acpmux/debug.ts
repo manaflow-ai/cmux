@@ -4,15 +4,8 @@ import type { AcpmuxRow } from "./model";
 import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
 import { openPicker, pickerLabels } from "./pickerOpeners";
-import { syntheticRows } from "./synthetic";
-import { runStream, type StreamOptions } from "./streamDebug";
-import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
-import { workedTurnRows } from "./workedTurn";
-import { incomingRows } from "./incomingFixture";
-import { linkRows } from "./linkFixture";
-import { organizationRows } from "./organizationFixture";
-import { SUBAGENT_TRAY_STEPS, subagentTrayRows } from "./subagentsFixture";
-import { SHARED_PRESENCE, sharedRows } from "./multiplayer/sharedFixture";
+import type { StreamOptions } from "./streamDebug";
+import type { LoadRunOptions } from "./loadDebug";
 import { shownPresence } from "./multiplayer/LivePresence";
 import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
@@ -143,14 +136,25 @@ export function createAcpmuxDebug(
 
   // The subagents fixture's steps share the time its step 0 began, so its rows keep their places.
   let subagentsAt: number | undefined;
-  const trayStep = (count: number) => (Number.isInteger(count) && count > 0 && count < SUBAGENT_TRAY_STEPS ? count : 0);
-  const trayOrigin = (count: number) => {
-    if (trayStep(count) === 0 || subagentsAt === undefined) subagentsAt = Date.now() - 60_000;
-    return subagentsAt;
-  };
-
   return {
     async seedRows(count = 5000, fixture, agents) {
+      const {
+        syntheticRows,
+        workedTurnRows,
+        incomingRows,
+        linkRows,
+        organizationRows,
+        SUBAGENT_TRAY_STEPS,
+        subagentTrayRows,
+        SHARED_PRESENCE,
+        sharedRows,
+      } = await import("./debugFixtures");
+      const trayStep = (count: number) =>
+        Number.isInteger(count) && count > 0 && count < SUBAGENT_TRAY_STEPS ? count : 0;
+      const trayOrigin = (count: number) => {
+        if (trayStep(count) === 0 || subagentsAt === undefined) subagentsAt = Date.now() - 60_000;
+        return subagentsAt;
+      };
       acpmuxPerf.enable();
       const rows =
         fixture === "subagents"
@@ -374,15 +378,18 @@ export function createAcpmuxDebug(
     layoutWatch(options = {}) {
       return layoutWatch(options);
     },
-    stream(options = {}) {
+    async stream(options = {}) {
+      const { runStream } = await import("./streamDebug");
       return runStream(host.replaceRows, options);
     },
-    loadSeed(turns = 5000) {
+    async loadSeed(turns = 5000) {
       const automationHost = host.automation;
-      if (!automationHost) return Promise.resolve(NO_AUTOMATION);
+      if (!automationHost) return NO_AUTOMATION;
+      const { loadSeed } = await import("./loadDebug");
       return loadSeed({ selectSession: automationHost.selectSession, rowCount: host.rowCount }, turns);
     },
-    loadRun(options = {}) {
+    async loadRun(options = {}) {
+      const { loadRun } = await import("./loadDebug");
       return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
     },
   };

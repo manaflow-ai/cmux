@@ -23,6 +23,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INSTALL = ROOT / "scripts/ci/release-signer/install.sh"
 NOTARIZE_DMG = ROOT / "scripts/ci/release-signer/notarize-dmg.sh"
+SUBMIT_APP = ROOT / "scripts/ci/release-signer/submit-app.sh"
+WAIT_APP = ROOT / "scripts/ci/release-signer/wait-app-notary.sh"
+SUBMISSION = "965c103d-b321-45bf-bacc-aac02dd2e648"
 BUILD = ROOT / "scripts/ci/release-signer/build.sh"
 PASSWORD = "throwaway-p12-password-41c7"
 CN = "Developer ID Application: Example Corp (7WLXT3NR37)"
@@ -78,9 +81,22 @@ elif cmd == "notary-submit":
         sys.exit("Error: the submission was rejected")
     key = json.load(open(opt("--api-key-file")))
     ssl("pkey", "-noout", stdin=key["private_key"].encode())
+    if os.path.isdir(argv[-1]):
+        # submit-app.sh: an app bundle, uploaded without waiting for Apple.
+        assert "--staple" not in argv and "--wait" not in argv
+        print("created submission ID: " + os.environ.get("FAKE_SUBMISSION", "965c103d-b321-45bf-bacc-aac02dd2e648"))
+        sys.exit(0)
     assert b"\nSIGNED:" in open(argv[-1], "rb").read(), "submitted unsigned"
     assert "--staple" in argv
     open(argv[-1], "ab").write(b"\nSTAPLED")
+elif cmd in ("notary-wait", "notary-log"):
+    key = json.load(open(opt("--api-key-file")))
+    ssl("pkey", "-noout", stdin=key["private_key"].encode())
+    status = os.environ.get("FAKE_STATUS", "Accepted")
+    if cmd == "notary-wait":
+        print("poll state after 0s: " + status)
+    else:
+        print(json.dumps({"jobId": argv[-1], "status": status}))
 else:
     sys.exit("unexpected command " + cmd)
 '''
@@ -269,8 +285,87 @@ class BuildTests(unittest.TestCase):
         self.assertFalse((tmp / "ran").exists())
 
     def test_scripts_are_executable(self):
-        for script in (BUILD, INSTALL, NOTARIZE_DMG):  # signer-env.sh is sourced
+        for script in (BUILD, INSTALL, NOTARIZE_DMG, SUBMIT_APP, WAIT_APP):  # signer-env.sh is sourced
             self.assertTrue(script.stat().st_mode & stat.S_IXUSR, script)
+
+
+class AppNotarizationTests(unittest.TestCase):
+    """submit-app.sh uploads the app in the background and hands on Apple's id; wait-app-notary.sh
+    passes only an Accepted answer. Neither puts the notary key on a command line or in the signer's
+    environment, and both remove its directory."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.signer = self.tmp / "signer"
+        self.signer.write_text(FAKE_SIGNER)
+        self.signer.chmod(0o755)
+        self.log = self.tmp / "log.jsonl"
+        self.app = self.tmp / "cmux NEXT.app"
+        (self.app / "Contents").mkdir(parents=True)
+        p8 = subprocess.run(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256"],
+                            check=True, capture_output=True).stdout
+        self.env = dict(
+            os.environ, FAKE_LOG=str(self.log), CMUX_SIGNER=str(self.signer), RCODESIGN_CONFIG="x",
+            ASC_API_KEY_ID="KEYID12345", ASC_API_ISSUER_ID="issuer-uuid", ASC_API_KEY_P8_BASE64=base64.b64encode(p8).decode(),
+            TMPDIR=str(self.tmp), RUNNER_TEMP=str(self.tmp / "runner"), CMUX_NOTARY_LOG_RETRY_SECONDS="0",
+        )
+        (self.tmp / "runner").mkdir()
+
+    def calls(self):
+        return [json.loads(line) for line in self.log.read_text().splitlines()]
+
+    def assert_keys_stayed_in_files(self, prefix):
+        for call in self.calls():
+            self.assertEqual(call["config_env"], [])
+            self.assertEqual(call["secret_env"], [])
+            self.assertNotIn(self.env["ASC_API_KEY_P8_BASE64"], " ".join(call["argv"]))
+        self.assertEqual(sorted(p.name for p in self.tmp.glob(prefix + ".*")), [])
+
+    def test_submits_in_the_background_and_hands_on_the_id(self):
+        start = run(["bash", SUBMIT_APP, "start", self.app], self.env)
+        self.assertEqual(start.returncode, 0, start.stderr)
+        finish = run(["bash", SUBMIT_APP, "finish"], {k: v for k, v in self.env.items() if k != "ASC_API_KEY_P8_BASE64"})
+        self.assertEqual(finish.returncode, 0, finish.stderr)
+        self.assertEqual(finish.stdout, f"submission_id={SUBMISSION}\n")
+        submit = [c["argv"] for c in self.calls() if c["argv"][0] == "notary-submit"]
+        self.assertEqual(len(submit), 1)
+        self.assertEqual(submit[0][-1], str(self.app))
+        self.assert_keys_stayed_in_files("cmux-app-submit")
+
+    def test_finish_fails_when_the_upload_failed(self):
+        self.assertEqual(run(["bash", SUBMIT_APP, "start", self.app], dict(self.env, FAKE_SUBMIT_FAILS="1")).returncode, 0)
+        finish = run(["bash", SUBMIT_APP, "finish"], self.env)
+        self.assertNotEqual(finish.returncode, 0)
+        self.assertNotIn("submission_id=", finish.stdout)
+
+    def test_finish_fails_without_a_submission_id(self):
+        self.assertEqual(run(["bash", SUBMIT_APP, "start", self.app], dict(self.env, FAKE_SUBMISSION="none")).returncode, 0)
+        finish = run(["bash", SUBMIT_APP, "finish"], self.env)
+        self.assertNotEqual(finish.returncode, 0)
+        self.assertIn("names no submission id", finish.stderr)
+
+    def test_finish_without_a_start_fails(self):
+        self.assertNotEqual(run(["bash", SUBMIT_APP, "finish"], self.env).returncode, 0)
+
+    def test_wait_passes_an_accepted_submission(self):
+        result = run(["bash", WAIT_APP, SUBMISSION], self.env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([c["argv"][0] for c in self.calls()], ["encode-app-store-connect-api-key", "notary-wait", "notary-log"])
+        self.assertEqual(self.calls()[1]["argv"][-1], SUBMISSION)
+        self.assert_keys_stayed_in_files("cmux-app-wait")
+
+    def test_wait_fails_on_any_other_answer(self):
+        for status in ("Invalid", "Rejected", "In Progress"):
+            with self.subTest(status=status):
+                result = run(["bash", WAIT_APP, SUBMISSION], dict(self.env, FAKE_STATUS=status))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"Apple answered '{status}'", result.stderr)
+
+    def test_wait_refuses_a_malformed_id(self):
+        result = run(["bash", WAIT_APP, "--staple"], self.env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.log.exists())
 
 
 if __name__ == "__main__":
