@@ -8,6 +8,7 @@ import { newTabHeadline } from "../agent-session/acpmux/newtab/headline.experime
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
+import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
@@ -34,6 +35,7 @@ import { traySurfaceLook } from "../agent-session/acpmux/subagents/traySurface.e
 import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment";
 import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
+import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
 import type { Experiment } from "./experiment";
 
@@ -62,6 +64,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chromiumGlassUnderlay,
   questionPreviewLayout,
   toolErrorLook,
+  backgroundReactionLook,
   cloudStartLook,
   agentStartLook,
   liveLineTokens,
@@ -75,6 +78,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chatSwitchMotion,
   liveBackground,
   composerPlusCommands,
+  promptSuggestionLook,
 ];
 
 export function experimentById(id: string): Experiment | undefined {
