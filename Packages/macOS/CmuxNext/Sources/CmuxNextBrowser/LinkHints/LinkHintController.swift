@@ -53,9 +53,15 @@ public final class LinkHintController {
 
     /// Every key-down of the process, first (``KeyRouter``): whether the app dispatched it before. Chromium sends a key
     /// the page left unhandled through the app again; the page had it, so it is never a session's (v6 doubled "fiel").
-    public func noteKeyDown(_ event: NSEvent) { // perf-hot: 0.05ms key-dispatch (every key-down of the process; 0 allocations)
+    /// Only a Chromium page window's keys can start a session or be sent back: any other key returns at once (lead on
+    /// STATUS 8037: no work per key for a person who never uses link hints).
+    public func noteKeyDown(_ event: NSEvent, in window: NSWindow?) { // perf-hot: 0.05ms key-dispatch (every key-down of the process; 0 allocations)
+        guard let pageWindowClass = Self.pageWindowClass, window?.isKind(of: pageWindowClass) == true else { return noted = nil }
         noted = (event, seen.note(event, time: event.timestamp, code: event.keyCode))
     }
+
+    /// Chromium's page window class (`CefNSWindow`), looked up once.
+    private static let pageWindowClass: AnyClass? = NSClassFromString("CefNSWindow")
 
     /// A key-up or a click before the app dispatches it, while the page answers: a key-up whose key-down waits waits
     /// behind it (the page never gets an up before its down); a click gives the keys typed before it to the page first.
