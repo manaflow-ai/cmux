@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextAgentPane
 import Foundation
 import Testing
 
