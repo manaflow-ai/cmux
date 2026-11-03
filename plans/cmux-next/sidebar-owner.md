@@ -1,12 +1,12 @@
 # cmux-next sidebar: owner note
 
-- 2026-11-02: a remote group's machine mark is its rows' size and image. Leo, verbatim: "the sizes of the icons for
-  groups and workspaces aren't the same size anymore they should be". #29833 drew each workspace row's machine mark at a
-  status mark's size (`SidebarStyle.statusGlyphSize`) but left the group header's trailing mark (from 4ef89f17eba, the
-  remote group) at the leading glyph's side, larger than the rows under it. The header now draws
-  `WorkspaceRowView.machineMarkImage` at the rows' size (`GroupHeaderRowView.machineMarkSide`); the non-default leading
-  look keeps the icon column's glyph size. A group's own icon already shares the workspace icon's box. Regression:
-  `SidebarGroupIconSizeTests`, at each density and text size.
+- 2026-11-02: a remote group's machine mark is a row mark's size. Leo, verbatim: "the sizes of the icons for groups
+  and workspaces aren't the same size anymore they should be". #29833 drew each workspace row's trailing marks at a
+  status mark's size (`SidebarStyle.statusGlyphSize`) but left the group header's trailing machine mark (from
+  4ef89f17eba, the remote group) at the leading glyph's side, larger than the rows under it. The header now draws it at
+  the status mark's size (`GroupHeaderRowView.machineMarkSide`, its own image so it does not depend on the rows'
+  machine mark, which #32688 removes); the non-default leading look keeps the icon column's glyph size. A group's own
+  icon already shares the workspace icon's box. Regression: `SidebarGroupIconSizeTests`, at each density and text size.
 
 - 2026-11-02: a group nobody colored draws no bar, chip or wash: a plain row with only its hover and drop fills. Leo,
   on an uncolored group's header: "WTF IS THIS GROUP COLOUR????" / "THE GROUP COLOUR SOMEHOW BEING THE THEME COLOUR???"

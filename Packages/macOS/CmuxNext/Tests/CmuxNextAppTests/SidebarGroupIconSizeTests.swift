@@ -5,7 +5,7 @@ import Testing
 
 /// A group header's icons are its member rows' size (Leo 2026-11-02: "the sizes of the icons for groups and workspaces
 /// aren't the same size anymore they should be"): a group's own icon takes the workspace icon's frame and glyph, and a
-/// remote group's machine mark takes its rows' machine mark size and image, at each density and text size.
+/// remote group's machine mark takes a row's trailing mark size, at each density and text size.
 @MainActor @Suite(.serialized) struct SidebarGroupIconSizeTests {
     nonisolated struct Case: Sendable, CustomTestStringConvertible {
         var comfortable: Bool
@@ -65,17 +65,19 @@ import Testing
         }
     }
 
+    /// The remote group's machine mark sits in the trailing column at a status mark's size, the size every row's trailing
+    /// mark takes (the spinner's, the warning triangle's), never the larger leading glyph's.
     @Test(arguments: cases)
-    func aRemoteGroupsMachineMarkIsItsRowsSize(_ c: Case) throws {
+    func aRemoteGroupsMachineMarkIsARowMarksSize(_ c: Case) throws {
         try Self.with(c) {
             let list = Self.sidebar().list
             let header = try Self.laidOut(list, .group(SidebarGroup.hostGroupID(Self.remote.id)), as: GroupHeaderRowView.self)
-            let row = try Self.laidOut(list, .workspace(WorkspaceID("w-remote")), as: WorkspaceRowView.self)
-            try #require(!header.machineMark.isHidden && !row.machineMark.isHidden, "both draw the machine mark")
-            #expect(header.machineMark.frame.size == row.machineMark.frame.size,
-                    "group mark box \(header.machineMark.frame.size), row mark box \(row.machineMark.frame.size)")
-            #expect(header.machineMark.image?.size == row.machineMark.image?.size,
-                    "group mark glyph \(String(describing: header.machineMark.image?.size)), row \(String(describing: row.machineMark.image?.size))")
+            try #require(!header.machineMark.isHidden, "the remote group draws its machine mark")
+            let side = SidebarStyle.statusGlyphSize
+            #expect(header.machineMark.frame.size == NSSize(width: side, height: side),
+                    "group mark box \(header.machineMark.frame.size), a row's trailing mark \(side)")
+            #expect(header.machineMark.image?.size == NSSize(width: side, height: side),
+                    "group mark glyph \(String(describing: header.machineMark.image?.size)), a row's trailing mark \(side)")
             #expect(abs(header.machineMark.frame.midY - header.bounds.midY) < 0.5, "the group's mark centers on its bar")
         }
     }
