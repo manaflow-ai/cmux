@@ -18563,8 +18563,7 @@
             "required": true,
             "type": {
               "kind": "primitive",
-              "name": "string",
-              "max_length": 65536
+              "name": "string"
             }
           },
           "fresh": {
@@ -18573,7 +18572,7 @@
               "kind": "primitive",
               "name": "boolean"
             },
-            "description": "true: text is the whole segment so far (or its last 64 KiB with truncated) and replaces it; false: text is a delta appended to the segment."
+            "description": "true: text is the whole segment so far and replaces it; false: text is a delta appended to the segment."
           },
           "done": {
             "required": true,

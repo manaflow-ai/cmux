@@ -26,7 +26,7 @@ import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.exper
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
-import { trayPanelLook, trayRowLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
+import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
@@ -67,6 +67,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   liveLineTokens,
   trayPanelLook,
   trayRowLook,
+  trayStopLook,
   trayMotionLook,
   trayHeadLook,
   trayFoldHeadLook,
