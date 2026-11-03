@@ -485,7 +485,16 @@ async fn dispatch_brief(
         .and_then(Value::as_str)
         .unwrap_or("report when the task is complete")
         .to_owned();
-    let name = dispatch_name(&params, &brief);
+    let mut name = dispatch_name(&params, &brief);
+    if let Some(identity) = &identity {
+        // Separate attempts/corrections may share a human title, but own
+        // distinct durable children. Replays retain the same stable name.
+        name = format!(
+            "{}-{}",
+            name.chars().take(40).collect::<String>(),
+            &identity.session_id[4..16]
+        );
+    }
     let pick = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
     let (harness, model) = match (pick("harness"), pick("model")) {
         (Some(harness), model) => (Some(harness), model),
