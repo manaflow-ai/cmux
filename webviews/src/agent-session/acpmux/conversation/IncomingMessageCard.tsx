@@ -56,6 +56,7 @@ import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
 import { mentionedRepository } from "../../../githubReferences";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { laneNotice } from "./laneReport";
+import "./AgentMessageRow.css";
 import "./LaneNoticeBatch.css";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
@@ -63,6 +64,7 @@ import { useTranscriptReadOnly } from "./readOnly";
 import { Face } from "../multiplayer/Faces";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import { isGuest, type Participant } from "../multiplayer/participants";
+import { useMessageLineLook } from "./messageLineLook";
 import type { AgentNotice } from "./agentNotice";
 import { NoticeMark, SEVERITY_LABEL } from "./NoticeMark";
 import { noticeMarkdown } from "./agentNotice";
@@ -312,6 +314,7 @@ export function IncomingMessageLine({
   // estimator reads it.
   const [opened, setOpen] = useState(() => messageOpened(session, id));
   const open = whole || opened;
+  const lineLook = useMessageLineLook();
   const show = (next: boolean) => {
     setMessageOpened(session, id, next);
     setOpen(next);
@@ -433,22 +436,26 @@ export function IncomingMessageLine({
       lineClassName="cv-agent-activity-row"
       toggleLabel={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
       label={
-        // Find counts the panel's whole text, not the line's first-line copy of it.
-        // A notice's title is its text (the row's, which Find searches): Find highlights it here,
-        // inside the line Find otherwise skips (chatFind.ts `findSkipped`).
-        <span
-          className={`cv-received__preview${agentNotice ? " cv-notice__title" : ""}`}
-          data-find-skip={agentNotice ? undefined : ""}
-          data-find-keep={agentNotice ? "" : undefined}
-        >
-          {agentNotice && look === "tag" && agentNotice.severity !== "info" && (
-            <span className="cv-notice__tag" data-severity={agentNotice.severity} data-find-skip="">
-              {t(SEVERITY_LABEL[agentNotice.severity])}
-            </span>
-          )}
-          {preview || t("message.noText")}
-        </span>
+        // Find counts the panel's whole text, not the line's first-line copy of it. Stacked (the
+        // default, messageLineLook.ts) a message's first line is under the sender, on its own line.
+        // A notice's title is its text (the row's, which Find searches) and stays on the line: Find
+        // highlights it here, inside the line Find otherwise skips (chatFind.ts `findSkipped`).
+        lineLook === "single" || agentNotice ? (
+          <span
+            className={`cv-received__preview${agentNotice ? " cv-notice__title" : ""}`}
+            data-find-skip={agentNotice ? undefined : ""}
+            data-find-keep={agentNotice ? "" : undefined}
+          >
+            {agentNotice && look === "tag" && agentNotice.severity !== "info" && (
+              <span className="cv-notice__tag" data-severity={agentNotice.severity} data-find-skip="">
+                {t(SEVERITY_LABEL[agentNotice.severity])}
+              </span>
+            )}
+            {preview || t("message.noText")}
+          </span>
+        ) : null
       }
+      below={lineLook === "stacked" && !open && !agentNotice ? preview || t("message.noText") : undefined}
       // It opens at once, its height alone moving, as the message's card always did; closing fades.
       fadeIn={false}
       // One slot at the line's end, over the preview's tail, shown on hover or focus: it never moves

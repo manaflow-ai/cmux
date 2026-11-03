@@ -14,24 +14,32 @@
  * a fixed environment, no argv carries a secret, and vault values reach the CLI on stdin only.
  *
  * Steps, each a real command a person runs:
- *   1. `cmux machine vault set MACHINE_VAULT_E2E` (a random nonce on stdin), and when the API key is
- *      given, `cmux machine vault set ANTHROPIC_API_KEY` (stdin).
+ *   1. `cmux machine vault set MACHINE_VAULT_E2E` (a random nonce on stdin), then, right before the
+ *      join and only when the API key is given, `cmux machine vault set ANTHROPIC_API_KEY` (stdin).
  *   2. `cmux machine add --vault --yes USER@localhost`: the token reaches the new user's shell on
  *      ssh's stdin, the served join.sh installs acpmux, Claude Code and Codex and pulls the vault.
  *   3. As that user: acpmux has `machine.vault.pull.v1` (else the channel is too old: refused),
  *      `acpmux machine vault status --json` lists MACHINE_VAULT_E2E in the keychain.
  *   4. With the API key: a Claude Code session through acpmux runs `printenv MACHINE_VAULT_E2E`;
- *      the pass is its reply equal to the nonce. Without the key this part is skipped and the
- *      evidence says so (the run fails: a skip is never a pass).
- *   5. Cleanup in `finally` and on SIGINT/SIGTERM: the user's processes, the machine revoke (every
- *      machine labelled with this run's name), the vault entries this run set, the install revoke,
- *      the sign-out, the token file. Then a secret scan of the disposable home and the output.
+ *      the pass is its reply equal to the nonce. The key leaves the vault right after the reply.
+ *      Without the key this part is skipped and the evidence says so (the run fails: a skip is
+ *      never a pass).
+ *   5. Cleanup in `finally` and on SIGINT/SIGTERM, most important first: the machine revoke (the
+ *      join's machine id directly, then confirmed on the list), the vault entries this run set, the
+ *      token file, the install revoke, the sign-out. A cleanup step it cannot confirm fails the run.
+ *      After a cancel the whole cleanup ends within CANCEL_BUDGET_MS (GitHub's grace is SIGINT, then
+ *      SIGTERM 7.5 s later, then SIGKILL), every request and command on what is left of it.
+ *      Then a secret scan of the disposable home (skipped after a cancel) and the output.
  * Exit 0 when the evidence says pass, 1 otherwise, 2 for a refused invocation.
  */
 import { spawn } from "node:child_process"
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { byteForm, escapeData, evidenceLeaks, plainLine, redact, safeId, tarEntries } from "./machine-join-e2e.ts"
+import { CANCEL_BUDGET_MS, byteForm, escapeData, evidenceLeaks, plainLine, redact, safeId, tarEntries } from "./machine-join-e2e.ts"
+
+export { CANCEL_BUDGET_MS }
+/** The process exits this long after a cancel, whatever is still running: before the runner's SIGKILL. */
+export const CANCEL_EXIT_MS = 9_000
 
 export const DEV_PLATFORM = "https://cmux-platform-development.debussy.workers.dev"
 export const DEV_API = "https://cmux-api-development.debussy.workers.dev"
@@ -80,6 +88,8 @@ export interface Deps {
   writeFile(path: string, text: string): void
   removeFile(path: string): void
   now(): number
+  /** Resolves after `ms`, or as soon as `signal` aborts (its timer is cleared then). */
+  sleep(ms: number, signal: AbortSignal): Promise<void>
   random(): string
 }
 
@@ -95,7 +105,17 @@ export interface Evidence {
   vaultStatus: { env: string[]; secretStore: string | null; joined: boolean | null; lastResult: string | null } | null
   agentReply: "pass" | "mismatch" | "failed" | "skipped (no CMUX_E2E_ANTHROPIC_API_KEY)" | null
   secretScan: { home: { held: number | null; cmj: number | null }; log: { held: number; cmj: number } }
-  cleanup: { machinesRevoked: number; vaultRemoved: string[]; installRevoked: boolean | null; tokenFileRemoved: boolean }
+  cleanup: {
+    machinesRevoked: number
+    /** True when the list shows none of this run's machines live; null when no join started. */
+    machinesConfirmed: boolean | null
+    vaultRemoved: string[]
+    installRevoked: boolean | null
+    signedOut: boolean | null
+    tokenFileRemoved: boolean
+    /** Milliseconds from the cancel to the end of cleanup; null without a cancel. */
+    cancelCleanupMs: number | null
+  }
   result: "pass" | "fail"
   reason: string
 }
@@ -176,7 +196,7 @@ export async function runE2E(
     vaultStatus: null,
     agentReply: null,
     secretScan: { home: { held: null, cmj: null }, log: { held: 0, cmj: 0 } },
-    cleanup: { machinesRevoked: 0, vaultRemoved: [], installRevoked: null, tokenFileRemoved: false },
+    cleanup: { machinesRevoked: 0, machinesConfirmed: null, vaultRemoved: [], installRevoked: null, signedOut: null, tokenFileRemoved: false, cancelCleanupMs: null },
     result: "fail",
     reason: ""
   }
@@ -201,16 +221,49 @@ export async function runE2E(
     work.then(() => pending.delete(work), () => pending.delete(work))
     return work
   }
-  const settlePending = async () => {
-    while (pending.size > 0) await Promise.allSettled([...pending])
+  // A cancel sets one absolute deadline, CANCEL_BUDGET_MS after it, aborts every main-flow request and
+  // stops every main-flow child. Every later request and command (cleanup's own) ends by the deadline:
+  // `budget(cap)` is `cap` before a cancel and what is left of the deadline (at most `cap`) after it.
+  let cancelled = false
+  let cancelAt = 0
+  let cancelBy = Infinity
+  const stopRequests = new AbortController()
+  const left = () => cancelBy - deps.now()
+  const budget = (cap: number) => (cancelled ? Math.max(250, Math.min(cap, left())) : cap)
+  /** True when `work` settles within `ms`; the timer is dropped either way. */
+  const within = async (work: Promise<unknown>, ms: number) => {
+    const timer = new AbortController()
+    try {
+      return await Promise.race([work.then(() => true, () => true), deps.sleep(ms, timer.signal).then(() => false)])
+    } finally {
+      timer.abort()
+    }
   }
-  const cli = async (args: string[], stdin?: string, timeoutMs = 60_000, own = false) => {
-    if (!own) live()
+  /** Waits for what the main flow has in flight. After a cancel, at most 2.5 s of the deadline: its
+   * requests were aborted and its children stopped, so they answer in that time; a write that still
+   * lands later is caught by the vault list after the removal. */
+  const settlePending = async () => {
+    while (pending.size > 0) {
+      if (!cancelled) await Promise.allSettled([...pending])
+      else if (!(await within(Promise.allSettled([...pending]), Math.max(0, Math.min(2_500, left() - 4_000))))) {
+        say("cleanup: a step still in flight after the cancel; cleaning up without it")
+        return
+      }
+    }
+  }
+  // Cleanup's own calls pass its pass's signal (`own`): they are neither tracked nor refused, end by the
+  // cancel's deadline, and stop when a cancel interrupts the pass they belong to.
+  const ownCheck = (own: AbortSignal) => {
+    if (own.aborted) throw new Failed("cleanup pass interrupted by the cancel")
+  }
+  const cli = async (args: string[], stdin?: string, timeoutMs = 60_000, own?: AbortSignal) => {
+    if (own) ownCheck(own)
+    else live()
     const work = deps.run([opts.cmux, ...args, "--cloud-token-file", tokenFile], {
       env: cliEnv,
-      timeoutMs,
+      timeoutMs: own ? budget(timeoutMs) : timeoutMs,
       ...(stdin === undefined ? {} : { stdin }),
-      ...(own ? {} : { signal: stopChildren.signal })
+      signal: own ?? stopChildren.signal
     })
     const r = await (own ? work : track(work))
     childText.push(r.stdout, r.stderr)
@@ -226,24 +279,30 @@ export async function runE2E(
     "/bin/zsh", "-c", 'cd && exec "$@"', "zsh",
     ...args
   ]
-  const userRun = async (args: string[], timeoutMs = 60_000, binary = false, own = false) => {
-    if (!own) live()
-    const work = deps.run(asUser(args), { env: { PATH: CHILD_PATH }, timeoutMs, binary, ...(own ? {} : { signal: stopChildren.signal }) })
+  const userRun = async (args: string[], timeoutMs = 60_000, binary = false, own?: AbortSignal) => {
+    if (own) ownCheck(own)
+    else live()
+    const work = deps.run(asUser(args), { env: { PATH: CHILD_PATH }, timeoutMs: own ? budget(timeoutMs) : timeoutMs, binary, signal: own ?? stopChildren.signal })
     const r = await (own ? work : track(work))
     if (!binary) childText.push(r.stdout, r.stderr)
     return r
   }
   const acpmux = `${opts.home}/.local/bin/acpmux`
 
-  const call = async (url: string, init: { method: string; headers?: Record<string, string>; body?: unknown }, own = false) => {
-    if (!own) live()
-    return own ? request(url, init) : track(request(url, init))
+  const call = async (url: string, init: { method: string; headers?: Record<string, string>; body?: unknown }, own?: AbortSignal) => {
+    if (own) {
+      ownCheck(own)
+      // After a cancel each request gets at most 3 s, and never past the deadline.
+      return request(url, init, AbortSignal.any([AbortSignal.timeout(budget(cancelled ? 3_000 : 20_000)), own]))
+    }
+    live()
+    return track(request(url, init, AbortSignal.any([AbortSignal.timeout(20_000), stopRequests.signal])))
   }
-  const request = async (url: string, init: { method: string; headers?: Record<string, string>; body?: unknown }) => {
+  const request = async (url: string, init: { method: string; headers?: Record<string, string>; body?: unknown }, signal: AbortSignal) => {
     const res = await deps.fetch(url, {
       method: init.method,
       redirect: "error",
-      signal: AbortSignal.timeout(20_000),
+      signal,
       headers: { "user-agent": USER_AGENT, ...(init.body === undefined ? {} : { "content-type": "application/json" }), ...init.headers },
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) })
     })
@@ -265,8 +324,10 @@ export async function runE2E(
   let addStarted = false
   // A name goes here before its write starts: cleanup removes it whether or not the write finished.
   const vaultAttempted: string[] = []
+  // Names the main flow already removed (the API key, right after the agent's reply).
+  const removedEarly = new Set<string>()
 
-  const op = async (name: string, params: unknown, own = false) => {
+  const op = async (name: string, params: unknown, own?: AbortSignal) => {
     const r = await call(`${DEV_API}/v1/ops`, {
       method: "POST",
       headers: { authorization: `Bearer ${stack!.access}` },
@@ -275,7 +336,7 @@ export async function runE2E(
     if (r.status !== 200 || r.json?.ok !== true) throw refusedBy(name, r)
     return r.json.value
   }
-  const accessToken = async (own = false) => {
+  const accessToken = async (own?: AbortSignal) => {
     if (access && access.expiresAt - deps.now() > 60_000) return access.token
     const ch = await call(`${DEV_API}/v1/auth/challenge`, { method: "POST", body: { user, install } }, own)
     if (ch.status !== 200 || typeof ch.json?.nonce !== "string") throw refusedBy("auth challenge", ch)
@@ -286,87 +347,159 @@ export async function runE2E(
     access = { token: tok.json.access_token, expiresAt: Number(tok.json.expires_at) || deps.now() + 300_000 }
     return access.token
   }
-  const platform = async (method: string, path: string, own = false) =>
+  const platform = async (method: string, path: string, own?: AbortSignal) =>
     call(`${opts.origin}${path}`, { method, headers: { authorization: `Bearer ${await accessToken(own)}` } }, own)
   /** The token file, fresh: the CLI reads it on each command. */
-  const writeToken = async (own = false) => {
+  const writeToken = async (own?: AbortSignal) => {
     deps.writeFile(tokenFile, `${await accessToken(own)}\n`)
     tokenWritten = true
   }
 
-  /** Revokes every live machine labelled with this run's name, and this account's earlier CI vault
-   * machines (ci-vault-<digits>) still live 30 minutes after they were made. */
-  const revokeMachines = async () => {
-    const r = await platform("GET", "/v1/machines/credentials", true)
-    if (r.status !== 200 || !Array.isArray(r.json?.machines)) throw refusedBy("list", r)
-    for (const m of r.json.machines as any[]) {
-      if (m?.revoked !== false) continue
-      const label = String(m?.label ?? "")
-      const made = Date.parse(String(m?.createdAt ?? ""))
-      const ours = label === opts.name || (evidence.join.joinTokenId !== null && m?.joinTokenId === evidence.join.joinTokenId)
-      const stale = m?.mintedBy === user && /^ci-vault-\d+(?:-\d+)?$/.test(label) && Number.isFinite(made) && deps.now() - made > 30 * 60_000
-      const id = safeId(m?.machineId)
-      if (!(ours || stale) || !id) continue
-      const done = await platform("POST", `/v1/machines/credentials/${encodeURIComponent(id)}/revoke`, true)
+  /** Revokes this run's machine: the id the join printed directly, then whatever the list still shows
+   * live under this run's name or join token, until the list shows none (two looks at most; else the
+   * cleanup is unconfirmed and fails the run). Without a cancel, it also revokes this account's earlier
+   * CI vault machines (ci-vault-<digits>) still live 30 minutes after they were made; a failure there
+   * fails the run too. */
+  const revokeMachines = async (own: AbortSignal, found: string[]) => {
+    const direct = evidence.join.machineId
+    const revoke = async (id: string, note: string) => {
+      const done = await platform("POST", `/v1/machines/credentials/${encodeURIComponent(id)}/revoke`, own)
       if (done.status >= 200 && done.status < 300) {
         evidence.cleanup.machinesRevoked += 1
-        say(`revoked machine ${id}${ours ? "" : " (left by an earlier run)"}`)
-      } else if (ours) problems.push(`revoke ${id}: HTTP ${done.status}`)
+        say(`revoked machine ${id}${note}`)
+        return undefined
+      }
+      return `revoke ${id}${note}: HTTP ${done.status}`
+    }
+    // The join named its machine: revoke it first, before any list. A failure here shows on the list below.
+    if (direct) await revoke(direct, "")
+    const stale: string[] = []
+    for (let look = 0; ; look++) {
+      const r = await platform("GET", "/v1/machines/credentials", own)
+      if (r.status !== 200 || !Array.isArray(r.json?.machines)) throw new Failed(`machine revoke unconfirmed: list HTTP ${r.status}`)
+      const live: string[] = []
+      for (const m of r.json.machines as any[]) {
+        const id = safeId(m?.machineId)
+        if (!id || m?.revoked !== false) continue
+        const label = String(m?.label ?? "")
+        const made = Date.parse(String(m?.createdAt ?? ""))
+        const ours = id === direct || label === opts.name || (evidence.join.joinTokenId !== null && m?.joinTokenId === evidence.join.joinTokenId)
+        if (ours) live.push(id)
+        else if (look === 0 && m?.mintedBy === user && /^ci-vault-\d+(?:-\d+)?$/.test(label) && Number.isFinite(made) && deps.now() - made > 30 * 60_000) stale.push(id)
+      }
+      if (live.length === 0) break
+      if (look >= 1) throw new Failed(`machine ${live.join(", ")} is still live after cleanup`)
+      for (const id of live) await revoke(id, "")
+    }
+    evidence.cleanup.machinesConfirmed = true
+    // Earlier runs' leftovers are not this run's: never on a cancel's deadline.
+    if (!cancelled) {
+      for (const id of stale) {
+        const failed = await revoke(id, " (left by an earlier run)")
+        if (failed) found.push(failed)
+      }
     }
   }
 
-  // One pass; every step it needs is required: a failure in any fails the run.
+  /** One cleanup pass, most important first: the machine, the vault, the token file, the install, the
+   * sign-out. Every step is required: what it cannot confirm goes in `found` and fails the run. A pass
+   * can run again (a cancel interrupts a running one and starts a fresh one on its deadline). */
+  const cleanupPass = async (own: AbortSignal, found: string[]) => {
+    const fail = (e: unknown, what: string) => found.push(e instanceof Failed ? e.message : what)
+    // The user's processes go, alongside the rest.
+    const killing = deps
+      .run(["sudo", "-n", "-u", opts.user, "--", "/bin/kill", "-KILL", "-1"], { env: { PATH: CHILD_PATH }, timeoutMs: budget(5_000), signal: own })
+      .catch(() => undefined)
+    // Wait for what the main flow had in flight, so nothing it started lands after this looks. A cancel
+    // after a vault write or the registration started but before it answered left `stack` and `install`
+    // set by now (the tracked promise settled first), so they are undone below.
+    await settlePending()
+    if (stack && install) {
+      if (addStarted) {
+        evidence.cleanup.machinesConfirmed = false
+        await revokeMachines(own, found).catch((e) => fail(e, "machine revoke unconfirmed"))
+      }
+      if (vaultAttempted.length > 0) {
+        try {
+          await writeToken(own)
+          for (const name of vaultAttempted) if (!removedEarly.has(name)) await cli(["machine", "vault", "rm", name], undefined, 60_000, own)
+          // The proof is the list, not rm's exit: a write that never landed has nothing to remove.
+          const after = await cli(["--json", "machine", "vault", "ls"], undefined, 60_000, own)
+          const rows = lastJson(after.stdout)?.entries
+          if (after.code !== 0 || !Array.isArray(rows)) throw new Failed("vault ls after cleanup failed")
+          const still = new Set<string>(rows.map((e: any) => String(e?.name ?? "")))
+          evidence.cleanup.vaultRemoved = vaultAttempted.filter((n) => !still.has(n))
+          for (const name of vaultAttempted) if (still.has(name)) found.push(`vault entry ${name} is still in the vault after cleanup`)
+        } catch (e) {
+          fail(e, "vault cleanup failed")
+        }
+      }
+    }
+    if (tokenWritten && !evidence.cleanup.tokenFileRemoved) {
+      try {
+        deps.removeFile(tokenFile)
+        evidence.cleanup.tokenFileRemoved = true
+      } catch {
+        found.push("could not remove the token file")
+      }
+    }
+    if (install && stack && evidence.cleanup.installRevoked !== true) {
+      evidence.cleanup.installRevoked = await op("install.revoke", { install }, own).then(() => true, () => false)
+      if (!evidence.cleanup.installRevoked) found.push("could not revoke the run's cmux install")
+    }
+    if (stack && evidence.cleanup.signedOut !== true) {
+      const out = await call(`${STACK_API}/auth/sessions/current`, {
+        method: "DELETE",
+        headers: { ...stackHeaders(), "x-stack-access-token": stack.access, "x-stack-refresh-token": stack.refresh }
+      }, own).catch(() => undefined)
+      evidence.cleanup.signedOut = out !== undefined && out.status >= 200 && out.status < 300
+      if (!evidence.cleanup.signedOut) found.push("could not sign out the run's Stack session")
+    }
+    await killing
+  }
+
+  // The pass running now, its stop and its findings; only the last pass's findings count.
+  let current: Promise<void> = Promise.resolve()
+  let passStop = new AbortController()
+  let passFound: string[] = []
+  const startPass = () => {
+    passStop = new AbortController()
+    passFound = []
+    return (current = cleanupPass(passStop.signal, passFound))
+  }
   let cleaning: Promise<void> | undefined
   const cleanup = () =>
     (cleaning ??= (async () => {
-      // Stop the main flow's children (the join's ssh, the agent) and the user's processes, then wait for
-      // every request and child the main flow had in flight, so nothing it started lands after this.
       stopChildren.abort()
-      await deps.run(["sudo", "-n", "-u", opts.user, "--", "/bin/kill", "-KILL", "-1"], { env: { PATH: CHILD_PATH }, timeoutMs: 5_000 }).catch(() => undefined)
-      await settlePending()
-      // A cancel after a vault write or the registration started but before it answered left `stack` and
-      // `install` set by now (the tracked promise settled first), so they are undone below.
-      if (stack && install) {
-        if (addStarted) await revokeMachines().catch((e) => problems.push(e instanceof Failed ? e.message : "machine revoke failed"))
-        if (vaultAttempted.length > 0) {
-          try {
-            await writeToken(true)
-            for (const name of vaultAttempted) await cli(["machine", "vault", "rm", name], undefined, 60_000, true)
-            // The proof is the list, not rm's exit: a write that never landed has nothing to remove.
-            const after = await cli(["--json", "machine", "vault", "ls"], undefined, 60_000, true)
-            const rows = lastJson(after.stdout)?.entries
-            if (after.code !== 0 || !Array.isArray(rows)) throw new Failed("vault ls after cleanup failed")
-            const left = new Set<string>(rows.map((e: any) => String(e?.name ?? "")))
-            evidence.cleanup.vaultRemoved = vaultAttempted.filter((n) => !left.has(n))
-            for (const name of vaultAttempted) if (left.has(name)) problems.push(`vault entry ${name} is still in the vault after cleanup`)
-          } catch (e) {
-            problems.push(e instanceof Failed ? e.message : "vault cleanup failed")
-          }
-        }
-      }
-      if (tokenWritten) {
-        try {
-          deps.removeFile(tokenFile)
-          evidence.cleanup.tokenFileRemoved = true
-        } catch {
-          problems.push("could not remove the token file")
-        }
-      }
-      if (install && stack) {
-        evidence.cleanup.installRevoked = await op("install.revoke", { install }, true).then(() => true, () => false)
-        if (!evidence.cleanup.installRevoked) problems.push("could not revoke the run's cmux install")
-      }
-      if (stack) {
-        await call(`${STACK_API}/auth/sessions/current`, {
-          method: "DELETE",
-          headers: { ...stackHeaders(), "x-stack-access-token": stack.access, "x-stack-refresh-token": stack.refresh }
-        }, true).catch(() => undefined)
-      }
+      startPass()
+      // A cancel during a pass replaces `current` with a fresh pass: wait until none replaced the one awaited.
+      let awaited: Promise<void>
+      do {
+        awaited = current
+        await awaited
+      } while (awaited !== current)
+      problems.push(...passFound)
+      if (cancelled) evidence.cleanup.cancelCleanupMs = deps.now() - cancelAt
     })())
-  onCancel?.(() => {
-    problems.push("cancelled")
+  /** A signal: one deadline, CANCEL_BUDGET_MS from now. Stop the main flow; a cleanup pass already running
+   * (on its long timeouts) is interrupted and a fresh one runs on the deadline. */
+  const cancel = () => {
+    if (!cancelled) {
+      cancelled = true
+      cancelAt = deps.now()
+      cancelBy = cancelAt + CANCEL_BUDGET_MS
+      problems.push("cancelled")
+      stopRequests.abort()
+      stopChildren.abort()
+      if (cleaning) {
+        const old = current
+        passStop.abort()
+        current = within(old, Math.min(1_000, left())).then(() => startPass())
+      }
+    }
     return cleanup()
-  })
+  }
+  onCancel?.(cancel)
   const live = () => {
     if (cleaning) throw new Failed("cancelled before the next step")
   }
@@ -423,6 +556,9 @@ export async function runE2E(
     if (setNonce.code !== 0) throw new Failed(`vault set ${NONCE_VAR}: exit ${setNonce.code}`)
     evidence.vaultSet.nonce = true
     say(`vault: set ${NONCE_VAR}`)
+
+    // 2. The API key, as late as it can go: right before the join that pulls it (it leaves the vault
+    // right after the agent's reply). Then the one command.
     if (apiKey) {
       if (existing.has(KEY_VAR)) {
         evidence.vaultSet.anthropicKey = "kept-existing"
@@ -440,8 +576,6 @@ export async function runE2E(
         }
       }
     }
-
-    // 2. The one command.
     live()
     await writeToken()
     addStarted = true
@@ -485,6 +619,15 @@ export async function runE2E(
       const reply = replyText(run.stdout)
       evidence.agentReply = run.code !== 0 || reply === null ? "failed" : reply === nonce ? "pass" : "mismatch"
       expect(evidence.agentReply === "pass", `agent reply: ${evidence.agentReply}${run.code !== 0 ? ` (acpmux exit ${run.code})` : ""}`)
+      // The key's use is over: out of the vault now, not at cleanup (which still checks the list).
+      if (vaultAttempted.includes(KEY_VAR)) {
+        live()
+        const rmKey = await cli(["machine", "vault", "rm", KEY_VAR])
+        if (rmKey.code === 0) {
+          removedEarly.add(KEY_VAR)
+          say(`vault: removed ${KEY_VAR} after the reply`)
+        }
+      }
     }
   } catch (e) {
     if (e instanceof Refused) throw e
@@ -494,13 +637,17 @@ export async function runE2E(
   }
 
   // 5. Secret scan: the whole disposable home (as the user, one tar) and everything printed.
+  // After a cancel the home scan is skipped (the run already fails; the workflow deletes the home), so
+  // the evidence is written before the runner's SIGKILL.
   const scanned = secrets.filter((v) => v.length >= 8)
+  const scanOwn = new AbortController().signal
   try {
+    if (cancelled) throw new Error("cancelled")
     // The user's processes are gone: their sockets hold nothing and tar cannot archive them, so they go
     // first. Then the archive must be whole: a nonzero exit fails, and so does any complaint.
-    const sockets = await userRun(["/usr/bin/find", opts.home, "-type", "s", "-delete"], 60_000, false, true)
+    const sockets = await userRun(["/usr/bin/find", opts.home, "-type", "s", "-delete"], 60_000, false, scanOwn)
     if (sockets.code !== 0) throw new Error("socket cleanup failed")
-    const archive = await userRun(["/usr/bin/tar", "-C", opts.home, "--format", "gnutar", "-cf", "-", "."], 5 * 60_000, true, true)
+    const archive = await userRun(["/usr/bin/tar", "-C", opts.home, "--format", "gnutar", "-cf", "-", "."], 5 * 60_000, true, scanOwn)
     if (archive.code !== 0) throw new Error("tar exited nonzero")
     if (archive.stderr.trim() !== "") throw new Error("tar complained")
     let held = 0
@@ -514,7 +661,7 @@ export async function runE2E(
     }
     evidence.secretScan.home = { held, cmj }
   } catch {
-    problems.push("could not scan the whole disposable home")
+    if (!cancelled) problems.push("could not scan the whole disposable home")
   }
   const logText = [...transcript, ...childText].join("\n")
   evidence.secretScan.log = { held: scanned.filter((v) => logText.includes(v)).length, cmj: tokenCount(logText) }
@@ -593,7 +740,7 @@ export function realDeps(): Deps {
         const timer = setTimeout(kill, timeoutMs)
         const stop = () => {
           signalGroup("SIGTERM")
-          hard = setTimeout(kill, 2_000)
+          hard = setTimeout(kill, 1_000)
         }
         if (signal?.aborted) stop()
         else signal?.addEventListener("abort", stop, { once: true })
@@ -614,6 +761,14 @@ export function realDeps(): Deps {
     writeFile: (path, text) => writeFileSync(path, text, { mode: 0o600 }),
     removeFile: (path) => rmSync(path, { force: true }),
     now: () => Date.now(),
+    sleep: (ms, signal) =>
+      new Promise((resolve) => {
+        const timer = setTimeout(resolve, ms)
+        signal.addEventListener("abort", () => {
+          clearTimeout(timer)
+          resolve()
+        }, { once: true })
+      }),
     random: () => Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("hex")
   }
 }
@@ -637,7 +792,7 @@ if (import.meta.main) {
     if (stopping) return
     stopping = true
     void cancelNow?.()
-    setTimeout(() => process.exit(130), 20_000).unref()
+    setTimeout(() => process.exit(130), CANCEL_EXIT_MS).unref()
   }
   for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, stop)
   runE2E(opts, env, realDeps(), (cancel) => (cancelNow = cancel)).then(

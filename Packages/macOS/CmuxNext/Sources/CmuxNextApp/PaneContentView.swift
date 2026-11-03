@@ -16,9 +16,9 @@ import os
 /// between them, a browser's toolbar included.
 final class PaneContentView: NSView, PaneContentChrome {
     let stripView: TabStripView
-    /// The strip's colors: its pane's scope, subtler while another pane
-    /// has focus (`setChromeEmphasis`).
-    private let stripScope = ThemeScope(level: .terminal)
+    /// The strip's colors: its pane's scope, subtler while another pane has focus (`setChromeEmphasis`). Chrome, not
+    /// `.terminal`, which keeps the terminal theme under an App Theme (`PaneStripAppThemeTests`).
+    private let stripScope = ThemeScope(level: .workspace)
     /// The pane's own scope, under its workspace's: it pins nothing unless the pane has its own
     /// background (`PaneContentView+Backdrop`), so its strip and content inherit as before.
     let paneScope = ThemeScope(level: .workspace)
