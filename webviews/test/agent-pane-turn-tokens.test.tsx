@@ -98,6 +98,8 @@ function fakeDaemon(
   let socket: any;
   let liveOnAttach: Recorded[] = [];
   let gapFails = false;
+  let holdIndex = false;
+  let indexReply: (() => void) | undefined;
   const session = {
     sessionId: CHAT,
     cwd: "/Users/dev/app",
@@ -150,8 +152,8 @@ function fakeDaemon(
           liveOnAttach = [];
           push(live);
         }
-        if (message.id !== undefined)
-          queueMicrotask(() => {
+        if (message.id !== undefined) {
+          const reply = () => {
             let reply: Record<string, unknown>;
             try {
               reply = { result: answer(message.method, message.params) };
@@ -161,7 +163,10 @@ function fakeDaemon(
             socket.onmessage?.({
               data: JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }),
             });
-          });
+          };
+          if (holdIndex && message.params?.promptIndex === true) indexReply = reply;
+          else queueMicrotask(reply);
+        }
       },
       close() {},
     };
@@ -187,7 +192,24 @@ function fakeDaemon(
   const onAttach = (events: Recorded[]) => (liveOnAttach = events);
   /// Whether the reconnect's gap read fails.
   const failGap = (fails: boolean) => (gapFails = fails);
-  return { open, push, notify, drop, pageFrom, onAttach, failGap };
+  return {
+    open,
+    push,
+    notify,
+    drop,
+    pageFrom,
+    onAttach,
+    failGap,
+    holdIndex: () => {
+      holdIndex = true;
+    },
+    indexWaiting: () => indexReply !== undefined,
+    releaseIndex: () => {
+      holdIndex = false;
+      indexReply?.();
+      indexReply = undefined;
+    },
+  };
 }
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
@@ -399,7 +421,8 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
   // the held events (a lag resync, a Debug toggle, a reconnect's attach) must not count it either.
   const history = record([prompt("fix the build"), started, call(41_200), call(43_800), call(46_000), call(9_000)]);
   const daemon = fakeDaemon(history, { attachFrom: 5 });
-  const { client, snapshot, attached, resynced } = await connect(daemon);
+  daemon.holdIndex();
+  const { client, snapshot, snapshots, attached, resynced } = await connect(daemon);
   const scope = globalThis as { window?: unknown };
   const hadWindow = "window" in scope;
   // The client schedules its reconnect on `window`; this test has no DOM.
@@ -418,6 +441,13 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
     // itself, not whether it happens to remain the most recent snapshot when this test polls.
     await until(() => resynced() !== undefined, "the resync");
     expect(resynced().turnTokens).toBeUndefined();
+    expect(snapshot().turnTokens).toBeUndefined();
+
+    // Release the deferred read only after the resync, then check its own emission as well.
+    await until(daemon.indexWaiting, "the deferred prompt-index request");
+    const beforeIndexReply = snapshots();
+    daemon.releaseIndex();
+    await until(() => snapshots() > beforeIndexReply, "the prompt-index emission");
     expect(snapshot().turnTokens).toBeUndefined();
 
     // The rebuild and its snapshot are synchronous.
