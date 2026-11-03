@@ -191,7 +191,8 @@
         "session panel"
       ],
       "paths": [
-        "webviews/src/agent-session/acpmux/session-info"
+        "webviews/src/agent-session/acpmux/session-info",
+        "webviews/src/agent-session/acpmux/summary"
       ]
     },
     "artifacts": {
