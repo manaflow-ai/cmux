@@ -998,10 +998,9 @@ fn ensure_waits_on_a_slow_swap_while_its_progress_advances() {
     assert!(done.windows(2).all(|pair| pair[0] <= pair[1]), "done went back: {done:?}");
     assert!(done.last() > done.first(), "done never advanced: {done:?}");
 
-    let owner_socket = socket.clone();
     let _ = command(&dir.0)
         .args(["server", "stop", "--session", session, "--end-terminals", "--socket"])
-        .arg(&owner_socket)
+        .arg(&socket)
         .output();
     assert_eq!(live_output_rows(&prepared.registry), 0, "the swapped registry holds no output");
 }
