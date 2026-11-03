@@ -1,6 +1,6 @@
-import CmuxNextAgentPane
-import CmuxNextBridge
-import CmuxNextDaemon
+public import CmuxNextAgentPane
+public import CmuxNextBridge
+public import CmuxNextDaemon
 
 /// Mute one agent chat's notifications (cx-sg1qz) from its tab's or sidebar
 /// row's menu. The mute is the chat's acpmux tag `notifications: muted`, so it
@@ -9,15 +9,20 @@ import CmuxNextDaemon
 /// The menu reads it back from the turn-state watch (`AgentTurnStateStore`),
 /// so it says Unmute once acpmux has the tag.
 @MainActor
-struct AgentChatMute {
-    let environment: AcpmuxEnvironment
-    let turns: AgentTurnStateStore
+public struct AgentChatMute {
+    public let environment: AcpmuxEnvironment
+    public let turns: AgentTurnStateStore
+
+    public init(environment: AcpmuxEnvironment, turns: AgentTurnStateStore) {
+        self.environment = environment
+        self.turns = turns
+    }
 
     /// Whether the chat is muted; nil when it is not a chat of this Mac's acpmux.
-    func isMuted(_ chat: AgentSessionRef) -> Bool? { turns.isMuted(chat) }
+    public func isMuted(_ chat: AgentSessionRef) -> Bool? { turns.isMuted(chat) }
 
     /// Mutes the chat, or unmutes a muted one. False when it is not a chat of this Mac's acpmux.
-    func toggle(_ chat: AgentSessionRef) async throws -> Bool {
+    public func toggle(_ chat: AgentSessionRef) async throws -> Bool {
         guard let session = chat.session, let muted = isMuted(chat) else { return false }
         let tag = AgentTurnStates.muteTag
         try await environment.tag(session: session, set: muted ? [:] : [tag: AgentTurnStates.mutedValue],

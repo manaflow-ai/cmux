@@ -1,3 +1,4 @@
+import * as slack from "./brain-slack.ts"
 import { DurableObject } from "cloudflare:workers"
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context"
 import type { AssistantMessage } from "@earendil-works/pi-ai"
@@ -571,6 +572,15 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
   async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string; retry?: true }> {
     return turnLoop.wake(this, w)
+  }
+
+  /** Platform-authenticated Slack input, scoped to this conversation brain. */
+  async slackInbound(w: slack.SlackWake) {
+    return slack.slackInbound(this, w)
+  }
+
+  async slackOutbound(reply: slack.SlackOutbound): Promise<void> {
+    return slack.slackOutbound(this, reply)
   }
 
   /** A peer Chief's message (brain-turn.ts peerNote), forwarded by the owner's install. */

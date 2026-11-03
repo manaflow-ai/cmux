@@ -12,6 +12,11 @@
         "webviews/src/pages/home-channels/ChiefWorkStore.ts"
       ]
     },
+    "chief-web": {
+      "spec": "leo-workspace design/chief-web.md",
+      "aliases": ["Chief mobile web", "Chief web address"],
+      "paths": ["webviews/src/chief-web/"]
+    },
     "cloud-environment": {
       "spec": "leo-workspace design/cloud.md",
       "aliases": ["cloud environment", "setup script", "network secrets"],
