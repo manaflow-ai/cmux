@@ -287,7 +287,7 @@ async fn finish_wait(
         .ok_or_else(|| incomplete("CI output has no final command status"))?;
     let status = output
         .get(end + marker.len()..)
-        .and_then(|v| v.iter().position(|b| *b == b'\n').map(|i| &v[..i]))
+        .and_then(|v| v.iter().position(|b| *b == b'\n').and_then(|i| v.get(..i)))
         .and_then(|v| std::str::from_utf8(v).ok())
         .and_then(|v| v.parse::<u8>().ok())
         .ok_or_else(|| incomplete("CI output has an invalid final command status"))?;
@@ -298,7 +298,10 @@ async fn finish_wait(
         .map(|start| start + beginning.len())
         .filter(|start| *start <= end)
         .ok_or_else(|| incomplete("CI output has no command start"))?;
-    output = output[start..end].to_vec();
+    output = output
+        .get(start..end)
+        .ok_or_else(|| incomplete("CI output has an invalid command range"))?
+        .to_vec();
     use base64::Engine;
     let view = json!({"jobId":job.get("id"),"state":"exited","exitCode":status,
         "text":String::from_utf8_lossy(&output),"data":base64::engine::general_purpose::STANDARD.encode(&output),
