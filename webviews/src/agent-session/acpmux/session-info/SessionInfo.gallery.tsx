@@ -13,7 +13,7 @@
 // worktree of its own, its environment, tokens, background test run and diffs its own, under three
 // ways to say whose panel it is (the head's title, the one drawn; a path; a card); one sharing the
 // chat's checkout; and the chat's panel beside them, its Subagents listing it.
-import type { ComponentProps, CSSProperties } from "react";
+import { useState, type ComponentProps, type CSSProperties } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { WAVE_CLASS, WAVE_KEYFRAMES } from "../../../ui/wave";
@@ -45,6 +45,8 @@ type Props = ComponentProps<typeof SessionInfo> & {
   tones?: CSSProperties;
   /// Gallery-only: a different height ceiling, for comparison with the shipped full-room one.
   ceiling?: string;
+  /// Gallery-only: a different edge look, for comparison with the shipped hairline (sessionInfo.css).
+  edge?: string;
   /// Gallery-only: panel width used by narrow workflow layout states.
   panelWidth?: number;
 };
@@ -102,12 +104,17 @@ function GallerySessionInfo({
   header = "title",
   tones,
   ceiling,
+  edge,
   panelWidth = 320,
+  more: moreAtFirst,
   ...props
 }: Props) {
+  // The panel's Show more, held here so a variant starts where it says and a play can open it.
+  const [more, setMore] = useState(moreAtFirst);
   return (
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
       {ceiling ? <style>{`.acpmux-session-info[data-placement]{max-height:${ceiling}}`}</style> : null}
+      {edge ? <style>{`.acpmux-session-info[data-placement]{${edge}}`}</style> : null}
       {transcript ? <Transcript /> : null}
       <SessionInfoPanel
         width={panelWidth}
@@ -122,6 +129,8 @@ function GallerySessionInfo({
       >
         <SessionInfo
           {...props}
+          more={more}
+          onMore={more === undefined ? undefined : setMore}
           banner={scope && header !== "title" ? <SubagentBanner scope={scope} variant={header} /> : undefined}
         />
       </SessionInfoPanel>
@@ -386,6 +395,29 @@ const noCardBehind: Play = async (ctx) => {
     throw new Error(`The panel draws a card's blur or shadow: ${look.backdropFilter} ${look.boxShadow}`);
 };
 
+// The panel's edge: a hairline (at most 1px) in the pane's border color all round, on its rounded corners,
+// and no fill of its own where nothing runs under it (Leo, 2026-11-03: "having a border for it might be better").
+const hairlineEdge: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info"));
+  const panel = ctx.find({ selector: ".acpmux-session-info" });
+  const look = style(ctx, panel);
+  for (const side of ["Top", "Right", "Bottom", "Left"] as const) {
+    const width = Number.parseFloat(look.getPropertyValue(`border-${side.toLowerCase()}-width`));
+    if (!(width > 0 && width <= 1)) throw new Error(`The panel's ${side} edge is ${width}px, not a hairline`);
+    if (look.getPropertyValue(`border-${side.toLowerCase()}-style`) !== "solid")
+      throw new Error(`The panel's ${side} edge does not draw`);
+  }
+  const probe = ctx.document.createElement("div");
+  probe.style.color = "var(--agent-border)";
+  panel.parentElement!.append(probe);
+  const border = style(ctx, probe).color;
+  probe.remove();
+  if (look.borderTopColor !== border)
+    throw new Error(`The edge is ${look.borderTopColor}, not the pane's border ${border}`);
+  if (Number.parseFloat(look.borderTopLeftRadius) <= 0) throw new Error("The edge has square corners");
+  if (!panel.hasAttribute("data-over-chat")) await noCardBehind(ctx);
+};
+
 // Every section title shares the Environment rows' text column, with or without an icon.
 const checkTopBlockAlignment: Play = async (ctx) => {
   const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
@@ -425,6 +457,37 @@ const assertDefaultOrder: Play = async (ctx) => {
     throw new Error(`Session Info's default order is ${drawn.join(", ")}, not ${expected.join(", ")}`);
   for (const id of ["environment", "context", "subagents", "sources"])
     if (!drawn.includes(id)) throw new Error(`The full chat does not draw ${id}`);
+};
+
+/// The sections the panel draws, top to bottom.
+const drawnSlots = (ctx: PlayContext) =>
+  [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > [data-slot]")].map(
+    (slot) => slot.dataset.slot!,
+  );
+const LEO_FOUR = ["environment", "context", "subagents", "tasks", "sources"];
+const LESS_USED = ["usage", "changes", "outputs", "connectors"];
+const expectDrawn = (ctx: PlayContext, expected: readonly string[]) => {
+  const drawn = drawnSlots(ctx);
+  if (drawn.join(" ") !== expected.join(" "))
+    throw new Error(`Session Info draws ${drawn.join(", ")}, not ${expected.join(", ")}`);
+};
+/// The shipped default view: Leo's four in view, the less-used sections behind one Show more that
+/// names them; Show more draws every one in the default order, and Show less puts them back.
+const compactByDefault: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
+  expectDrawn(ctx, LEO_FOUR);
+  const more = ctx.find({ selector: ".acpmux-session-info-more" });
+  if (more.getAttribute("aria-expanded") !== "false") throw new Error("Show more starts open");
+  const names = more.querySelector(".acpmux-session-info-more__names")?.textContent ?? "";
+  for (const title of ["Usage", "Changes", "Outputs", "Connectors"])
+    if (!names.includes(title)) throw new Error(`Show more does not name ${title}: "${names}"`);
+  await ctx.click({ selector: ".acpmux-session-info-more" });
+  await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length + LESS_USED.length);
+  expectDrawn(ctx, DEFAULT_SECTION_ORDER);
+  if (!/Show less/.test(ctx.find({ selector: ".acpmux-session-info-more" }).textContent ?? ""))
+    throw new Error("Show more open does not offer Show less");
+  await ctx.click({ selector: ".acpmux-session-info-more" });
+  await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length);
 };
 
 /// Every session acpmux lists, this Mac's and a peer's: the usage audit's deputies on a build box (no
@@ -525,6 +588,9 @@ const full: Props = {
   onReconnectMcp: async () => undefined,
   onCompact: () => undefined,
   remoteControl: { on: false, set: () => undefined },
+  // Every section in view: the variants below compare the sections themselves. The default view
+  // (Show more closed) is `compact-more`.
+  more: true,
 };
 
 /// A busy coordinator, as in Leo's 2026-10-21 screenshot: twelve subagents and five chats it started
@@ -808,6 +874,46 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await assertDefaultOrder(ctx);
         await checkTopBlockAlignment(ctx);
+      },
+    },
+    "compact-more": {
+      note: "Chosen default view (Leo, 2026-11-03: \"i feel like it's a bit too much stuff by default there's a bunch of things there that can be a bit more hidden under 'show more' or whatnot\"): his four in view (the machine, Context, subagents and background tasks, Sources), then one whole-row Show more that names what it holds (Usage, Changes, Outputs, Connectors). Opened, every section shows in the default order and the choice stays for the pane; a reveal of a held section opens it. A section the person dragged above one of the four stays in view. The play opens and closes it.",
+      props: { ...full, more: false },
+      play: compactByDefault,
+    },
+    "compact-more-open": {
+      note: "The chosen view with Show more opened: every section, then Show less.",
+      props: { ...full, more: false },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-session-info-more" });
+        await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length + LESS_USED.length);
+      },
+    },
+    "compact-folded": {
+      note: "Alternative (not shipped): every section in view, the less-used ones folded to their one-line head. Shorter than today, but still nine rows of headings before anything is read, and a fold already saved open in a chat keeps it long, so it does little for the chats Leo has open.",
+      props: {
+        ...full,
+        more: undefined,
+        compactLook: "all",
+        sections: { ...DEFAULT_SECTIONS, usage: false, changes: false, outputs: false, connectors: false },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
+        expectDrawn(ctx, DEFAULT_SECTION_ORDER);
+        for (const id of LESS_USED) {
+          const trigger = ctx.document.querySelector(`[data-slot="${id}"] .ui-disclosure-trigger`);
+          if (trigger?.getAttribute("aria-expanded") !== "false") throw new Error(`${id} is not folded`);
+        }
+      },
+    },
+    "compact-capped": {
+      note: "Alternative (not shipped): every section open, each body cut at three rows with a Show more of its own. Short lists get a Show more they do not need, the cut lands mid-list, and every section still takes its place, so the panel is busier, not calmer.",
+      props: { ...full, more: undefined, compactLook: "capped" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
+        expectDrawn(ctx, DEFAULT_SECTION_ORDER);
+        if (ctx.document.querySelectorAll("[data-capped]").length < LEO_FOUR.length)
+          throw new Error("the sections are not capped");
       },
     },
     "workflow-running": {
@@ -1284,6 +1390,28 @@ export default componentEntry<Props>({
       note: "A section head under the pointer: the six-dot grip shows at the head's right edge (as native #32674). At rest no grip draws, and a pointer over the section's other rows shows none.",
       props: { ...full, placement: "push" },
       play: gripOnHeadHoverOnly,
+    },
+    "edge-hairline": {
+      note: "Chosen. The panel in the gutter with no fill of its own and a hairline edge in the pane's border color (--agent-border, 0.5px) on its rounded corners (Leo, 2026-11-03: \"maybe it's ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better\").",
+      props: { ...full },
+      play: hairlineEdge,
+    },
+    "edge-hairline-over-chat": {
+      note: "Chosen, over the chat's column: the same hairline over the glass. Without the glass the transcript's text would read through the panel's own, so it keeps the blur and tint there.",
+      props: { ...full, transcript: true },
+      play: hairlineEdge,
+    },
+    "edge-none": {
+      note: "Before, for comparison: no fill and no edge, so the panel's sections float on the pane with nothing marking where it ends.",
+      props: { ...full, edge: "border-color:transparent" },
+    },
+    "edge-strong": {
+      note: "Alternative: a stronger edge (--agent-border-strong). It reads as a box drawn around the panel.",
+      props: { ...full, edge: "border-color:var(--agent-border-strong)" },
+    },
+    "over-chat-blur-only": {
+      note: "Alternative over the chat: the hairline and the blur with no tint. Light transcript text still shows through the panel's rows, so the chosen look keeps the tint.",
+      props: { ...full, transcript: true, edge: "--glass-tint:transparent" },
     },
     "subagent-parent": {
       note: "The chat's own panel while a subagent works in a worktree: the chat's folder, branch, context, pull requests and tasks, and its Subagents list, which opens each subagent's own panel.",

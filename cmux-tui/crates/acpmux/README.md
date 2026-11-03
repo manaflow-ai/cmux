@@ -1362,7 +1362,9 @@ so an agent messages another lane or session with a tool call instead of piping 
   before it was taken, so they arrive in the order given (one still on its way after the 5 s
   wait holds back the rest to that session, with a row saying why); different sessions go side
   by side, so a batch answers within the one 5 s wait. Use it in place of a shell loop of `acpmux send --no-wait`.
-- `acpmux_ls {status?}`: one line per session on this machine and its peers.
+- `acpmux_ls {status?, query?, limit?}`: one line per session on this machine and its peers,
+  newest first. Closed sessions are left out unless `status` is `closed`; `query` matches name,
+  title or peer; the list stops at `limit` (default 100, at most 500) and says how many more match.
 - `acpmux_last {name, count?}`: a session's last replies.
 - `acpmux_info {name}`: a session's state, as `acpmux session info`.
 

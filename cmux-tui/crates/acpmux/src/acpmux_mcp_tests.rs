@@ -690,6 +690,56 @@ async fn ls_last_and_info_read_the_sessions() {
     assert_eq!(r["structuredContent"]["sessionId"], json!(lane), "{r}");
 }
 
+/// A fleet-sized list (thousands of closed sessions, each row carrying its last prompt and
+/// receipts) answers in a reply small enough for any harness's MCP pipe: live sessions only by
+/// default, newest first, slim rows, a cap that says how many more there are. The whole list
+/// once came to 29 MB and every `acpmux_ls` call in a Chief turn ended in "Connection closed".
+#[test]
+fn a_fleet_sized_list_answers_small_and_live_first() {
+    let big = "x".repeat(4000);
+    let mut sessions: Vec<Value> = (0..3000)
+        .map(|i| {
+            json!({"name": format!("old-{i}"), "status": "closed", "title": "done", "peer": "big-red",
+                "sessionId": format!("c{i}"), "updatedAt": i, "lastPrompt": big, "sessionReceipt": big})
+        })
+        .collect();
+    for i in 0..300 {
+        sessions.push(
+            json!({"name": format!("lane-{i}"), "status": if i % 2 == 0 {"idle"} else {"running"},
+            "title": format!("Lane {i}"), "sessionId": format!("l{i}"), "updatedAt": 10_000 + i,
+            "lastPrompt": big, "lastTurn": big, "enforcement": {"detail": big}}),
+        );
+    }
+    let all = json!({"sessions": sessions});
+
+    let r = ls_result(&all, &json!({}));
+    let size = r.to_string().len();
+    assert!(size < 64 * 1024, "reply is {size} bytes");
+    let rows = r["structuredContent"]["sessions"].as_array().unwrap();
+    assert_eq!(rows.len(), LS_DEFAULT_LIMIT, "{}", text(&r));
+    assert!(rows.iter().all(|s| s["status"] != "closed"), "closed rows by default");
+    assert!(rows[0].get("lastPrompt").is_none(), "rows are slim: {}", rows[0]);
+    assert_eq!(rows[0]["name"], "lane-299", "newest first");
+    assert_eq!(r["structuredContent"]["more"], json!(300 - LS_DEFAULT_LIMIT));
+    assert!(text(&r).lines().last().unwrap().contains("more"), "{}", text(&r));
+
+    // query narrows by name or title; status=closed still reaches the closed ones.
+    let r = ls_result(&all, &json!({"query": "LANE 7"}));
+    let names: Vec<&str> = r["structuredContent"]["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|s| s["name"].as_str())
+        .collect();
+    assert!(
+        names.contains(&"lane-7") && names.iter().all(|n| n.starts_with("lane-7")),
+        "{names:?}"
+    );
+    let r = ls_result(&all, &json!({"status": "closed", "limit": 5}));
+    assert_eq!(r["structuredContent"]["sessions"].as_array().unwrap().len(), 5);
+    assert!(text(&r).starts_with("big-red/old-2999  [closed]"), "{}", text(&r));
+}
+
 #[tokio::test]
 async fn an_unknown_session_or_a_missing_argument_is_an_error_the_agent_reads() {
     let (_hub, client, _dir) = daemon().await;

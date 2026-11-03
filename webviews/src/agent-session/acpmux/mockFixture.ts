@@ -40,6 +40,8 @@ export type MockSession = {
   working?: { title: string; kind: string; command?: string };
   /// A page the agent rendered before its reply (`cmux mcp`'s render tool), shown as a render card.
   render?: { title: string; html: string };
+  /// The chat's whole history, when it is a scene of its own instead of a prompt and its reply.
+  history?: (at: number) => SeedStep[];
 };
 
 type Update = Record<string, unknown>;
@@ -420,11 +422,110 @@ export const mockSessions: MockSession[] = [
     hostKind: "local",
     reply: "The config now lives in dotfiles and links into ~/.config/ghostty on each machine.",
   },
+  {
+    // A background shell from an earlier page ends while a reply streams (Leo, 2026-11-03: "this
+    // chat's text stream got cut in the middle by a tool call which is weird"): its note goes after
+    // the reply, never between "once per machine," and "not once per chat."
+    sessionId: "mock-notice-mid-reply",
+    title: "How often do Cloud machines ask for a login",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9000,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Once per machine, not once per chat.",
+    history: (at) => [
+      { ago: at + 90_000, mux: "user_message", msg: { text: "How often do Cloud machines ask for a login?" } },
+      { ago: at + 90_000, mux: "turn_started" },
+      {
+        ago: at + 40_000,
+        update: text(
+          "- Codex works the same way through its device sign-in.\n- The login stays on that machine's own disk, so it's once per machine,",
+        ),
+      },
+      {
+        ago: at + 30_000,
+        update: {
+          sessionUpdate: "background_task_update",
+          taskId: "task-ci-wait",
+          toolCallId: "mock-notice-mid-reply-earlier-call",
+          command: "Wait for remote CI run",
+          state: "completed",
+        },
+      },
+      { ago: at + 20_000, update: text(" not once per chat. With one machine per workspace, that's rare.") },
+      { ago: at, mux: "turn_result", msg: { status: "completed" } },
+    ],
+  },
+  {
+    sessionId: "mock-session-links",
+    title: "Which lanes own Session Info",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9500,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Three lanes work on Session Info.",
+    history: (at) => [
+      { ago: at + 60_000, mux: "user_message", msg: { text: "Which sessions own Session Info?" } },
+      { ago: at + 60_000, mux: "turn_started" },
+      {
+        ago: at + 10_000,
+        update: text(
+          [
+            "Three lanes work on Session Info:",
+            "",
+            `- \`${SESSION_LINK_REFS.swarm}\``,
+            `- \`${SESSION_LINK_REFS.lane}\``,
+            `- \`${SESSION_LINK_REFS.name}\``,
+            "",
+            `Earlier work was in \`${SESSION_LINK_REFS.notYours}\` and \`${SESSION_LINK_REFS.unknown}\`;` +
+              ` the panel lives under \`${SESSION_LINK_REFS.path}\`, about 3/4 done.`,
+          ].join("\n"),
+        ),
+      },
+      { ago: at, mux: "turn_result", msg: { status: "completed" } },
+    ],
+  },
 ];
+
+/// The mock chat whose reply lists other agents' sessions as an agent writes them, in inline code
+/// (Leo, 2026-11-03: "these links aren't clickable"): two agent links that name only host and
+/// session, a `HOST/NAME`, a link with a harness to a session that is not the reader's, a
+/// `HOST/NAME` no daemon knows, and code that only looks like one.
+export const SESSION_LINKS_SESSION = "mock-session-links";
+export const SESSION_LINK_REFS = {
+  swarm: "https://cmux.com/deeplink/agent?host=gcp-agent-lane-7&session=01a19ee7-0000-7de2-862f-0b255ab41dd0",
+  lane: "https://cmux.com/deeplink/agent?host=gcp-agent-lane-2&session=01a18a4b-0000-7950-b4c1-d1053077a7b7",
+  name: "gcp-agent-lane-1/opus-session-info",
+  notYours:
+    "https://cmux.com/deeplink/agent?harness=claude&session=0cfd5322-0000-4e01-b71c-aaf0edfb4de8&host=elsewhere",
+  unknown: "gcp-agent-lane-9/nobody-here",
+  path: "src/app",
+};
+/// What the mock `_acpmux/resolve` answers: each query that names a session this daemon lists,
+/// and that session (a fixture chat, so a click opens something). Any other query is not found.
+export const mockResolvable: Record<string, { sessionId: string; name: string; host: string }> = {
+  "01a19ee7-0000-7de2-862f-0b255ab41dd0": { sessionId: "mock-zsh", name: "codex-swarm-07", host: "gcp-agent-lane-7" },
+  "01a18a4b-0000-7950-b4c1-d1053077a7b7": {
+    sessionId: "mock-ghostty-config",
+    name: "lane-2",
+    host: "gcp-agent-lane-2",
+  },
+  "gcp-agent-lane-1/opus-session-info": {
+    sessionId: "mock-notice-mid-reply",
+    name: "opus-session-info",
+    host: "gcp-agent-lane-1",
+  },
+};
 
 /// A session as `_acpmux/watch` and `_acpmux/attach` report it.
 export function sessionSummary(session: MockSession, now: number, turnCount: number): Record<string, unknown> {
-  const { ago, reply, permission: _permission, ...fields } = session;
+  const { ago, reply, permission: _permission, history: _history, ...fields } = session;
   const preview = session.sessionId === WORKED_SESSION ? "Uploads now retry server errors with backoff." : reply;
   return {
     ...fields,
@@ -736,6 +837,7 @@ export function sampleDiagram(): string {
 /// running session's turn is still open; a session needing input waits on a permission card.
 export function sessionHistory(session: MockSession): SeedStep[] {
   const at = session.ago * MIN;
+  if (session.history) return session.history(at);
   const steps: SeedStep[] = [
     { ago: at + 90_000, mux: "user_message", msg: { text: session.title } },
     { ago: at + 90_000, mux: "turn_started" },

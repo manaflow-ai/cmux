@@ -46,6 +46,14 @@
   );
   border-radius: var(--acpmux-session-info-panel-radius);
 }
+/* Its edge, in every place: a hairline in the pane's border color on its rounded corners, and no fill of its
+   own where nothing runs under it (Leo, 2026-11-03: "maybe it's ok...? to HAVE NO BACKGROUND FOR THE SESSION
+   INFO / but i think having a border for it might be better"). Over the chat's column it keeps the glass under
+   the hairline, so the transcript's text never reads through its own. SessionInfo.gallery.tsx hairlineEdge
+   keeps it so. */
+.acpmux-session-info[data-placement] {
+  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-session-info-edge, var(--agent-border));
+}
 /* Lying over the chat's column (the right gutter cannot hold it), it stops above the composer's stack
    (SessionInfo.tsx sessionInfoOverChat, --acpmux-session-info-foot), so it never covers the composer. */
 .acpmux-session-info[data-placement="overlay"][data-over-chat] {
@@ -400,6 +408,33 @@
   left: 0;
   border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   pointer-events: none;
+}
+/* The panel's one Show more (SessionInfoSectionList `more`): a whole-row fold under Leo's four, its
+   label, then the less-used sections it holds, cut to the row. No hover fill, as every fold. */
+.acpmux-session-info-more {
+  min-width: 0;
+}
+.acpmux-session-info-more > span {
+  flex: none;
+}
+.acpmux-session-info-more > .acpmux-session-info-more__names {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-session-info-more:hover {
+  color: var(--agent-text);
+}
+/* Gallery-only `capped` look: each open section's body cut at three rows, with its own Show more. */
+.acpmux-session-info-slot[data-capped] .ui-disclosure-panel {
+  max-height: calc(3 * var(--grid-row));
+  overflow: hidden;
+}
+.acpmux-session-info-slot:has(.ui-disclosure-trigger[aria-expanded="false"]) > .acpmux-session-info-cap-fold,
+.acpmux-session-info-slot[data-capped] .acpmux-session-info-pr-fold {
+  display: none;
 }
 /* A lifted section (held, or settling after the drop) floats over its neighbours as they slide: it
    carries no hairline, and only while held does it take a raised surface and a shadow, so it reads over

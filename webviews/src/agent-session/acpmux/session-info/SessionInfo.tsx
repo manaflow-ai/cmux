@@ -76,7 +76,8 @@ import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection, type AccessGrant, type ProjectRowLook } from "./EnvironmentSection";
-import { SessionInfoSectionList } from "./SessionInfoGroup";
+import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionInfoGroup";
+import { sectionOrder, tuckedSections } from "./sectionOrder";
 import { SessionInfoSection } from "./SessionInfoSection";
 import { SourcesSection } from "./SourcesSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
@@ -91,6 +92,7 @@ import {
   bindSessionInfoPane,
   SESSION_INFO_WIDTH,
   sessionInfoPaneKey,
+  setSessionInfoMore,
   setSessionInfoOpen,
   setSessionInfoSection,
   setSessionInfoSourcesAll,
@@ -1405,6 +1407,9 @@ export function SessionInfo({
   layout = RAIL_LAYOUT,
   projectRowLook,
   remoteControlIcon,
+  more,
+  onMore,
+  compactLook = "more",
 }: {
   summary?: Summary;
   machineName?: string;
@@ -1494,10 +1499,17 @@ export function SessionInfo({
   projectRowLook?: ProjectRowLook;
   /// Remote Control's row icon (EnvironmentSection's REMOTE_CONTROL_ICON); the gallery shows the others.
   remoteControlIcon?: string;
+  /// The panel's Show more is open (its less-used sections show); the pane's saved choice without it.
+  more?: boolean;
+  onMore?: (more: boolean) => void;
+  /// How the default view stays short (SessionInfoGroup.tsx); the gallery shows the others.
+  compactLook?: SessionInfoCompactLook;
 }) {
   const t = useT();
   const language = usePaneLanguage();
   const sessionInfoState = useSessionInfoState();
+  const showMore = more ?? sessionInfoState.more;
+  const setMore = onMore ?? setSessionInfoMore;
   const stored = sessionInfoState.sections;
   const state = sections ?? stored;
   const fold = (id: SessionInfoSectionId) => (next: boolean) => (onSection ?? setSessionInfoSection)(id, next);
@@ -1555,9 +1567,14 @@ export function SessionInfo({
   );
   useEffect(() => {
     if (!revealed) return;
+    // A section behind Show more: Show more opens first, and the reveal lights it once drawn.
+    if (compactLook === "more" && !showMore && tuckedSections([revealed.section], sectionOrder()).length > 0) {
+      setMore(true);
+      return;
+    }
     light(revealed.section);
     onRevealed?.();
-  }, [revealed, onRevealed, light]);
+  }, [revealed, onRevealed, light, compactLook, showMore, setMore]);
   // Usage's Show: Subagents opens, comes into view and lights, as a reveal does.
   const showSubagents = useCallback(() => {
     (onSection ?? setSessionInfoSection)("subagents", true);
@@ -1793,6 +1810,15 @@ export function SessionInfo({
       {banner}
       {/* Where it runs, what it made, what it runs: one order the person drags (SessionInfoGroup.tsx). */}
       <SessionInfoSectionList
+        look={compactLook}
+        more={compactLook !== "more" || showMore}
+        onMoreChange={compactLook === "more" ? setMore : undefined}
+        titles={{
+          usage: t("sessionInfo.usage"),
+          changes: t("header.changes"),
+          outputs: t("rail.outputs"),
+          connectors: t("rail.connectors"),
+        }}
         sections={{
           environment,
           context,
