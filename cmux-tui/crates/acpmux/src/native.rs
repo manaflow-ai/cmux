@@ -186,8 +186,10 @@ fn restore_target(meta: &SessionMeta, label: &str, rel: &Path) -> Option<PathBuf
     }
 }
 
-/// Put native files from a bundle back under the home directory. Existing
-/// files are never overwritten. Returns the number of files restored.
+/// Put native files from a bundle back under the home directory. An existing
+/// file is overwritten only when it is a shorter start of the bundled one (the
+/// chat ran here before and its log grew elsewhere); any other is kept.
+/// Returns the number of files restored.
 pub fn restore(bundle: &Path, meta: &SessionMeta) -> Result<usize> {
     restore_in(bundle, meta, &dirs::home_dir().unwrap_or_default())
 }
@@ -216,6 +218,13 @@ pub fn restore_in(bundle: &Path, meta: &SessionMeta, home: &Path) -> Result<usiz
             };
             let target = home.join(target);
             if target.exists() {
+                // A chat back on a machine it ran on: this machine's copy is the start of the
+                // log the chat kept writing elsewhere. Any other copy is left as it is.
+                if !is_strict_prefix(&target, &file)? {
+                    continue;
+                }
+                replace_with(&file, &target)?;
+                n += 1;
                 continue;
             }
             if let Some(parent) = target.parent() {
@@ -226,6 +235,29 @@ pub fn restore_in(bundle: &Path, meta: &SessionMeta, home: &Path) -> Result<usiz
         }
     }
     Ok(n)
+}
+
+/// Whether `old` holds fewer bytes than `new` and they are the first bytes of `new`: an
+/// append-only agent log that grew since `old` was copied.
+fn is_strict_prefix(old: &Path, new: &Path) -> Result<bool> {
+    let (old_len, new_len) = (std::fs::metadata(old)?.len(), std::fs::metadata(new)?.len());
+    if old_len >= new_len {
+        return Ok(false);
+    }
+    let (a, b) = (std::fs::read(old)?, std::fs::read(new)?);
+    Ok(b.starts_with(&a))
+}
+
+/// Puts a copy of `src` at `target` in one rename, so the agent never reads a half-written file.
+fn replace_with(src: &Path, target: &Path) -> Result<()> {
+    let parent = target.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
+    let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let part = parent.join(format!(".{name}.{}.part", uuid::Uuid::now_v7()));
+    let placed = std::fs::copy(src, &part).and_then(|_| std::fs::rename(&part, target));
+    if placed.is_err() {
+        let _ = std::fs::remove_file(&part);
+    }
+    Ok(placed?)
 }
 
 /// The most agent store files a guarded move restores, and their total size.
