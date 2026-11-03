@@ -1069,6 +1069,7 @@ impl Store {
         let Some(c) = copies.get_mut(key) else { return false };
         let Some(held) = c.records.as_mut() else { return false };
         let mut cut = false;
+        let mut opener_changed = false;
         while held.len() > SESSION_EVENTS || c.memory > SESSION_BYTES {
             let Some((seq, old)) = held.pop_first() else { break };
             let old_bytes = record_bytes(&old);
@@ -1081,10 +1082,11 @@ impl Store {
             // when a long live turn pushes its own prompt out of the bounded record run.
             if starts_turn(&old) {
                 c.head.turn_opener = Some(old);
+                opener_changed = true;
             }
             cut = true;
         }
-        if cut {
+        if opener_changed {
             self.charge(key);
         }
         cut
