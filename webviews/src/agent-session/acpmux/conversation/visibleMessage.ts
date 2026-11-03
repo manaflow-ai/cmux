@@ -26,8 +26,24 @@ export function isBareAgentText(text: string | undefined): boolean {
 export function isVisiblyEmptyMessage(row: AcpmuxRow): boolean {
   if (row.kind !== "assistant" && row.kind !== "user") return false;
   if (row.incoming?.kind === "hidden") return true;
-  if (row.kind === "user" && row.incoming?.kind === "message" && isBareAgentText(row.incoming.message.text))
-    return !row.images?.length && !row.failed && !row.queuedMessage;
+  if (
+    row.kind === "user" &&
+    row.incoming?.kind === "message" &&
+    !row.incoming.message.fromPerson &&
+    isBareAgentText(row.incoming.message.text)
+  )
+    return (
+      !row.images?.length &&
+      !row.failed &&
+      !row.delivery &&
+      !row.pending &&
+      !row.queued &&
+      !row.queuedMessage &&
+      !row.retryable &&
+      !row.error &&
+      !row.pasted?.length &&
+      !row.retryAttachments?.length
+    );
   if (!(row.kind === "assistant" ? isBareAgentText(row.text) : isVisiblyEmptyText(row.text))) return false;
   const inlineVisible = row.inlineParts?.some(
     (part) => part.kind !== "text" || !isVisiblyEmptyText("text" in part ? part.text : undefined),

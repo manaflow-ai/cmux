@@ -32,6 +32,15 @@ test("another agent's empty or one-period message draws nothing; a message with 
   expect(isVisiblyEmptyMessage(received("Green at 4f2a91c."))).toBe(false);
 });
 
-test("a person's own '.' prompt still draws", () => {
+test("a person's own '.' prompt still draws, typed or relayed", () => {
   expect(isVisiblyEmptyMessage(row("user", { text: "." }))).toBe(false);
+  const relayed = row("user", {
+    text: ".",
+    incoming: { kind: "message", message: { name: "guest", text: ".", raw: ".", fromPerson: true } },
+  });
+  expect(isVisiblyEmptyMessage(relayed)).toBe(false);
+});
+
+test("a one-period message that failed to deliver still draws its recovery", () => {
+  expect(isVisiblyEmptyMessage({ ...received("."), failed: true })).toBe(false);
 });

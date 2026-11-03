@@ -1968,6 +1968,8 @@ function measuredRowHeight(
     return height;
   }
   if (row.incoming?.kind === "message") {
+    // A message that says nothing but "." draws nothing (visibleMessage.ts isBareAgentText).
+    if (isVisiblyEmptyMessage(row)) return finish(0);
     // One line in the one-line rows' frame (lineRow()); one the person opened
     // (incomingOpened.ts) adds its panel (2px above, 4px below, 8px padding each side, 24px in
     // from the icon column and 10px padding across): the whole text
