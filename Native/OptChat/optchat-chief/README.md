@@ -1344,7 +1344,8 @@ rule on this Chief's login.
 floor. Each tool call passes the turn session's hook (`optchat-chief
 rights-hook pre|post`, put in the turn folder's project settings): the host
 allows a call every non-owner author of the turn holds a grant for
-(`Read(/dir/*)`, `Bash(git status*)` with no chaining, `WebFetch`,
+(`Read(/dir/*)`, `Bash(ls*)` and other read-only commands with plain
+arguments only, `WebFetch`,
 `mcp__server__*`), and denies the rest. A hook that cannot reach the host
 gives no answer, so the call reaches the floor and is refused (fail closed).
 No grant writes `$MUX_HOME/optchat` (the table, the audit). An approver

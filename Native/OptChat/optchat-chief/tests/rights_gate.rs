@@ -170,19 +170,19 @@ fn on_a_personal_login_a_teammates_prompt_is_only_a_suggestion() {
 fn a_teammate_is_refused_then_allowed_after_a_grant_and_audit_shows_both() {
     let mut h = harness(Some(commercial()), held());
     h.agents.hold(true);
-    say(&mut h, TEAMMATE, "@Chief what's the git status?");
+    say(&mut h, TEAMMATE, "@Chief what's in the workspace?");
     h.step();
     h.agents.wait_prompts(1);
     wait_turn(&mut h);
     assert_eq!(h.agents.inner.lock().unwrap().specs[0].policy, "ask");
-    let status = json!({"command": "git status --short"});
+    let status = json!({"command": "ls -la"});
     assert_eq!(decision(&pre(&mut h, "Bash", status.clone())).as_deref(), Some("deny"));
     // The owner grants it from the chat (answered by the host, no turn).
-    say(&mut h, "user_local", "/grant @Ben Bash(git status*)");
+    say(&mut h, "user_local", "/grant @Ben Bash(ls*)");
     assert_eq!(decision(&pre(&mut h, "Bash", status.clone())).as_deref(), Some("allow"));
-    // The grant covers git status and nothing chained to it.
+    // The grant covers ls and nothing chained to it.
     assert_eq!(
-        decision(&pre(&mut h, "Bash", json!({"command": "git status; rm -rf ~"}))).as_deref(),
+        decision(&pre(&mut h, "Bash", json!({"command": "ls; rm -rf ~"}))).as_deref(),
         Some("deny")
     );
     // Its output's digest is audited after it runs.
@@ -199,7 +199,7 @@ fn a_teammate_is_refused_then_allowed_after_a_grant_and_audit_shows_both() {
         ["deny", "allow", "deny", "result"]
     );
     assert!(bash.iter().all(|r| r.entry.who == vec![TEAMMATE.to_owned()]));
-    assert_eq!(bash[1].entry.by.as_deref(), Some("grant:Bash(git status*)"));
+    assert_eq!(bash[1].entry.by.as_deref(), Some("grant:Bash(ls*)"));
     assert!(bash[3].entry.output_sha256.is_some());
     assert_eq!(bash[0].entry.host.as_deref(), Some("test-box"));
     assert!(audit::verify(&root(&h)).unwrap().broken.is_none());
@@ -210,8 +210,8 @@ fn a_teammate_is_refused_then_allowed_after_a_grant_and_audit_shows_both() {
     h.settle_posts();
     let out = posted(&h);
     let audit_text = out.iter().rev().find(|t| t.contains("records, head")).expect("the /audit answer");
-    assert!(audit_text.contains("deny run `git status --short`"), "{audit_text}");
-    assert!(audit_text.contains("allow run `git status --short`"), "{audit_text}");
+    assert!(audit_text.contains("deny run `ls -la`"), "{audit_text}");
+    assert!(audit_text.contains("allow run `ls -la`"), "{audit_text}");
 }
 
 #[test]

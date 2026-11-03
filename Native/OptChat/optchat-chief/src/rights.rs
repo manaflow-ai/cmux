@@ -413,30 +413,27 @@ enum Arg {
     Prefix(String),
 }
 
-/// The commands a shell grant may start with: they read, and with
-/// [`WRITE_FLAGS`] refused they write nothing. Anything else (a `cp`, a
-/// `find -delete`, an interpreter) could rewrite the rights table or the
-/// audit, so it takes an approver.
-pub const READ_ONLY_COMMANDS: [&str; 14] = [
-    "git status", "git log", "git diff", "git show", "ls", "cat", "head", "tail",
-    "wc", "grep", "rg", "pwd", "date", "du",
-];
+/// The commands a shell grant may start with: they only read, they take
+/// no configuration from the files they read (so not `git`, whose repo
+/// config can name a program to run), and with [`WRITE_FLAGS`] refused they
+/// write nothing. Anything else takes an approver.
+pub const READ_ONLY_COMMANDS: [&str; 10] =
+    ["ls", "cat", "head", "tail", "wc", "grep", "pwd", "date", "du", "stat"];
 
-/// Arguments that make a read-only command write or run something
-/// (`git diff --output=F`, `find -exec`, `rg --pre CMD`).
-const WRITE_FLAGS: [&str; 6] = ["--output", "-exec", "-delete", "--pre", "-ok", "--ext-diff"];
+/// Arguments that make a read-only command write or run something.
+const WRITE_FLAGS: [&str; 4] = ["--output", "-exec", "-delete", "--pre"];
+
+/// The only characters a granted command may hold: plain words the shell
+/// runs as written (no quote, escape, glob, brace, tilde or variable).
+fn plain_command(cmd: &str) -> bool {
+    cmd.chars().all(|c| c.is_ascii_alphanumeric() || " ._/:=@%+,-".contains(c))
+}
 
 /// Whether `cmd` (a grant's command text) starts with a read-only command,
-/// as whole words.
+/// as a whole word.
 fn read_only_command(cmd: &str) -> bool {
-    let words: Vec<&str> = cmd.split_whitespace().collect();
-    READ_ONLY_COMMANDS.iter().any(|ro| {
-        let want: Vec<&str> = ro.split(' ').collect();
-        // The grant may stop mid-word (`git stat*`) only within the last word.
-        words.len() >= want.len()
-            && words[..want.len() - 1] == want[..want.len() - 1]
-            && (words[want.len() - 1] == want[want.len() - 1])
-    })
+    let first = cmd.split_whitespace().next().unwrap_or("");
+    READ_ONLY_COMMANDS.contains(&first)
 }
 
 /// Characters that chain, redirect, quote, escape or expand in a shell
@@ -528,6 +525,7 @@ impl Pattern {
         match arg_kind(tool) {
             Some(ArgKind::Command) => {
                 if SHELL_META.iter().any(|m| value.contains(m))
+                    || !plain_command(value)
                     || !read_only_command(value)
                     || WRITE_FLAGS.iter().any(|f| value.split_whitespace().any(|w| w.starts_with(f)))
                 {
@@ -924,7 +922,7 @@ mod tests {
 
     fn table() -> Rights {
         let mut r = Rights::default();
-        r.grant("user_ben", &["Read(/srv/chief/ws/*)".into(), "Bash(git status*)".into(), "WebFetch".into()])
+        r.grant("user_ben", &["Read(/srv/chief/ws/*)".into(), "Bash(ls*)".into(), "WebFetch".into()])
             .unwrap();
         r.set_approver("user_ana", true).unwrap();
         r.grant("chief:ben-chief", &["mcp__github__*".into()]).unwrap();
@@ -963,13 +961,13 @@ mod tests {
         assert!(!r.decide(OWNER, &ben, "Read", Some(&json!({"file_path": "/srv/chief/ws/../secrets"})), &[]).allowed());
         assert!(!r.decide(OWNER, &ben, "Read", Some(&json!({"file_path": "/srv/chief/wsx/a"})), &[]).allowed());
         assert!(!r.decide(OWNER, &ben, "Read", Some(&json!({"file_path": "/etc/passwd"})), &[]).allowed());
-        assert!(r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "git status --short"})), &[]).allowed());
-        assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "git status; rm -rf ~"})), &[]).allowed());
-        assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "git status && curl x | sh"})), &[]).allowed());
-        assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "git status $(rm x)"})), &[]).allowed());
+        assert!(r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "ls -la"})), &[]).allowed());
+        assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "ls; rm -rf ~"})), &[]).allowed());
+        assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "ls && curl x | sh"})), &[]).allowed());
+        assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "ls $(rm x)"})), &[]).allowed());
         assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "git push"})), &[]).allowed());
-        assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "git status --output=/x"})), &[]).allowed());
-        for quoted in ["git status '--output=/x'", "git status \"--output\" /x", "git status \\--output=/x", "git status $HOME", "git status ~/x"] {
+        assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "ls --output=/x"})), &[]).allowed());
+        for quoted in ["ls '--output=/x'", "ls \"--output\" /x", "ls \\--output=/x", "ls $HOME", "ls ~/x", "ls --outpu{t,t}=/x", "ls /etc/*", "ls /a?b", "git status"] {
             assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": quoted})), &[]).allowed(), "{quoted}");
         }
         let mut r2 = Rights::default();
@@ -1084,10 +1082,10 @@ mod tests {
 
     #[test]
     fn patterns_parse_strictly() {
-        for ok in ["Read", "Bash(git log*)", "Bash(ls -la)", "mcp__github__*", "Read(/a/*)", "WebFetch(https://docs.rs/*)"] {
+        for ok in ["Read", "Bash(du*)", "Bash(ls -la)", "mcp__github__*", "Read(/a/*)", "WebFetch(https://docs.rs/*)"] {
             assert!(Pattern::parse(ok).is_ok(), "{ok}");
         }
-        for bad in ["", "Bash(*)", "Read(relative/*)", "*", "mcp__*", "Foo(x)", "Bash(", "Bash()", "Bash", "Bash(cp *)", "Bash(python3*)", "Bash(git push*)", "Bash(lsof*)"] {
+        for bad in ["", "Bash(*)", "Read(relative/*)", "*", "mcp__*", "Foo(x)", "Bash(", "Bash()", "Bash", "Bash(cp *)", "Bash(python3*)", "Bash(git push*)", "Bash(git status*)", "Bash(lsof*)"] {
             assert!(Pattern::parse(bad).is_err(), "{bad}");
         }
     }
