@@ -74,7 +74,8 @@ import CmuxNextSettings
         let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0, soloTab: on && !row.tabsShown)
         let shares = on && row.toolsWidth > 0
         view.setTabRowCover(shares ? height : 0) // the pane lays the view under the strip only then
-        row.holeFill = holeFill(chromium: view.chromiumPage != nil, // the engine, not the shared host (WebKit too) shares: shares, tabsShown: row.tabsShown,
+        // The engine, not the shared host (which runs WebKit too, where the page is under the toolbar).
+        row.holeFill = holeFill(chromium: view.chromiumPage != nil, shares: shares, tabsShown: row.tabsShown,
                                 page: view.performWithTheme { AgentPaneTheme.pageBackground(view.themeTokens, surface: view.surfaceKind) })
         if let page = view.page {
             // A Chromium chat is a window above the pane: it leaves the pane's tabs and toolbar uncovered.
