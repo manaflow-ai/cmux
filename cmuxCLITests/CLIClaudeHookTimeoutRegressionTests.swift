@@ -21,7 +21,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
             "#!/bin/sh",
             "cleanup() { kill \"$child\" 2>/dev/null || true; wait \"$child\" 2>/dev/null || true; }",
             "trap cleanup EXIT TERM INT",
-            "/bin/bash -c 'sleep 300' &",
+            "/bin/bash -c 'while true; do sleep 300; done' &",
             "child=$!",
             "printf 'ready\\n'",
             "wait \"$child\"",
