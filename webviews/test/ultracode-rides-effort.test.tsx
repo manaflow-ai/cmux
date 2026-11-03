@@ -1,7 +1,7 @@
 // Review of #20592: Ultracode rides the session's free effort option (effort=ultracode /
 // effort=xhigh). A pick on acpmux's own `ultracode` id is a mode switch the app confirms with a
 // sheet, and a non-person pane is refused it. Since Leo 2026-10-20 the composer has one model button
-// and Ultracode is the last level of its menu's Effort ›; the button names it while it is on. At the
+// and Ultracode is the top level of its menu's Effort column; the button names it while it is on. At the
 // composer's boundary: the real picker and a host that records what the pane sends.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -69,7 +69,7 @@ function press(element: Element) {
 
 /// What the pickers sent (`configId=value`), in order.
 const sent: string[] = [];
-const menus = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu")];
+const menus = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-cols")];
 /// Yields to React until `ready()` holds; fails after 2 s with what it waited for.
 async function until(ready: () => boolean, what: string) {
   const deadline = performance.now() + 2_000;
@@ -79,20 +79,16 @@ async function until(ready: () => boolean, what: string) {
   }
 }
 
-/// Opens the model button's menu, then its Effort ›, and picks the level named `label`.
+/// Opens the model button's menu (it stays open after a level pick) and picks the level named
+/// `label` in its Effort column.
 async function pick(label: string) {
   if (menus().length === 0)
     await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
   await until(() => menus().length > 0, "the model menu");
-  const effort = [...menus()[0]!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
-    item.textContent?.startsWith("Effort"),
-  );
-  expect(effort, "the Effort row").toBeDefined();
-  const open = menus().length;
-  await act(async () => effort!.click());
-  await until(() => menus().length > open, "the Effort submenu");
-  const items = () => [...menus().at(-1)!.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
-  const row = items().find((item) => item.textContent?.replace("✓", "").trim() === label);
+  const tune = menus()[0]!.querySelector<HTMLElement>(".acpmux-cols-tune");
+  expect(tune, "the Effort column").not.toBeNull();
+  const items = () => [...tune!.querySelectorAll<HTMLElement>('[role="radio"]')];
+  const row = items().find((item) => item.querySelector(".acpmux-cols-name")?.textContent === label);
   expect(
     row,
     `row ${label} in ${items()
@@ -119,7 +115,7 @@ test("Ultracode on and off ride the free effort option, never acpmux's ultracode
       isWorking: false,
       queue: [],
       canLoadOlder: false,
-      catalog: [],
+      catalog: [{ id: "claude", name: "Claude Code", models: [{ id: "claude-opus-5-5", name: "Opus 5.5" }] }],
       summary: {
         sessionId: "s1",
         harness: "claude",
@@ -152,6 +148,8 @@ test("Ultracode on and off ride the free effort option, never acpmux's ultracode
           onMode={() => undefined}
           onEffort={(configId, value) => sent.push(`${configId}=${value}`)}
           onHarness={() => undefined}
+          // A chat that can fork keeps the harness rail, so the menu is the columns menu.
+          fork={{ to: () => undefined, ready: true }}
           showPlan={false}
         />
       </QueryClientProvider>,

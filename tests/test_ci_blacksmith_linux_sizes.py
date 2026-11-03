@@ -37,7 +37,8 @@ LABEL = re.compile(r"blacksmith-(\d+)vcpu-ubuntu-2404(?![-\w])")
 POOL = re.compile(r"fromJSON\(vars\.RUNNER_POOLS\)\.linux_(\d+)\b")
 CAPABILITY_32 = re.compile(r"outputs\.map\)\.linux_32\b")
 # Jobs still on 32 vCPU while an open pull request changes the same runs-on. Lower it as they move; never raise it.
-PENDING = 44
+# 43: the SSH daemon build and attestation keep Linux overflow after the all-nightly reservation (no pins).
+PENDING = 43
 
 
 def table() -> dict:

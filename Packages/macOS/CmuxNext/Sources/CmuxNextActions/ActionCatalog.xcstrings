@@ -274,57 +274,6 @@
     "argument.revoke": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Revoke"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "إلغاء"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Opozovi"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Tilbagekald"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Widerrufen"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Revocar"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Révoquer"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Revoca"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "取り消す"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ដកហូត"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "취소"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Tilbakekall"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Cofnij"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Revogar"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Отозвать"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เพิกถอน"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "İptal et"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Відкликати"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Thu hồi"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "撤销"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "撤銷"}}}},
     "action.agent.share": {
     "extractionState": "manual",
-    "action.cloudSystemTunnelOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turn Off Cloud Tunnel"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud Tunnel をオフにする"
-          }
-        }
-      }
-    },
-    "action.cloudSystemTunnelOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turn On Cloud Tunnel"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud Tunnel をオンにする"
-          }
-        }
-      }
-    },
-    "action.cloudSystemTunnelStatus": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud Tunnel Status"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud Tunnel の状態"
-          }
-        }
-      }
-    },
     "localizations": {
       "en": {
         "stringUnit": {

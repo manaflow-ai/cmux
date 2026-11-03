@@ -156,7 +156,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
             id={detailsId}
             command={tool.command}
             output={output}
-            exitCode={failure?.exitCode ?? tool.exitCode}
+            exitCode={failure?.exitCode ?? tool.exitCode ?? tool.background?.exitCode}
             reveal={reveal}
             live={running}
           />

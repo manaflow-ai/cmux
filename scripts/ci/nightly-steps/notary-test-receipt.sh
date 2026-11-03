@@ -23,6 +23,14 @@ mkdir -p "$out"
 } > "$out/receipt.txt"
 [ -f "$NIGHTLY_DMG_RELEASE.notarization.log" ] && cp "$NIGHTLY_DMG_RELEASE.notarization.log" "$out/notarization.log"
 /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$CHANNEL_APP_PATH/Contents/Info.plist" > "$out/bundle-id.txt" 2>&1
+# What the app is signed with (the cmux NIGHTLY-identity probe proves the NIGHTLY profile and entitlements).
+codesign -d --entitlements :- "$CHANNEL_APP_PATH" > "$out/entitlements.plist" 2>/dev/null || echo "codesign could not read entitlements" > "$out/entitlements.plist"
+if [ -f "$CHANNEL_APP_PATH/Contents/embedded.provisionprofile" ]; then
+  security cms -D -i "$CHANNEL_APP_PATH/Contents/embedded.provisionprofile" 2>/dev/null \
+    | plutil -extract Name raw -o - - > "$out/profile.txt" 2>&1 || echo "profile present, unreadable" > "$out/profile.txt"
+else
+  echo "no embedded profile" > "$out/profile.txt"
+fi
 if /usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$CHANNEL_APP_PATH/Contents/Info.plist" >/dev/null 2>&1; then
   echo "SUPublicEDKey present" > "$out/sparkle.txt"
 else
