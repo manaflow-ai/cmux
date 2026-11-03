@@ -76,6 +76,41 @@ class IdleBudgetTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "lacks hibernation.chat_pages"):
             ib.newtab_evidence(App(), {"keys": ["a"]})
 
+    def test_newtab_setup_preserves_full_panes_and_readiness_error(self):
+        pane = {"pane": "p", "focused": True, "kind": "agent", "selected_tab": "tab_real",
+                "shown_tab": "tab_real", "content_installed": True, "content_in_window": True}
+        readiness = {"error": "page script failed"}
+
+        class App:
+            def rpc(self, method, params=None, **kwargs):
+                if method == "action.run":
+                    return {}
+                if method == "debug.agent_pane":
+                    return readiness
+                return {"windows": [{"panes": [pane]}], "hibernation": {"chat_pages": ["tab_real"]}}
+
+        with patch.object(ib.time, "monotonic", side_effect=[0, 0, 2]), patch.object(ib.time, "sleep"):
+            with self.assertRaises(ib.NewTabSetupError) as failure:
+                ib.build_newtabs(App(), 1, limit=1)
+        self.assertEqual(failure.exception.diagnostics["panes"], [pane])
+        self.assertEqual(failure.exception.diagnostics["readiness"], readiness)
+
+    def test_newtab_setup_never_counts_a_provisional_tab_id(self):
+        class App:
+            def rpc(self, method, params=None, **kwargs):
+                if method == "action.run":
+                    return {}
+                if method == "debug.agent_pane":
+                    raise AssertionError("a provisional tab is not a stable page to measure")
+                return {"windows": [{"panes": [{"pane": "p", "focused": True, "kind": "agent",
+                        "selected_tab": "pending_tab_1", "shown_tab": "pending_tab_1",
+                        "content_installed": True, "content_in_window": True}]}],
+                        "hibernation": {"chat_pages": ["pending_tab_1"]}}
+
+        with patch.object(ib.time, "monotonic", side_effect=[0, 0, 2]), patch.object(ib.time, "sleep"):
+            with self.assertRaisesRegex(ib.NewTabSetupError, "only built 0 of 1"):
+                ib.build_newtabs(App(), 1, limit=1)
+
     def test_newtab_evidence_intersects_measured_keys_and_rejects_visible_page(self):
         class App:
             def rpc(self, *args, **kwargs):

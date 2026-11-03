@@ -22,6 +22,7 @@ Sessions (--sessions):
   light-webkit  the same with browser.defaultEngine webkit: no Chromium at all
   light-hidden  the light session with the app hidden (Show/Hide All Windows hidden=true)
   newtabs1, newtabs5, newtabs20  that many rendered New Tab pages, then hidden behind one terminal
+  sleepy        the light session covered by Sleepy Mode
   Each session starts from an empty saved session (`fresh_session`).
   stress-static  STRESS with its pages served without their rAF spinner (STRESS's own pages animate: not idle)
   stress   STRESS (scripts/cmux-next/perf-stress-session.py: 60 workspaces, a 12-pane grid of 6 tabs each,
@@ -152,6 +153,15 @@ def live_chat_pages(report):
     return set(keys)
 
 
+class NewTabSetupError(RuntimeError):
+    """Keep the complete setup evidence in the artifact even when log text is bounded."""
+
+    def __init__(self, message, report, readiness=None):
+        self.diagnostics = {"panes": surface_panes(report), "hibernation": report.get("hibernation"),
+                            "readiness": readiness}
+        super().__init__(f"{message}: {json.dumps(self.diagnostics)}")
+
+
 def build_newtabs(app, count, limit=60):
     """Show and load every page before hiding it; a lazy store tab is not a renderer."""
     keys, engines = [], []
@@ -163,7 +173,7 @@ def build_newtabs(app, count, limit=60):
 
     for _ in range(count):
         action("newTab.page")
-        deadline, last = time.monotonic() + limit, {}
+        deadline, last, ready = time.monotonic() + limit, {}, None
         while time.monotonic() < deadline:
             last = read_rpc(app, "debug.surfaces")
             candidates = [p for p in surface_panes(last) if p.get("focused") and p.get("kind") == "agent"
@@ -172,9 +182,9 @@ def build_newtabs(app, count, limit=60):
             if len(candidates) == 1:
                 pane = candidates[0]
                 key = pane.get("selected_tab")
-                if key and key not in keys and key in live_chat_pages(last):
-                    ready = read_rpc(app, "debug.agent_pane", {"action": "readiness", "pane": pane["pane"]})
-                    if ready.get("document_ready") and ready.get("body_text_length", 0) > 0:
+                if key and not key.startswith("pending_tab_") and key not in keys and key in live_chat_pages(last):
+                    ready = app.rpc("debug.agent_pane", {"action": "readiness", "pane": pane["pane"]}, timeout=30)
+                    if isinstance(ready, dict) and ready.get("document_ready") and ready.get("body_text_length", 0) > 0:
                         # The store may replace a provisional id while the page loads.
                         current = read_rpc(app, "debug.surfaces")
                         if any(p.get("selected_tab") == key and p.get("shown_tab") == key
@@ -185,7 +195,7 @@ def build_newtabs(app, count, limit=60):
                             break
             time.sleep(0.1)  # bench: bounded wait for the selected page's real renderer and document
         else:
-            raise RuntimeError(f"only built {len(keys)} of {count} New Tab pages: {json.dumps(last)[:1500]}")
+            raise NewTabSetupError(f"only built {len(keys)} of {count} New Tab pages", last, ready)
     # The launch terminal precedes these new pages in the strip. Cycling from the
     # last page wraps to it without replacing (and closing) a New Tab via newSurface.
     action("nextSurface")
@@ -198,7 +208,7 @@ def build_newtabs(app, count, limit=60):
             if not any(p.get("shown_tab") in keys for p in panes):
                 return {"requested": count, "rendered": len(keys), "keys": keys, "engines": engines}
         time.sleep(0.1)  # bench: wait until the terminal covers all measured pages
-    raise RuntimeError("the terminal did not hide every measured New Tab page")
+    raise NewTabSetupError("the terminal did not hide every measured New Tab page", report)
 
 
 def newtab_evidence(app, opened):
@@ -297,6 +307,16 @@ def window_state(app):
         return {"error": str(reply)[:200]}
     main = [{k: w.get(k) for k in ("key", "visible", "occluded", "miniaturized", "alpha")} for w in windows if w.get("kind") == "main"]
     return {"main": main, "any_key": any(w.get("key") for w in windows)}
+
+
+def sleepy_windows(app):
+    """Require the scene being measured, not merely an accepted action."""
+    reply = app.rpc("debug.window_list", timeout=10)
+    windows = reply.get("windows", []) if isinstance(reply, dict) else []
+    visible = [w for w in windows if w.get("kind") == "next.sleepyMode" and w.get("visible")]
+    if not visible:
+        raise RuntimeError("Sleepy Mode has no visible overlay window")
+    return visible
 
 
 def sample_threads(pid, seconds, path):
@@ -542,6 +562,7 @@ SESSIONS = {
     "light": {},
     "light-webkit": {"config": {**BASE_CONFIG, "browser": {"defaultEngine": "webkit"}}},
     "light-hidden": {"hide": True},
+    "sleepy": {"sleepy": True},
     "stress": {},
     "stress-static": {},
     **{f"newtabs{count}": {"newtabs": count} for count in (1, 5, 20)},
@@ -620,17 +641,26 @@ def main():
             if SESSIONS[session].get("hide"):
                 entry["hide"] = app.rpc("action.run", {"action": "showHideAllWindows", "args": {"hidden": True},
                                                        "focus": False, "origin": "script"}, timeout=30)
+            if SESSIONS[session].get("sleepy"):
+                entry["sleepy"] = app.rpc("action.run", {"action": "palette.sleepyMode", "args": {},
+                                                         "focus": False, "origin": "script"}, timeout=30)
+                if not isinstance(entry["sleepy"], dict) or entry["sleepy"].get("error"):
+                    raise RuntimeError(f"Sleepy Mode activation failed: {entry['sleepy']}")
             time.sleep(opts.settle)  # bench: the session settles (page loads, Chromium's post-load work) before the window
             if opened_newtabs:
                 entry["newtabs_before_window"] = newtab_evidence(app, opened_newtabs)
             instance = procs.Instance(app.app, app.process.pid)
             window_before = window_state(app)
+            if SESSIONS[session].get("sleepy"):
+                entry["sleepy_windows"] = {"start": sleepy_windows(app)}
             result = measure(app, instance, opts.measure)
             result["memory"] = memory_summary(result)
             if opened_newtabs:
                 entry["newtabs_after_window"] = newtab_evidence(app, opened_newtabs)
                 print(f"IDLE-BUDGET-NEWTABS {session} " + json.dumps({"pages": entry["newtabs_after_window"],
                                                                     "memory": result["memory"]}), flush=True)
+            if SESSIONS[session].get("sleepy"):
+                entry["sleepy_windows"]["end"] = sleepy_windows(app)
             result["window_state"] = {"start": window_before, "end": window_state(app)}
             print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
             if opts.sample:
@@ -671,6 +701,8 @@ def main():
             code = error.code if isinstance(error, SystemExit) and isinstance(error.code, int) else 1
             session_failed = True
             report["sessions"].setdefault(session, {}).update({"exit": code or 1, "error": f"{type(error).__name__}: {error}"[:500]})
+            if isinstance(error, NewTabSetupError):
+                report["sessions"][session]["setup_diagnostics"] = error.diagnostics
             print(f"IDLE-BUDGET-SESSION-FAILED {session} exit={code or 1} {type(error).__name__}: {str(error)[:300]}", flush=True)
             markdown.append(f"\n### {session}\n\nnot measured: {type(error).__name__}: {str(error)[:300]}")
             if isinstance(error, KeyboardInterrupt):
