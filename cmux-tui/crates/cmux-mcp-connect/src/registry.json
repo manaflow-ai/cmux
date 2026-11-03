@@ -2,7 +2,7 @@
   "probed": "2026-11-03: every OAuth entry answered an unauthenticated initialize with 401 and an RFC 9728 resource_metadata; every open entry answered 200",
   "servers": [
     {"name": "linear", "aliases": ["linear.app"], "title": "Linear", "publisher": "linear.app", "url": "https://mcp.linear.app/mcp", "auth": "oauth", "scopes": ["read", "write"], "docs": "https://linear.app/docs/mcp"},
-    {"name": "github", "aliases": ["github.com", "gh"], "title": "GitHub", "publisher": "github.com", "url": "https://api.githubcopilot.com/mcp/", "auth": "device", "scopes": ["repo", "read:org"], "client_id": "178c6fc778ccc68e1d6a", "docs": "https://github.com/github/github-mcp-server"},
+    {"name": "github", "aliases": ["github.com", "gh"], "title": "GitHub", "publisher": "githubcopilot.com", "url": "https://api.githubcopilot.com/mcp/", "auth": "device", "scopes": ["repo", "read:org"], "client_id": "178c6fc778ccc68e1d6a", "docs": "https://github.com/github/github-mcp-server"},
     {"name": "sentry", "aliases": ["sentry.io", "sentry.dev"], "title": "Sentry", "publisher": "sentry.dev", "url": "https://mcp.sentry.dev/mcp", "auth": "oauth", "scopes": [], "docs": "https://docs.sentry.io/product/sentry-mcp/"},
     {"name": "notion", "aliases": ["notion.so", "notion.com"], "title": "Notion", "publisher": "notion.com", "url": "https://mcp.notion.com/mcp", "auth": "oauth", "scopes": [], "docs": "https://developers.notion.com/docs/mcp"},
     {"name": "stripe", "aliases": ["stripe.com"], "title": "Stripe", "publisher": "stripe.com", "url": "https://mcp.stripe.com", "auth": "oauth", "scopes": [], "docs": "https://docs.stripe.com/mcp"},
