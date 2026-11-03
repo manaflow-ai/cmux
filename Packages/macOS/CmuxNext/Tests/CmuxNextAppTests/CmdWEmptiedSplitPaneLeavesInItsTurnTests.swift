@@ -48,7 +48,12 @@ struct CmdWEmptiedSplitPaneLeavesInItsTurnTests {
             #expect(Self.shown(s), "the pane is not back on screen while its question shows")
             #expect(s.pane.orderedIDs.map(\.rawValue).contains(s.tab.id), "the tab is not back in its strip while its question shows")
             try await PinnedPageTests.until({ s.services.windows.active?.focusedPane === s.pane },
-                                            report: { "the focus did not come back to the pane the question asks about" })
+                                            report: {
+                let workspace = s.pane.workspace
+                return "the focus did not come back to the pane the question asks about: focus \(workspace?.focus.state.pane ?? "nil"), pane \(s.pane.paneKey), "
+                    + "layout focus \(workspace?.layoutModel.focusedPane.map { "\($0)" } ?? "nil"), closing \(workspace?.layoutModel.isClosing(s.pane.layoutPaneID) == true), "
+                    + "topology has it \(workspace?.focus.currentState().topology.contains(pane: s.pane.paneKey) == true)"
+            })
             _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
             try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(s.tab.id) }, report: { "the cancelled close still asks" })
             try await Self.turns()

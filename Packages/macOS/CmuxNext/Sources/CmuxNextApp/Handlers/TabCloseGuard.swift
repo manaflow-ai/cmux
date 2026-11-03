@@ -50,7 +50,7 @@ enum TabCloseGuard {
                 if emptied, !restored { _ = pane.showPaneClose() }
                 if emptied, restored, let workspace = pane.workspace, workspace.layoutModel.withdrawPaneClose(pane.layoutPaneID) {
                     workspace.applyCurrent()
-                    if focused { PaneHandlers.focus(pane.layoutPaneID, in: workspace) }
+                    if focused { workspace.layoutModel.focus(pane.layoutPaneID, notify: false); PaneHandlers.focus(pane.layoutPaneID, in: workspace) }
                 }
                 if restored, let selected { pane.applySelection(selected) }
             }
