@@ -154,6 +154,23 @@ class NightlyOnly(unittest.TestCase):
         self.assertEqual(read.call_count, 7)
         self.assertEqual(write.call_args.args[0].mini_jobs, ())
 
+    def test_decide_light_jobs_wait_one_re_read_not_three_minutes(self):
+        """Run 41655282358: place-reserved waited 163 s in decide, on the feed's critical path."""
+        busy = [nightly_only("cmux15-glaeda-nightly-only-2", busy=True)]
+        fresh = {"generated_at": dt.datetime.now(dt.timezone.utc).isoformat(), "pools": {}}
+        for seconds, slept in (("30", 30), ("600", 180), ("", 180)):
+            with self.subTest(seconds=seconds), \
+                 mock.patch.object(placement, "read", return_value=(busy, fresh)), \
+                 mock.patch.object(placement.time, "monotonic", side_effect=[0, 0, 30, 60, 90, 120, 150, 180]), \
+                 mock.patch.object(placement.time, "sleep") as sleep, \
+                 mock.patch.object(placement, "write"), \
+                 mock.patch.object(placement.signal, "setitimer"):
+                placement.main(self.config(SIDE_LABEL="", NIGHTLY_WAIT_SECONDS=seconds))
+                self.assertEqual(sum(call.args[0] for call in sleep.call_args_list), slept)
+        workflow = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
+        step = next(s for s in workflow["jobs"]["decide"]["steps"] if s.get("id") == "place-reserved")
+        self.assertEqual(step["env"]["NIGHTLY_WAIT_SECONDS"], "30")
+
     def test_reservation_runner_freed_during_the_wait_takes_the_jobs(self):
         busy = [nightly_only("cmux15-glaeda-nightly-only-2", busy=True)]
         freed = [nightly_only(f"cmux15-glaeda-nightly-only-{index}") for index in range(3)]

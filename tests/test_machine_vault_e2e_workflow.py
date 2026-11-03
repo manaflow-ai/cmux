@@ -183,8 +183,15 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
             # Cleanup waits for everything the main flow had in flight, and its failures fail the run.
             "await settlePending()",
             "stopChildren.abort()",
-            'problems.push("could not revoke the run\'s cmux install")',
+            'found.push("could not revoke the run\'s cmux install")',
             "is still in the vault after cleanup",
+            # The join's machine is revoked by id and confirmed on the list; the sign-out is required too.
+            "if (direct) await revoke(direct",
+            "is still live after cleanup",
+            'found.push("could not sign out the run\'s Stack session")',
+            # A cancel's cleanup fits the runner's grace (SIGINT, SIGTERM 7.5 s later, then SIGKILL).
+            "cancelBy = cancelAt + CANCEL_BUDGET_MS",
+            "process.exit(130), CANCEL_EXIT_MS",
         ):
             self.assertIn(needle, script)
 

@@ -1130,6 +1130,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/mcp_connect_request",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_connect_answer",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/chats",
       "params": true,
       "result": true
