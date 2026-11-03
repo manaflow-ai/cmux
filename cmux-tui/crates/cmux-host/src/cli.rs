@@ -432,7 +432,7 @@ fn cloud_verb(args: &[String]) -> u8 {
 /// `cloud clone-mark` (`cloud/clone_mark.rs`): writes acpmux's clone marker, for the work user,
 /// when the pending bind is for a machine other than the one this disk was bound as.
 #[cfg(target_os = "linux")]
-fn clone_mark(paths: &crate::config::Paths) -> Result<serde_json::Value, String> {
+fn clone_mark(paths: &Paths) -> Result<serde_json::Value, String> {
     use crate::cloud::client::Store;
     use crate::cloud::clone_mark::{MARKER, copied, marker_text};
     let mut store = crate::cloud::role::FileStore::new(paths.clone());

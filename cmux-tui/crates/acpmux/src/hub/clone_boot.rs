@@ -154,7 +154,11 @@ mod tests {
         cfg: &Config,
         from: Option<&str>,
     ) -> (Vec<EventRecord>, Vec<String>) {
-        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, root).unwrap());
+        let hub = Hub::new_deferred(
+            cfg.clone(),
+            crate::store::open(&cfg.store, root).unwrap(),
+            crate::mailbox::Mailbox::memory(),
+        );
         if let Some(from) = from {
             hub.set_clone_boot(from.to_owned());
         }
