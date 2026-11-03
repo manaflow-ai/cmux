@@ -81,6 +81,14 @@ pub trait OpRouter: Send + Sync {
         let _ = (sections, automatic);
         Err(ApiError::new("apps.sidebar.unavailable", "no sidebar document"))
     }
+    /// On upgrade, receipt existing installs without changing the layout.
+    fn initialize_sidebar_placements(
+        &self,
+        sections: &[cmux_layout_reducer::sidebar_doc::Section],
+    ) -> Result<(), ApiError> {
+        let _ = sections;
+        Err(ApiError::new("apps.sidebar.unavailable", "no sidebar document"))
+    }
     /// Starts delivering daemon change events as stream names
     /// (`workspace.changed`, `agent.changed`, …). Called once, on the first
     /// app subscription.
@@ -265,6 +273,19 @@ impl Supervisor {
         let catalog = catalog::load(&config.sources);
         let local_prints = local_before.of(&config.sources, &catalog);
         let mut mirror = load_mirror(config.state_dir.as_deref());
+        // Snapshot before startup seeds: an existing install must not change the
+        // person's layout on upgrade, but a newly appearing customize app may.
+        let existing_sections = catalog
+            .packages
+            .values()
+            .filter(|package| mirror.apps.get(&package.id).is_some_and(|record| record.installed))
+            .flat_map(super::sidebar::sections)
+            .collect::<Vec<_>>();
+        if let Err(error) = router.initialize_sidebar_placements(&existing_sections) {
+            // Automatic placement refuses to run without the durable migration
+            // marker, so a failed initialization cannot mutate the old layout.
+            eprintln!("cmux-tui: initialize app sidebar placement: {}", error.message);
+        }
         let mut logs: HashMap<String, VecDeque<LogLine>> = HashMap::new();
         for (dir, issue) in &catalog.rejected {
             logs.entry("cmux/supervisor".into()).or_default().push_back(LogLine {

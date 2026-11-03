@@ -2,32 +2,37 @@
 //! Placement and its durable receipt share the document's SQLite transaction.
 
 use cmux_layout_reducer::sidebar_doc::{Doc, Op, Region, Section, SectionKind, SectionPlace};
-use rusqlite::{OptionalExtension, Transaction};
+use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::catalog::Package;
+use super::mirror::Source;
 use super::supervisor::{ApiError, Supervisor};
 use crate::WorkspaceMutation;
+
+const INITIALIZED: &str = "apps.sidebar.initialized";
 
 impl Supervisor {
     /// Reconcile after startup, install/show and local reload, outside the app lock.
     pub(super) fn reconcile_sidebar(&self) {
-        let sections =
-            {
-                let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                inner
-                    .catalog
-                    .packages
-                    .values()
-                    .filter(|package| {
-                        inner.mirror.apps.get(&package.id).is_some_and(|record| {
+        let sections = {
+            let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            inner
+                .catalog
+                .packages
+                .values()
+                .filter(|package| {
+                    package.source != Source::Default
+                        && (package.source == Source::Local
+                            || inner.mirror.sidebar_auto_place.contains(&package.id))
+                        && inner.mirror.apps.get(&package.id).is_some_and(|record| {
                             record.installed && record.enabled && !record.hidden
                         })
-                    })
-                    .flat_map(sections)
-                    .collect::<Vec<_>>()
-            };
+                })
+                .flat_map(sections)
+                .collect::<Vec<_>>()
+        };
         if !sections.is_empty()
             && let Err(error) = self.router.place_sidebar_sections(&sections, true)
         {
@@ -75,7 +80,7 @@ impl Supervisor {
 
 /// v2 identifies a section by its interface; v1 by its contribution id,
 /// matching AppManifest's native scene provider.
-fn sections(package: &Package) -> Vec<Section> {
+pub(super) fn sections(package: &Package) -> Vec<Section> {
     let manifest = &package.manifest;
     let entries: Vec<(&str, &Value)> =
         if let Some(entry) = manifest.pointer("/implements/cmux.section~11") {
@@ -113,13 +118,86 @@ pub(super) fn place(
     mux: &crate::Mux,
     sections: &[Section],
     automatic: bool,
-) -> anyhow::Result<crate::state::store::StateCommit> {
+) -> anyhow::Result<Value> {
+    if automatic {
+        let unchanged = mux.read_registry_state(|connection| {
+            anyhow::ensure!(
+                has_receipt(connection, INITIALIZED)?,
+                "sidebar placement not initialized"
+            );
+            let mut all_seen = true;
+            for section in sections {
+                if let Some(key) = receipt_key(section)
+                    && !has_receipt(connection, &key)?
+                {
+                    all_seen = false;
+                    break;
+                }
+            }
+            if all_seen {
+                crate::state::sidebar_doc_store::with_doc(connection, |doc| {
+                    Ok(Some(json!({"revision": doc.revision.to_string(), "inverse": []})))
+                })
+            } else {
+                Ok(None)
+            }
+        })?;
+        if let Some(result) = unchanged {
+            return Ok(result);
+        }
+    }
     mux.commit_sidebar_ops(
         &WorkspaceMutation::daemon_local("apps.sidebar.place"),
         "apps.sidebar.place",
         &json!({"sections": sections, "automatic": automatic}),
         |transaction, doc| placement_ops(transaction, doc, sections, automatic),
     )
+    .map(|commit| commit.result)
+}
+
+/// Seed receipts once, before startup installs any defaults or customization.
+/// Only metadata is written: an upgrade must not add, move or remove sections.
+pub(super) fn initialize(mux: &crate::Mux, existing: &[Section]) -> anyhow::Result<()> {
+    if mux.read_registry_state(|connection| has_receipt(connection, INITIALIZED))? {
+        return Ok(());
+    }
+    mux.commit_sidebar_ops(
+        &WorkspaceMutation::daemon_local("apps.sidebar.initialize"),
+        "apps.sidebar.initialize",
+        &json!({"existing": existing}),
+        |transaction, _| {
+            if !has_receipt(transaction, INITIALIZED)? {
+                for section in existing {
+                    if let Some(key) = receipt_key(section) {
+                        write_receipt(transaction, &key)?;
+                    }
+                }
+                write_receipt(transaction, INITIALIZED)?;
+            }
+            Ok(Vec::new())
+        },
+    )?;
+    Ok(())
+}
+
+fn receipt_key(section: &Section) -> Option<String> {
+    let SectionKind::App { contribution } = &section.kind else { return None };
+    Some(format!("apps.sidebar.placed:{contribution}"))
+}
+
+fn has_receipt(connection: &Connection, key: &str) -> anyhow::Result<bool> {
+    Ok(connection
+        .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| row.get::<_, String>(0))
+        .optional()?
+        .is_some())
+}
+
+fn write_receipt(transaction: &Transaction<'_>, key: &str) -> anyhow::Result<()> {
+    transaction.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, '1') ON CONFLICT(key) DO NOTHING",
+        [key],
+    )?;
+    Ok(())
 }
 
 fn placement_ops(
@@ -131,14 +209,8 @@ fn placement_ops(
     let mut ops = Vec::new();
     for section in sections {
         let SectionKind::App { contribution } = &section.kind else { continue };
-        let key = format!("apps.sidebar.placed:{contribution}");
-        let seen = transaction
-            .query_row("SELECT value FROM meta WHERE key = ?1", [&key], |row| {
-                row.get::<_, String>(0)
-            })
-            .optional()?
-            .is_some();
-        if automatic && seen {
+        let key = receipt_key(section).expect("app section");
+        if automatic && has_receipt(transaction, &key)? {
             continue;
         }
         let existing = doc.sections().iter().find(|section| {
@@ -157,10 +229,7 @@ fn placement_ops(
         } else {
             ops.push(Op::SectionAdd { section: section.clone(), place: SectionPlace::default() });
         }
-        transaction.execute(
-            "INSERT INTO meta(key, value) VALUES(?1, '1') ON CONFLICT(key) DO NOTHING",
-            [&key],
-        )?;
+        write_receipt(transaction, &key)?;
     }
     Ok(ops)
 }

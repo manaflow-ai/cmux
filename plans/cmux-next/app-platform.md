@@ -369,11 +369,15 @@ Gaps found by the Cloud lead's third-party SSH sample (manaflow-ai/ssh-terminal)
 
 ### Sidebar section first placement
 
-Installed, enabled, visible apps place each sidebar section at the end of its manifest's
-`defaultRegion` (`middle` when absent). A section in `~/.config/cmux/customize` appears through
-the existing local reload watch. The sidebar document transaction writes both the section and
-a per-contribution placement receipt, so removing it, dragging it, reinstalling the app or
-restarting the daemon never undoes the person's choice. Existing sections are adopted in place.
+Local apps and apps newly installed by the person place each sidebar section at the end of its
+manifest's `defaultRegion` (`middle` when absent), once installed, enabled and visible. First-party
+deployment defaults do not place sections automatically. On the first run, every existing install's
+sections receive placement receipts without changing the layout. Older store installs are not opted
+in; new user installs retain eligibility when hidden or disabled and can place when shown later.
+A section newly appearing in `~/.config/cmux/customize` uses the existing local reload watch.
+The sidebar document transaction writes both the section and a per-contribution placement receipt,
+so removing it, dragging it, reinstalling the app or restarting the daemon never undoes the person's
+choice. Existing sections are adopted in place. Reconciliation with no new sections writes nothing.
 
 Manifest v2 uses the contribution `<app>#cmux.section/1`; manifest v1 uses
 `<app>#<sidebarSections[].id>`, as the scene provider does. Bottom sections use the app-only band

@@ -130,9 +130,14 @@ impl Supervisor {
         let seed = Op::Seed { app: CUSTOMIZE_APP.into(), hidden: false };
         if let Ok(outcome) = mirror::reduce(&inner.mirror, &seed, Some(&facts))
             && outcome.changed
-            && self.persist(&outcome.mirror).is_ok()
         {
-            inner.mirror = outcome.mirror;
+            // This app appeared after the migration snapshot. Preserve its
+            // eligibility if a failed migration retries on the next start.
+            let mut mirror = outcome.mirror;
+            mirror.sidebar_auto_place.insert(CUSTOMIZE_APP.into());
+            if self.persist(&mirror).is_ok() {
+                inner.mirror = mirror;
+            }
         }
     }
 }
@@ -147,6 +152,9 @@ pub(super) fn seed_customize(mirror: &mirror::Mirror, package: &Package) -> Opti
     let outcome =
         mirror::reduce(mirror, &seed, Some(&facts)).ok().filter(|outcome| outcome.changed)?;
     let mut next = outcome.mirror;
+    // This app appeared after the migration snapshot. Preserve its
+    // eligibility if a failed migration retries on the next start.
+    next.sidebar_auto_place.insert(CUSTOMIZE_APP.into());
     let (grants, sandboxed) = facts.install_defaults();
     if let Some(record) = next.apps.get_mut(CUSTOMIZE_APP) {
         record.grants = grants;

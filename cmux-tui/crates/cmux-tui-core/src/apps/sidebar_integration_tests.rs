@@ -5,12 +5,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use cmux_layout_reducer::sidebar_doc::{Region, Section, SectionKind};
+use cmux_layout_reducer::sidebar_doc::{Doc, Region, Section, SectionKind};
 use serde_json::{Value, json};
 
 use super::catalog::Sources;
 use super::egress::HttpFetcher;
-use super::mirror::{Origin, SetOp};
+use super::mirror::{Origin, SetOp, Source};
 use super::routing::MuxRouter;
 use super::supervisor::{Config, Supervisor};
 use crate::mux::ProviderWorkspaceState;
@@ -42,20 +42,28 @@ impl Session {
     }
 
     fn supervisor(&self, mux: &Arc<Mux>) -> Arc<Supervisor> {
+        self.supervisor_with_sources(mux, self.sources())
+    }
+
+    fn sources(&self) -> Sources {
+        Sources {
+            first_party: None,
+            bundled: Vec::new(),
+            extra: Vec::new(),
+            local: Some(self.0.join("local")),
+            customize: Some(self.0.join("customize")),
+            defaults: Some(Vec::new()),
+        }
+    }
+
+    fn supervisor_with_sources(&self, mux: &Arc<Mux>, sources: Sources) -> Arc<Supervisor> {
         Supervisor::new(
             Config {
                 state_dir: Some(self.0.join("apps-state")),
                 host_binary: None,
                 host_args: Vec::new(),
                 server_dir: None,
-                sources: Sources {
-                    first_party: None,
-                    bundled: Vec::new(),
-                    extra: Vec::new(),
-                    local: Some(self.0.join("local")),
-                    customize: Some(self.0.join("customize")),
-                    defaults: Some(Vec::new()),
-                },
+                sources,
                 idle_stop: Duration::from_secs(60),
                 provider_deadline: Duration::from_secs(1),
                 provider_user_deadline: Duration::from_secs(1),
@@ -63,6 +71,20 @@ impl Session {
             Box::new(MuxRouter::new(mux)),
             Box::new(HttpFetcher),
         )
+    }
+
+    /// The pre-placement apps.json format deliberately has no eligibility set.
+    fn write_legacy_install(&self, app: &str, source: Source, enabled: bool, hidden: bool) {
+        let state = self.0.join("apps-state");
+        std::fs::create_dir_all(&state).unwrap();
+        let mut value = json!({
+            "version": 1, "mirror": {"revision": 1, "apps": {}, "applied": []}
+        });
+        value["mirror"]["apps"][app] = json!({
+            "installed": true, "source": source, "enabled": enabled, "hidden": hidden,
+            "sandboxed": false, "grants": []
+        });
+        std::fs::write(state.join("apps.json"), value.to_string()).unwrap();
     }
 }
 
@@ -75,7 +97,7 @@ impl Drop for Session {
 fn write_app(dir: &Path, id: &str, version: &str) {
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(dir.join("main.js"), "var __cmuxAppExports = {render() {}};").unwrap();
-    let manifest = json!({
+    let mut manifest = json!({
         "manifestVersion": 2, "id": id, "name": "PRs", "version": version,
         "description": "Recent pull requests", "engines": {"cmux": "^2.0"},
         "runtime": {"main": "main.js"}, "files": ["main.js"],
@@ -84,7 +106,31 @@ fn write_app(dir: &Path, id: &str, version: &str) {
             "options": {"defaultRegion": "bottom", "maxRows": 8}
         }}
     });
+    let (publisher, name) = id.split_once('/').unwrap();
+    if publisher != "local" {
+        let owner =
+            if matches!(publisher, "cmux" | "manaflow-ai") { "manaflow-ai" } else { publisher };
+        manifest["repository"] = json!(format!("https://github.com/{owner}/{name}"));
+    }
     std::fs::write(dir.join("cmux-app.v2.json"), manifest.to_string()).unwrap();
+}
+
+fn sidebar_document(mux: &Mux) -> Doc {
+    mux.read_registry_state(|connection| {
+        crate::state::sidebar_doc_store::with_doc(connection, |doc| Ok(doc.clone()))
+    })
+    .unwrap()
+}
+
+fn has_placement_receipt(mux: &Mux, app: &str) -> bool {
+    mux.read_registry_state(|connection| {
+        Ok(connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM meta WHERE key = ?1)",
+            [format!("apps.sidebar.placed:{app}#cmux.section/1")],
+            |row| row.get(0),
+        )?)
+    })
+    .unwrap()
 }
 
 /// A fresh document already has the recent-chats app section. Count only
@@ -113,6 +159,239 @@ fn change_section(mux: &Mux, operation: &str, fields: Value) {
         fields.as_object().unwrap(),
     )
     .unwrap();
+}
+
+#[test]
+fn first_party_defaults_never_place_sections_on_fresh_or_existing_installs() {
+    for already_installed in [false, true] {
+        let session = Session::new();
+        let app = "cmux/coderouter";
+        write_app(&session.0.join("first-party/coderouter"), app, "1.0.0");
+        if already_installed {
+            session.write_legacy_install(app, Source::Default, true, false);
+        }
+        let mut sources = session.sources();
+        sources.first_party = Some(session.0.join("first-party"));
+        sources.defaults = None;
+        let mux = session.open();
+        let before = sidebar_document(&mux);
+        let supervisor = session.supervisor_with_sources(&mux, sources.clone());
+        {
+            let inner = supervisor.inner.lock().unwrap();
+            let record = &inner.mirror.apps[app];
+            assert!(record.installed && record.enabled && !record.hidden);
+            assert_eq!(record.source, Source::Default);
+        }
+        assert!(app_sections_for(&mux, app).is_empty(), "a default app appeared in the sidebar");
+        assert_eq!(sidebar_document(&mux), before, "startup changed the person's layout");
+        if already_installed {
+            assert!(has_placement_receipt(&mux, app), "the legacy default was not receipted");
+        }
+        drop(supervisor);
+        mux.shutdown();
+        drop(mux);
+
+        let reopened = session.open();
+        let supervisor = session.supervisor_with_sources(&reopened, sources);
+        assert!(app_sections_for(&reopened, app).is_empty(), "restart placed a default app");
+        assert_eq!(sidebar_document(&reopened), before);
+        drop(supervisor);
+        reopened.shutdown();
+    }
+}
+
+#[test]
+fn existing_store_installs_receive_upgrade_receipts_without_layout_changes() {
+    for (enabled, hidden) in [(true, false), (true, true), (false, false)] {
+        let session = Session::new();
+        let app = "octo/prs";
+        write_app(&session.0.join("bundled/prs"), app, "1.0.0");
+        session.write_legacy_install(app, Source::User, enabled, hidden);
+        let mut sources = session.sources();
+        sources.bundled.push(session.0.join("bundled"));
+        let mux = session.open();
+        let before = sidebar_document(&mux);
+        let supervisor = session.supervisor_with_sources(&mux, sources.clone());
+        assert!(has_placement_receipt(&mux, app), "upgrade skipped a hidden or disabled install");
+        assert_eq!(sidebar_document(&mux), before, "upgrade changed the person's layout");
+
+        // Showing/enabling an old install (or repeating installed=true) is
+        // not a new user install and must not opt it into placement.
+        supervisor
+            .set(
+                1,
+                SetOp {
+                    key: "show-existing-store-app".into(),
+                    app: app.into(),
+                    origin: Origin::User,
+                    installed: Some(true),
+                    enabled: Some(true),
+                    hidden: Some(false),
+                    ..SetOp::default()
+                },
+            )
+            .unwrap();
+        assert!(!supervisor.inner.lock().unwrap().mirror.sidebar_auto_place.contains(app));
+        assert_eq!(sidebar_document(&mux), before, "showing an old install placed its section");
+        drop(supervisor);
+        mux.shutdown();
+        drop(mux);
+
+        let reopened = session.open();
+        let supervisor = session.supervisor_with_sources(&reopened, sources);
+        assert!(has_placement_receipt(&reopened, app));
+        assert_eq!(sidebar_document(&reopened), before, "restart placed an old store app");
+        drop(supervisor);
+        reopened.shutdown();
+    }
+}
+
+#[test]
+fn a_new_user_store_install_is_placed_once_and_removal_survives_restart() {
+    let session = Session::new();
+    let app = "octo/prs";
+    write_app(&session.0.join("bundled/prs"), app, "1.0.0");
+    let mut sources = session.sources();
+    sources.bundled.push(session.0.join("bundled"));
+    let mux = session.open();
+    let supervisor = session.supervisor_with_sources(&mux, sources.clone());
+    assert!(app_sections_for(&mux, app).is_empty());
+    assert!(!has_placement_receipt(&mux, app));
+    let install = SetOp {
+        key: "install-store-app".into(),
+        app: app.into(),
+        origin: Origin::User,
+        installed: Some(true),
+        ..SetOp::default()
+    };
+    supervisor.set(1, install.clone()).unwrap();
+    let placed = app_sections_for(&mux, app);
+    assert_eq!(placed.len(), 1, "a new user store install was not placed exactly once");
+    assert_eq!(placed[0].region, Region::Bottom);
+    assert!(has_placement_receipt(&mux, app));
+    assert_eq!(supervisor.inner.lock().unwrap().mirror.apps[app].source, Source::User);
+    supervisor.set(1, install).unwrap();
+    assert_eq!(app_sections_for(&mux, app), placed, "an install replay duplicated the section");
+    change_section(&mux, "sidebar.section.remove", json!({"id": placed[0].id}));
+    drop(supervisor);
+    mux.shutdown();
+    drop(mux);
+
+    let reopened = session.open();
+    let supervisor = session.supervisor_with_sources(&reopened, sources);
+    assert!(supervisor.inner.lock().unwrap().mirror.sidebar_auto_place.contains(app));
+    assert!(has_placement_receipt(&reopened, app));
+    assert!(
+        app_sections_for(&reopened, app).is_empty(),
+        "restart restored a removed store section"
+    );
+    drop(supervisor);
+    reopened.shutdown();
+}
+
+#[test]
+fn a_new_hidden_store_install_remains_eligible_across_restart_until_shown() {
+    let session = Session::new();
+    let app = "octo/prs";
+    write_app(&session.0.join("bundled/prs"), app, "1.0.0");
+    let mut sources = session.sources();
+    sources.bundled.push(session.0.join("bundled"));
+    let mux = session.open();
+    let supervisor = session.supervisor_with_sources(&mux, sources.clone());
+    supervisor
+        .set(
+            1,
+            SetOp {
+                key: "install-hidden-store-app".into(),
+                app: app.into(),
+                origin: Origin::User,
+                installed: Some(true),
+                hidden: Some(true),
+                ..SetOp::default()
+            },
+        )
+        .unwrap();
+    assert!(app_sections_for(&mux, app).is_empty());
+    assert!(!has_placement_receipt(&mux, app), "a hidden new install was prematurely receipted");
+    drop(supervisor);
+    mux.shutdown();
+    drop(mux);
+
+    let reopened = session.open();
+    let supervisor = session.supervisor_with_sources(&reopened, sources);
+    assert!(supervisor.inner.lock().unwrap().mirror.sidebar_auto_place.contains(app));
+    assert!(app_sections_for(&reopened, app).is_empty());
+    assert!(
+        !has_placement_receipt(&reopened, app),
+        "startup repeated the upgrade migration for a new install"
+    );
+    supervisor
+        .set(
+            1,
+            SetOp {
+                key: "show-new-store-app".into(),
+                app: app.into(),
+                origin: Origin::User,
+                hidden: Some(false),
+                ..SetOp::default()
+            },
+        )
+        .unwrap();
+    let shown = app_sections_for(&reopened, app);
+    assert_eq!(shown.len(), 1, "a new install lost eligibility across restart");
+    assert_eq!(shown[0].region, Region::Bottom);
+    assert!(has_placement_receipt(&reopened, app));
+    drop(supervisor);
+    reopened.shutdown();
+}
+
+#[test]
+fn customize_present_at_first_startup_is_placed_in_the_bottom_band_once() {
+    let session = Session::new();
+    let app = "local/customize";
+    write_app(&session.0.join("customize"), app, "1.0.0");
+    let mux = session.open();
+    let supervisor = session.supervisor(&mux);
+    let placed = app_sections_for(&mux, app);
+    assert_eq!(placed.len(), 1, "migration treated a fresh customize app as an old install");
+    assert_eq!(placed[0].region, Region::Bottom);
+    assert!(has_placement_receipt(&mux, app));
+    drop(supervisor);
+    mux.shutdown();
+    drop(mux);
+
+    let reopened = session.open();
+    let supervisor = session.supervisor(&reopened);
+    assert_eq!(app_sections_for(&reopened, app), placed, "restart duplicated customize's section");
+    drop(supervisor);
+    reopened.shutdown();
+}
+
+#[test]
+fn an_existing_customize_install_receives_a_receipt_without_placement_on_upgrade() {
+    let session = Session::new();
+    let app = "local/customize";
+    let customize = session.0.join("customize");
+    write_app(&customize, app, "1.0.0");
+    session.write_legacy_install(app, Source::Local, true, false);
+    let mux = session.open();
+    let before = sidebar_document(&mux);
+    let supervisor = session.supervisor(&mux);
+    assert!(has_placement_receipt(&mux, app));
+    assert_eq!(sidebar_document(&mux), before, "upgrade placed the old customize section");
+    write_app(&customize, app, "1.0.1");
+    supervisor.reload_local_apps(&HashMap::new());
+    assert_eq!(sidebar_document(&mux), before, "reload placed an old customize section");
+    drop(supervisor);
+    mux.shutdown();
+    drop(mux);
+
+    let reopened = session.open();
+    let supervisor = session.supervisor(&reopened);
+    assert!(has_placement_receipt(&reopened, app));
+    assert_eq!(sidebar_document(&reopened), before, "restart placed the old customize section");
+    drop(supervisor);
+    reopened.shutdown();
 }
 
 #[test]
