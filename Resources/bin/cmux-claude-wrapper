@@ -994,10 +994,13 @@ prepare_native_attach_observer() {
         print $file;
     ' "$source" "$HOME" 2>/dev/null)" || return 0
     case "$cmux_attach_module" in *[[:space:]]*) cmux_attach_module=""; return 0 ;; esac
-    cmux_attach_context="$(/usr/bin/perl -MJSON::PP -e '
+    cmux_attach_context="$(/usr/bin/perl -MJSON::PP -MEncode=decode,FB_CROAK,LEAVE_SRC -e '
+        # Environment and argv arrive as UTF-8 bytes, not Perl characters.
+        # Decode once before encode_json so non-ASCII paths survive the hop.
+        sub text { decode("UTF-8", $_[0], FB_CROAK | LEAVE_SRC) }
         my @keys=qw(HOME CFFIXED_USER_HOME CLAUDE_CONFIG_DIR CMUX_SURFACE_ID CMUX_WORKSPACE_ID CMUX_STABLE_SURFACE_ID CMUX_SOCKET_PATH CMUX_SOCKET_PASSWORD CMUX_SOCKET_CAPABILITY CMUX_CLAUDE_HOOK_STATE_PATH CMUX_AGENT_HOOK_STATE_DIR);
-        my %env=map { exists $ENV{$_} ? ($_=>$ENV{$_}) : () } @keys;
-        print encode_json({cli=>$ARGV[0],environment=>\%env});
+        my %env=map { exists $ENV{$_} ? ($_=>text($ENV{$_})) : () } @keys;
+        print encode_json({cli=>text($ARGV[0]),environment=>\%env});
     ' "$(resolve_hook_cmux_bin)" 2>/dev/null)"
 }
 
