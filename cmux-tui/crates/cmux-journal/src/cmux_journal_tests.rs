@@ -1,21 +1,17 @@
 //! Tests of the journal: format, group commit, ack after durable, recovery, failures, and the
-//! crash simulation (every acked record survives a crash at any storage operation; nothing is
-//! half applied; the lost tail is a suffix).
-//!
-//! The crash simulation runs `CMUX_JOURNAL_CRASH_SEEDS` seeds per crash kind (default 200; the
-//! acceptance run in R-DURABILITY/DESIGN.md section 7 uses 100000 on the fleet). A failing seed
-//! prints itself: rerun it alone with `CMUX_JOURNAL_CRASH_SEED=<seed>`.
+//! regressions of the S1 review (a crash inside recovery's quarantine step, a damaged last
+//! header, a panic on the writer thread, a restart after a failed sync, open files at recovery).
+//! The crash simulation is in `crash_sim_tests.rs`.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::format::{self, SEGMENT_HEADER_LEN};
 use crate::{
     AppendError, Class, Config, Crash, Damage, FsStorage, Journal, Lsn, OpenError, OpenReport,
-    SimRng, SimStorage, Storage, WaitError,
+    SIM_PAGE, SimStorage, Storage, WaitError,
 };
 
 const WAIT: Duration = Duration::from_secs(10);
@@ -23,8 +19,6 @@ const WAIT: Duration = Duration::from_secs(10);
 /// One record as a replay saw it: (lsn, kind, class, payload).
 type SeenRecord = (Lsn, u16, Class, Vec<u8>);
 type Seen = Vec<SeenRecord>;
-/// What the crash runs appended: LSN to (class, payload).
-type Model = Arc<Mutex<BTreeMap<Lsn, (Class, Vec<u8>)>>>;
 
 fn dir() -> PathBuf {
     PathBuf::from("/sim/journal")
@@ -449,149 +443,166 @@ fn write_whole(storage: &SimStorage, path: &Path, bytes: &[u8]) {
     file.sync(crate::SyncLevel::Full).unwrap_or_else(|e| panic!("sync: {e}"));
 }
 
-// ---------------------------------------------------------------- crash simulation
+// ---------------------------------------------------------------- S1 review regressions
 
-/// Seeds per crash kind (module docs).
-fn crash_seeds() -> Vec<u64> {
-    if let Some(seed) = std::env::var("CMUX_JOURNAL_CRASH_SEED").ok().and_then(|s| s.parse().ok()) {
-        return vec![seed];
+/// 40 acked records over several segments, with media damage in the first record of segment 2
+/// (so every later segment goes to quarantine at the next open); and its config.
+fn damaged_in_the_middle(seed: u64) -> (SimStorage, Config) {
+    let storage = SimStorage::new(seed);
+    let config = Config { segment_bytes: 400, ..quick() };
+    let (journal, _, _) = open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    for lsn in 1..=40 {
+        let got = journal.append(3, Class::Ack, &payload(lsn)).unwrap_or_else(|e| panic!("{e}"));
+        journal.wait_durable(got, WAIT).unwrap_or_else(|e| panic!("{e}"));
     }
-    let count = std::env::var("CMUX_JOURNAL_CRASH_SEEDS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(200u64);
-    (0..count).collect()
-}
-
-/// Waits until `lsn` is durable; false once the storage crashed first.
-fn acked(journal: &Journal, storage: &SimStorage, lsn: Lsn) -> bool {
-    loop {
-        match journal.wait_durable(lsn, Duration::from_millis(5)) {
-            Ok(()) => return true,
-            Err(WaitError::Timeout) if !storage.is_crashed() => {}
-            Err(_) => return false,
-        }
-    }
-}
-
-/// One crash run: clients append and wait while the storage crashes at a random operation; then
-/// recovery runs. Every recovered record must be exactly what was appended at its LSN, the
-/// records must be 1..=n, and n must reach every record a client was told is durable (fully
-/// durable, for a power loss), and every written record for a process crash.
-fn crash_run(seed: u64, crash: Crash) -> Result<(), String> {
-    let mut rng = SimRng::new(seed);
-    let storage = SimStorage::new(rng.next_u64());
-    let config = Config {
-        segment_bytes: 300 + rng.below(3000),
-        max_pending_bytes: 1 << 20,
-        full_sync_interval: Duration::from_millis(rng.below(4)),
-        stream_sync_delay: Duration::from_millis(rng.below(3)),
-        retry_min: Duration::from_millis(1),
-        retry_max: Duration::from_millis(2),
-    };
-    let (journal, _, _) = open_at(&storage, config.clone(), 0).map_err(|e| e.to_string())?;
-    let journal = Arc::new(journal);
-    let appended: Model = Arc::default();
-    let durable = Arc::new(AtomicU64::new(0));
-    let full_durable = Arc::new(AtomicU64::new(0));
-    storage.crash_after(1 + rng.below(80));
-    let clients = 1 + rng.below(4);
-    let threads: Vec<_> = (0..clients)
-        .map(|client| {
-            let journal = journal.clone();
-            let storage = storage.clone();
-            let appended = appended.clone();
-            let durable = durable.clone();
-            let full_durable = full_durable.clone();
-            let mut rng = SimRng::new(seed ^ (client + 1).wrapping_mul(0x9E37));
-            std::thread::spawn(move || {
-                for index in 0..30u64 {
-                    let class = if rng.below(4) == 0 { Class::Stream } else { Class::Ack };
-                    let body = format!("{seed}-{client}-{index}-{}", "y".repeat(rng.index(64)));
-                    let lsn = {
-                        // The append and the model's copy are one step, so the model never misses
-                        // an LSN the journal took.
-                        let mut model = appended.lock().unwrap_or_else(|e| e.into_inner());
-                        let Ok(lsn) = journal.append(4, class, body.as_bytes()) else { break };
-                        model.insert(lsn, (class, body.into_bytes()));
-                        lsn
-                    };
-                    if class == Class::Ack {
-                        if !acked(&journal, &storage, lsn) {
-                            break;
-                        }
-                        durable.fetch_max(lsn, Ordering::SeqCst);
-                        if journal.full_durable_lsn() >= lsn {
-                            full_durable.fetch_max(lsn, Ordering::SeqCst);
-                        }
-                    }
-                }
-            })
-        })
-        .collect();
-    for thread in threads {
-        thread.join().map_err(|_| "a client thread panicked".to_owned())?;
-    }
-    let stats = journal.stats();
-    durable.fetch_max(stats.durable_lsn, Ordering::SeqCst);
-    full_durable.fetch_max(stats.full_durable_lsn, Ordering::SeqCst);
+    assert!(journal.stats().segments_created >= 3, "{:?}", journal.stats());
     drop(journal);
-    let restarted = storage.restart(crash);
-    let (_, report, seen) = open_at(&restarted, config, 0).map_err(|e| e.to_string())?;
-    let appended = appended.lock().unwrap_or_else(|e| e.into_inner());
-    for (index, (lsn, kind, class, bytes)) in seen.iter().enumerate() {
-        let position = Lsn::try_from(index).unwrap_or(0) + 1;
-        if *lsn != position {
-            return Err(format!("not a prefix: record {lsn} at position {position}"));
-        }
-        match appended.get(lsn) {
-            Some((want_class, want)) if want_class == class && want == bytes && *kind == 4 => {}
-            other => return Err(format!("record {lsn} is not what was appended: {other:?}")),
+    storage.corrupt(&dir().join(format::segment_name(2)), SEGMENT_HEADER_LEN + 2);
+    (storage.restart(Crash::Process), config)
+}
+
+/// F1: the next open after a crash in the middle of the quarantine step (after a segment moved,
+/// before the segment that skips its LSNs is durable) never gives a quarantined LSN to a new record.
+#[test]
+fn a_crash_inside_the_quarantine_step_never_reuses_a_quarantined_lsn() {
+    let (damaged, config) = damaged_in_the_middle(50);
+    let mut crashed_after_a_move = 0;
+    for crash in [Crash::Process, Crash::Os] {
+        for at in 1..=90 {
+            let storage = damaged.snapshot(Crash::Process);
+            storage.crash_after(at);
+            let (journal, report) = match open_at(&storage, config.clone(), 0) {
+                Ok((journal, report, _)) => (journal, report),
+                Err(_) => {
+                    let restarted = storage.restart(crash);
+                    if !restarted.names_in(&dir().join("quarantine")).is_empty() {
+                        crashed_after_a_move += 1;
+                    }
+                    let (journal, report, _) = open_at(&restarted, config.clone(), 0)
+                        .unwrap_or_else(|e| panic!("{crash:?} at op {at}, then open: {e}"));
+                    (journal, report)
+                }
+            };
+            assert_eq!(
+                journal.append(3, Class::Ack, b"after"),
+                Ok(41),
+                "{crash:?} at op {at}: {report:?}"
+            );
         }
     }
-    let last = Lsn::try_from(seen.len()).unwrap_or(0);
-    let must = match crash {
-        Crash::Process => durable.load(Ordering::SeqCst).max(stats.written_lsn),
-        Crash::Os => durable.load(Ordering::SeqCst),
-        Crash::PowerLoss => full_durable.load(Ordering::SeqCst),
+    assert!(crashed_after_a_move > 0, "no crash point fell after a move");
+}
+
+/// F2: a damaged header in the last segment: its records are read for their LSNs, so none is
+/// given to a new record.
+#[test]
+fn a_damaged_header_in_the_last_segment_never_reuses_its_lsns() {
+    let storage = SimStorage::new(51);
+    let mut next = 1;
+    for _ in 0..2 {
+        let (journal, _, _) = open(&storage);
+        for _ in 0..10 {
+            assert_eq!(journal.append(3, Class::Ack, &payload(next)), Ok(next));
+            next += 1;
+        }
+        assert_eq!(journal.seal(WAIT), Ok(next - 1));
+    }
+    let last = storage
+        .names_in(&dir())
+        .into_iter()
+        .filter(|name| name.ends_with(".seg"))
+        .max()
+        .unwrap_or_else(|| panic!("no segment"));
+    // One byte of the journal id in its header (media damage).
+    storage.corrupt(&dir().join(&last), 20);
+    let (journal, report, seen) = open(&storage.restart(Crash::Process));
+    match report.damage.first() {
+        Some(Damage::Corrupt { lost_through, .. }) => assert_eq!(*lost_through, 20, "{report:?}"),
+        other => panic!("no damage report: {other:?} ({report:?})"),
+    }
+    assert!(seen.len() < 20, "{report:?}");
+    assert_eq!(journal.append(3, Class::Ack, b"after"), Ok(21));
+}
+
+/// F3: a panic on the writer thread (here a durable listener's) closes the journal: waits end,
+/// appends fail, and the listeners are dropped, so the channel a held reply waits on closes.
+#[test]
+fn a_panic_on_the_writer_thread_closes_the_journal() {
+    let storage = SimStorage::new(52);
+    let (journal, _, _) = open(&storage);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    journal.on_durable(move |lsn| {
+        let _ = sender.send(lsn);
+    });
+    journal.on_durable(|_| panic!("a durable listener panicked"));
+    storage.set_sync_delay(Duration::from_millis(200));
+    assert_eq!(journal.append(1, Class::Ack, b"a"), Ok(1));
+    assert!(eventually(|| journal.stats().written_lsn >= 1), "{:?}", journal.stats());
+    // Record 2 waits while record 1 syncs; then the listener's panic ends the writer thread.
+    assert_eq!(journal.append(1, Class::Ack, b"b"), Ok(2));
+    assert_eq!(receiver.recv_timeout(WAIT), Ok(1));
+    assert_eq!(journal.wait_durable(2, Duration::from_secs(2)), Err(WaitError::WriterEnded));
+    assert_eq!(journal.append(1, Class::Ack, b"c"), Err(AppendError::Closed));
+    assert_eq!(receiver.recv_timeout(Duration::from_secs(2)), Err(RecvTimeoutError::Disconnected));
+    assert!(journal.stats().failing.is_some(), "{:?}", journal.stats());
+}
+
+/// F4: a sync fails, so its pages never reach the disk, though a later sync on another descriptor
+/// reports success; the process is killed before the writer tries again. Every record acked after
+/// the restart survives a later OS crash.
+#[test]
+fn a_restart_after_a_failed_sync_keeps_every_later_ack() {
+    let slow_retry = Config {
+        retry_min: Duration::from_secs(60),
+        retry_max: Duration::from_secs(60),
+        ..quick()
     };
-    if last < must {
-        return Err(format!("record {must} lost: recovered 1..={last} ({crash:?}, {report:?})"));
+    for seed in 0..8 {
+        let storage = SimStorage::new(53 + seed);
+        let (journal, _, _) =
+            open_at(&storage, slow_retry.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(journal.append(1, Class::Ack, b"a"), Ok(1));
+        journal.wait_durable(1, WAIT).unwrap_or_else(|e| panic!("{e}"));
+        assert!(eventually(|| journal.full_durable_lsn() >= 1), "{:?}", journal.stats());
+        // Record 2 spans whole pages: its write, then its sync, which fails.
+        storage.fail_after(2, std::io::ErrorKind::Other);
+        assert_eq!(journal.append(1, Class::Ack, &vec![b'b'; 3 * SIM_PAGE]), Ok(2));
+        assert!(eventually(|| journal.stats().failures == 1), "{:?}", journal.stats());
+        assert_eq!(journal.durable_lsn(), 1);
+        // A kill -9 while the writer waits to try again.
+        let restarted = storage.restart(Crash::Process);
+        drop(journal);
+        let (journal, _, seen) = open(&restarted);
+        assert_eq!(lsns(&seen), vec![1, 2], "seed {seed}");
+        assert_eq!(journal.append(1, Class::Ack, b"c"), Ok(3));
+        journal.wait_durable(3, WAIT).unwrap_or_else(|e| panic!("{e}"));
+        drop(journal);
+        let (_, report, seen) = open(&restarted.restart(Crash::Os));
+        assert_eq!(lsns(&seen), vec![1, 2, 3], "seed {seed}: {report:?}");
     }
-    if !report.damage.is_empty() {
-        return Err(format!("a crash is not damage: {report:?}"));
-    }
-    Ok(())
 }
 
-fn crash_runs(crash: Crash) {
-    let mut failures = Vec::new();
-    for seed in crash_seeds() {
-        if let Err(error) = crash_run(seed, crash) {
-            failures.push(format!("seed {seed}: {error}"));
-        }
+/// F6: recovery opens one segment at a time, so a journal of many segments never reaches the
+/// descriptor limit at open.
+#[test]
+fn recovery_holds_at_most_two_files_open() {
+    let storage = SimStorage::new(54);
+    let config = Config { segment_bytes: 200, ..quick() };
+    let (journal, _, _) = open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    for lsn in 1..=60 {
+        let got = journal.append(3, Class::Ack, &payload(lsn)).unwrap_or_else(|e| panic!("{e}"));
+        journal.wait_durable(got, WAIT).unwrap_or_else(|e| panic!("{e}"));
     }
+    assert!(journal.stats().segments_created >= 15, "{:?}", journal.stats());
+    drop(journal);
+    let restarted = storage.restart(Crash::Process);
+    let (_journal, report, seen) = open_at(&restarted, config, 0).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(seen.len(), 60, "{report:?}");
     assert!(
-        failures.is_empty(),
-        "{} {crash:?} runs failed:\n{}",
-        failures.len(),
-        failures.join("\n")
+        restarted.peak_open_files() <= 2,
+        "{} files open at once ({report:?})",
+        restarted.peak_open_files()
     );
-}
-
-#[test]
-fn a_process_crash_at_any_storage_operation_keeps_every_written_record() {
-    crash_runs(Crash::Process);
-}
-
-#[test]
-fn an_os_crash_at_any_storage_operation_keeps_every_acked_record() {
-    crash_runs(Crash::Os);
-}
-
-#[test]
-fn a_power_loss_keeps_every_fully_synced_record_and_a_prefix() {
-    crash_runs(Crash::PowerLoss);
 }
 
 // ---------------------------------------------------------------- real file system

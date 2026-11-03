@@ -1,29 +1,49 @@
-//! A simulated file system for crash tests (`sim` feature; always in this crate's tests).
+//! A simulated machine for crash tests (`sim` feature; always in this crate's tests): a page
+//! cache over a disk, and the one process that uses them.
 //!
-//! Each file keeps its current bytes (what a read sees, and what a process crash keeps) apart
-//! from the bytes of each sync. Each directory keeps its current entries apart from its synced
-//! entries. [`SimStorage::crash_after`] makes the n-th storage operation from now the crash
-//! point: an append there writes a random prefix of its bytes (a torn write), any other
-//! operation does nothing, and every later operation fails. [`SimStorage::restart`] then builds
-//! the storage that the next process sees:
+//! Files: each file keeps what reads see (its page cache) apart from what its disk holds, per
+//! [`SIM_PAGE`] page. A write dirties the pages it touches. A sync writes the dirty pages and the
+//! length to the disk. A sync that fails ([`SimStorage::fail_after`]) writes a random part of the
+//! dirty pages and drops the rest: those pages stay clean in the cache and never reach the disk,
+//! so a later sync reports success without them (Linux's write-back error behavior). A write that
+//! fails writes a random prefix of its bytes first.
 //!
-//! - [`Crash::Process`] (kill -9 of any or all processes): every written byte and entry stays.
-//! - [`Crash::Os`] (a kernel panic): each file keeps its content at its last sync, plus a random
-//!   prefix of what it got since (some of it zeroed or flipped: pages written back out of
-//!   order); each directory keeps its synced entries or, at random, its current ones.
+//! Names: folder and file creations and renames go to one ordered log, as a journaling file
+//! system commits them. A folder sync makes durable every logged change up to the last one that
+//! changed an entry of that folder, and so every change before it. A rename between two folders
+//! is one change: it never comes back twice or not at all.
+//!
+//! [`SimStorage::crash_after`] makes the n-th storage operation from now the crash point: an
+//! append there writes a random prefix of its bytes, a create, rename, truncate or sync there
+//! takes effect or not at random, and every later operation fails. [`SimStorage::restart`] then
+//! builds the machine that the next process sees:
+//!
+//! - [`Crash::Process`] (kill -9 of any or all processes): the machine is unchanged: the cache,
+//!   the disk and the unsynced names stay as they are. Only the process and its locks are gone,
+//!   so a later OS crash or power loss still loses what it would have lost before.
+//! - [`Crash::Os`] (a kernel panic): each file keeps its disk pages, and each dirty page is
+//!   written whole, not at all, or a prefix of its 512-byte sectors, at random; its length is
+//!   any length between its disk length and its cache length. The names keep a random prefix of
+//!   the log that holds every durable change.
 //! - [`Crash::PowerLoss`]: as `Os`, but a barrier sync is power-safe only once a later full sync
-//!   ran (on any file: a drive cache flush covers every earlier write), so the content of each
-//!   file goes back to a random common cut between the last full sync and the crash.
+//!   ran (on any file: a drive cache flush covers every earlier write). So each file goes back to
+//!   its disk content at a random common cut between the last full sync and the crash, and the
+//!   first sync after the cut is kept in part.
 //!
 //! A run is deterministic for one seed and one sequence of operations.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use crate::storage::{OpenMode, Storage, StorageFile, StorageLock, SyncLevel};
+
+/// The page size of the simulated cache.
+pub const SIM_PAGE: usize = 4096;
+/// The unit a page write tears at.
+const SECTOR: usize = 512;
 
 /// What a simulated crash takes away ([`SimStorage::restart`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,51 +79,348 @@ impl SimRng {
     pub fn index(&mut self, n: usize) -> usize {
         usize::try_from(self.below(u64::try_from(n).unwrap_or(u64::MAX))).unwrap_or(0)
     }
+
+    fn coin(&mut self) -> bool {
+        self.below(2) == 0
+    }
 }
 
-/// The simulated file system ([module docs](self)). Clones share one file system.
+/// The simulated storage of one process ([module docs](self)). Clones share it.
 #[derive(Clone)]
 pub struct SimStorage {
     fs: Arc<Mutex<Fs>>,
 }
 
+#[derive(Clone)]
 struct SimFile {
+    /// What reads see: the page cache.
     data: Vec<u8>,
-    /// (global sync number, content) at each sync, oldest first.
+    /// What the disk holds.
+    disk: Vec<u8>,
+    /// Pages of `data` written since the disk got them.
+    dirty: BTreeSet<usize>,
+    /// The disk content after each good sync, with its machine-wide sync number (for a power
+    /// loss). A file the last crash kept starts with its content as sync 0.
     synced: Vec<(u64, Vec<u8>)>,
 }
 
-struct Fs {
+impl SimFile {
+    fn empty() -> Self {
+        Self { data: Vec::new(), disk: Vec::new(), dirty: BTreeSet::new(), synced: Vec::new() }
+    }
+
+    fn kept(content: Vec<u8>) -> Self {
+        Self {
+            data: content.clone(),
+            disk: content.clone(),
+            dirty: BTreeSet::new(),
+            synced: vec![(0, content)],
+        }
+    }
+
+    /// Marks the pages of bytes `start..end` dirty.
+    fn touch(&mut self, start: usize, end: usize) {
+        if start < end {
+            self.dirty.extend(start / SIM_PAGE..end.div_ceil(SIM_PAGE));
+        }
+    }
+
+    fn append(&mut self, bytes: &[u8]) {
+        let start = self.data.len();
+        self.data.extend_from_slice(bytes);
+        self.touch(start, self.data.len());
+    }
+
+    /// A shortening or an extension with zeros. The new length reaches the disk with the next
+    /// sync (`write_back`); the bytes an extension adds are dirty.
+    fn set_len(&mut self, len: usize) {
+        let old = self.data.len();
+        self.data.resize(len, 0);
+        self.dirty.retain(|page| page.saturating_mul(SIM_PAGE) < len);
+        self.touch(old, len);
+    }
+
+    /// Writes `pages` of the cache and its length to the disk.
+    fn write_back(&mut self, pages: &[usize]) {
+        self.disk.resize(self.data.len(), 0);
+        for page in pages {
+            let start = page.saturating_mul(SIM_PAGE).min(self.data.len());
+            let end = start.saturating_add(SIM_PAGE).min(self.data.len());
+            if let (Some(dst), Some(src)) =
+                (self.disk.get_mut(start..end), self.data.get(start..end))
+            {
+                dst.copy_from_slice(src);
+            }
+        }
+    }
+
+    /// A sync that completed: every dirty page and the length are on the disk.
+    fn good_sync(&mut self, number: u64, last_full: u64) {
+        let pages: Vec<usize> = self.dirty.iter().copied().collect();
+        self.write_back(&pages);
+        self.dirty.clear();
+        // Only the last content at or before the last full sync can come back after a crash.
+        if let Some(keep) = self.synced.iter().rposition(|(sync, _)| *sync <= last_full) {
+            self.synced.drain(..keep);
+        }
+        self.synced.push((number, self.disk.clone()));
+    }
+
+    /// A sync that failed: a random part of the dirty pages reached the disk; the cache dropped
+    /// the rest as clean, so no later sync writes them.
+    fn failed_sync(&mut self, rng: &mut SimRng) {
+        let pages: Vec<usize> = self.dirty.iter().copied().filter(|_| rng.coin()).collect();
+        self.write_back(&pages);
+        self.dirty.clear();
+    }
+
+    /// What an OS crash could leave: the cache's dirty pages, and the disk's pages elsewhere
+    /// (a page a failed sync dropped never reached the disk).
+    fn os_view(&self) -> Vec<u8> {
+        let mut out = self.data.clone();
+        for (page, chunk) in out.chunks_mut(SIM_PAGE).enumerate() {
+            if self.dirty.contains(&page) {
+                continue;
+            }
+            let start = page.saturating_mul(SIM_PAGE);
+            for (offset, byte) in chunk.iter_mut().enumerate() {
+                *byte = self.disk.get(start.saturating_add(offset)).copied().unwrap_or(0);
+            }
+        }
+        out
+    }
+
+    /// The content after a crash: `cut` is the power-loss cut (none for an OS crash).
+    fn after_crash(&self, cut: Option<u64>, rng: &mut SimRng) -> Vec<u8> {
+        match cut {
+            None => mix(&self.disk, &self.os_view(), rng),
+            Some(cut) => {
+                let base = self
+                    .synced
+                    .iter()
+                    .rev()
+                    .find(|(sync, _)| *sync <= cut)
+                    .map(|(_, content)| content.clone())
+                    .unwrap_or_default();
+                let next = match self.synced.iter().find(|(sync, _)| *sync > cut) {
+                    Some((_, content)) => content.clone(),
+                    None => self.os_view(),
+                };
+                mix(&base, &next, rng)
+            }
+        }
+    }
+}
+
+/// `old` with some of `new`'s writes: a length between both lengths, and each page that differs
+/// whole from `old`, whole from `new`, or `new`'s first sectors over `old`. Bytes past `new`'s end
+/// (a shortening that did not reach the disk) stay `old`'s; bytes past both read as zeros.
+fn mix(old: &[u8], new: &[u8], rng: &mut SimRng) -> Vec<u8> {
+    let (short, long) = (old.len().min(new.len()), old.len().max(new.len()));
+    let len = short.saturating_add(rng.index(long.saturating_sub(short).saturating_add(1)));
+    let old_at = |at: usize| old.get(at).copied().unwrap_or(0);
+    let new_at = |at: usize| new.get(at).copied().unwrap_or_else(|| old_at(at));
+    let mut out = Vec::with_capacity(len);
+    let mut start = 0;
+    while start < len {
+        let end = start.saturating_add(SIM_PAGE).min(len);
+        let differs = (start..end).any(|at| old_at(at) != new_at(at));
+        let new_until = match (differs, rng.below(3)) {
+            (false, _) | (true, 0) => start,
+            (true, 1) => end,
+            (true, _) => start.saturating_add(rng.index(SIM_PAGE / SECTOR).saturating_mul(SECTOR)),
+        };
+        out.extend((start..end).map(|at| if at < new_until { new_at(at) } else { old_at(at) }));
+        start = end;
+    }
+    out
+}
+
+/// A change of names, in the order the file system logs it.
+#[derive(Clone, Debug)]
+enum Change {
+    Folder(PathBuf),
+    Create(PathBuf, u64),
+    Rename(PathBuf, PathBuf),
+    Remove(PathBuf),
+}
+
+impl Change {
+    /// Whether the change made or removed an entry of `dir`.
+    fn in_folder(&self, dir: &Path) -> bool {
+        let entry_of = |path: &PathBuf| path.parent() == Some(dir);
+        match self {
+            Self::Folder(path) | Self::Create(path, _) | Self::Remove(path) => entry_of(path),
+            Self::Rename(from, to) => entry_of(from) || entry_of(to),
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+struct Names {
+    files: BTreeMap<PathBuf, u64>,
+    dirs: BTreeSet<PathBuf>,
+}
+
+impl Names {
+    fn apply(&mut self, change: &Change) {
+        match change {
+            Change::Folder(path) => {
+                self.dirs.insert(path.clone());
+            }
+            Change::Create(path, inode) => {
+                self.files.insert(path.clone(), *inode);
+            }
+            Change::Rename(from, to) => {
+                if let Some(inode) = self.files.remove(from) {
+                    self.files.insert(to.clone(), inode);
+                }
+            }
+            Change::Remove(path) => {
+                self.files.remove(path);
+            }
+        }
+    }
+}
+
+/// What a process crash keeps: the cache, the disk and the names.
+#[derive(Clone)]
+struct Machine {
     rng: SimRng,
     files: BTreeMap<u64, SimFile>,
     next_inode: u64,
-    /// Current and synced directory entries: path to inode.
-    names: BTreeMap<PathBuf, u64>,
-    durable_names: BTreeMap<PathBuf, u64>,
-    dirs: BTreeSet<PathBuf>,
-    locks: BTreeSet<PathBuf>,
-    /// Storage operations so far, and the one that crashes.
-    ops: u64,
-    crash_at: Option<u64>,
-    /// One operation that fails with this error, once.
-    fail_at: Option<(u64, io::ErrorKind)>,
-    crashed: bool,
-    /// Syncs so far (file and directory), and the number of the last full one.
+    /// The names at the last crash (all durable), the changes since, how many of them are
+    /// durable, and the names now.
+    base: Names,
+    log: Vec<Change>,
+    durable_changes: usize,
+    names: Names,
+    /// Syncs so far (file and folder), and the number of the last full one.
     syncs: u64,
     last_full: u64,
+}
+
+impl Machine {
+    fn new(seed: u64) -> Self {
+        Self {
+            rng: SimRng::new(seed),
+            files: BTreeMap::new(),
+            next_inode: 1,
+            base: Names::default(),
+            log: Vec::new(),
+            durable_changes: 0,
+            names: Names::default(),
+            syncs: 0,
+            last_full: 0,
+        }
+    }
+
+    fn change(&mut self, change: Change) {
+        self.names.apply(&change);
+        self.log.push(change);
+    }
+
+    fn sync_number(&mut self, level: SyncLevel) -> u64 {
+        self.syncs = self.syncs.saturating_add(1);
+        if level == SyncLevel::Full {
+            self.last_full = self.syncs;
+        }
+        self.syncs
+    }
+
+    fn sync_folder(&mut self, dir: &Path) {
+        if let Some(last) = self.log.iter().rposition(|change| change.in_folder(dir)) {
+            self.durable_changes = self.durable_changes.max(last.saturating_add(1));
+        }
+        // A folder sync flushes the drive like a full sync (FsStorage uses F_FULLFSYNC).
+        self.sync_number(SyncLevel::Full);
+    }
+
+    fn file(&mut self, inode: u64) -> io::Result<&mut SimFile> {
+        self.files.get_mut(&inode).ok_or_else(|| io::Error::other("simulated file is gone"))
+    }
+
+    /// The machine after an OS crash or a power loss ([module docs](self)).
+    fn after_crash(&mut self, crash: Crash) -> Self {
+        let mut rng = SimRng::new(self.rng.next_u64());
+        let unsure = self.log.len().saturating_sub(self.durable_changes);
+        let kept = self.durable_changes.saturating_add(rng.index(unsure.saturating_add(1)));
+        let mut names = self.base.clone();
+        for change in self.log.iter().take(kept) {
+            names.apply(change);
+        }
+        let cut = match crash {
+            Crash::Process | Crash::Os => None,
+            Crash::PowerLoss => {
+                let span = self.syncs.saturating_sub(self.last_full);
+                Some(self.last_full.saturating_add(rng.below(span.saturating_add(1))))
+            }
+        };
+        let mut files = BTreeMap::new();
+        for inode in names.files.values() {
+            if let (false, Some(file)) = (files.contains_key(inode), self.files.get(inode)) {
+                files.insert(*inode, SimFile::kept(file.after_crash(cut, &mut rng)));
+            }
+        }
+        Self {
+            rng,
+            files,
+            next_inode: self.next_inode,
+            base: names.clone(),
+            log: Vec::new(),
+            durable_changes: 0,
+            names,
+            syncs: 0,
+            last_full: 0,
+        }
+    }
+}
+
+/// One process: its view of the machine.
+struct Fs {
+    machine: Machine,
+    locks: BTreeSet<PathBuf>,
+    /// Storage operations so far, the one that crashes, and one that fails once.
+    ops: u64,
+    crash_at: Option<u64>,
+    fail_at: Option<(u64, io::ErrorKind)>,
+    crashed: bool,
     /// Each sync sleeps this long (a slow disk, so batches form).
     sync_delay: Duration,
     /// Read operations per path.
     reads: BTreeMap<PathBuf, u64>,
+    /// Open files now, and the most at once.
+    open_files: u64,
+    peak_open_files: u64,
+    /// Failures `fail_after` caused.
+    failures: u64,
 }
 
+/// What an operation does: run, fail once, or crash the process.
 enum Step {
     Run,
+    Fail(io::ErrorKind),
     Crash,
 }
 
 impl Fs {
-    /// Counts one operation and says whether it runs, crashes or fails.
+    fn new(machine: Machine, sync_delay: Duration) -> Self {
+        Self {
+            machine,
+            locks: BTreeSet::new(),
+            ops: 0,
+            crash_at: None,
+            fail_at: None,
+            crashed: false,
+            sync_delay,
+            reads: BTreeMap::new(),
+            open_files: 0,
+            peak_open_files: 0,
+            failures: 0,
+        }
+    }
+
+    /// Counts one operation and says what it does.
     fn begin(&mut self) -> io::Result<Step> {
         if self.crashed {
             return Err(io::Error::other("simulated crash: the process is gone"));
@@ -117,53 +434,59 @@ impl Fs {
             && at == self.ops
         {
             self.fail_at = None;
-            return Err(io::Error::new(kind, "simulated I/O failure"));
+            self.failures = self.failures.saturating_add(1);
+            return Ok(Step::Fail(kind));
         }
         Ok(Step::Run)
     }
 
-    fn file(&mut self, inode: u64) -> io::Result<&mut SimFile> {
-        self.files.get_mut(&inode).ok_or_else(|| io::Error::other("simulated file is gone"))
-    }
-
-    fn sync_number(&mut self, level: SyncLevel) -> u64 {
-        self.syncs = self.syncs.saturating_add(1);
-        if level == SyncLevel::Full {
-            self.last_full = self.syncs;
+    /// A change of names: done, failed with no effect, or at a crash done or not at random.
+    fn change(&mut self, step: Step, change: Change) -> io::Result<()> {
+        match step {
+            Step::Run => {
+                self.machine.change(change);
+                Ok(())
+            }
+            Step::Fail(kind) => Err(failed(kind)),
+            Step::Crash => {
+                if self.machine.rng.coin() {
+                    self.machine.change(change);
+                }
+                Err(crashed())
+            }
         }
-        self.syncs
     }
+}
+
+/// Sleeps the sync delay with the lock released; `None` when the process crashed meanwhile.
+fn slow_sync<'a>(mut guard: MutexGuard<'a, Fs>, fs: &'a Mutex<Fs>) -> Option<MutexGuard<'a, Fs>> {
+    let delay = guard.sync_delay;
+    if !delay.is_zero() {
+        drop(guard);
+        std::thread::sleep(delay);
+        guard = lock(fs);
+        if guard.crashed {
+            return None;
+        }
+    }
+    Some(guard)
 }
 
 fn crashed() -> io::Error {
     io::Error::other("simulated crash")
 }
 
-fn lock(fs: &Mutex<Fs>) -> std::sync::MutexGuard<'_, Fs> {
+fn failed(kind: io::ErrorKind) -> io::Error {
+    io::Error::new(kind, "simulated I/O failure")
+}
+
+fn lock(fs: &Mutex<Fs>) -> MutexGuard<'_, Fs> {
     fs.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl SimStorage {
     pub fn new(seed: u64) -> Self {
-        Self {
-            fs: Arc::new(Mutex::new(Fs {
-                rng: SimRng::new(seed),
-                files: BTreeMap::new(),
-                next_inode: 1,
-                names: BTreeMap::new(),
-                durable_names: BTreeMap::new(),
-                dirs: BTreeSet::new(),
-                locks: BTreeSet::new(),
-                ops: 0,
-                crash_at: None,
-                fail_at: None,
-                crashed: false,
-                syncs: 0,
-                last_full: 0,
-                sync_delay: Duration::ZERO,
-                reads: BTreeMap::new(),
-            })),
-        }
+        Self { fs: Arc::new(Mutex::new(Fs::new(Machine::new(seed), Duration::ZERO))) }
     }
 
     /// The `n`-th storage operation from now (1 = the next one) is the crash point.
@@ -172,7 +495,8 @@ impl SimStorage {
         fs.crash_at = Some(fs.ops.saturating_add(n.max(1)));
     }
 
-    /// The `n`-th storage operation from now fails once with `kind` (ENOSPC, EIO).
+    /// The `n`-th storage operation from now fails once with `kind` (ENOSPC, EIO), with the
+    /// partial effect the [module docs](self) name.
     pub fn fail_after(&self, n: u64, kind: io::ErrorKind) {
         let mut fs = lock(&self.fs);
         fs.fail_at = Some((fs.ops.saturating_add(n.max(1)), kind));
@@ -197,32 +521,45 @@ impl SimStorage {
         lock(&self.fs).reads.get(path).copied().unwrap_or(0)
     }
 
-    /// The current bytes of `path`, if it exists.
-    pub fn contents(&self, path: &Path) -> Option<Vec<u8>> {
-        let fs = lock(&self.fs);
-        let inode = fs.names.get(path)?;
-        fs.files.get(inode).map(|file| file.data.clone())
+    /// Operations that `fail_after` made fail.
+    pub fn failures(&self) -> u64 {
+        lock(&self.fs).failures
     }
 
-    /// The names in `dir`, sorted.
+    /// The most files this process held open at once.
+    pub fn peak_open_files(&self) -> u64 {
+        lock(&self.fs).peak_open_files
+    }
+
+    /// What a read of `path` sees now, if it exists.
+    pub fn contents(&self, path: &Path) -> Option<Vec<u8>> {
+        let fs = lock(&self.fs);
+        let inode = fs.machine.names.files.get(path)?;
+        fs.machine.files.get(inode).map(|file| file.data.clone())
+    }
+
+    /// The file names in `dir`, sorted.
     pub fn names_in(&self, dir: &Path) -> Vec<String> {
         let fs = lock(&self.fs);
-        fs.names
+        fs.machine
+            .names
+            .files
             .keys()
             .filter(|path| path.parent() == Some(dir))
             .filter_map(|path| path.file_name()?.to_str().map(str::to_owned))
             .collect()
     }
 
-    /// Flips one durable and current byte of `path` (media damage), outside any crash.
+    /// Flips one byte of `path` in the cache, on the disk and in every synced copy (media
+    /// damage), outside any crash.
     pub fn corrupt(&self, path: &Path, offset: usize) {
         let mut fs = lock(&self.fs);
-        let Some(inode) = fs.names.get(path).copied() else { return };
-        if let Some(file) = fs.files.get_mut(&inode) {
-            if let Some(byte) = file.data.get_mut(offset) {
-                *byte ^= 0x5A;
-            }
-            for (_, content) in &mut file.synced {
+        let Some(inode) = fs.machine.names.files.get(path).copied() else { return };
+        if let Some(file) = fs.machine.files.get_mut(&inode) {
+            let copies = std::iter::once(&mut file.data)
+                .chain(std::iter::once(&mut file.disk))
+                .chain(file.synced.iter_mut().map(|(_, content)| content));
+            for content in copies {
                 if let Some(byte) = content.get_mut(offset) {
                     *byte ^= 0x5A;
                 }
@@ -233,13 +570,14 @@ impl SimStorage {
     /// Removes `path` and makes the removal durable (a person deleted the file).
     pub fn remove(&self, path: &Path) {
         let mut fs = lock(&self.fs);
-        if let Some(inode) = fs.names.remove(path) {
-            fs.durable_names.remove(path);
-            fs.files.remove(&inode);
+        if let Some(inode) = fs.machine.names.files.get(path).copied() {
+            fs.machine.change(Change::Remove(path.to_path_buf()));
+            fs.machine.durable_changes = fs.machine.log.len();
+            fs.machine.files.remove(&inode);
         }
     }
 
-    /// The storage the next process sees after `crash` ([module docs](self)). This one is
+    /// The storage the next process sees after `crash` ([module docs](self)). This process is
     /// crashed from now on: every later operation fails.
     pub fn restart(&self, crash: Crash) -> Self {
         lock(&self.fs).crashed = true;
@@ -248,172 +586,120 @@ impl SimStorage {
 
     /// The storage a process would see after `crash` now, while this one goes on.
     pub fn snapshot(&self, crash: Crash) -> Self {
-        let mut old = lock(&self.fs);
-        let seed = old.rng.next_u64();
-        let mut rng = SimRng::new(seed);
-        let cut = match crash {
-            Crash::Process | Crash::Os => None,
-            Crash::PowerLoss => {
-                let span = old.syncs.saturating_sub(old.last_full);
-                Some(old.last_full.saturating_add(rng.below(span.saturating_add(1))))
+        let mut fs = lock(&self.fs);
+        let delay = fs.sync_delay;
+        let machine = match crash {
+            Crash::Process => {
+                let mut machine = fs.machine.clone();
+                // The two processes draw apart from here.
+                machine.rng = SimRng::new(fs.machine.rng.next_u64());
+                machine
             }
+            Crash::Os | Crash::PowerLoss => fs.machine.after_crash(crash),
         };
-        let names = match crash {
-            Crash::Process => old.names.clone(),
-            Crash::Os | Crash::PowerLoss => surviving_names(&old, &mut rng),
-        };
-        let mut files = BTreeMap::new();
-        for inode in names.values() {
-            if files.contains_key(inode) {
-                continue;
-            }
-            let Some(file) = old.files.get(inode) else { continue };
-            let data = match crash {
-                Crash::Process => file.data.clone(),
-                Crash::Os | Crash::PowerLoss => surviving_bytes(file, cut, &mut rng),
-            };
-            files.insert(*inode, SimFile { synced: vec![(0, data.clone())], data });
-        }
-        let next = Fs {
-            rng,
-            files,
-            next_inode: old.next_inode,
-            durable_names: names.clone(),
-            names,
-            dirs: old.dirs.clone(),
-            locks: BTreeSet::new(),
-            ops: 0,
-            crash_at: None,
-            fail_at: None,
-            crashed: false,
-            syncs: 0,
-            last_full: 0,
-            sync_delay: old.sync_delay,
-            reads: BTreeMap::new(),
-        };
-        Self { fs: Arc::new(Mutex::new(next)) }
+        Self { fs: Arc::new(Mutex::new(Fs::new(machine, delay))) }
     }
-}
-
-/// Each directory's synced entries, or at random its current ones (its rename or create may
-/// have reached the disk).
-fn surviving_names(fs: &Fs, rng: &mut SimRng) -> BTreeMap<PathBuf, u64> {
-    let mut parents = BTreeSet::new();
-    for path in fs.names.keys().chain(fs.durable_names.keys()) {
-        if let Some(parent) = path.parent() {
-            parents.insert(parent.to_path_buf());
-        }
-    }
-    let mut out = BTreeMap::new();
-    for parent in parents {
-        let in_dir = |path: &&PathBuf| path.parent() == Some(parent.as_path());
-        let source = if rng.below(2) == 0 { &fs.durable_names } else { &fs.names };
-        for (path, inode) in source.iter().filter(|(path, _)| in_dir(path)) {
-            out.insert(path.clone(), *inode);
-        }
-    }
-    out
-}
-
-/// The content at the last sync (at or before `cut`, for a power loss), plus a random prefix of
-/// the bytes appended since, of which a random tail may be zeroed or one byte flipped.
-fn surviving_bytes(file: &SimFile, cut: Option<u64>, rng: &mut SimRng) -> Vec<u8> {
-    let base = file
-        .synced
-        .iter()
-        .rev()
-        .find(|(number, _)| cut.is_none_or(|cut| *number <= cut))
-        .map(|(_, content)| content.clone())
-        .unwrap_or_default();
-    let Some(extra) = file.data.strip_prefix(base.as_slice()) else {
-        // A truncation since the sync: it may not have reached the disk.
-        return base;
-    };
-    let keep = rng.index(extra.len().saturating_add(1));
-    let mut out = base.clone();
-    out.extend_from_slice(extra.get(..keep).unwrap_or_default());
-    if keep > 0 {
-        match rng.below(3) {
-            0 => {
-                let from = base.len().saturating_add(rng.index(keep));
-                if let Some(tail) = out.get_mut(from..) {
-                    tail.fill(0);
-                }
-            }
-            1 => {
-                let at = base.len().saturating_add(rng.index(keep));
-                if let Some(byte) = out.get_mut(at) {
-                    *byte ^= 0xA5;
-                }
-            }
-            _ => {}
-        }
-    }
-    out
 }
 
 impl Storage for SimStorage {
     fn create_dir_all(&self, dir: &Path) -> io::Result<()> {
         let mut fs = lock(&self.fs);
-        if let Step::Crash = fs.begin()? {
-            return Err(crashed());
+        let step = fs.begin()?;
+        let mut missing: Vec<PathBuf> = dir
+            .ancestors()
+            .filter(|path| !fs.machine.names.dirs.contains(*path))
+            .map(Path::to_path_buf)
+            .collect();
+        missing.reverse();
+        match step {
+            Step::Run => {
+                for path in missing {
+                    fs.machine.change(Change::Folder(path));
+                }
+                Ok(())
+            }
+            Step::Fail(kind) => Err(failed(kind)),
+            Step::Crash => {
+                let made = fs.machine.rng.index(missing.len().saturating_add(1));
+                for path in missing.into_iter().take(made) {
+                    fs.machine.change(Change::Folder(path));
+                }
+                Err(crashed())
+            }
         }
-        for ancestor in dir.ancestors() {
-            fs.dirs.insert(ancestor.to_path_buf());
-        }
-        Ok(())
     }
 
     fn list(&self, dir: &Path) -> io::Result<Vec<String>> {
         let mut fs = lock(&self.fs);
-        if let Step::Crash = fs.begin()? {
-            return Err(crashed());
+        match fs.begin()? {
+            Step::Run => {}
+            Step::Fail(kind) => return Err(failed(kind)),
+            Step::Crash => return Err(crashed()),
         }
-        if !fs.dirs.contains(dir) {
+        let names = &fs.machine.names;
+        if !names.dirs.contains(dir) {
             return Err(io::ErrorKind::NotFound.into());
         }
-        let mut out = Vec::new();
-        for path in fs.names.keys() {
-            if path.parent() == Some(dir)
-                && let Some(name) = path.file_name().and_then(|name| name.to_str())
-            {
-                out.push(name.to_owned());
-            }
-        }
-        for path in &fs.dirs {
-            if path.parent() == Some(dir)
-                && let Some(name) = path.file_name().and_then(|name| name.to_str())
-            {
-                out.push(name.to_owned());
-            }
-        }
-        Ok(out)
+        let in_dir = |path: &&PathBuf| path.parent() == Some(dir);
+        Ok(names
+            .files
+            .keys()
+            .filter(in_dir)
+            .chain(names.dirs.iter().filter(in_dir))
+            .filter_map(|path| path.file_name()?.to_str().map(str::to_owned))
+            .collect())
     }
 
     fn open(&self, path: &Path, mode: OpenMode) -> io::Result<Box<dyn StorageFile>> {
         let mut fs = lock(&self.fs);
-        if let Step::Crash = fs.begin()? {
-            return Err(crashed());
-        }
+        let step = fs.begin()?;
         let parent = path.parent().map(Path::to_path_buf).unwrap_or_default();
-        if !fs.dirs.contains(&parent) {
-            return Err(io::ErrorKind::NotFound.into());
+        if !fs.machine.names.dirs.contains(&parent) {
+            return match step {
+                Step::Crash => Err(crashed()),
+                Step::Run | Step::Fail(_) => Err(io::ErrorKind::NotFound.into()),
+            };
         }
-        let inode = match (fs.names.get(path).copied(), mode) {
+        let existing = fs.machine.names.files.get(path).copied();
+        let inode = match (existing, mode) {
+            (None, OpenMode::Read | OpenMode::Write) => {
+                return match step {
+                    Step::Crash => Err(crashed()),
+                    Step::Run | Step::Fail(_) => Err(io::ErrorKind::NotFound.into()),
+                };
+            }
+            (Some(inode), OpenMode::Read | OpenMode::Write) => {
+                match step {
+                    Step::Run => {}
+                    Step::Fail(kind) => return Err(failed(kind)),
+                    Step::Crash => return Err(crashed()),
+                }
+                inode
+            }
             (Some(inode), OpenMode::Create) => {
-                fs.file(inode)?.data.clear();
+                let empty = match step {
+                    Step::Run => true,
+                    Step::Fail(kind) => return Err(failed(kind)),
+                    Step::Crash => fs.machine.rng.coin(),
+                };
+                if empty {
+                    fs.machine.file(inode)?.set_len(0);
+                }
+                if let Step::Crash = step {
+                    return Err(crashed());
+                }
                 inode
             }
-            (Some(inode), OpenMode::Read | OpenMode::Write) => inode,
             (None, OpenMode::Create) => {
-                let inode = fs.next_inode;
-                fs.next_inode = inode.saturating_add(1);
-                fs.files.insert(inode, SimFile { data: Vec::new(), synced: Vec::new() });
-                fs.names.insert(path.to_path_buf(), inode);
+                let inode = fs.machine.next_inode;
+                fs.machine.next_inode = inode.saturating_add(1);
+                fs.machine.files.insert(inode, SimFile::empty());
+                fs.change(step, Change::Create(path.to_path_buf(), inode))?;
                 inode
             }
-            (None, OpenMode::Read | OpenMode::Write) => return Err(io::ErrorKind::NotFound.into()),
         };
+        fs.open_files = fs.open_files.saturating_add(1);
+        fs.peak_open_files = fs.peak_open_files.max(fs.open_files);
         Ok(Box::new(SimHandle {
             fs: self.fs.clone(),
             inode,
@@ -424,49 +710,41 @@ impl Storage for SimStorage {
 
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
         let mut fs = lock(&self.fs);
-        if let Step::Crash = fs.begin()? {
-            return Err(crashed());
-        }
+        let step = fs.begin()?;
         let parent = to.parent().map(Path::to_path_buf).unwrap_or_default();
-        if !fs.dirs.contains(&parent) {
-            return Err(io::ErrorKind::NotFound.into());
+        if !fs.machine.names.dirs.contains(&parent) || !fs.machine.names.files.contains_key(from) {
+            return match step {
+                Step::Crash => Err(crashed()),
+                Step::Run | Step::Fail(_) => Err(io::ErrorKind::NotFound.into()),
+            };
         }
-        let inode = fs.names.remove(from).ok_or(io::ErrorKind::NotFound)?;
-        fs.names.insert(to.to_path_buf(), inode);
-        Ok(())
+        fs.change(step, Change::Rename(from.to_path_buf(), to.to_path_buf()))
     }
 
     fn sync_dir(&self, dir: &Path) -> io::Result<()> {
         let mut fs = lock(&self.fs);
-        if let Step::Crash = fs.begin()? {
+        let done = match fs.begin()? {
+            Step::Run => true,
+            Step::Fail(kind) => return Err(failed(kind)),
+            Step::Crash => fs.machine.rng.coin(),
+        };
+        if fs.crashed {
+            if done {
+                fs.machine.sync_folder(dir);
+            }
             return Err(crashed());
         }
-        let delay = fs.sync_delay;
-        if !delay.is_zero() {
-            drop(fs);
-            std::thread::sleep(delay);
-            fs = lock(&self.fs);
-            if fs.crashed {
-                return Err(crashed());
-            }
-        }
-        fs.durable_names.retain(|path, _| path.parent() != Some(dir));
-        let current: Vec<(PathBuf, u64)> = fs
-            .names
-            .iter()
-            .filter(|(path, _)| path.parent() == Some(dir))
-            .map(|(path, inode)| (path.clone(), *inode))
-            .collect();
-        fs.durable_names.extend(current);
-        // A directory sync flushes the drive like a full sync (FsStorage uses F_FULLFSYNC).
-        fs.sync_number(SyncLevel::Full);
+        let Some(mut fs) = slow_sync(fs, &self.fs) else { return Err(crashed()) };
+        fs.machine.sync_folder(dir);
         Ok(())
     }
 
     fn try_lock(&self, path: &Path) -> io::Result<Option<Box<dyn StorageLock>>> {
         let mut fs = lock(&self.fs);
-        if let Step::Crash = fs.begin()? {
-            return Err(crashed());
+        match fs.begin()? {
+            Step::Run => {}
+            Step::Fail(kind) => return Err(failed(kind)),
+            Step::Crash => return Err(crashed()),
         }
         if !fs.locks.insert(path.to_path_buf()) {
             return Ok(None);
@@ -501,23 +779,34 @@ impl SimHandle {
     }
 }
 
+impl Drop for SimHandle {
+    fn drop(&mut self) {
+        let mut fs = lock(&self.fs);
+        fs.open_files = fs.open_files.saturating_sub(1);
+    }
+}
+
 impl StorageFile for SimHandle {
     fn size(&self) -> io::Result<u64> {
         let mut fs = lock(&self.fs);
-        if let Step::Crash = fs.begin()? {
-            return Err(crashed());
+        match fs.begin()? {
+            Step::Run => {}
+            Step::Fail(kind) => return Err(failed(kind)),
+            Step::Crash => return Err(crashed()),
         }
-        Ok(u64::try_from(fs.file(self.inode)?.data.len()).unwrap_or(u64::MAX))
+        Ok(u64::try_from(fs.machine.file(self.inode)?.data.len()).unwrap_or(u64::MAX))
     }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
         let mut fs = lock(&self.fs);
-        if let Step::Crash = fs.begin()? {
-            return Err(crashed());
+        match fs.begin()? {
+            Step::Run => {}
+            Step::Fail(kind) => return Err(failed(kind)),
+            Step::Crash => return Err(crashed()),
         }
         let count = fs.reads.entry(self.path.clone()).or_default();
         *count = count.saturating_add(1);
-        let file = fs.file(self.inode)?;
+        let file = fs.machine.file(self.inode)?;
         let start = usize::try_from(offset).map_err(|_| io::ErrorKind::UnexpectedEof)?;
         let end = start.checked_add(buf.len()).ok_or(io::ErrorKind::UnexpectedEof)?;
         let src = file.data.get(start..end).ok_or(io::ErrorKind::UnexpectedEof)?;
@@ -528,48 +817,61 @@ impl StorageFile for SimHandle {
     fn append(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.check_writable()?;
         let mut fs = lock(&self.fs);
-        match fs.begin()? {
-            Step::Run => {
-                fs.file(self.inode)?.data.extend_from_slice(bytes);
-                Ok(())
+        let step = fs.begin()?;
+        let written = match step {
+            Step::Run => bytes,
+            Step::Fail(_) | Step::Crash => {
+                let keep = fs.machine.rng.index(bytes.len().saturating_add(1));
+                bytes.get(..keep).unwrap_or_default()
             }
-            Step::Crash => {
-                let keep = fs.rng.index(bytes.len().saturating_add(1));
-                fs.file(self.inode)?.data.extend_from_slice(bytes.get(..keep).unwrap_or_default());
-                Err(crashed())
-            }
+        };
+        fs.machine.file(self.inode)?.append(written);
+        match step {
+            Step::Run => Ok(()),
+            Step::Fail(kind) => Err(failed(kind)),
+            Step::Crash => Err(crashed()),
         }
     }
 
     fn truncate(&mut self, size: u64) -> io::Result<()> {
         self.check_writable()?;
         let mut fs = lock(&self.fs);
-        if let Step::Crash = fs.begin()? {
-            return Err(crashed());
-        }
+        let done = match fs.begin()? {
+            Step::Run => true,
+            Step::Fail(kind) => return Err(failed(kind)),
+            Step::Crash => fs.machine.rng.coin(),
+        };
         let size = usize::try_from(size).map_err(|_| io::ErrorKind::InvalidInput)?;
-        fs.file(self.inode)?.data.truncate(size);
-        Ok(())
+        if done {
+            fs.machine.file(self.inode)?.set_len(size);
+        }
+        if fs.crashed { Err(crashed()) } else { Ok(()) }
     }
 
     fn sync(&mut self, level: SyncLevel) -> io::Result<()> {
         let mut fs = lock(&self.fs);
-        if let Step::Crash = fs.begin()? {
-            return Err(crashed());
-        }
-        let delay = fs.sync_delay;
-        if !delay.is_zero() {
-            drop(fs);
-            std::thread::sleep(delay);
-            fs = lock(&self.fs);
-            if fs.crashed {
-                return Err(crashed());
+        let done = match fs.begin()? {
+            Step::Run => true,
+            Step::Fail(kind) => {
+                let Fs { machine, .. } = &mut *fs;
+                let file = machine
+                    .files
+                    .get_mut(&self.inode)
+                    .ok_or_else(|| failed(io::ErrorKind::Other))?;
+                file.failed_sync(&mut machine.rng);
+                return Err(failed(kind));
             }
+            Step::Crash => fs.machine.rng.coin(),
+        };
+        if !fs.crashed {
+            let Some(guard) = slow_sync(fs, &self.fs) else { return Err(crashed()) };
+            fs = guard;
         }
-        let number = fs.sync_number(level);
-        let file = fs.file(self.inode)?;
-        let content = file.data.clone();
-        file.synced.push((number, content));
-        Ok(())
+        if done {
+            let number = fs.machine.sync_number(level);
+            let last_full = fs.machine.last_full;
+            fs.machine.file(self.inode)?.good_sync(number, last_full);
+        }
+        if fs.crashed { Err(crashed()) } else { Ok(()) }
     }
 }

@@ -54,7 +54,7 @@ pub use format::{MAX_PAYLOAD_LEN, RECORD_HEADER_LEN};
 pub use journal::{AppendError, Journal, JournalStats, OpenError, SealError, WaitError};
 pub use recovery::{Damage, OpenReport};
 #[cfg(any(test, feature = "sim"))]
-pub use sim::{Crash, SimRng, SimStorage};
+pub use sim::{Crash, SIM_PAGE, SimRng, SimStorage};
 pub use storage::{FsStorage, OpenMode, Storage, StorageFile, StorageLock, SyncLevel};
 
 use std::time::Duration;
@@ -136,3 +136,5 @@ impl Default for Config {
 
 #[cfg(test)]
 mod cmux_journal_tests;
+#[cfg(test)]
+mod crash_sim_tests;
