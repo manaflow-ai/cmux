@@ -27,6 +27,8 @@ mod idle_census;
 
 #[path = "hub_integration/agent_digest.rs"]
 mod agent_digest;
+#[path = "hub_integration/away_recap.rs"]
+mod away_recap;
 #[path = "hub_integration/agent_inbox.rs"]
 mod agent_inbox;
 #[path = "hub_integration/agent_pairs.rs"]

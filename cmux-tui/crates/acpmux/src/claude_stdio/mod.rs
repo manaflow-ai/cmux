@@ -343,6 +343,16 @@ const BREAKDOWN_ROWS: usize = 50;
 /// `control_request` on Claude's running stream-json process.
 pub const SIDE_QUESTION: &str = "_acpmux/claude/side_question";
 
+/// The internal ACP request for a session recap (`hub/away_recap.rs`): Claude Code's own recap
+/// prompt asked as a `side_question` on the idle process, so it reads the conversation from its
+/// warm prompt cache, adds nothing to the transcript and may use no tool. Claude Code 2.1.310
+/// makes its own recap (`away_summary`) only in its terminal UI, from the terminal's focus;
+/// under `-p` it never does.
+pub const RECAP: &str = "_acpmux/claude/recap";
+
+/// Claude Code's own recap prompt (2.1.310, its `/recap` and `away_summary`), word for word.
+pub(crate) const RECAP_PROMPT: &str = "The user stepped away and is coming back. Recap in under 40 words, 1-2 plain sentences, no markdown. Lead with the overall goal and current task, then the one next action. Skip root-cause narrative, fix internals, secondary to-dos, and em-dash tangents.";
+
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
 pub const STEER_NO_TURN: &str = "steer: no turn is running";

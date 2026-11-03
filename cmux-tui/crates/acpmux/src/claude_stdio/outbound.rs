@@ -351,6 +351,23 @@ impl Translator {
                             "request": request,
                         })])
                     }
+                    RECAP => {
+                        // Only between turns: a recap asked while a turn runs would describe
+                        // work still under way, and the hub asks only an idle chat.
+                        if self.in_turn.load(Ordering::SeqCst) {
+                            return Outbound::Reply(Message::err(
+                                id.clone(),
+                                RpcError::invalid_params("a turn is running"),
+                            ));
+                        }
+                        // Answered like a side question (`side-` in `inbound.rs`).
+                        self.pending.lock().await.insert(id.to_string(), Pending::SideQuestion);
+                        Outbound::Lines(vec![json!({
+                            "type": "control_request",
+                            "request_id": format!("side-{}", id),
+                            "request": {"subtype": "side_question", "question": RECAP_PROMPT},
+                        })])
+                    }
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     method::MUX_STEER_WITHDRAW => self.withdraw_steer(id, &p).await,
                     // Send now on a steer Claude Code has not read: its step stops, so it

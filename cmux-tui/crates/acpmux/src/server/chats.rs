@@ -345,6 +345,7 @@ pub(super) async fn route(
             let forced = full_access_managed
                 .then(|| params.get("allowFullAccess") == Some(&Value::Bool(true)));
             hub.apply_full_access_push(forced).await;
+            hub.set_session_recap(settings.session_recap);
             let hub = hub.clone();
             blocking(move || {
                 let running = hub.apply_chat_settings(settings).map_err(RpcError::internal)?;
