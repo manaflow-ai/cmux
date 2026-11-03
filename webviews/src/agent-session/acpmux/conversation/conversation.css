@@ -76,11 +76,17 @@
   --cv-tool-run-bottom-gap: 0px;
   --cv-tool-run-top-gap: 0px;
   --cv-action-overhang: calc((var(--grid-transcript-action-control) - var(--grid-transcript-icon-box)) / 2);
-  /* A reply footer's buttons, as ChatGPT's (design/transcript-spacing.md "Reply footer"; Leo,
-     2026-11-02: "didn't i always say we can do it like chatgpt"): a 20 glyph in a 32 button, the
-     buttons touching, the first glyph's box on the prose's left edge. */
-  --cv-footer-button: var(--grid-transcript-footer-control);
-  --cv-footer-glyph: var(--grid-transcript-footer-icon);
+  /* A reply footer's line keeps ChatGPT's 32 slot, 8 under the reply (design/transcript-spacing.md
+     "Reply footer"; Leo, 2026-11-02: "didn't i always say we can do it like chatgpt"), so the live
+     line's swap and the row estimates are unchanged. Its buttons are Claude's: a 16 glyph in a 28
+     button, the buttons touching, the first glyph's box on the prose's left edge (Leo, 2026-11-02,
+     of the 20 glyphs in 32 buttons: "WHY ARE THESE SO BIG"). */
+  --cv-footer-row: var(--grid-transcript-footer-control);
+  --cv-footer-button: var(--grid-transcript-action-control);
+  --cv-footer-glyph: var(--grid-transcript-icon-box);
+  /* Their ink at rest, a step under the muted text, full ink under the pointer (Leo, 2026-11-02:
+     "AND THEY'RE REDUCED OPACITY A BIT TOO"). */
+  --cv-footer-ink: color-mix(in srgb, var(--cv-text-muted) 72%, transparent);
   --cv-footer-overhang: calc((var(--cv-footer-button) - var(--cv-footer-glyph)) / 2);
   /* Base's names for the lines below, on the grid (grid.md 5.5): the gap is the stack's, so a line
      adds none of its own. */
@@ -2051,7 +2057,7 @@ pre.cv-math-source {
    The line reserves the normal turn gap below it, so the end-of-turn swap does not move anything. */
 .cv-worked.is-below {
   /* The footer's slot (transcriptGrid.ts MARK_FOOTER_SLOT): its 32 line, 8 under a reply. */
-  height: var(--cv-footer-button);
+  height: var(--cv-footer-row);
   padding-top: 0;
 }
 /* Right under a step row it is one more line of the run (model.ts isLiveStep, #29965): 22 tall,
@@ -4016,10 +4022,14 @@ a.cv-sha:focus-visible {
 .cv-turn-actions .cv-iconbtn:not(.cv-turn-retry-menu) {
   width: var(--cv-meta-row);
 }
-/* A reply's footer buttons: ChatGPT's 32 squares with its 8 radius, each around a 20 glyph. */
+/* A reply's footer buttons: Claude's 28 squares with a 7 radius, each around a 16 glyph, in the
+   muted footer ink until pointed at (--cv-footer-ink). */
 .cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn {
   height: var(--cv-footer-button);
-  border-radius: 8px;
+  border-radius: 7px;
+}
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row .cv-iconbtn:not(.cv-turn-continue, :hover, [data-popup-open], [data-reading]) {
+  color: var(--cv-footer-ink);
 }
 /* Continue is a labelled button (its own width, .cv-turn-continue below) and keeps its small arrow. */
 .cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn:not(.cv-turn-retry-menu, .cv-turn-continue) {
@@ -4031,11 +4041,11 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-actions:not(.cv-turn-actions--empty),
 .cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row {
-  min-height: var(--cv-footer-button);
+  min-height: var(--cv-footer-row);
 }
 /* Its time on hover in claude.ai's caption size, 6 after the last button (the row's 8 less a half step). */
 .cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row > .cv-turn-time {
-  height: var(--cv-footer-button);
+  height: var(--cv-footer-row);
   margin-inline-start: calc(-1 * var(--grid-half-step));
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
@@ -4058,7 +4068,7 @@ a.cv-sha:focus-visible {
 .acpmux-row.acpmux-turnSummary {
   contain: layout;
 }
-/* The buttons touch, 32px squares side by side as ChatGPT's, then the time 8px on (.cv-turn-actions' gap). */
+/* The buttons touch, 28px squares side by side, then the time 8px on (.cv-turn-actions' gap). */
 .cv-turn-action-group {
   display: inline-flex;
   align-items: center;
@@ -5358,11 +5368,11 @@ a.cv-sha:focus-visible {
    when the turn ends. */
 .acpmux-row.acpmux-activityLine.acpmux-row--below {
   min-height: 0;
-  height: var(--cv-footer-button);
+  height: var(--cv-footer-row);
   padding-bottom: 0;
 }
 .acpmux-row.acpmux-activityLine.acpmux-row--below .cv-activity {
-  min-height: var(--cv-footer-button);
+  min-height: var(--cv-footer-row);
 }
 /* Right under a step row it is one more line of the run instead (model.ts isLiveStep, #29965). */
 .acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step {
